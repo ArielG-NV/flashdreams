@@ -46,3 +46,19 @@ class BaseVideoVAE[EncoderCacheType, DecoderCacheType](ABC):
             The video. [..., T, C, H, W]
         """
         ...
+
+    @property
+    @abstractmethod
+    def temporal_compression_ratio(self) -> int:
+        """
+        Get the temporal compression ratio.
+        """
+        ...
+
+    @property
+    @abstractmethod
+    def spatial_compression_ratio(self) -> int:
+        """
+        Get the spatial compression ratio.
+        """
+        ...

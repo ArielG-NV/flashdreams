@@ -21,7 +21,7 @@ class BaseVideoDiT[VideoDiTCacheType](ABC):
         Predict the flow for denoising the input tensor.
 
         Args:
-            noisy_input: The noisy input tensor. [B, ..., D]
+            noisy_input: The noisy input tensor. [B, ...]
             timestep: The timestep. [B]
             condition: The condition.
             cache: The autoregressive cache to use for the DIT.
@@ -49,7 +49,7 @@ class BaseVideoDiT[VideoDiTCacheType](ABC):
         Recover the clean input from the noisy input.
 
         Args:
-            noisy_input: The noisy input tensor. [B, ..., D]
+            noisy_input: The noisy input tensor. [B, ...]
             timestep: The timestep. [B]
             predicted_flow: The predicted flow. Same shape as the input tensor `noisy_input`.
 
@@ -57,7 +57,7 @@ class BaseVideoDiT[VideoDiTCacheType](ABC):
             The clean input tensor. Same shape as the input tensor `noisy_input`.
         """
         sigma = self.timestep_to_sigma(timestep) # [B]
-        sigma = sigma.view(-1, *([1] * (len(noisy_input.shape) - 1))) # [B, ..., 1]
+        sigma = sigma.view(-1, *([1] * (len(noisy_input.shape) - 1))) # [B, ...]
         clean_input = noisy_input - sigma * predicted_flow
         return clean_input
 
@@ -66,7 +66,7 @@ class BaseVideoDiT[VideoDiTCacheType](ABC):
         Add noise to the clean input.
 
         Args:
-            clean_input: The clean input tensor. [B, ..., D]
+            clean_input: The clean input tensor. [B, ...]
             timestep: The timestep. [B]
             rng: The random number generator to use for the noise.
 
@@ -74,7 +74,7 @@ class BaseVideoDiT[VideoDiTCacheType](ABC):
             The noisy input tensor. Same shape as the input tensor `clean_input`.
         """
         sigma = self.timestep_to_sigma(timestep) # [B]
-        sigma = sigma.view(-1, *([1] * (len(clean_input.shape) - 1))) # [B, ..., 1]
+        sigma = sigma.view(-1, *([1] * (len(clean_input.shape) - 1))) # [B, ...]
         noise = torch.randn_like(clean_input, generator=rng)
         noisy_input = (1.0 - sigma) * clean_input + sigma * noise
         return noisy_input
