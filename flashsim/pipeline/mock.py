@@ -59,11 +59,7 @@ class MockVideoDiffusionPipeline:
         encoded_image = self.tokenizer.encode(image)
         encoded_image = self.dit.patchify(encoded_image)
         encoded_text = self.text_encoder.encode(text)
-        dit_condition = MockVideoDiTCondition(
-            text=encoded_text,
-            image=encoded_image,
-        )
-
+        dit_condition = MockVideoDiTCondition(text=encoded_text, image=encoded_image)
         dit_cache = self.dit.initialize_cache(height=encoded_height, width=encoded_width)
 
         tokenizer_cache = self.tokenizer.initialize_encode_cache()

@@ -1,0 +1,135 @@
+from typing import Literal
+
+import torch
+import torch.distributed._functional_collectives as funcol
+from torch import Tensor
+from torch.distributed.tensor.device_mesh import DeviceMesh
+
+from .native import NativeAttention
+
+def torch_sdpa_cudnn(
+    query: Tensor, key: Tensor, value: Tensor, return_lse: bool = False
+) -> tuple[Tensor, Tensor] | Tensor:
+    """Scaled dot-product attention via CuDNN backend (supports LSE for ring merge).
+
+    Args:
+        query: Query tensor, shape ``[B, H, S, D]``.
+        key: Key tensor, shape ``[B, H, S, D]``.
+        value: Value tensor, shape ``[B, H, S, D]``.
+        return_lse: If True, return (output, log_sum_exp) for ring merge.
+
+    Returns:
+        Attention output, or ``(output, lse)`` when ``return_lse=True``.
+    """
+    out, lse, *_ = torch.ops.aten._scaled_dot_product_cudnn_attention(
+        query=query,
+        key=key,
+        value=value,
+        attn_bias=None,
+        compute_log_sumexp=True,
+    )
+    return (out, lse) if return_lse else out
+
+
+def torch_sdpa_flash(
+    query: Tensor, key: Tensor, value: Tensor, return_lse: bool = False
+) -> tuple[Tensor, Tensor] | Tensor:
+    """Scaled dot-product attention via Flash Attention backend (returns LSE for ring merge).
+
+    Args:
+        query: Query tensor, shape ``[B, H, S, D]``.
+        key: Key tensor, shape ``[B, H, S, D]``.
+        value: Value tensor, shape ``[B, H, S, D]``.
+        return_lse: If True, return (output, log_sum_exp) for ring merge.
+
+    Returns:
+        Attention output, or ``(output, lse)`` when ``return_lse=True``.
+    """
+    out, lse, *_ = torch.ops.aten._scaled_dot_product_flash_attention(
+        query=query,
+        key=key,
+        value=value,
+    )
+    return (out, lse) if return_lse else out
+
+
+class RingAttention(NativeAttention):
+    """Context-parallel ring attention module with configurable QKV layout and SDPA backend."""
+
+    def __init__(
+        self,
+        qkv_format: Literal["bhsd", "bshd"] = "bhsd",
+        backend: Literal["cudnn", "flash"] = "cudnn",
+        convert_to_fp32: bool = True,
+    ) -> None:
+        """Configure ring attention format and backend.
+
+        Args:
+            qkv_format: "bshd" (B, S, H, D) or "bhsd" (B, H, S, D). Default is "bhsd".
+            backend: "cudnn" or "flash" for the manual ring SDPA ops.
+            convert_to_fp32: Use float32 for LSE merge across ring steps.
+        """
+        super().__init__()
+        assert qkv_format in ["bhsd", "bshd"], f"Invalid qkv format: {qkv_format}"
+        assert backend in ["cudnn", "flash"], f"Invalid backend: {backend}"
+        self.qkv_format = qkv_format
+        self.backend = backend
+        self.device_mesh: DeviceMesh | None = None
+        self.convert_to_fp32 = convert_to_fp32
+
+    def _impl(self, query: Tensor, key: Tensor, value: Tensor) -> Tensor:
+        """Ring attention: all-gather KV across CP ranks, run local SDPA, merge with LSE.
+
+        Q is replicated per rank; K/V are sharded. Each rank runs SDPA over gathered KV
+        and merges partial outputs using log-sum-exp. Expects q,k,v in ``[B, H, S, D]``.
+
+        Args:
+            query: Query tensor, shape ``[B, H, S, D]`` (CP-shared).
+            key: Key tensor, shape ``[B, H, S, D]`` (CP-sharded).
+            value: Value tensor, shape ``[B, H, S, D]`` (CP-sharded).
+
+        Returns:
+            Attention output tensor.
+        """
+        attn_op = {
+            "cudnn": torch_sdpa_cudnn,
+            "flash": torch_sdpa_flash,
+        }[self.backend]
+
+        if self.device_mesh is None:
+            return attn_op(query, key, value, return_lse=False)
+
+        rank = self.device_mesh.get_rank()
+        world_size = self.device_mesh.size()
+        group = self.device_mesh.get_group()
+        if world_size == 1:
+            return attn_op(query, key, value, return_lse=False)
+
+        next_rank = (rank + 1) % world_size
+        prev_out = prev_lse = None
+
+        kv_buffer = torch.cat([key.flatten(), value.flatten()]).contiguous()
+        kv_buffer = funcol.all_gather_tensor(kv_buffer, gather_dim=0, group=group)
+        kv_buffer = kv_buffer.chunk(world_size)
+
+        for i in range(world_size):
+            if i > 0:
+                kv = kv_buffer[next_rank]
+                key = kv[: key.numel()].reshape_as(key)
+                value = kv[key.numel() :].reshape_as(value)
+                next_rank = (next_rank + 1) % world_size
+
+            out, lse = attn_op(query, key, value, return_lse=True)
+
+            if self.convert_to_fp32:
+                out = out.to(torch.float32)
+                lse = lse.to(torch.float32)
+
+            if prev_out is not None:
+                out = prev_out - torch.nn.functional.sigmoid(lse - prev_lse) * (prev_out - out)
+                lse = prev_lse - torch.nn.functional.logsigmoid(prev_lse - lse)
+            prev_out = out
+            prev_lse = lse
+
+        out = out.to(query.dtype)
+        return out
