@@ -2,8 +2,10 @@ from dataclasses import dataclass
 
 import torch
 from torch import Tensor
+from einops import rearrange
 
-from flashsim.model.video_dit.base import BaseVideoDiT
+
+from flashsim.model.video_dit.base import BaseVideoDiT, denoise, add_noise
 
 class MockRoPEAdapter:
     def __init__(
@@ -98,7 +100,7 @@ class MockVideoDiT(BaseVideoDiT[MockVideoDiTCache]):
     def timestep_to_sigma(self, timestep: Tensor) -> Tensor:
         return timestep
 
-    def predict_x0(
+    def _predict_x0(
         self, 
         x0: Tensor | None, # clean latent [B, T, H, W, D]
         timestep: Tensor, # [1] or [B]
@@ -106,6 +108,7 @@ class MockVideoDiT(BaseVideoDiT[MockVideoDiTCache]):
         cache: MockVideoDiTCache,
         rng: torch.Generator | None = None
     ) -> Tensor:
+        alpha = self.timestep_to_sigma(timestep)
 
         autoregressive_index = cache.autoregressive_index
         assert autoregressive_index >= 0, "Index must be updated before predicting flow"
@@ -129,13 +132,25 @@ class MockVideoDiT(BaseVideoDiT[MockVideoDiTCache]):
                 input_shape, device=self.device, dtype=self.dtype, generator=rng
             )
         else:
-            noisy_input = self.add_noise(x0, timestep, rng=rng)
+            noisy_input = add_noise(x0, alpha, rng=rng)
 
         # mock predicted flow
         assert noisy_input.shape == input_shape
         predicted_flow = torch.randn_like(noisy_input)
         
-        x0 = self.denoise(noisy_input, timestep, predicted_flow)
+        x0 = denoise(noisy_input, alpha, predicted_flow)
+        return x0
+
+    def generate(
+        self, 
+        condition: MockVideoDiTCondition, 
+        cache: MockVideoDiTCache, 
+        rng: torch.Generator | None = None
+    ) -> Tensor:
+        x0 = None # clean latent
+        for denoising_step in self.denoising_timesteps:
+            timestep = torch.tensor([denoising_step], device=self.device, dtype=self.dtype)
+            x0 = self._predict_x0(x0, timestep, condition, cache, rng=rng)
         return x0
 
     @property
@@ -149,3 +164,48 @@ class MockVideoDiT(BaseVideoDiT[MockVideoDiTCache]):
     @property
     def denoising_timesteps(self) -> list[int]:
         return [1000, 750, 500, 250]
+
+    
+    def patchify(self, x: Tensor) -> Tensor:
+        """
+        Patchify the input tensor.
+
+        The patchify pattern is:
+            "... c (t kt) (h kh) (w kw) -> ... t h w (c kt kh kw)"
+
+        Args:
+            x: The input tensor. [..., C, T, H, W]
+
+        Returns:
+            The patched tensor. [..., len_t, len_h, len_w, D]
+        """
+        x = rearrange(
+            x,
+            "... c (t kt) (h kh) (w kw) -> ... t h w (c kt kh kw)",
+            kt=self.temporal_patch_size,
+            kh=self.spatial_patch_size,
+            kw=self.spatial_patch_size,
+        )
+        return x
+    
+    def unpatchify(self, x: Tensor) -> Tensor:
+        """
+        Unpatchify the input tensor.
+
+        The unpatchify pattern is:
+            "... t h w (c kt kh kw) -> ... c (t kt) (h kh) (w kw)"
+
+        Args:
+            x: The input tensor. [..., len_t, len_h, len_w, D]
+
+        Returns:
+            The unpatched tensor. [..., C, T, H, W]
+        """
+        x = rearrange(
+            x,
+            "... t h w (c kt kh kw) -> ... c (t kt) (h kh) (w kw)",
+            kt=self.temporal_patch_size,
+            kh=self.spatial_patch_size,
+            kw=self.spatial_patch_size,
+        )
+        return x

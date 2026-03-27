@@ -4,7 +4,7 @@ from typing import Final
 import torch
 from torch import Tensor
 
-from flashsim.model.video_dit.base import BaseVideoDiT
+from flashsim.model.video_dit.base import BaseVideoDiT, denoise, add_noise
 
 from .rope import RotaryPositionEmbedding3D
 from .network import CosmosDiT as CosmosDiTNetwork
@@ -202,7 +202,7 @@ class CosmosDiT(BaseVideoDiT[CosmosDiTCache]):
     def timestep_to_sigma(self, timestep: Tensor) -> Tensor:
         return self.scheduler.timestep_to_sigma(timestep)
 
-    def predict_x0(
+    def _predict_x0(
         self, 
         x0: Tensor | None, # clean latent [B, V, T, HW, D]
         timestep: Tensor, # [1] or [B]
@@ -212,6 +212,7 @@ class CosmosDiT(BaseVideoDiT[CosmosDiTCache]):
     ) -> Tensor:
         autoregressive_index = cache.autoregressive_index
         assert autoregressive_index >= 0, "Index must be updated before predicting flow"
+        alpha = self.scheduler.timestep_to_sigma(timestep)
 
         len_t = self.config.len_t
         len_h = cache.len_h
@@ -233,7 +234,7 @@ class CosmosDiT(BaseVideoDiT[CosmosDiTCache]):
                 input_shape, device=self.device, dtype=self.dtype, generator=rng
             )
         else:
-            noisy_input = self.add_noise(x0, timestep, rng=rng)
+            noisy_input = add_noise(x0, alpha, rng=rng)
 
         # for first chunk, inject back the conditional image latent.
         mask: Tensor | None = None
@@ -257,7 +258,7 @@ class CosmosDiT(BaseVideoDiT[CosmosDiTCache]):
             eager_mode=True,
         )
 
-        x0 = self.denoise(noisy_input, timestep, predicted_flow)
+        x0 = denoise(noisy_input, alpha, predicted_flow)
 
         # for first chunk, inject back the conditional image latent.
         if autoregressive_index == 0:
@@ -282,3 +283,15 @@ class CosmosDiT(BaseVideoDiT[CosmosDiTCache]):
     @property
     def denoising_timesteps(self) -> list[int]:
         return self.config.denoising_timesteps
+
+    def generate(
+        self, 
+        condition: CosmosDiTCondition, 
+        cache: CosmosDiTCache, 
+        rng: torch.Generator | None = None
+    ) -> Tensor:
+        x0 = None # clean latent
+        for denoising_step in self.denoising_timesteps:
+            timestep = torch.tensor([denoising_step], device=self.device, dtype=self.dtype)
+            x0 = self._predict_x0(x0, timestep, condition, cache, rng=rng)
+        return x0
