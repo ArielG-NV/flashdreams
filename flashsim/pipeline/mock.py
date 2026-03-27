@@ -110,18 +110,18 @@ if __name__ == "__main__":
     pipeline = MockVideoDiffusionPipeline(config)
     cache = pipeline.initialize_cache(
         text=["Hello, world!"], 
-        image=torch.randn(1, 1, 3, height, width), 
+        image=torch.randn(1, 3, 1, height, width), 
         video_height=height, 
         video_width=width
     )
 
-    hdmap = torch.randn(1, 13, 3, height, width)
+    hdmap = torch.randn(1, 3, 13, height, width)
     decoded_video = pipeline.streaming_inference(
         autoregressive_index=0, hdmap=hdmap, cache=cache
     )
     assert decoded_video.shape == hdmap.shape
 
-    hdmap = torch.randn(1, 16, 3, height, width)
+    hdmap = torch.randn(1, 3, 16, height, width)
     decoded_video = pipeline.streaming_inference(
         autoregressive_index=1, hdmap=hdmap, cache=cache
     )

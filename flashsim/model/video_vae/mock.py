@@ -46,18 +46,18 @@ class MockVideoVAE(BaseVideoVAE[MockVideoVAEEncoderCache, MockVideoVAEDecoderCac
             cache = self.initialize_encode_cache()
             cache.autoregressive_index = 0
 
-        assert x.ndim >= 4, "Expected input tensor to have shape [..., T, C, H, W]"
+        assert x.ndim >= 4, "Expected input tensor to have shape [..., C, T, H, W]"
         autoregressive_index = cache.autoregressive_index
         assert autoregressive_index >= 0, "Index must be updated before encoding"
 
         if autoregressive_index == 0:
             # VAE processes [1, 4, 4, 4, ...] frames. For the first chunk, we 
             # pad 3 frames to the left.
-            frame = x[..., :1, :, :, :]
-            x = torch.cat([frame, frame, frame, x], dim=-4)
+            frame = x[..., :, :1, :, :]
+            x = torch.cat([frame, frame, frame, x], dim=-3)
 
-        *batch_shape, T, C, H, W = x.shape
-        assert T % self.temporal_compression_ratio == 0
+        *batch_shape, C, T, H, W = x.shape
+        assert T % self.temporal_compression_ratio == 0, x.shape
         assert H % self.spatial_compression_ratio == 0
         assert W % self.spatial_compression_ratio == 0
         assert C == self.config.in_channels
@@ -67,7 +67,7 @@ class MockVideoVAE(BaseVideoVAE[MockVideoVAEEncoderCache, MockVideoVAEDecoderCac
         Wl = W // self.spatial_compression_ratio
         Cl = self.config.hidden_channels
 
-        z = torch.randn(*batch_shape, Tl, Cl, Hl, Wl, device=x.device, dtype=x.dtype)
+        z = torch.randn(*batch_shape, Cl, Tl, Hl, Wl, device=x.device, dtype=x.dtype)
         return z
 
     def initialize_decode_cache(self) -> MockVideoVAEDecoderCache:
@@ -79,11 +79,11 @@ class MockVideoVAE(BaseVideoVAE[MockVideoVAEEncoderCache, MockVideoVAEDecoderCac
             cache = self.initialize_decode_cache()
             cache.autoregressive_index = 0
 
-        assert z.ndim >= 4, "Expected input tensor to have shape [..., Tl, Cl, Hl, Wl]"
+        assert z.ndim >= 4, "Expected input tensor to have shape [..., Cl, Tl, Hl, Wl]"
         autoregressive_index = cache.autoregressive_index
         assert autoregressive_index >= 0, "Index must be updated before decoding"
 
-        *batch_shape, Tl, Cl, Hl, Wl = z.shape
+        *batch_shape, Cl, Tl, Hl, Wl = z.shape
         assert Cl == self.config.hidden_channels
 
         T = Tl * self.temporal_compression_ratio
@@ -91,12 +91,12 @@ class MockVideoVAE(BaseVideoVAE[MockVideoVAEEncoderCache, MockVideoVAEDecoderCac
         W = Wl * self.spatial_compression_ratio
         C = self.config.out_channels
 
-        x = torch.randn(*batch_shape, T, C, H, W, device=z.device, dtype=z.dtype)
+        x = torch.randn(*batch_shape, C, T, H, W, device=z.device, dtype=z.dtype)
 
         if autoregressive_index == 0:
             # VAE processes [1, 4, 4, 4, ...] frames. For the first chunk, we 
             # crop out the first 3 frames.
-            x = x[..., 3:, :, :, :]
+            x = x[..., :, 3:, :, :]
 
         return x
 

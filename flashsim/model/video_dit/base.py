@@ -118,17 +118,17 @@ class BaseVideoDiT[VideoDiTCacheType](ABC):
         Patchify the input tensor.
 
         The patchify pattern is:
-            "... (t kt) c (h kh) (w kw) -> ... t h w (c kt kh kw)"
+            "... c (t kt) (h kh) (w kw) -> ... t h w (c kt kh kw)"
 
         Args:
-            x: The input tensor. [..., T, C, H, W]
+            x: The input tensor. [..., C, T, H, W]
 
         Returns:
             The patched tensor. [..., len_t, len_h, len_w, D]
         """
         x = rearrange(
             x,
-            "... (t kt) c (h kh) (w kw) -> ... t h w (c kt kh kw)",
+            "... c (t kt) (h kh) (w kw) -> ... t h w (c kt kh kw)",
             kt=self.temporal_patch_size,
             kh=self.spatial_patch_size,
             kw=self.spatial_patch_size,
@@ -140,17 +140,17 @@ class BaseVideoDiT[VideoDiTCacheType](ABC):
         Unpatchify the input tensor.
 
         The unpatchify pattern is:
-            "... t h w (c kt kh kw) -> ... (t kt) c (h kh) (w kw)"
+            "... t h w (c kt kh kw) -> ... c (t kt) (h kh) (w kw)"
 
         Args:
             x: The input tensor. [..., len_t, len_h, len_w, D]
 
         Returns:
-            The unpatched tensor. [..., T, C, H, W]
+            The unpatched tensor. [..., C, T, H, W]
         """
         x = rearrange(
             x,
-            "... t h w (c kt kh kw) -> ... (t kt) c (h kh) (w kw)",
+            "... t h w (c kt kh kw) -> ... c (t kt) (h kh) (w kw)",
             kt=self.temporal_patch_size,
             kh=self.spatial_patch_size,
             kw=self.spatial_patch_size,

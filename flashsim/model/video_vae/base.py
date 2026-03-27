@@ -18,11 +18,11 @@ class BaseVideoVAE[EncoderCacheType, DecoderCacheType](ABC):
         Encode a video into a latent representation.
 
         Args:
-            x: The video to encode. [..., T, C, H, W]
+            x: The video to encode. [..., C, T, H, W]
             cache: The cache to use for encoding.
 
         Returns:
-            The latent representation. [..., Tl, Cl, Hl, Wl]
+            The latent representation. [..., Cl, Tl, Hl, Wl]
         """
         ...
 
@@ -39,11 +39,11 @@ class BaseVideoVAE[EncoderCacheType, DecoderCacheType](ABC):
         Decode a latent representation into a video.
 
         Args:
-            z: The latent representation to decode. [..., Tl, Cl, Hl, Wl]
+            z: The latent representation to decode. [..., Cl, Tl, Hl, Wl]
             cache: The cache to use for decoding.
 
         Returns:
-            The video. [..., T, C, H, W]
+            The video. [..., C, T, H, W]
         """
         ...
 
