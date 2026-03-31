@@ -94,6 +94,9 @@ class AlpadreamsPipeline:
             autoregressive_index: The autoregressive index.
             hdmap: The hdmap to encode. [B, V, T, C, H, W]
             cache: The cache for the Alpadreams pipeline.
+
+        Returns:
+            The decoded video. [B, V, T, C, H, W]
         """
         # 1. encode the hdmap
         encoded_hdmap = self.tokenizer.encode(hdmap, cache=cache.tokenizer_cache)
@@ -131,31 +134,3 @@ class AlpadreamsPipeline:
             )
         else:
             return self.dit.config.len_t * self.detokenizer.temporal_compression_ratio
-
-
-# python -m flashsim.pipeline.alpadreams
-if __name__ == "__main__":
-    num_views = 1
-    height = 704
-    width = 1280
-
-    device = torch.device("cuda")
-    dtype = torch.bfloat16
-
-    image = torch.randn(1, num_views, 1, 3, height, width, device=device, dtype=dtype)
-    text = [["Hello, world!"] * num_views]
-
-    pipeline = AlpadreamsPipeline(dtype=dtype, device=device)
-    cache = pipeline.initialize_cache(text=text, image=image)
-
-    hdmap = torch.randn(1, num_views, 5, 3, height, width, device=device, dtype=dtype)
-    decoded_video = pipeline.streaming_inference(
-        autoregressive_index=0, hdmap=hdmap, cache=cache
-    )
-    assert decoded_video.shape == hdmap.shape
-
-    hdmap = torch.randn(1, num_views, 8, 3, height, width, device=device, dtype=dtype)
-    decoded_video = pipeline.streaming_inference(
-        autoregressive_index=1, hdmap=hdmap, cache=cache
-    )
-    assert decoded_video.shape == hdmap.shape
