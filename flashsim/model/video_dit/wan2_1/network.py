@@ -7,6 +7,7 @@ from einops import rearrange
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
+from flashsim.distributed.context_parallel import cat_outputs_cp, split_inputs_cp
 from flashsim.model.video_dit.wan2_1.modules import (
     BlockCache,
     Block,
@@ -146,6 +147,86 @@ class WanDiTNetwork(nn.Module):
         """
         for block in self.blocks:
             block.set_context_parallel_group(cp_group)
+
+    def patchify_and_maybe_split_cp(
+        self,
+        x: Tensor,  # [..., T, C, H, W]
+        process_groups: list[ProcessGroup | None] | None = None,
+        cp_dims: list[int | None] | None = None,
+    ) -> Tensor:
+        r"""
+        Patchify the input tensor and maybe split it along cp_dim if a process group is provided.
+
+        The patchify pattern is:
+            "... (t kt) c (h kh) (w kw) -> ... (t h w) (c kt kh kw)",
+
+        Returns:
+            Tensor: The patched tensor with shape [..., L, D], where L = T * H * W / (kt * kh * kw)
+        """
+        assert x.ndim == 6, f"x must be a 6D tensor, but got shape {x.shape}"
+
+        x = rearrange(
+            x,
+            "... (t kt) c (h kh) (w kw) -> ... (t h w) (c kt kh kw)",
+            kt=self.patch_size[0],
+            kh=self.patch_size[1],
+            kw=self.patch_size[2],
+        )
+
+        if process_groups is not None:
+            assert cp_dims is not None and len(cp_dims) == len(process_groups), (
+                "Context parallel dimensions and process groups must be provided"
+                "and the number of dimensions must match the number of process groups"
+            )
+            for cp_dim, process_group in zip(cp_dims, process_groups):
+                if process_group is not None:
+                    assert cp_dim is not None, (
+                        "Context parallel dimension must be provided if process group is provided"
+                    )
+                    x = split_inputs_cp(x, seq_dim=cp_dim, cp_group=process_group)
+        return x
+
+    def unpatchify_and_maybe_gather_cp(
+        self,
+        pH: int,
+        pW: int,
+        x: Tensor,  # [..., L, D]
+        process_groups: list[ProcessGroup | None] | None = None,
+        cp_dims: list[int | None] | None = None,
+    ) -> Tensor:
+        r"""
+        Unpatchify the input tensor and maybe gather it along cp_dim if a process group is provided.
+
+        The unpatchify pattern is:
+            "... (t h w) (c kt kh kw) -> ... (t kt) c (h kh) (w kw)",
+
+        Returns:
+            Tensor: The unpatched tensor with shape [..., T, C, H, W]
+        """
+        assert x.ndim >= 2, f"x must be a 2D or higher tensor, but got shape {x.shape}"
+
+        if process_groups is not None:
+            assert cp_dims is not None and len(cp_dims) == len(process_groups), (
+                "Context parallel dimensions and process groups must be provided"
+                "and the number of dimensions must match the number of process groups"
+            )
+            for cp_dim, process_group in zip(cp_dims, process_groups):
+                if process_group is not None:
+                    assert cp_dim is not None, (
+                        "Context parallel dimension must be provided if process group is provided"
+                    )
+                    x = cat_outputs_cp(x, seq_dim=cp_dim, cp_group=process_group)
+
+        x = rearrange(
+            x,
+            "... (t h w) (c kt kh kw) -> ... (t kt) c (h kh) (w kw)",
+            h=pH,
+            w=pW,
+            kt=self.patch_size[0],
+            kh=self.patch_size[1],
+            kw=self.patch_size[2],
+        )
+        return x  # [..., T, C, H, W]
 
     def initialize_cache(
         self,
