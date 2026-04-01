@@ -14,17 +14,7 @@ from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
 
 from flashsim.model.text_encoder.base import BaseTextEncoder
 from flashsim.configs import InstantiateConfig
-
-
-def _str2bool(v: str | bool) -> bool:
-    if isinstance(v, bool):
-        return v
-    if v.lower() in ("yes", "true", "t", "1"):
-        return True
-    elif v.lower() in ("no", "false", "f", "0"):
-        return False
-    else:
-        raise ValueError("Boolean value expected.")
+from flashsim.model.text_encoder.utils import str2bool
 
 
 @dataclass
@@ -90,7 +80,7 @@ class CosmosReason1TextEncoder(BaseTextEncoder):
         self.n_layers_per_group = config.n_layers_per_group
 
         # Check if using local path
-        local_files_only = os.path.isdir(config.model_name) or _str2bool(
+        local_files_only = os.path.isdir(config.model_name) or str2bool(
             os.getenv("LOCAL_FILES_ONLY", "false")
         )
 
