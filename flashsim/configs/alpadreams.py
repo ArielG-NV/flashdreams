@@ -74,6 +74,32 @@ ALPADREAMS_CONFIGS["sv_2steps_chunk3_loc6_vae_vae"] = derive_conifg(
     ),
 )
 
+ALPADREAMS_CONFIGS["sv_2steps_chunk4_loc8_pshuffle_lighttae"] = derive_conifg(
+    ALPADREAMS_CONFIGS["sv_2steps_chunk2_loc6_lightvae_lighttae"],
+    tokenizer=PixelShuffleVAEInterfaceConfig(),
+    detokenizer=TeahvInterfaceConfig(
+        checkpoint_path=AVAILABLE_TAEHV_CHECKPOINT_PATHS["lighttae"],
+    ),
+    dit=CosmosDiTConfig(
+        enable_hdmap_condition=True,
+        encode_with_pixel_shuffle=True,
+        # For 720P set to 3.0; for 480P set to 2.0;
+        h_extrapolation_ratio=3.0,
+        w_extrapolation_ratio=3.0,
+        # Difussion schedule
+        denoising_timesteps=[1000, 450],
+        # Local attn: Number of tokens along T dimension.
+        window_size_t=8,
+        # Chunk size: Number of tokens along T dimension.
+        len_t=4,
+        # Checkpoint path
+        checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS["single_view"][
+            "pixel_shuffle"
+        ],
+    ),
+)
+
+
 ALPADREAMS_CONFIGS["mv_2steps_chunk4_loc8_pshuffle_lighttae"] = (
     AlpadreamsPipelineConfig(
         tokenizer=PixelShuffleVAEInterfaceConfig(),

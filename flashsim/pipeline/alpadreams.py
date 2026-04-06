@@ -108,8 +108,7 @@ class AlpadreamsPipeline:
         encoded_hdmap = self.tokenizer.encode(hdmap, cache=cache.tokenizer_cache)
 
         # 2. run DiT denoising
-        if hasattr(cache.dit_cache, "autoregressive_index"):
-            cache.dit_cache.autoregressive_index = autoregressive_index
+        cache.dit_cache.autoregressive_index = autoregressive_index
         clean_input = self.dit.generate(
             condition=CosmosDiTCondition(hdmap=encoded_hdmap), cache=cache.dit_cache
         )

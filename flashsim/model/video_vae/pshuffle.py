@@ -14,13 +14,16 @@ class PixelShuffleVAECache:
 
 @dataclass
 class PixelShuffleVAEInterfaceConfig(InstantiateConfig["PixelShuffleVAEInterface"]):
-    _target: type["PixelShuffleVAEInterface"] = field(default_factory=lambda: PixelShuffleVAEInterface)
+    _target: type["PixelShuffleVAEInterface"] = field(
+        default_factory=lambda: PixelShuffleVAEInterface
+    )
 
     frame_selection_mode: Literal["first_frame", "last_frame"] = "last_frame"
 
 
-
-class PixelShuffleVAEInterface(BaseVideoVAE[PixelShuffleVAECache, PixelShuffleVAECache]):
+class PixelShuffleVAEInterface(
+    BaseVideoVAE[PixelShuffleVAECache, PixelShuffleVAECache]
+):
     def __init__(self, config: PixelShuffleVAEInterfaceConfig):
         self.config = config
 
@@ -36,7 +39,9 @@ class PixelShuffleVAEInterface(BaseVideoVAE[PixelShuffleVAECache, PixelShuffleVA
         if cache is None:
             cache = self.initialize_encode_cache()
             cache.autoregressive_index = 0
-        assert cache.autoregressive_index >= 0, "Autoregressive index must be updated before encoding"
+        assert cache.autoregressive_index >= 0, (
+            "Autoregressive index must be updated before encoding"
+        )
 
         T = x.shape[-4]
 
@@ -50,10 +55,14 @@ class PixelShuffleVAEInterface(BaseVideoVAE[PixelShuffleVAECache, PixelShuffleVA
                 indices = [0] + list(range(4, T, 4))
             else:
                 indices = list(range(3, T, 4))
+        else:
+            raise ValueError(
+                f"Invalid frame selection mode: {self.config.frame_selection_mode}"
+            )
 
         x = x[..., indices, :, :, :]
-        x = rearrange(x, "... t c (h h8) (w w8) -> ... t (c h8 w8) h w", h8=8, w8=8)
-        return x
+        z = rearrange(x, "... t c (h h8) (w w8) -> ... t (c h8 w8) h w", h8=8, w8=8)
+        return z
 
     def initialize_decode_cache(self) -> PixelShuffleVAECache:
         raise PixelShuffleVAECache()
@@ -68,7 +77,6 @@ class PixelShuffleVAEInterface(BaseVideoVAE[PixelShuffleVAECache, PixelShuffleVA
     @property
     def spatial_compression_ratio(self) -> int:
         return 8
-
 
 
 if __name__ == "__main__":

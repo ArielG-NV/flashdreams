@@ -12,8 +12,14 @@ from flashsim.io.s3_sync import sync_s3_dir_to_local
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--n_cameras", type=int, default=1, help="Number of cameras.")
+parser.add_argument(
+    "--total_blocks", type=int, default=60, help="Total blocks to generate."
+)
+parser.add_argument(
+    "--overwrite_config_name", type=str, default=None, help="Overwrite config name."
+)
 args = parser.parse_args()
-assert args.n_cameras in [1, 4], "Number of cameras must be 1 or 4"
+assert args.n_cameras in [1, 4], "Only support 1 or 4 cameras"
 
 EXAMPLE_DATA_DIR_S3 = "s3://flashsim/assets/example_data/alpadreams"
 EXAMPLE_DATA_DIR_LOCAL = os.path.join(
@@ -37,10 +43,10 @@ if args.n_cameras == 1:
     CONFIG_NAME = "sv_2steps_chunk2_loc6_lightvae_lighttae"
 elif args.n_cameras == 4:
     CAMERA_NAMES = [
-        "camera_front_wide_120fov",
-        "camera_cross_right_120fov",
         "camera_cross_left_120fov",
+        "camera_cross_right_120fov",
         "camera_front_tele_30fov",
+        "camera_front_wide_120fov",
     ]
     DATA = [
         {
@@ -59,6 +65,9 @@ elif args.n_cameras == 4:
     CONFIG_NAME = "mv_2steps_chunk4_loc8_pshuffle_lighttae"
 else:
     raise ValueError(f"Number of cameras must be 1 or 4, got {args.n_cameras}")
+
+if args.overwrite_config_name is not None:
+    CONFIG_NAME = args.overwrite_config_name
 print(
     f"Running Alpadreams inference with {args.n_cameras} cameras and config: {CONFIG_NAME}"
 )
@@ -124,7 +133,7 @@ cache = pipeline.initialize_cache(
 # streaming inference
 start = 0
 generated_video = []
-for i in range(60):
+for i in range(args.total_blocks):
     num_frames = pipeline.get_num_frames(i)
     end = start + num_frames
     if end > hdmap_num_frames:

@@ -682,7 +682,7 @@ class Block(nn.Module):
         # Cross-view attention: dense
         if self.enable_cross_view_attn:
             normed_x_cv = self.layer_norm_cross_view_attn(x)
-            x = rearrange(normed_x_cv, "b v t hw d -> b t v hw d")
+            x_cv = rearrange(normed_x_cv, "b v t hw d -> b t v hw d")
             if self.cross_view_attn.is_context_parallel_enabled():
                 # When cross-view attention is CP-enabled, assume views are split
                 # across GPUs in rank order. For 4 views on 2 GPUs, that is
@@ -690,18 +690,18 @@ class Block(nn.Module):
                 if V == 1:
                     # If CP size equals number of views, each GPU processes one view.
                     # Ring attention gathers all K/V, so local context can remain unexpanded.
-                    x_context = x
+                    x_context = x_cv
                     # Effectively equivalent to the repeat() branch when V == 1.
                     # x_context = repeat(x, f"b t v hw d -> b t v2 (v hw) d", v2=V)
                 else:
                     # If CP size is smaller than number of views, each GPU handles multiple
                     # views locally before global K/V gathering.
-                    x_context = repeat(x, "b t v hw d -> b t v2 (v hw) d", v2=V)
+                    x_context = repeat(x_cv, "b t v hw d -> b t v2 (v hw) d", v2=V)
             else:
                 # Without CP, repeat context so each view attends over all views.
-                x_context = repeat(x, "b t v hw d -> b t v2 (v hw) d", v2=V)
+                x_context = repeat(x_cv, "b t v hw d -> b t v2 (v hw) d", v2=V)
             cross_view_attn_kv_cache = self.cross_view_attn.compute_kv(x_context)
-            cv_out = self.cross_view_attn(x, kv_cache=cross_view_attn_kv_cache)
+            cv_out = self.cross_view_attn(x_cv, kv_cache=cross_view_attn_kv_cache)
             cv_out = rearrange(cv_out, "b t v hw d -> b v t hw d")
             x = x + cv_out
 

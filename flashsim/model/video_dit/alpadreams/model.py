@@ -155,7 +155,7 @@ class CosmosDiT(BaseVideoDiT[CosmosDiTCache]):
             state_dict = load_checkpoint(self.config.checkpoint_path)
             for k, v in state_dict.items():
                 if k.startswith("net."):
-                    state_dict[k.replace("net.", "")] = v
+                    state_dict[k[len("net.") :]] = v
             self.network.load_state_dict(state_dict)
         self.network.update_parameters_after_loading_checkpoint()
 
