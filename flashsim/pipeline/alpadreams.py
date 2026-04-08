@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from loguru import logger
 
 import torch
 from torch import Tensor
@@ -12,6 +13,72 @@ from flashsim.model.video_dit.alpadreams.model import (
     CosmosDiTConfig,
 )
 from flashsim.configs import InstantiateConfig
+
+
+class ProfileEvents:
+    def __init__(self):
+        # sequential events
+        self.tic = torch.cuda.Event(enable_timing=True)
+        self.toc_after_encode = torch.cuda.Event(enable_timing=True)
+        self.toc_after_denoise = torch.cuda.Event(enable_timing=True)
+        self.toc_after_decode = torch.cuda.Event(enable_timing=True)
+        self.toc_after_finalize = torch.cuda.Event(enable_timing=True)
+
+    def summary(self) -> dict[str, float]:
+        return {
+            "elapsed_time_encode": self.tic.elapsed_time(self.toc_after_encode),
+            "elapsed_time_denoise": self.toc_after_encode.elapsed_time(
+                self.toc_after_denoise
+            ),
+            "elapsed_time_decode": self.toc_after_denoise.elapsed_time(
+                self.toc_after_decode
+            ),
+            "elapsed_time_finalize": self.toc_after_decode.elapsed_time(
+                self.toc_after_finalize
+            ),
+            "time_to_decode": self.tic.elapsed_time(self.toc_after_decode),
+            "time_to_finalize": self.tic.elapsed_time(self.toc_after_finalize),
+        }
+
+    @staticmethod
+    def create(repeats: int) -> list["ProfileEvents"]:
+        return [ProfileEvents() for _ in range(repeats)]
+
+    @staticmethod
+    def finalize(events: list["ProfileEvents"], skip_first_n: int = 0) -> None:
+        if skip_first_n > 0:
+            events = events[skip_first_n:]
+
+        n = len(events)
+
+        ts = []
+        for event in events:
+            ts.append(event.summary())
+
+        elapsed_time_encode = sum(t["elapsed_time_encode"] for t in ts)
+        elapsed_time_denoise = sum(t["elapsed_time_denoise"] for t in ts)
+        elapsed_time_decode = sum(t["elapsed_time_decode"] for t in ts)
+        elapsed_time_finalize = sum(t["elapsed_time_finalize"] for t in ts)
+        time_to_decode = sum(t["time_to_decode"] for t in ts)
+        time_to_finalize = sum(t["time_to_finalize"] for t in ts)
+
+        def perc1(t):
+            return f"({t / time_to_decode * 100:06.3f}%)"
+
+        logger.info(f"Average Latency to Decode: {time_to_decode / n / 1000.0} seconds")
+        logger.info(
+            f"   ├─{perc1(elapsed_time_encode)} VAE encode HD map {elapsed_time_encode / n:.4f} ms"
+        )
+        logger.info(
+            f"   ├─{perc1(elapsed_time_denoise)} DiT denoise latent {elapsed_time_denoise / n:.4f} ms"
+        )
+        logger.info(
+            f"   ╰─{perc1(elapsed_time_decode)} VAE decode {elapsed_time_decode / n:.4f} ms"
+        )
+        logger.info(
+            f"Average Latency to Finalize: {time_to_finalize / n / 1000.0} seconds"
+        )
+        logger.info(f"   ╰─finalize KV cache {elapsed_time_finalize / n:.4f} ms")
 
 
 @dataclass
@@ -93,7 +160,11 @@ class AlpadreamsPipeline:
 
     @torch.no_grad()
     def streaming_inference(
-        self, autoregressive_index: int, hdmap: Tensor, cache: AlpadreamsPipelineCache
+        self,
+        autoregressive_index: int,
+        hdmap: Tensor,
+        cache: AlpadreamsPipelineCache,
+        profile_events: ProfileEvents | None = None,
     ) -> Tensor:
         """
         Stream the inference of the video diffusion pipeline.
@@ -106,10 +177,16 @@ class AlpadreamsPipeline:
         Returns:
             The decoded video. [B, V, T, C, H, W]
         """
+        if profile_events is not None:
+            profile_events.tic.record()
+
         # 1. encode the hdmap
         if hasattr(cache.tokenizer_cache, "autoregressive_index"):
             cache.tokenizer_cache.autoregressive_index = autoregressive_index
         encoded_hdmap = self.tokenizer.encode(hdmap, cache=cache.tokenizer_cache)
+
+        if profile_events is not None:
+            profile_events.toc_after_encode.record()
 
         # 2. run DiT denoising
         cache.dit_cache.autoregressive_index = autoregressive_index
@@ -117,20 +194,34 @@ class AlpadreamsPipeline:
             condition=CosmosDiTCondition(hdmap=encoded_hdmap), cache=cache.dit_cache
         )
 
+        if profile_events is not None:
+            profile_events.toc_after_denoise.record()
+
         # 3. decode the clean input
         if hasattr(cache.detokenizer_cache, "autoregressive_index"):
             cache.detokenizer_cache.autoregressive_index = autoregressive_index
         decoded_video = self.detokenizer.decode(
             clean_input, cache=cache.detokenizer_cache
         )
+
+        if profile_events is not None:
+            profile_events.toc_after_decode.record()
+
         return decoded_video
 
     @torch.no_grad()
-    def finalize(self, cache: AlpadreamsPipelineCache) -> None:
+    def finalize(
+        self,
+        cache: AlpadreamsPipelineCache,
+        profile_events: ProfileEvents | None = None,
+    ) -> None:
         """
         Finalize the streaming inference. This will update the KV cache for the next block.
         """
         self.dit.finalize(cache.dit_cache)
+
+        if profile_events is not None:
+            profile_events.toc_after_finalize.record()
 
     @torch.no_grad()
     def get_num_frames(self, autoregressive_index: int) -> int:

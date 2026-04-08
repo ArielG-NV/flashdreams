@@ -22,7 +22,9 @@ class HierarchicalCPGroups:
     VHW_group: ProcessGroup | None = None
 
 
-def create_hierarchical_cp_groups(world_size: int, rank: int, V: int, T: int, single_group_as_none: bool = False) -> HierarchicalCPGroups:
+def create_hierarchical_cp_groups(
+    world_size: int, rank: int, V: int, T: int, single_group_as_none: bool = False
+) -> HierarchicalCPGroups:
     """
     Create hierarchical context parallel groups.
 
@@ -110,7 +112,7 @@ def create_hierarchical_cp_groups(world_size: int, rank: int, V: int, T: int, si
     cp_size_T = min(T, world_size // cp_size_V) if is_power_of_2(T) else 1
     cp_size_HW = world_size // (cp_size_V * cp_size_T)
     cp_size_THW = cp_size_T * cp_size_HW
-    cp_size_VHW = cp_size_V * cp_size_HW
+    _cp_size_VHW = cp_size_V * cp_size_HW
 
     # Rank layout: rank = V_idx * cp_size_THW + T_idx * cp_size_HW + HW_idx
     # Decode current rank's indices
@@ -121,7 +123,9 @@ def create_hierarchical_cp_groups(world_size: int, rank: int, V: int, T: int, si
     # Create HW groups: ranks with same V_idx and T_idx
     for v in range(cp_size_V):
         for t in range(cp_size_T):
-            ranks = tuple([v * cp_size_THW + t * cp_size_HW + hw for hw in range(cp_size_HW)])
+            ranks = tuple(
+                [v * cp_size_THW + t * cp_size_HW + hw for hw in range(cp_size_HW)]
+            )
             group = dist.new_group(ranks) if dist_initialized else None
             if v_idx == v and t_idx == t:
                 groups.HW_ranks = ranks
@@ -132,7 +136,9 @@ def create_hierarchical_cp_groups(world_size: int, rank: int, V: int, T: int, si
     # Create T groups: ranks with same V_idx and HW_idx
     for v in range(cp_size_V):
         for hw in range(cp_size_HW):
-            ranks = tuple([v * cp_size_THW + t * cp_size_HW + hw for t in range(cp_size_T)])
+            ranks = tuple(
+                [v * cp_size_THW + t * cp_size_HW + hw for t in range(cp_size_T)]
+            )
             group = dist.new_group(ranks) if dist_initialized else None
             if v_idx == v and hw_idx == hw:
                 groups.T_ranks = ranks
@@ -142,7 +148,13 @@ def create_hierarchical_cp_groups(world_size: int, rank: int, V: int, T: int, si
 
     # Create THW groups: ranks with same V_idx
     for v in range(cp_size_V):
-        ranks = tuple([v * cp_size_THW + t * cp_size_HW + hw for t in range(cp_size_T) for hw in range(cp_size_HW)])
+        ranks = tuple(
+            [
+                v * cp_size_THW + t * cp_size_HW + hw
+                for t in range(cp_size_T)
+                for hw in range(cp_size_HW)
+            ]
+        )
         group = dist.new_group(ranks) if dist_initialized else None
         if v_idx == v:
             groups.THW_ranks = ranks
@@ -153,7 +165,9 @@ def create_hierarchical_cp_groups(world_size: int, rank: int, V: int, T: int, si
     # Create V groups: ranks with same T_idx and HW_idx
     for t in range(cp_size_T):
         for hw in range(cp_size_HW):
-            ranks = tuple([v * cp_size_THW + t * cp_size_HW + hw for v in range(cp_size_V)])
+            ranks = tuple(
+                [v * cp_size_THW + t * cp_size_HW + hw for v in range(cp_size_V)]
+            )
             group = dist.new_group(ranks) if dist_initialized else None
             if t_idx == t and hw_idx == hw:
                 groups.V_ranks = ranks
@@ -163,7 +177,13 @@ def create_hierarchical_cp_groups(world_size: int, rank: int, V: int, T: int, si
 
     # Create VHW groups: ranks with same T_idx
     for t in range(cp_size_T):
-        ranks = tuple([v * cp_size_THW + t * cp_size_HW + hw for v in range(cp_size_V) for hw in range(cp_size_HW)])
+        ranks = tuple(
+            [
+                v * cp_size_THW + t * cp_size_HW + hw
+                for v in range(cp_size_V)
+                for hw in range(cp_size_HW)
+            ]
+        )
         group = dist.new_group(ranks) if dist_initialized else None
         if t_idx == t:
             groups.VHW_ranks = ranks
@@ -220,7 +240,9 @@ def test_hierarchical_cp_groups(world_size: int, V: int, T: int):
                 (0, 1),
             ],
         }
-    elif (world_size == 2 and V == 1 and T == 2) or (world_size == 2 and V == 1 and T == 4):
+    elif (world_size == 2 and V == 1 and T == 2) or (
+        world_size == 2 and V == 1 and T == 4
+    ):
         # can not split V but can split T, so split T.
         expected = {
             "HW_groups": [
@@ -388,7 +410,8 @@ def test_hierarchical_cp_groups(world_size: int, V: int, T: int):
         raise ValueError(f"Unsupported world_size: {world_size}, V: {V}, T: {T}")
 
     results = {
-        rank: create_hierarchical_cp_groups(world_size=world_size, rank=rank, V=V, T=T) for rank in range(world_size)
+        rank: create_hierarchical_cp_groups(world_size=world_size, rank=rank, V=V, T=T)
+        for rank in range(world_size)
     }
 
     HW_groups = []
@@ -407,12 +430,18 @@ def test_hierarchical_cp_groups(world_size: int, V: int, T: int):
         THW_groups.append(result.THW_ranks)
         V_groups.append(result.V_ranks)
         VHW_groups.append(result.VHW_ranks)
-    assert set(HW_groups) == set(expected["HW_groups"]), f"HW_groups: {HW_groups}; expected: {expected['HW_groups']}"
-    assert set(T_groups) == set(expected["T_groups"]), f"T_groups: {T_groups}; expected: {expected['T_groups']}"
+    assert set(HW_groups) == set(expected["HW_groups"]), (
+        f"HW_groups: {HW_groups}; expected: {expected['HW_groups']}"
+    )
+    assert set(T_groups) == set(expected["T_groups"]), (
+        f"T_groups: {T_groups}; expected: {expected['T_groups']}"
+    )
     assert set(THW_groups) == set(expected["THW_groups"]), (
         f"THW_groups: {THW_groups}; expected: {expected['THW_groups']}"
     )
-    assert set(V_groups) == set(expected["V_groups"]), f"V_groups: {V_groups}; expected: {expected['V_groups']}"
+    assert set(V_groups) == set(expected["V_groups"]), (
+        f"V_groups: {V_groups}; expected: {expected['V_groups']}"
+    )
     assert set(VHW_groups) == set(expected["VHW_groups"]), (
         f"VHW_groups: {VHW_groups}; expected: {expected['VHW_groups']}"
     )

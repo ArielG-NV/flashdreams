@@ -10,6 +10,7 @@ from huggingface_hub import login as huggingface_login
 from flashsim.distributed import init as distributed_init
 from flashsim.configs.alpadreams import ALPADREAMS_CONFIGS
 from flashsim.io.s3_sync import sync_s3_dir_to_local
+from flashsim.pipeline.alpadreams import ProfileEvents
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--n_cameras", type=int, default=1, help="Number of cameras.")
@@ -130,14 +131,16 @@ prompts = [prompts]  # [B, V]
 batch_size, num_views, hdmap_num_frames, _3, height, width = hdmap_videos.shape
 print("loaded hdmap_videos.shape:", hdmap_videos.shape)
 
-if torch.distributed.is_initialized():
-    torch.distributed.barrier()
-
 # initialize pipeline
 pipeline = ALPADREAMS_CONFIGS[CONFIG_NAME].setup(device=device)
 cache = pipeline.initialize_cache(
     text=prompts, image=first_frames, view_names=CAMERA_NAMES
 )
+profile_events = ProfileEvents.create(args.total_blocks)
+
+torch.cuda.synchronize()
+if torch.distributed.is_initialized():
+    torch.distributed.barrier()
 
 # streaming inference
 start = 0
@@ -152,17 +155,26 @@ for i in range(args.total_blocks):
     )
     generated_video.append(
         pipeline.streaming_inference(
-            autoregressive_index=i, hdmap=hdmap_videos[:, :, start:end], cache=cache
+            autoregressive_index=i,
+            hdmap=hdmap_videos[:, :, start:end],
+            cache=cache,
+            profile_events=profile_events[i],
         )
     )
     start = end
-    pipeline.finalize(cache)  # update KV cache for the next block
+    pipeline.finalize(
+        cache, profile_events=profile_events[i]
+    )  # update KV cache for the next block
 generated_video = torch.cat(generated_video, dim=2)  # [B, V, T, C, H, W], range [-1, 1]
 generated_num_frames = generated_video.shape[2]
 print("end of streaming inference, generated_video.shape:", generated_video.shape)
 
-# export result
 if rank == 0:
+    # print profiling results.
+    torch.cuda.synchronize()
+    ProfileEvents.finalize(profile_events, skip_first_n=3)
+
+    # export result
     condition = hdmap_videos[:, :, :generated_num_frames]
     canvas = rearrange(
         torch.cat([condition, generated_video], dim=-2), "1 v t c h w -> t h (v w) c"

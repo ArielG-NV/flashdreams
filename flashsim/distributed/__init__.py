@@ -7,6 +7,7 @@ import torch.distributed as dist
 from datetime import timedelta
 from loguru import logger
 
+
 class Device:
     # TODO: fill in docstring.
 
@@ -24,7 +25,9 @@ class Device:
     def get_cpu_affinity(self) -> list[int]:
         # TODO: fill in docstring.
         affinity_string = ""
-        for j in pynvml.nvmlDeviceGetCpuAffinity(self.handle, Device._nvml_affinity_elements):
+        for j in pynvml.nvmlDeviceGetCpuAffinity(
+            self.handle, Device._nvml_affinity_elements
+        ):
             # assume nvml returns list of 64 bit ints
             affinity_string = "{:064b}".format(j) + affinity_string
         affinity_list = [int(x) for x in affinity_string]
@@ -54,7 +57,12 @@ def init() -> int | None:
         timeout_seconds = os.getenv("TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC", 1800)
         # Convert the timeout to an integer (if it isn't already) and then to a timedelta
         timeout_timedelta = timedelta(seconds=int(timeout_seconds))
-        dist.init_process_group(backend="nccl", init_method="env://", timeout=timeout_timedelta, device_id=local_rank)
+        dist.init_process_group(
+            backend="nccl",
+            init_method="env://",
+            timeout=timeout_timedelta,
+            device_id=local_rank,
+        )
         logger.critical(
             f"Initialized distributed training with local rank {local_rank} with timeout {timeout_seconds}",
         )
@@ -67,4 +75,3 @@ def init() -> int | None:
     _libcudart.cudaDeviceSetLimit(ctypes.c_int(0x05), ctypes.c_int(128))
     _libcudart.cudaDeviceGetLimit(p_value, ctypes.c_int(0x05))
     logger.info(f"Training with {dist.get_world_size()} GPUs.")
-
