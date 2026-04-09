@@ -108,6 +108,8 @@ class AlpadreamsPipelineConfig(InstantiateConfig["AlpadreamsPipeline"]):
     )
     dit: CosmosDiTConfig = field(default_factory=lambda: CosmosDiTConfig())
 
+    seed: int = 42
+
 
 class AlpadreamsPipeline:
     def __init__(
@@ -120,6 +122,7 @@ class AlpadreamsPipeline:
         self.tokenizer = config.tokenizer.setup(device=device)
         self.detokenizer = config.detokenizer.setup(device=device)
         self.dit = config.dit.setup(device=device)
+        self.rng = torch.Generator(device=device).manual_seed(config.seed)
 
     def initialize_cache(
         self, text: list[list[str]], image: Tensor, view_names: list[str] | None = None
@@ -195,7 +198,9 @@ class AlpadreamsPipeline:
         # 2. run DiT denoising
         cache.dit_cache.autoregressive_index = autoregressive_index
         clean_input = self.dit.generate(
-            condition=CosmosDiTCondition(hdmap=encoded_hdmap), cache=cache.dit_cache
+            condition=CosmosDiTCondition(hdmap=encoded_hdmap),
+            cache=cache.dit_cache,
+            rng=self.rng,
         )
 
         if profile_events is not None:
@@ -222,7 +227,7 @@ class AlpadreamsPipeline:
         """
         Finalize the streaming inference. This will update the KV cache for the next block.
         """
-        self.dit.finalize(cache.dit_cache)
+        self.dit.finalize(cache.dit_cache, rng=self.rng)
 
         profile_events = cache.profile_events[autoregressive_index]
         profile_events.toc_after_finalize.record()

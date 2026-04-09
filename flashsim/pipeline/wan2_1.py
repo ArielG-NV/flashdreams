@@ -106,6 +106,8 @@ class Wan2_1PipelineConfig(InstantiateConfig["Wan2_1Pipeline"]):
     )
     dit: WanDiTConfig = field(default_factory=lambda: WanDiTConfig())
 
+    seed: int = 42
+
 
 class Wan2_1Pipeline:
     def __init__(
@@ -118,6 +120,7 @@ class Wan2_1Pipeline:
         self.tokenizer = config.tokenizer.setup(device=device)
         self.detokenizer = config.detokenizer.setup(device=device)
         self.dit = config.dit.setup(device=device)
+        self.rng = torch.Generator(device=device).manual_seed(config.seed)
 
     def initialize_cache(
         self,
@@ -194,7 +197,7 @@ class Wan2_1Pipeline:
         # 2. run DiT denoising
         cache.dit_cache.autoregressive_index = autoregressive_index
         clean_input = self.dit.generate(
-            condition=WanDiTCondition(), cache=cache.dit_cache
+            condition=WanDiTCondition(), cache=cache.dit_cache, rng=self.rng
         )
 
         if profile_events is not None:
@@ -221,7 +224,7 @@ class Wan2_1Pipeline:
         """
         Finalize the streaming inference. This will update the KV cache for the next block.
         """
-        self.dit.finalize(cache.dit_cache)
+        self.dit.finalize(cache.dit_cache, rng=self.rng)
 
         profile_events = cache.profile_events[autoregressive_index]
         profile_events.toc_after_finalize.record()

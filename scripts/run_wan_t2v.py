@@ -98,7 +98,7 @@ if rank == 0:
     canvas = (canvas * 255).astype(np.uint8)
     save_path = f"outputs/{CONFIG_NAME}_{world_size}gpus.mp4"
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    media.write_video(save_path, canvas, fps=30)
+    media.write_video(save_path, canvas, fps=16)
     print(f"saved generated video to {save_path}")
 
 if torch.distributed.is_initialized():
