@@ -1,7 +1,9 @@
 import io
 import os
 from typing import Literal
+from urllib.parse import unquote, urlparse
 
+from huggingface_hub import hf_hub_download
 from loguru import logger
 import torch
 from safetensors.torch import load as load_safetensors
@@ -16,6 +18,80 @@ _ALPADREAMS_CHECKPOINT_CREDENTIAL_PATH = "credentials/s3_checkpoint.secret"
 _ALPADREAMS_CHECKPOINT_LOCAL_CACHE_DIR = os.path.expanduser(
     os.getenv("FLASHSIM_CACHE_DIR", "~/.cache/flashsim")
 )
+
+
+def _is_huggingface_checkpoint_url(path: str) -> bool:
+    """Check whether path is a supported Hugging Face checkpoint URL."""
+    if not path.startswith(("http://", "https://")):
+        return False
+    parsed = urlparse(path)
+    host = parsed.netloc.lower()
+    if host.startswith("www."):
+        host = host.removeprefix("www.")
+    if host != "huggingface.co":
+        return False
+    return "/blob/" in parsed.path or "/resolve/" in parsed.path
+
+
+def _get_checkpoint_extension(checkpoint_path: str) -> str:
+    """Get extension from local path, S3 path, or URL."""
+    if checkpoint_path.startswith(("http://", "https://")):
+        parsed = urlparse(checkpoint_path)
+        return os.path.splitext(parsed.path)[1].lower()
+    return os.path.splitext(checkpoint_path)[1].lower()
+
+
+def _parse_huggingface_checkpoint_url(
+    url: str,
+) -> tuple[str, str, str | None, str]:
+    """Parse a HF file URL into hf_hub_download args.
+
+    Supports:
+      - https://huggingface.co/<namespace>/<repo>/blob/<revision>/<subfolder...>/<file>
+      - https://huggingface.co/<namespace>/<repo>/resolve/<revision>/<subfolder...>/<file>
+    """
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    if host.startswith("www."):
+        host = host.removeprefix("www.")
+    if host != "huggingface.co":
+        raise ValueError(f"Not a Hugging Face URL: {url}")
+
+    parts = [unquote(p) for p in parsed.path.strip("/").split("/") if p]
+    if len(parts) < 5:
+        raise ValueError(
+            f"Invalid Hugging Face checkpoint URL: {url}. Expected /<namespace>/<repo>/blob|resolve/<revision>/<path/to/file>"
+        )
+
+    namespace, repo, route = parts[0], parts[1], parts[2]
+    if route not in ("blob", "resolve"):
+        raise ValueError(
+            f"Unsupported Hugging Face URL route '{route}' in {url}. Expected 'blob' or 'resolve'."
+        )
+
+    revision = parts[3]
+    file_parts = parts[4:]
+    if not file_parts:
+        raise ValueError(f"Missing file path in Hugging Face URL: {url}")
+
+    filename = file_parts[-1]
+    subfolder = "/".join(file_parts[:-1]) or None
+    repo_id = f"{namespace}/{repo}"
+    return repo_id, filename, subfolder, revision
+
+
+def _download_checkpoint_from_huggingface_url(url: str) -> str:
+    """Download a checkpoint from Hugging Face and return local cached path."""
+    repo_id, filename, subfolder, revision = _parse_huggingface_checkpoint_url(url)
+    logger.info(f"Downloading checkpoint from Hugging Face: {url}")
+    local_path = hf_hub_download(
+        repo_id=repo_id,
+        filename=filename,
+        subfolder=subfolder,
+        revision=revision,
+    )
+    logger.info(f"Checkpoint downloaded to local HF cache: {local_path}")
+    return local_path
 
 
 def get_storage_reader(
@@ -116,12 +192,16 @@ def load_single_checkpoint(
     credential_path: str = _ALPADREAMS_CHECKPOINT_CREDENTIAL_PATH,
     map_location: str | torch.device = "cpu",
 ) -> dict[str, torch.Tensor]:
-    """Load a single checkpoint file (.pt, .pth, .safetensors) from S3 or local.
+    """Load a single checkpoint file (.pt, .pth, .safetensors) from local, S3, or HF URL.
 
-    Supports loading from S3 with local caching for faster subsequent loads.
+    Supports loading from S3 with local caching for faster subsequent loads, and
+    Hugging Face file URLs via hf_hub_download.
 
     Args:
-        checkpoint_path: Path to the checkpoint file. Can be S3 (s3://...) or local path.
+        checkpoint_path: Path/URL to checkpoint file. Supported forms:
+            - local file path
+            - S3 URL (s3://...)
+            - Hugging Face URL (.../blob/... or .../resolve/...)
             Supported extensions: .pt, .pth, .safetensors
         local_cache_dir: Directory to cache S3 checkpoints locally.
         credential_path: Path to S3 credentials file.
@@ -134,13 +214,19 @@ def load_single_checkpoint(
         ValueError: If the file extension is not supported.
     """
     is_s3_path = checkpoint_path.startswith("s3://")
+    is_hf_url = _is_huggingface_checkpoint_url(checkpoint_path)
 
     # Determine file extension
-    ext = os.path.splitext(checkpoint_path)[1].lower()
+    ext = _get_checkpoint_extension(checkpoint_path)
     if ext not in (".pt", ".pth", ".safetensors"):
         raise ValueError(
             f"Unsupported checkpoint extension: {ext}. Supported: .pt, .pth, .safetensors"
         )
+
+    # For Hugging Face URLs, use HF cache and then load locally.
+    if is_hf_url:
+        local_path = _download_checkpoint_from_huggingface_url(checkpoint_path)
+        return _load_checkpoint_from_local(local_path, ext, map_location)
 
     # For S3 paths, check local cache first
     local_cache_path = None
@@ -249,7 +335,7 @@ def load_checkpoint(
     """
     # Auto-detect checkpoint type
     if checkpoint_type == "auto":
-        ext = os.path.splitext(checkpoint_path)[1].lower()
+        ext = _get_checkpoint_extension(checkpoint_path)
         if ext in (".pt", ".pth", ".safetensors"):
             checkpoint_type = "single"
         else:

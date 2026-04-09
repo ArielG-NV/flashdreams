@@ -58,6 +58,7 @@ class RotaryPositionEmbedding3D:
         h_extrapolation_ratio: float = 1.0,
         w_extrapolation_ratio: float = 1.0,
         t_extrapolation_ratio: float = 1.0,
+        interleaved: bool = False,
         device: torch.device = torch.device("cuda"),
     ) -> None:
         """Build 3D RoPE for the given sequence lengths and head dimension.
@@ -70,8 +71,10 @@ class RotaryPositionEmbedding3D:
             h_extrapolation_ratio: NTK extrapolation ratio for height.
             w_extrapolation_ratio: NTK extrapolation ratio for width.
             t_extrapolation_ratio: NTK extrapolation ratio for time.
+            interleaved: Whether to interleave the frequency components.
         """
         self.device = device
+        self.interleaved = interleaved
 
         dim_w = dim_h = head_dim // 6 * 2
         dim_t = head_dim - (dim_h + dim_w)
@@ -160,7 +163,15 @@ class RotaryPositionEmbedding3D:
             freqs_t = self.freqs_t + offset * self.raw_freqs_t
             freqs_h = self.freqs_h
             freqs_w = self.freqs_w
-        freqs = torch.cat([freqs_t, freqs_h, freqs_w] * 2, dim=-1)
+        
+        if self.interleaved:
+            freqs = torch.cat([
+                freqs_t.repeat_interleave(2, dim=-1), 
+                freqs_h.repeat_interleave(2, dim=-1), 
+                freqs_w.repeat_interleave(2, dim=-1)
+            ], dim=-1)
+        else:
+            freqs = torch.cat([freqs_t, freqs_h, freqs_w] * 2, dim=-1)
         return freqs
 
 

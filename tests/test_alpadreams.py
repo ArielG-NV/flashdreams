@@ -13,7 +13,7 @@ def test_alpadreams_streaming_inference():
     image = torch.randn(1, num_views, 1, 3, height, width, device=device, dtype=dtype)
     text = [["Hello, world!"] * num_views]
 
-    pipeline = AlpadreamsPipelineConfig().setup()
+    pipeline = AlpadreamsPipelineConfig().setup(device=device)
     cache = pipeline.initialize_cache(text=text, image=image)
 
     autoregressive_index = 0
@@ -24,7 +24,7 @@ def test_alpadreams_streaming_inference():
     decoded_video = pipeline.streaming_inference(
         autoregressive_index, hdmap=hdmap, cache=cache
     )
-    pipeline.finalize(cache)
+    pipeline.finalize(autoregressive_index, cache=cache)
     assert decoded_video.shape == hdmap.shape
 
     autoregressive_index = 1
@@ -35,7 +35,7 @@ def test_alpadreams_streaming_inference():
     decoded_video = pipeline.streaming_inference(
         autoregressive_index, hdmap=hdmap, cache=cache
     )
-    pipeline.finalize(cache)
+    pipeline.finalize(autoregressive_index, cache=cache)
     assert decoded_video.shape == hdmap.shape
 
 

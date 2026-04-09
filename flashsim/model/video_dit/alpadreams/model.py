@@ -5,18 +5,18 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor
 
-from flashsim.model.video_dit.base import BaseVideoDiT, denoise, add_noise
 from flashsim.checkpoint.load import load_checkpoint
 from flashsim.configs import InstantiateConfig
 from flashsim.distributed.context_parallel import split_inputs_cp
 
-from .rope import RotaryPositionEmbedding3D
-from .network import CosmosDiTNetwork, CosmosDiTNetworkCache, CosmosDiTNetworkConfig
-from .flow_match import FlowMatchScheduler
-from .context_parallel_strategy import (
+from flashsim.model.video_dit.base import BaseVideoDiT, denoise, add_noise
+from flashsim.model.video_dit.rope import RotaryPositionEmbedding3D
+from flashsim.model.video_dit.flow_match import FlowMatchScheduler
+from flashsim.model.video_dit.context_parallel_strategy import (
     HierarchicalCPGroups,
     create_hierarchical_cp_groups,
 )
+from .network import CosmosDiTNetwork, CosmosDiTNetworkCache, CosmosDiTNetworkConfig
 
 DEFAULT_CAMERAS: Final[tuple[str, ...]] = (
     "camera_front_wide_120fov",

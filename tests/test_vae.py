@@ -28,14 +28,12 @@ def test_tokenizer(
         tokenizer = WanVAEInterfaceConfig(
             checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["lightvae"],
             dtype=dtype,
-            device=device,
-        ).setup()
+        ).setup(device=device)
     elif tokenizer_choice == "vae":
         tokenizer = WanVAEInterfaceConfig(
             checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
             dtype=dtype,
-            device=device,
-        ).setup()
+        ).setup(device=device)
     else:
         raise ValueError(f"Invalid tokenizer: {tokenizer}")
 
@@ -43,20 +41,17 @@ def test_tokenizer(
         detokenizer = TeahvInterfaceConfig(
             checkpoint_path=AVAILABLE_TAEHV_CHECKPOINT_PATHS["lighttae"],
             dtype=dtype,
-            device=device,
-        ).setup()
+        ).setup(device=device)
     elif detokenizer_choice == "lightvae":
         detokenizer = WanVAEInterfaceConfig(
             checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["lightvae"],
             dtype=dtype,
-            device=device,
-        ).setup()
+        ).setup(device=device)
     elif detokenizer_choice == "vae":
         detokenizer = WanVAEInterfaceConfig(
             checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
             dtype=dtype,
-            device=device,
-        ).setup()
+        ).setup(device=device)
     else:
         raise ValueError(f"Invalid detokenizer: {detokenizer}")
 

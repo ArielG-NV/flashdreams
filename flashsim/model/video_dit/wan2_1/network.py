@@ -48,17 +48,18 @@ class WanDiTNetworkConfig(InstantiateConfig["WanDiTNetwork"]):
     patch_size: tuple[int, int, int] = (1, 2, 2)
     text_len: int = 512
     in_dim: int = 16
-    dim: int = 2048
-    ffn_dim: int = 8192
+    dim: int = 1536
+    ffn_dim: int = 8960
     freq_dim: int = 256
     text_dim: int = 4096
     out_dim: int = 16
-    num_heads: int = 16
-    num_layers: int = 32
+    num_heads: int = 12
+    num_layers: int = 30
     cross_attn_norm: bool = True
     eps: float = 1e-6
     concat_padding_mask: bool = False
     additional_concat_ch: int = 0
+    patch_embedding_type: Literal["linear", "conv3d"] = "linear"
 
 
 class WanDiTNetwork(nn.Module):
@@ -103,13 +104,24 @@ class WanDiTNetwork(nn.Module):
         self.eps = config.eps
         self.concat_padding_mask = config.concat_padding_mask
         self.additional_concat_ch = config.additional_concat_ch
+        self.patch_embedding_type = config.patch_embedding_type
 
         # Embedding layers
         in_dim = config.in_dim + 1 if self.concat_padding_mask else config.in_dim
-        self.patch_embedding = nn.Linear(
-            in_dim * self.patch_size[0] * self.patch_size[1] * self.patch_size[2],
-            self.dim,
-        )
+        if config.patch_embedding_type == "linear":
+            self.patch_embedding = nn.Linear(
+                in_dim * self.patch_size[0] * self.patch_size[1] * self.patch_size[2],
+                self.dim,
+            )
+        elif config.patch_embedding_type == "conv3d":
+            self.patch_embedding = nn.Conv3d(
+                in_dim,
+                self.dim,
+                kernel_size=self.patch_size,
+                stride=self.patch_size,
+            )
+        else:
+            raise ValueError(f"Invalid patch embedding type: {config.patch_embedding_type}")
         self.text_embedding = nn.Sequential(
             nn.Linear(self.text_dim, self.dim),
             nn.GELU(approximate="tanh"),
@@ -153,7 +165,7 @@ class WanDiTNetwork(nn.Module):
         self._is_shuffle_op_fused = False
         self._parameters_updated_after_loading_checkpoint = False
 
-    def initialize_context_parallel(self, cp_group: ProcessGroup | None = None) -> None:
+    def set_context_parallel_group(self, cp_group: ProcessGroup | None = None) -> None:
         """Set context-parallel process group for all blocks.
 
         This must be called before ``initialize_cache`` when CP is used.
@@ -368,7 +380,14 @@ class WanDiTNetwork(nn.Module):
         )
 
         # Patch embedding
-        x = self.patch_embedding(x)  # (..., L, D)
+        if self.patch_embedding_type == "linear":
+            x = self.patch_embedding(x)  # (..., L, D)
+        elif self.patch_embedding_type == "conv3d":
+            _weight = self.patch_embedding.weight.reshape(self.dim, -1) # [D, in_dim * kt * kh * kw]
+            _bias = self.patch_embedding.bias # [D] or None
+            x = torch.nn.functional.linear(x, _weight, _bias)
+        else:
+            raise ValueError(f"Invalid patch embedding type: {self.patch_embedding_type}")
 
         # Optional HDMap embedding
         if self.additional_concat_ch > 0:

@@ -9,7 +9,7 @@ from torch.distributed import ProcessGroup
 
 from flashsim.attention import BlockKVCache, RingAttention
 
-from .rope import apply_rope_freqs
+from flashsim.model.video_dit.rope import apply_rope_freqs
 
 
 class GPT2FeedForward(nn.Module):

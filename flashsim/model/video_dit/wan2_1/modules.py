@@ -8,7 +8,7 @@ from torch.distributed import ProcessGroup
 
 from flashsim.attention import BlockKVCache, RingAttention
 
-from flashsim.model.video_dit.alpadreams.rope import apply_rope_freqs
+from flashsim.model.video_dit.rope import apply_rope_freqs
 
 
 def sinusoidal_embedding_1d(dim: int, position: Tensor) -> Tensor:
@@ -166,7 +166,7 @@ class MultiHeadAttention(nn.Module):
         k = self.norm_k(self.k(context)).reshape(batch_size, L, n, d)
         v = self.v(context).reshape(batch_size, L, n, d)
         if rope_freqs is not None:
-            rope_freqs = torch.repeat_interleave(rope_freqs, repeats=2, dim=-1)
+            # rope_freqs = torch.repeat_interleave(rope_freqs, repeats=2, dim=-1)
             k = apply_rope_freqs(k, rope_freqs, interleaved=True)
 
         if kv_cache is None:
@@ -216,7 +216,7 @@ class MultiHeadAttention(nn.Module):
 
         q = self.norm_q(self.q(x)).reshape(batch_size, L, n, d)
         if rope_freqs is not None:
-            rope_freqs = torch.repeat_interleave(rope_freqs, repeats=2, dim=-1)
+            # rope_freqs = torch.repeat_interleave(rope_freqs, repeats=2, dim=-1)
             q = apply_rope_freqs(q, rope_freqs)
 
         cached_k = kv_cache.cached_k()
