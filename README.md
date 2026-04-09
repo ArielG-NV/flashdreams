@@ -47,3 +47,22 @@ PYTHONPATH=. torchrun   --standalone   --nnodes=1   --nproc_per_node=4  \
     scripts/run_alpadreams_inference.py \
     --n_cameras 4 --total_blocks 60
 ```
+
+
+
+## Instructions to run Self-forcing T2V Inference.
+
+```bash
+# 0. request interactive node with pre-built container save as above alpadreams demo.
+
+# 1. setup huggingface
+# - (required) huggingface token
+export HF_TOKEN=<YOUR-HF-TOKEN>
+# - (optional) huggingface cache path
+export HF_HOME=~/.cache/huggingface # default
+
+# 2. Run inference script. Self-forcing checkpoint will be auto-downloaded at first run from huggingface.
+PYTHONPATH=. torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
+    scripts/run_wan_t2v.py \
+    --total_blocks 7
+```
