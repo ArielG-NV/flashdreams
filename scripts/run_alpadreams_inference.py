@@ -180,7 +180,7 @@ if rank == 0:
     )
     canvas = (canvas.float().cpu().numpy() + 1.0) / 2.0  # range [0, 1]
     canvas = (canvas * 255).astype(np.uint8)
-    save_path = f"outputs/{world_size}gpus_{CONFIG_NAME}.mp4"
+    save_path = f"outputs/{CONFIG_NAME}_{world_size}gpus.mp4"
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     media.write_video(save_path, canvas, fps=30)
     print(f"saved generated video to {save_path}")
