@@ -24,13 +24,7 @@ CAMERA_NAMES = ["default"]
 DATA = [
     {
         "prompt": (
-            "A close-up shot captures a steaming hot pot brimming with vegetables and dumplings, "
-            "set on a rustic wooden table. The camera focuses on the bubbling broth as a woman, "
-            "dressed in a light, patterned blouse, reaches in with chopsticks to lift a tender "
-            "leaf of cabbage from the simmering mixture. Steam rises around her as she leans back slightly, "
-            "her warm smile reflecting satisfaction and joy. Her movements are smooth and deliberate, "
-            "showcasing her comfort and familiarity with the dining process. The background includes a "
-            "small bowl of dipping sauce and a clay pot, adding to the cozy, communal dining atmosphere."
+            "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides."
         ),
     }
     for name in CAMERA_NAMES
@@ -63,7 +57,7 @@ prompts = [prompts]  # add a batch dimension
 
 # initialize pipeline
 pipeline = WAN2_1_CONFIGS[CONFIG_NAME].setup(device=device)
-cache = pipeline.initialize_cache(video_height=832, video_width=480, text=prompts)
+cache = pipeline.initialize_cache(video_height=480, video_width=832, text=prompts)
 
 torch.cuda.synchronize()
 if torch.distributed.is_initialized():

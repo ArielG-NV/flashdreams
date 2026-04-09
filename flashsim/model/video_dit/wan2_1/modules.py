@@ -217,7 +217,7 @@ class MultiHeadAttention(nn.Module):
         q = self.norm_q(self.q(x)).reshape(batch_size, L, n, d)
         if rope_freqs is not None:
             # rope_freqs = torch.repeat_interleave(rope_freqs, repeats=2, dim=-1)
-            q = apply_rope_freqs(q, rope_freqs)
+            q = apply_rope_freqs(q, rope_freqs, interleaved=True)
 
         cached_k = kv_cache.cached_k()
         cached_v = kv_cache.cached_v()

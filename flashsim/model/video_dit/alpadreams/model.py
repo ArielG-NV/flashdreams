@@ -320,7 +320,7 @@ class CosmosDiT(BaseVideoDiT[CosmosDiTCache]):
     ) -> Tensor:
         condition = self._patchify(condition)
         x0 = None  # clean latent
-        for denoising_step in self.config.denoising_timesteps:
+        for denoising_step in self.denoising_step_list:
             timestep = torch.tensor(
                 [denoising_step], device=self.device, dtype=self.dtype
             )
