@@ -139,36 +139,41 @@ if args.overwrite_config_name is not None:
     CONFIG_NAME = args.overwrite_config_name
 print(f"Running Lingbot World inference with config: {CONFIG_NAME}")
 
-# download example data from S3
-CREDENTIAL_PATH = os.path.join(
-    os.path.dirname(__file__), "../credentials/s3_checkpoint.secret"
-)
-assert os.path.exists(CREDENTIAL_PATH), (
-    f"Credential file not found at {CREDENTIAL_PATH}"
-)
-sync_s3_dir_to_local(
-    s3_dir=EXAMPLE_DATA_DIR_S3,
-    s3_credential_path=CREDENTIAL_PATH,
-    cache_dir=EXAMPLE_DATA_DIR_LOCAL,
-    max_workers=10,
-    show_progress=True,
-    verify_checksum=True,
-    desc="Syncing from S3",
-)
-
-# login huggingface
-HF_TOKEN = os.getenv("HF_TOKEN")
-assert HF_TOKEN is not None, "HF_TOKEN is not set"
-huggingface_login(HF_TOKEN)
-print("logged in to huggingface")
-
 # initialize distributed inference
+local_rank = int(os.getenv("LOCAL_RANK", 0))
 distributed_init()
 world_size = torch.distributed.get_world_size()
 rank = torch.distributed.get_rank()
 print(f"initialized distributed training with world size {world_size} and rank {rank}")
-device = torch.device(f"cuda:{rank}")
+device = torch.device(f"cuda:{local_rank}")
 dtype = torch.bfloat16
+
+# login huggingface
+if rank == 0:
+    HF_TOKEN = os.getenv("HF_TOKEN")
+    assert HF_TOKEN is not None, "HF_TOKEN is not set"
+    huggingface_login(HF_TOKEN)
+    print("logged in to huggingface")
+
+    # download example data from S3
+    CREDENTIAL_PATH = os.path.join(
+        os.path.dirname(__file__), "../credentials/s3_checkpoint.secret"
+    )
+    assert os.path.exists(CREDENTIAL_PATH), (
+        f"Credential file not found at {CREDENTIAL_PATH}"
+    )
+    sync_s3_dir_to_local(
+        s3_dir=EXAMPLE_DATA_DIR_S3,
+        s3_credential_path=CREDENTIAL_PATH,
+        cache_dir=EXAMPLE_DATA_DIR_LOCAL,
+        max_workers=10,
+        show_progress=True,
+        verify_checksum=True,
+        desc="Syncing from S3",
+    )
+
+if torch.distributed.is_initialized():
+    torch.distributed.barrier()
 
 # prepare data
 plucker_videos = []
