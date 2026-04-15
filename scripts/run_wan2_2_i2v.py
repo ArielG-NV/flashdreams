@@ -91,7 +91,9 @@ else:
     start_index = 0
 
 # initialize pipeline
-pipeline = WAN2_2_CONFIGS[CONFIG_NAME].setup(device=device)
+pipeline_config = WAN2_2_CONFIGS[CONFIG_NAME]
+pipeline_config.seed += rank
+pipeline = pipeline_config.setup(device=device)
 cache = pipeline.initialize_cache(
     video_height=args.video_height,
     video_width=args.video_width,

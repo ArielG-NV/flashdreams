@@ -132,7 +132,9 @@ batch_size, num_views, hdmap_num_frames, _3, height, width = hdmap_videos.shape
 print("loaded hdmap_videos.shape:", hdmap_videos.shape)
 
 # initialize pipeline
-pipeline = ALPADREAMS_CONFIGS[CONFIG_NAME].setup(device=device)
+pipeline_config = ALPADREAMS_CONFIGS[CONFIG_NAME]
+pipeline_config.seed += rank
+pipeline = pipeline_config.setup(device=device)
 cache = pipeline.initialize_cache(
     text=prompts, image=first_frames, view_names=CAMERA_NAMES
 )

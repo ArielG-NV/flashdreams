@@ -364,11 +364,22 @@ class LingbotWorldDiT(BaseVideoDiT[LingbotWorldDiTCache]):
             if x._is_patchified:
                 return x
             else:
-                x.image = self.network.patchify_and_maybe_split_cp(
+                # x.image stores [B, V, T*num_blocks, C, H, W]
+                per_block_images = torch.split(
                     x.image,
-                    process_groups=process_groups,
-                    cp_dims=cp_dims,
+                    dim=2,
+                    split_size_or_sections=self.config.len_t,
                 )
+                per_block_images = [
+                    self.network.patchify_and_maybe_split_cp(
+                        image,
+                        process_groups=process_groups,
+                        cp_dims=cp_dims,
+                    )
+                    for image in per_block_images
+                ]
+                x.image = torch.cat(per_block_images, dim=2)
+
                 x.condition_video_input_mask_first_block = (
                     self.network.patchify_and_maybe_split_cp(
                         x.condition_video_input_mask_first_block,
