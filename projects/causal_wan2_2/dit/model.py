@@ -5,6 +5,7 @@ import torch
 from torch import Tensor
 
 from flashsim.checkpoint.load import load_checkpoint
+from flashsim.checkpoint.remap import remap_checkpoint_keys
 from flashsim.config import InstantiateConfig
 
 from flashsim.model.video_dit.base import BaseVideoDiT, denoise, add_noise
@@ -14,14 +15,20 @@ from flashsim.model.video_dit.context_parallel_strategy import (
     HierarchicalCPGroups,
     create_hierarchical_cp_groups,
 )
-from .network import (
+from flashsim.model.video_dit.wan2_1.network import (
     WanDiTNetwork,
-    WanDiTNetworkCache,
-    WanDiTNetwork1pt3BConfig,
     WanDiTNetwork14BConfig,
+    WanDiTNetworkCache,
+    WanDiTNetworkConfig,
 )
 
-NEGATIVE_PROMPT = "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走"
+
+AVAILABLE_WAN2_2_CHECKPOINT_PATHS = {
+    "fastvideo-i2v": {
+        "high_noise": "https://huggingface.co/FastVideo/CausalWan2.2-I2V-A14B-Preview-Diffusers/blob/main/transformer/diffusion_pytorch_model.safetensors",
+        "low_noise": "https://huggingface.co/FastVideo/CausalWan2.2-I2V-A14B-Preview-Diffusers/blob/main/transformer_2/diffusion_pytorch_model.safetensors",
+    }
+}
 
 
 @dataclass
@@ -49,8 +56,8 @@ class WanDiTCache:
     batch_size: int  # batch size
     num_views: int  # number of views
 
-    network_cache: WanDiTNetworkCache
-    network_cache_negative: WanDiTNetworkCache | None
+    network_cache_high_noise: WanDiTNetworkCache
+    network_cache_low_noise: WanDiTNetworkCache
     rope_adapter: RotaryPositionEmbedding3D
 
     # For KV cache update in the end.
@@ -66,8 +73,11 @@ class WanDiTConfig(InstantiateConfig["WanDiT"]):
     _target: type["WanDiT"] = field(default_factory=lambda: WanDiT)
 
     # Network configurations
-    network: Literal[WanDiTNetwork1pt3BConfig, WanDiTNetwork14BConfig] = field(
-        default_factory=lambda: WanDiTNetwork1pt3BConfig()
+    network_high_noise: WanDiTNetworkConfig = field(
+        default_factory=lambda: WanDiTNetworkConfig()
+    )
+    network_low_noise: WanDiTNetworkConfig = field(
+        default_factory=lambda: WanDiTNetworkConfig()
     )
     dtype: torch.dtype = torch.bfloat16
 
@@ -77,9 +87,12 @@ class WanDiTConfig(InstantiateConfig["WanDiT"]):
 
     # Difussion schedule
     denoising_timesteps: list[int] = field(
-        default_factory=lambda: [1000, 750, 500, 250]
+        default_factory=lambda: [1000, 850, 700, 550, 350, 275, 200, 125],
     )
     warp_denoising_step: bool = True
+
+    # Where to switch between high and low noise networks
+    boundary_ratio: float = 0.875
 
     # Local attn: Number of tokens along T dimension.
     window_size_t: int = 21
@@ -89,7 +102,8 @@ class WanDiTConfig(InstantiateConfig["WanDiT"]):
     len_t: int = 3
 
     # Checkpoint path
-    checkpoint_path: str | None = None
+    checkpoint_path_high_noise: str | None = None
+    checkpoint_path_low_noise: str | None = None
 
     # Noise level for KV cache update.
     context_noise: int = 0
@@ -97,15 +111,44 @@ class WanDiTConfig(InstantiateConfig["WanDiT"]):
     # Speedup.
     compile_network: bool = True
 
-    # CFG guidance scale.
-    guidance_scale: float = 6.0
-    shift: float = 8.0
-
 
 class WanDiT(BaseVideoDiT[WanDiTCache]):
     """
     Wan DiT for video generation.
     """
+
+    # Mapping from HF checkpoint keys to our internal key format (official keys).
+    CHECKPOINT_KEY_MAPPING = {
+        # Global embedding/head remaps
+        r"^condition_embedder\.text_embedder\.linear_1\.(.*)$": r"text_embedding.0.\1",
+        r"^condition_embedder\.text_embedder\.linear_2\.(.*)$": r"text_embedding.2.\1",
+        r"^condition_embedder\.time_embedder\.linear_1\.(.*)$": r"time_embedding.0.\1",
+        r"^condition_embedder\.time_embedder\.linear_2\.(.*)$": r"time_embedding.2.\1",
+        r"^condition_embedder\.time_proj\.(.*)$": r"time_projection.1.\1",
+        r"^scale_shift_table$": r"head.modulation",
+        r"^proj_out\.(.*)$": r"head.head.\1",
+        # Block attention projections
+        r"^blocks\.(\d+)\.attn1\.to_q\.(.*)$": r"blocks.\1.self_attn.q.\2",
+        r"^blocks\.(\d+)\.attn1\.to_k\.(.*)$": r"blocks.\1.self_attn.k.\2",
+        r"^blocks\.(\d+)\.attn1\.to_v\.(.*)$": r"blocks.\1.self_attn.v.\2",
+        r"^blocks\.(\d+)\.attn1\.to_out\.0\.(.*)$": r"blocks.\1.self_attn.o.\2",
+        r"^blocks\.(\d+)\.attn2\.to_q\.(.*)$": r"blocks.\1.cross_attn.q.\2",
+        r"^blocks\.(\d+)\.attn2\.to_k\.(.*)$": r"blocks.\1.cross_attn.k.\2",
+        r"^blocks\.(\d+)\.attn2\.to_v\.(.*)$": r"blocks.\1.cross_attn.v.\2",
+        r"^blocks\.(\d+)\.attn2\.to_out\.0\.(.*)$": r"blocks.\1.cross_attn.o.\2",
+        # Block norm/modulation remaps
+        r"^blocks\.(\d+)\.attn1\.norm_q\.(.*)$": r"blocks.\1.self_attn.norm_q.\2",
+        r"^blocks\.(\d+)\.attn1\.norm_k\.(.*)$": r"blocks.\1.self_attn.norm_k.\2",
+        r"^blocks\.(\d+)\.attn2\.norm_q\.(.*)$": r"blocks.\1.cross_attn.norm_q.\2",
+        r"^blocks\.(\d+)\.attn2\.norm_k\.(.*)$": r"blocks.\1.cross_attn.norm_k.\2",
+        r"^blocks\.(\d+)\.norm2\.(.*)$": r"blocks.\1.norm3.\2",
+        r"^blocks\.(\d+)\.scale_shift_table$": r"blocks.\1.modulation",
+        # Block FFN remaps
+        r"^blocks\.(\d+)\.ffn\.fc_in\.(.*)$": r"blocks.\1.ffn.0.\2",
+        r"^blocks\.(\d+)\.ffn\.fc_out\.(.*)$": r"blocks.\1.ffn.2.\2",
+        r"^blocks\.(\d+)\.ffn\.net\.0\.proj\.(.*)$": r"blocks.\1.ffn.0.\2",
+        r"^blocks\.(\d+)\.ffn\.net\.2\.(.*)$": r"blocks.\1.ffn.2.\2",
+    }
 
     def __init__(
         self, config: WanDiTConfig, device: torch.device = torch.device("cuda")
@@ -129,27 +172,44 @@ class WanDiT(BaseVideoDiT[WanDiTCache]):
         self.dtype = config.dtype
         self.device = device
 
-        self.network = WanDiTNetwork(config=self.config.network)
-        self.network = self.network.to(device=self.device, dtype=self.dtype)
-        self.network.eval()
-        self.network.set_context_parallel_group(
-            cp_group=self.cp_groups.THW_group,
-        )
-
-        if self.config.checkpoint_path is not None:
-            state_dict = load_checkpoint(self.config.checkpoint_path)
-            self.network.load_state_dict(state_dict)
-        self.network.update_parameters_after_loading_checkpoint()
-
-        if self.config.compile_network:
-            self.network = torch.compile(
-                self.network, mode="max-autotune-no-cudagraphs"
+        def setup_network(
+            config: WanDiTNetworkConfig,
+            checkpoint_path: str,
+            compile_network: bool,
+        ) -> WanDiTNetwork:
+            network = WanDiTNetwork(config=config)
+            network = network.to(device=self.device, dtype=self.dtype)
+            network.eval()
+            network.set_context_parallel_group(
+                cp_group=self.cp_groups.THW_group,
             )
+            if checkpoint_path is not None:
+                _state_dict = load_checkpoint(checkpoint_path)
+                state_dict = remap_checkpoint_keys(
+                    _state_dict, self.CHECKPOINT_KEY_MAPPING
+                )
+                network.load_state_dict(state_dict)
+            network.update_parameters_after_loading_checkpoint()
+            if compile_network:
+                network = torch.compile(network, mode="max-autotune-no-cudagraphs")
+            return network
+
+        self.network_high_noise = setup_network(
+            self.config.network_high_noise,
+            self.config.checkpoint_path_high_noise,
+            self.config.compile_network,
+        )
+        self.network_low_noise = setup_network(
+            self.config.network_low_noise,
+            self.config.checkpoint_path_low_noise,
+            self.config.compile_network,
+        )
 
         # define scheduler
         num_train_timestep = 1000
+        self.boundary = self.config.boundary_ratio * num_train_timestep
         self.scheduler = FlowMatchScheduler(
-            shift=self.config.shift, sigma_min=0.0, extra_one_step=True
+            shift=5.0, sigma_min=0.0, extra_one_step=True
         )
         self.scheduler.set_timesteps(num_train_timestep, training=True)
         if self.config.warp_denoising_step:
@@ -174,8 +234,9 @@ class WanDiT(BaseVideoDiT[WanDiTCache]):
         height: int,
         width: int,
         text_embeddings: Tensor,  # [B, V, L, D]
-        text_embeddings_negative: Tensor | None = None,  # [B, V, L, D]
         image_embeddings: Tensor | None = None,  # [B, V, L, D]
+        initial_latent: Tensor | None = None,  # [B, V, 1, C, H, W]
+        view_names: list[str] | None = None,
     ) -> WanDiTNetworkCache:
         """
         Initialize the cache for the video DiT.
@@ -184,18 +245,21 @@ class WanDiT(BaseVideoDiT[WanDiTCache]):
             height: The video height after VAE spatial compression.
             width: The video width after VAE spatial compression.
             text_embeddings: Text embeddings [B, V, L, D]
-            text_embeddings_negative: Text embeddings [B, V, L, D]
             image_embeddings: CLIP Image embeddings [B, V, L, D]
+            initial_latent: VAE encoded first latent [B, V, 1, C, H, W]
+            view_names: List of view names.
 
         Returns:
             The cache for the video DiT.
         """
+        network_config = self.config.network_high_noise
+
         # compute size of the tokens after patchification
         len_t = self.config.len_t
-        len_h = height // self.config.network.patch_size[1]
-        len_w = width // self.config.network.patch_size[2]
+        len_h = height // network_config.patch_size[1]
+        len_w = width // network_config.patch_size[2]
 
-        head_dim = self.config.network.dim // self.config.network.num_heads
+        head_dim = network_config.dim // network_config.num_heads
         rope_adapter = RotaryPositionEmbedding3D(
             len_t=len_t,
             len_h=len_h,
@@ -209,41 +273,44 @@ class WanDiT(BaseVideoDiT[WanDiTCache]):
         # RoPE CP splits along same dimension as self-attention CP.
         rope_adapter.set_context_parallel_group(cp_group=self.cp_groups.THW_group)
 
-        num_tokens_per_chunk = len_t * len_h * len_w
-        num_tokens_window_size = self.config.window_size_t * len_h * len_w
-        num_tokens_sink_size = self.config.sink_size_t * len_h * len_w
+        num_tokens_per_frame = len_h * len_w
+        num_tokens_per_chunk = num_tokens_per_frame * len_t
+        num_tokens_window_size = num_tokens_per_frame * self.config.window_size_t
+        num_tokens_sink_size = num_tokens_per_frame * self.config.sink_size_t
         if self.cp_groups.THW_group is not None:
             num_tokens_per_chunk //= self.cp_groups.THW_group.size()
             num_tokens_window_size //= self.cp_groups.THW_group.size()
             num_tokens_sink_size //= self.cp_groups.THW_group.size()
-        network_cache = self.network.initialize_cache(
+        network_cache_high_noise = self.network_high_noise.initialize_cache(
             chunk_size=num_tokens_per_chunk,
             window_size=num_tokens_window_size,
             sink_size=num_tokens_sink_size,
             text_embeddings=text_embeddings,
             img_embeddings=image_embeddings,
         )
-        if text_embeddings_negative is not None:
-            network_cache_negative = self.network.initialize_cache(
-                chunk_size=num_tokens_per_chunk,
-                window_size=num_tokens_window_size,
-                sink_size=num_tokens_sink_size,
-                text_embeddings=text_embeddings_negative,
-                img_embeddings=image_embeddings,
-            )
-        else:
-            network_cache_negative = None
+        network_cache_low_noise = self.network_low_noise.initialize_cache(
+            chunk_size=num_tokens_per_chunk,
+            window_size=num_tokens_window_size,
+            sink_size=num_tokens_sink_size,
+            text_embeddings=text_embeddings,
+            img_embeddings=image_embeddings,
+        )
+
         cache = WanDiTCache(
             len_h=len_h,
             len_w=len_w,
-            network_cache=network_cache,
-            network_cache_negative=network_cache_negative,
+            network_cache_high_noise=network_cache_high_noise,
+            network_cache_low_noise=network_cache_low_noise,
             rope_adapter=rope_adapter,
             num_tokens_per_chunk=num_tokens_per_chunk,
             batch_size=text_embeddings.shape[0],
             num_views=text_embeddings.shape[1],
         )
         cache = self._patchify(cache)
+        if initial_latent is not None:
+            cache.autoregressive_index = 0
+            cache.x0 = self._patchify(initial_latent)
+            cache.condition = WanDiTCondition()
         return cache
 
     def generate(
@@ -277,7 +344,22 @@ class WanDiT(BaseVideoDiT[WanDiTCache]):
         if context_noise is None:
             context_noise = self.config.context_noise
         timestep = torch.tensor([context_noise], device=self.device, dtype=self.dtype)
-        _ = self._predict_x0(cache.x0, timestep, cache.condition, cache, rng=rng)
+        _ = self._predict_x0(
+            cache.x0,
+            timestep,
+            cache.condition,
+            cache,
+            rng=rng,
+            network_choice="high_noise",
+        )
+        _ = self._predict_x0(
+            cache.x0,
+            timestep,
+            cache.condition,
+            cache,
+            rng=rng,
+            network_choice="low_noise",
+        )
 
     def _predict_x0(
         self,
@@ -286,7 +368,10 @@ class WanDiT(BaseVideoDiT[WanDiTCache]):
         condition: WanDiTCondition,
         cache: WanDiTNetworkCache,
         rng: torch.Generator | None = None,
+        network_choice: Literal["high_noise", "low_noise", "auto"] = "auto",
     ) -> Tensor:
+        network_config = self.config.network_high_noise
+
         autoregressive_index = cache.autoregressive_index
         assert autoregressive_index >= 0, "Index must be updated before predicting flow"
         alpha = self.scheduler.timestep_to_sigma(timestep)
@@ -299,10 +384,10 @@ class WanDiT(BaseVideoDiT[WanDiTCache]):
         len_thw = cache.num_tokens_per_chunk
 
         token_dim = (
-            self.config.network.in_dim
-            * self.config.network.patch_size[0]
-            * self.config.network.patch_size[1]
-            * self.config.network.patch_size[2]
+            network_config.in_dim
+            * network_config.patch_size[0]
+            * network_config.patch_size[1]
+            * network_config.patch_size[2]
         )
         input_shape = (batch_size, num_views, len_thw, token_dim)
 
@@ -315,31 +400,28 @@ class WanDiT(BaseVideoDiT[WanDiTCache]):
             noisy_input = add_noise(x0, alpha, rng=rng)
 
         assert noisy_input.shape == input_shape
-        predicted_flow = self.network(
+
+        if network_choice == "auto":
+            is_high_noise = timestep[0] > self.boundary
+            network_choice = "high_noise" if is_high_noise else "low_noise"
+
+        if network_choice == "high_noise":
+            network = self.network_high_noise
+            network_cache = cache.network_cache_high_noise
+        elif network_choice == "low_noise":
+            network = self.network_low_noise
+            network_cache = cache.network_cache_low_noise
+        else:
+            raise ValueError(f"Invalid network choice: {network_choice}")
+
+        predicted_flow = network(
             x=noisy_input,
             timesteps=timestep,
             rope_freqs=rope_freqs,
-            cache=cache.network_cache,
+            cache=network_cache,
             current_chunk_idx=autoregressive_index,
             eager_mode=True,
         )
-        if (
-            cache.network_cache_negative is not None
-            and self.config.guidance_scale > 1.0
-        ):
-            predicted_flow_unconditioned = self.network(
-                x=noisy_input,
-                timesteps=timestep,
-                rope_freqs=rope_freqs,
-                cache=cache.network_cache_negative,
-                current_chunk_idx=autoregressive_index,
-                eager_mode=True,
-            )
-            predicted_flow = (
-                predicted_flow_unconditioned
-                + self.config.guidance_scale
-                * (predicted_flow - predicted_flow_unconditioned)
-            )
 
         x0 = denoise(noisy_input, alpha, predicted_flow)
 
@@ -366,7 +448,7 @@ class WanDiT(BaseVideoDiT[WanDiTCache]):
                 x._is_patchified = True
                 return x
         elif isinstance(x, Tensor):
-            return self.network.patchify_and_maybe_split_cp(
+            return self.network_high_noise.patchify_and_maybe_split_cp(
                 x,
                 process_groups=process_groups,
                 cp_dims=cp_dims,
@@ -380,10 +462,43 @@ class WanDiT(BaseVideoDiT[WanDiTCache]):
         ]
         cp_dims = [-2]
 
-        return self.network.unpatchify_and_maybe_gather_cp(
+        return self.network_high_noise.unpatchify_and_maybe_gather_cp(
             pH=len_h,
             pW=len_w,
             x=x,
             process_groups=process_groups,
             cp_dims=cp_dims,
         )
+
+
+# python -m projects.causal_wan2_2.dit.model
+if __name__ == "__main__":
+    device = torch.device("cuda")
+    dtype = torch.bfloat16
+
+    model = WanDiTConfig(
+        checkpoint_path_high_noise=AVAILABLE_WAN2_2_CHECKPOINT_PATHS["fastvideo-i2v"][
+            "high_noise"
+        ],
+        checkpoint_path_low_noise=AVAILABLE_WAN2_2_CHECKPOINT_PATHS["fastvideo-i2v"][
+            "low_noise"
+        ],
+        network_high_noise=WanDiTNetwork14BConfig(
+            patch_embedding_type="conv3d",
+        ),
+        network_low_noise=WanDiTNetwork14BConfig(
+            patch_embedding_type="conv3d",
+        ),
+    ).setup(device=device)
+
+    text_embeddings = torch.randn(1, 1, 512, 4096, device=device, dtype=dtype)
+    cache = model.initialize_cache(
+        height=720 // 8,
+        width=1280 // 8,
+        text_embeddings=text_embeddings,
+    )
+
+    with torch.no_grad():
+        cache.autoregressive_index = 0
+        video = model.generate(condition=WanDiTCondition(), cache=cache)
+    print(video.shape)

@@ -40,14 +40,13 @@ export FLASHSIM_CACHE_DIR=~/.cache/flashsim # default
 # 4. Run inference script. Checkpoints and example data are auto-downloaded at first run.
 # - single view on single GPU
 PYTHONPATH=. torchrun   --standalone   --nnodes=1   --nproc_per_node=1  \
-    scripts/run_alpadreams_inference.py \
-    --n_cameras 1 --total_blocks 60
+    projects/alpadreams/run.py \
+    --n_cameras 1 --total_blocks 20
 # - multi view on 4 GPUs
 PYTHONPATH=. torchrun   --standalone   --nnodes=1   --nproc_per_node=4  \
-    scripts/run_alpadreams_inference.py \
-    --n_cameras 4 --total_blocks 60
+    projects/alpadreams/run.py \
+    --n_cameras 4 --total_blocks 20
 ```
-
 
 
 ## Instructions to run Self-forcing T2V Inference.
@@ -63,7 +62,7 @@ export HF_HOME=~/.cache/huggingface # default
 
 # 2. Run inference script. Checkpoint will be auto-downloaded at first run from huggingface.
 PYTHONPATH=. torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
-    scripts/run_wan_t2v.py \
+    projects/causal_wan2_1/run.py \
     --total_blocks 7
 ```
 
@@ -82,13 +81,13 @@ export HF_HOME=~/.cache/huggingface # default
 # 2. Run inference script. Checkpoint will be auto-downloaded at first run from huggingface.
 # - T2V
 PYTHONPATH=. torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
-    scripts/run_wan_t2v.py \
+    projects/causal_wan2_1/run.py \
     --total_blocks 21 \
     --overwrite_config_name casual_forcing_framewise
 
 # - I2V
 PYTHONPATH=. torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
-    scripts/run_wan_t2v.py \
+    projects/causal_wan2_1/run.py \
     --total_blocks 21 \
     --overwrite_config_name casual_forcing_framewise \
     --prompt_or_txt_path assets/example_data/i2v/prompt.txt  \
@@ -111,19 +110,19 @@ export HF_HOME=~/.cache/huggingface # default
 # 2. Run inference script. Checkpoint will be auto-downloaded at first run from huggingface.
 # - T2V
 PYTHONPATH=. torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
-    scripts/run_wan2_2_i2v.py \
+    projects/causal_wan2_2/run.py \
     --total_blocks 21
 
 # # - I2V (not supported yet)
 # PYTHONPATH=. torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
-#     scripts/run_wan2_2_i2v.py \
+#     projects/wan2_2/run.py \
 #     --total_blocks 21 \
 #     --prompt_or_txt_path assets/example_data/i2v/prompt.txt  \
 #     --image_path assets/example_data/i2v/image.jpg
 ```
 
 ## Instructions to run Lingbot-World Camera Control I2V Inference.
-reference: [Lingbot-World Repo](https://github.com/robbyant/lingbot-world?tab=readme-ov-file#fast-inference)
+reference: [Lingbot-World repo](https://github.com/robbyant/lingbot-world?tab=readme-ov-file#fast-inference)
 
 ```bash
 # 0. request interactive node with pre-built container save as above alpadreams demo.
@@ -136,6 +135,24 @@ export HF_HOME=~/.cache/huggingface # default
 
 # 2. Run inference script. Checkpoint will be auto-downloaded at first run from huggingface.
 PYTHONPATH=. torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
-    scripts/run_lingbot_world.py \
+    projects/lingbot_world/run.py \
     --total_blocks 21
+```
+
+
+## Instructions to run Bidirectional Wan2.1 T2V Inference.
+reference: [Wan2.1 official repo](https://github.com/Wan-Video/Wan2.1/tree/main?tab=readme-ov-file#run-text-to-video-generation)
+
+```bash
+# 0. request interactive node with pre-built container save as above alpadreams demo.
+
+# 1. setup huggingface
+# - (required) huggingface token
+export HF_TOKEN=<YOUR-HF-TOKEN>
+# - (optional) huggingface cache path
+export HF_HOME=~/.cache/huggingface # default
+
+# 2. Run inference script. Checkpoint will be auto-downloaded at first run from huggingface.
+PYTHONPATH=. torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
+    projects/wan2_1/run_t2v.py
 ```

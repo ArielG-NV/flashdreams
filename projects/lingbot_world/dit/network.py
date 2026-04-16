@@ -8,59 +8,31 @@ from torch import Tensor
 from torch.distributed import ProcessGroup
 
 from flashsim.distributed.context_parallel import cat_outputs_cp, split_inputs_cp
-from flashsim.configs import InstantiateConfig
-
 from flashsim.model.video_dit.wan2_1.modules import (
-    BlockCache,
     Head,
     sinusoidal_embedding_1d,
 )
-from flashsim.model.video_dit.lingbot_world.modules import Block
+from flashsim.model.video_dit.wan2_1.network import (
+    WanDiTNetworkCache,
+    WanDiTNetworkConfig,
+)
+from projects.lingbot_world.dit.modules import CameraControlBlock
 
 
 @dataclass
-class LingbotWorldDiTNetworkCache:
-    """Cache container for all transformer blocks."""
+class LingbotWorldDiTNetworkCache(WanDiTNetworkCache):
+    """Same block-cache container as WAN; Lingbot blocks use the same :class:`BlockCache` API."""
 
-    block_caches: list[BlockCache]
-
-    def __getitem__(self, index: int) -> BlockCache:
-        """Get cache for a specific block."""
-        return self.block_caches[index]
-
-    def before_update(self, chunk_idx: int) -> None:
-        """Run pre-update hooks for all block caches."""
-        for block_cache in self.block_caches:
-            block_cache.before_update(chunk_idx)
-
-    def after_update(self, chunk_idx: int) -> None:
-        """Run post-update hooks for all block caches."""
-        for block_cache in self.block_caches:
-            block_cache.after_update(chunk_idx)
+    pass
 
 
 @dataclass
-class LingbotWorldDiTNetworkConfig(InstantiateConfig["LingbotWorldDiTNetwork"]):
+class LingbotWorldDiTNetworkConfig(WanDiTNetworkConfig):
+    """WAN-sized hyperparameters plus Lingbot camera / action control."""
+
     _target: type["LingbotWorldDiTNetwork"] = field(
         default_factory=lambda: LingbotWorldDiTNetwork
     )
-
-    patch_size: tuple[int, int, int] = (1, 2, 2)
-    text_len: int = 512
-    in_dim: int = 16
-    dim: int = 1536
-    ffn_dim: int = 8960
-    freq_dim: int = 256
-    text_dim: int = 4096
-    out_dim: int = 16
-    num_heads: int = 12
-    num_layers: int = 30
-    cross_attn_norm: bool = True
-    eps: float = 1e-6
-    concat_padding_mask: bool = False
-    patch_embedding_type: Literal["linear", "conv3d"] = "linear"
-
-    # lingbot world specific
     control_type: Literal["cam", "act"] = "cam"
 
 
@@ -173,7 +145,7 @@ class LingbotWorldDiTNetwork(nn.Module):
         # Transformer blocks
         self.blocks = nn.ModuleList(
             [
-                Block(
+                CameraControlBlock(
                     self.dim,
                     self.ffn_dim,
                     self.num_heads,
@@ -451,7 +423,7 @@ class LingbotWorldDiTNetwork(nn.Module):
         return x
 
 
-# python -m flashsim.model.video_dit.lingbot_world.network
+# python -m projects.lingbot_world.dit.network
 if __name__ == "__main__":
     device = torch.device("cuda")
     dtype = torch.bfloat16

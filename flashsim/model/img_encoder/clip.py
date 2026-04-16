@@ -7,7 +7,7 @@ from torch import Tensor
 
 from transformers import CLIPImageProcessor, CLIPVisionModel
 
-from flashsim.configs import InstantiateConfig
+from flashsim.config import InstantiateConfig
 
 
 @dataclass

@@ -1,5 +1,10 @@
+"""Building blocks for the Wan 2.1 video DiT."""
+
+from __future__ import annotations
+
 import math
 from dataclasses import dataclass
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -7,7 +12,6 @@ from torch import Tensor
 from torch.distributed import ProcessGroup
 
 from flashsim.attention import BlockKVCache, RingAttention
-
 from flashsim.model.video_dit.rope import apply_rope_freqs
 
 
@@ -34,7 +38,7 @@ def sinusoidal_embedding_1d(dim: int, position: Tensor) -> Tensor:
 class MLPProj(torch.nn.Module):
     """Project conditioning embeddings with a small normalized MLP."""
 
-    def __init__(self, in_dim: int, out_dim: int):
+    def __init__(self, in_dim: int, out_dim: int) -> None:
         super().__init__()
         self.proj = torch.nn.Sequential(
             torch.nn.LayerNorm(in_dim),
@@ -58,7 +62,7 @@ class Head(nn.Module):
         out_dim: int,
         patch_size: tuple[int, int, int],
         eps: float = 1e-6,
-    ):
+    ) -> None:
         super().__init__()
         self.dim = dim
         self.out_dim = out_dim
@@ -301,16 +305,16 @@ class CrossAttnCache:
     """Cache container for cross-attention."""
 
     text: BlockKVCache
-    img: BlockKVCache | None = None  # Optional image cache for I2V.
+    img: BlockKVCache | None = None  # Optional image cache (I2V).
 
 
 class CrossAttention(MultiHeadAttention):
     """Cross-attention with static cached context."""
 
-    def __init__(self, i2v: bool = False, *args, **kwargs) -> None:
+    def __init__(self, i2v: bool = False, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.i2v = i2v
-        if i2v:
+        if self.i2v:
             self.k_img = nn.Linear(self.context_dim, self.inner_dim)
             self.v_img = nn.Linear(self.context_dim, self.inner_dim)
             self.norm_k_img = nn.RMSNorm(self.inner_dim, eps=self.eps)
@@ -343,7 +347,7 @@ class CrossAttention(MultiHeadAttention):
 
         Args:
             context_text: Text context tensor [B, L_text, D].
-            context_img: Optional image context tensor [B, L_img, D] for I2V.
+            context_img: Optional image context tensor [B, L_img, D].
 
         Returns:
             ``CrossAttnCache`` with text K/V and optional image K/V.
@@ -402,13 +406,13 @@ class Block(nn.Module):
 
     def __init__(
         self,
-        dim,
-        ffn_dim,
-        num_heads,
-        cross_attn_norm=True,
-        eps=1e-6,
-        i2v=False,
-    ):
+        dim: int,
+        ffn_dim: int,
+        num_heads: int,
+        cross_attn_norm: bool = True,
+        eps: float = 1e-6,
+        i2v: bool = False,
+    ) -> None:
         super().__init__()
         self.dim = dim
         self.ffn_dim = ffn_dim
@@ -460,7 +464,7 @@ class Block(nn.Module):
             window_size: Rolling-window capacity in tokens.
             sink_size: Sink-token capacity retained permanently.
             context_text: Text context tensor [..., L_text, D].
-            context_img: Optional image context tensor [..., L_img, D] for I2V.
+            context_img: Optional image context tensor [..., L_img, D].
 
         Returns:
             ``BlockCache`` initialized for this block.

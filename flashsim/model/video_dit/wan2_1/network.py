@@ -1,3 +1,7 @@
+"""Wan 2.1 DiT network"""
+
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -8,11 +12,11 @@ from torch import Tensor
 from torch.distributed import ProcessGroup
 
 from flashsim.distributed.context_parallel import cat_outputs_cp, split_inputs_cp
-from flashsim.configs import InstantiateConfig
+from flashsim.config import InstantiateConfig
 
-from flashsim.model.video_dit.wan2_1.modules import (
-    BlockCache,
+from .modules import (
     Block,
+    BlockCache,
     Head,
     MLPProj,
     sinusoidal_embedding_1d,
@@ -42,24 +46,40 @@ class WanDiTNetworkCache:
 
 @dataclass
 class WanDiTNetworkConfig(InstantiateConfig["WanDiTNetwork"]):
+    """Configuration for the Wan DiT network."""
+
     _target: type["WanDiTNetwork"] = field(default_factory=lambda: WanDiTNetwork)
 
-    model_type: Literal["t2v", "i2v"] = "t2v"
     patch_size: tuple[int, int, int] = (1, 2, 2)
+    """Patch size for the input tensor."""
     text_len: int = 512
+    """Maximum text token length."""
     in_dim: int = 16
+    """Number of input latent channels before patch embedding."""
     dim: int = 1536
+    """Transformer hidden size (width)."""
     ffn_dim: int = 8960
+    """Feed-forward hidden dimension."""
     freq_dim: int = 256
+    """Sinusoidal timestep embedding dimension."""
     text_dim: int = 4096
+    """Text encoder output dimension."""
     out_dim: int = 16
+    """Output latent channels after the head."""
     num_heads: int = 12
+    """Number of attention heads."""
     num_layers: int = 30
+    """Number of transformer blocks."""
     cross_attn_norm: bool = True
+    """If True, apply ``LayerNorm`` before cross-attention."""
+    cross_attn_enable_img: bool = False
+    """If True, build image cross-attention and CLIP image projection (I2V)."""
     eps: float = 1e-6
+    """Epsilon for normalization layers."""
     concat_padding_mask: bool = False
-    additional_concat_ch: int = 0
-    patch_embedding_type: Literal["linear", "conv3d"] = "linear"
+    """If True, concatenate one mask channel into the input channels."""
+    patch_embedding_type: Literal["linear", "conv3d"] = "conv3d"
+    """Type of patch embedding: ``"linear"`` (flattened patch MLP) or ``"conv3d"`` (strided conv)."""
 
 
 @dataclass
@@ -85,31 +105,8 @@ class WanDiTNetwork14BConfig(WanDiTNetworkConfig):
 class WanDiTNetwork(nn.Module):
     """WAN diffusion backbone for text-to-video and image-to-video."""
 
-    def __init__(self, config: WanDiTNetworkConfig):
-        """Initialize WAN DiT backbone.
-
-        Args:
-            model_type: Model variant. Supported values: ``"t2v"``, ``"i2v"``.
-            patch_size: 3D patch size ``(t_patch, h_patch, w_patch)``.
-            text_len: Fixed maximum text length.
-            in_dim: Input latent channels.
-            dim: Transformer hidden dimension.
-            ffn_dim: Feed-forward hidden dimension.
-            freq_dim: Sinusoidal timestep embedding dimension.
-            text_dim: Input text embedding dimension.
-            out_dim: Output latent channels.
-            num_heads: Number of attention heads.
-            num_layers: Number of transformer blocks.
-            cross_attn_norm: Whether to apply normalization before cross-attention.
-            eps: Epsilon for normalization layers.
-            concat_padding_mask: Whether one mask channel is concatenated into input.
-            additional_concat_ch: Extra conditioning channels (e.g. HDMap).
-        """
-
+    def __init__(self, config: WanDiTNetworkConfig) -> None:
         super().__init__()
-
-        assert config.model_type in ["t2v", "i2v"], "model_type must be 't2v' or 'i2v'"
-        self.model_type = config.model_type
 
         self.patch_size = config.patch_size
         self.text_len = config.text_len
@@ -121,9 +118,9 @@ class WanDiTNetwork(nn.Module):
         self.num_heads = config.num_heads
         self.num_layers = config.num_layers
         self.cross_attn_norm = config.cross_attn_norm
+        self.cross_attn_enable_img = config.cross_attn_enable_img
         self.eps = config.eps
         self.concat_padding_mask = config.concat_padding_mask
-        self.additional_concat_ch = config.additional_concat_ch
         self.patch_embedding_type = config.patch_embedding_type
 
         # Embedding layers
@@ -155,16 +152,8 @@ class WanDiTNetwork(nn.Module):
         self.time_projection = nn.Sequential(
             nn.SiLU(), nn.Linear(self.dim, self.dim * 6)
         )
-        if self.model_type == "i2v":
+        if self.cross_attn_enable_img:
             self.img_emb = MLPProj(1280, self.dim)
-        if self.additional_concat_ch > 0:
-            self.additional_patch_embedding = nn.Linear(
-                self.additional_concat_ch
-                * self.patch_size[0]
-                * self.patch_size[1]
-                * self.patch_size[2],
-                self.dim,
-            )
 
         # Transformer blocks
         self.blocks = nn.ModuleList(
@@ -175,7 +164,7 @@ class WanDiTNetwork(nn.Module):
                     self.num_heads,
                     self.cross_attn_norm,
                     self.eps,
-                    i2v=(self.model_type == "i2v"),
+                    i2v=self.cross_attn_enable_img,
                 )
                 for _ in range(self.num_layers)
             ]
@@ -222,7 +211,7 @@ class WanDiTNetwork(nn.Module):
 
         if process_groups is not None:
             assert cp_dims is not None and len(cp_dims) == len(process_groups), (
-                "Context parallel dimensions and process groups must be provided"
+                "Context parallel dimensions and process groups must be provided "
                 "and the number of dimensions must match the number of process groups"
             )
             for cp_dim, process_group in zip(cp_dims, process_groups):
@@ -254,7 +243,7 @@ class WanDiTNetwork(nn.Module):
 
         if process_groups is not None:
             assert cp_dims is not None and len(cp_dims) == len(process_groups), (
-                "Context parallel dimensions and process groups must be provided"
+                "Context parallel dimensions and process groups must be provided "
                 "and the number of dimensions must match the number of process groups"
             )
             for cp_dim, process_group in zip(cp_dims, process_groups):
@@ -297,9 +286,9 @@ class WanDiTNetwork(nn.Module):
         """
         assert text_embeddings.shape[-2] == self.text_len
         context_text = self.text_embedding(text_embeddings)
-        if self.model_type == "i2v":
+        if self.cross_attn_enable_img:
             assert img_embeddings is not None, (
-                "img_embeddings is required when model_type='i2v'"
+                "img_embeddings is required when cross_attn_enable_img=True"
             )
             context_img = self.img_emb(img_embeddings)
         else:
@@ -370,7 +359,7 @@ class WanDiTNetwork(nn.Module):
                 c=self.out_dim,
             ).contiguous()
 
-        self.is_shuffle_op_fused = True
+        self._is_shuffle_op_fused = True
 
     def forward(
         self,
@@ -379,7 +368,6 @@ class WanDiTNetwork(nn.Module):
         cache: WanDiTNetworkCache,
         rope_freqs: Tensor,
         current_chunk_idx: int = 0,
-        hdmap_condition: Tensor | None = None,
         eager_mode: bool = True,
     ) -> Tensor:
         """Run one denoising forward pass.
@@ -392,7 +380,6 @@ class WanDiTNetwork(nn.Module):
             cache: Per-block KV caches.
             rope_freqs: RoPE frequencies of shape [L, 1, 1, head_dim // 2] after CP.
             current_chunk_idx: Current chunk index for streaming cache update.
-            hdmap_condition: Optional HDMap tensor of shape [..., L, D_hdmap] after patchify.
             eager_mode: If True, run cache before/after update hooks.
 
         Returns:
@@ -416,14 +403,6 @@ class WanDiTNetwork(nn.Module):
             raise ValueError(
                 f"Invalid patch embedding type: {self.patch_embedding_type}"
             )
-
-        # Optional HDMap embedding
-        if self.additional_concat_ch > 0:
-            assert hdmap_condition is not None, (
-                "hdmap is expected to be provided for additional concat channels"
-            )
-            additional_x = self.additional_patch_embedding(hdmap_condition)
-            x = x + additional_x  # (..., L, D)
 
         # Timestep embedding and modulation projection
         e = self.time_embedding(
@@ -451,117 +430,26 @@ class WanDiTNetwork(nn.Module):
         return x
 
 
-def test_basic(i2v: bool = False, use_hdmap: bool = False) -> None:
-    """Quick local smoke test for WAN network forward pass."""
-    torch.manual_seed(42)
-    # 14B model
-    device = "cuda"
-    dtype = torch.bfloat16
-
-    additional_concat_ch = 0
-    if i2v:
-        model_type = "i2v"
-        in_dim = 16 + 20  # 16 is noise, 20 is image conditioning
-        if use_hdmap:
-            additional_concat_ch = 16
-    else:
-        model_type = "t2v"
-        in_dim = 16
-
-    T, H, W = 3, 720 // 8, 1280 // 8
-    num_tokens_per_frame = H // 2 * W // 2
-    num_tokens_per_chunk = T * num_tokens_per_frame
-
-    network = (
-        WanDiTNetworkConfig(
-            model_type=model_type,
-            dim=5120,
-            ffn_dim=13824,
-            freq_dim=256,
-            in_dim=in_dim,
-            num_heads=40,
-            num_layers=40,
-            out_dim=16,
-            text_len=512,
-            additional_concat_ch=additional_concat_ch,
-        )
-        .setup()
-        .to(device=device, dtype=dtype)
-    )
-    # torch.save(network.state_dict(), "outputs/wan2_1_network.pth")
-    network.load_state_dict(torch.load("outputs/wan2_1_network.pth"))
-
-    torch.manual_seed(42)
-    data = torch.randn(1, in_dim, T, H, W, device=device, dtype=dtype)
-    x = rearrange(
-        data,
-        "b c (t kt) (h kh) (w kw) -> b (t h w) (c kt kh kw)",
-        kt=network.patch_size[0],
-        kh=network.patch_size[1],
-        kw=network.patch_size[2],
-    )
-    timesteps = torch.randn(1, device=device, dtype=dtype)
-    rope_freqs = torch.randn(
-        num_tokens_per_chunk, 1, 1, 64, device=device, dtype=torch.float32
-    )
-    _camera = torch.randn(1, num_tokens_per_chunk, 1536, device=device, dtype=dtype)
-    if use_hdmap:
-        hdmap_condition = torch.randn(
-            1, additional_concat_ch, T, H, W, device=device, dtype=dtype
-        )
-        hdmap_condition = rearrange(
-            hdmap_condition,
-            "b c (t kt) (h kh) (w kw) -> b (t h w) (c kt kh kw)",
-            kt=network.patch_size[0],
-            kh=network.patch_size[1],
-            kw=network.patch_size[2],
-        )
-
-    else:
-        hdmap_condition = None
-
-    network.initialize_context_parallel()
-    network.update_parameters_after_loading_checkpoint()
-
-    network_cache = network.initialize_cache(
-        chunk_size=num_tokens_per_chunk,
-        window_size=21 * num_tokens_per_frame,
-        sink_size=3 * num_tokens_per_frame,
-        text_embeddings=torch.randn(1, 512, 4096, device=device, dtype=dtype),
-        img_embeddings=torch.randn(1, 256, 1280, device=device, dtype=dtype),
-    )
-
-    @torch.no_grad()
-    def _run():
-        output = network(
-            x,
-            timesteps,
-            network_cache,
-            rope_freqs=rope_freqs,
-            current_chunk_idx=0,
-            hdmap_condition=hdmap_condition,
-        )
-        return output
-
-    output = _run()
-
-    print(
-        "i2v:",
-        i2v,
-        "use_hdmap:",
-        use_hdmap,
-        "x.shape:",
-        x.shape,
-        "output.shape:",
-        output.shape,
-        "output.sum():",
-        output.sum(),
-    )
-    # i2v: True use_hdmap: False x.shape: torch.Size([1, 10800, 144]) output.shape: torch.Size([1, 10800, 64]) output.sum(): tensor(10176., device='cuda:0', dtype=torch.bfloat16)
-
-
-# torchrun --nproc_per_node=1 flashsim/model/video_dit/wan2_1/network.py
+# python -m flashsim.model.video_dit.wan2_1.network
 if __name__ == "__main__":
-    test_basic(i2v=True)
-    # test_basic(i2v=False)
-    # test_basic(i2v=True, use_hdmap=True)
+    from flashsim.checkpoint.load import load_checkpoint
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    t2v_network_config = WanDiTNetwork1pt3BConfig()
+    t2v_network = t2v_network_config.setup().to(device)
+    t2v_state_dict = load_checkpoint(
+        "https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B/blob/main/diffusion_pytorch_model.safetensors"
+    )
+    t2v_network.load_state_dict(t2v_state_dict)
+    print("Test T2V network loading done")
+
+    i2v_network_config = WanDiTNetwork14BConfig(
+        cross_attn_enable_img=True, in_dim=16 + 20
+    )
+    i2v_network = i2v_network_config.setup().to(device)
+    i2v_state_dict = load_checkpoint(
+        "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-720P/blob/main/diffusion_pytorch_model.safetensors.index.json"
+    )
+    i2v_network.load_state_dict(i2v_state_dict)
+    print("Test I2V network loading done")

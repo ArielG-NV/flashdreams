@@ -5,27 +5,29 @@ from torch import Tensor
 
 from flashsim.model.video_vae.wan import WanVAEInterfaceConfig, WanVAECache
 from flashsim.model.video_vae.teahv import TeahvInterfaceConfig, TAEHVCache
-from flashsim.model.text_encoder.wan2_1 import WanTextEncoderConfig
-from flashsim.model.video_dit.wan2_1.model import (
-    WanDiTCache,
-    WanDiTCondition,
-    WanDiTConfig,
+from flashsim.model.text_encoder.cosmos_reason1 import CosmosReason1TextEncoderConfig
+from projects.alpadreams.dit.model import (
+    CosmosDiTCache,
+    CosmosDiTCondition,
+    CosmosDiTConfig,
 )
-from flashsim.configs import InstantiateConfig
+from flashsim.config import InstantiateConfig
 from flashsim.model.video_dit.profiling import ProfileEvents
 
 
 @dataclass
-class Wan2_1PipelineCache:
+class AlpadreamsPipelineCache:
     tokenizer_cache: WanVAECache | TAEHVCache
     detokenizer_cache: WanVAECache | TAEHVCache
-    dit_cache: WanDiTCache
+    dit_cache: CosmosDiTCache
     profile_events: list[ProfileEvents]
 
 
 @dataclass
-class Wan2_1PipelineConfig(InstantiateConfig["Wan2_1Pipeline"]):
-    _target: type["Wan2_1Pipeline"] = field(default_factory=lambda: Wan2_1Pipeline)
+class AlpadreamsPipelineConfig(InstantiateConfig["AlpadreamsPipeline"]):
+    _target: type["AlpadreamsPipeline"] = field(
+        default_factory=lambda: AlpadreamsPipeline
+    )
 
     tokenizer: WanVAEInterfaceConfig | TeahvInterfaceConfig = field(
         default_factory=lambda: WanVAEInterfaceConfig()
@@ -33,21 +35,21 @@ class Wan2_1PipelineConfig(InstantiateConfig["Wan2_1Pipeline"]):
     detokenizer: WanVAEInterfaceConfig | TeahvInterfaceConfig = field(
         default_factory=lambda: TeahvInterfaceConfig()
     )
-    text_encoder: WanTextEncoderConfig = field(
-        default_factory=lambda: WanTextEncoderConfig()
+    text_encoder: CosmosReason1TextEncoderConfig = field(
+        default_factory=lambda: CosmosReason1TextEncoderConfig()
     )
     image_encoder: WanVAEInterfaceConfig | TeahvInterfaceConfig = field(
         default_factory=lambda: WanVAEInterfaceConfig()
     )
-    dit: WanDiTConfig = field(default_factory=lambda: WanDiTConfig())
+    dit: CosmosDiTConfig = field(default_factory=lambda: CosmosDiTConfig())
 
     seed: int = 42
 
 
-class Wan2_1Pipeline:
+class AlpadreamsPipeline:
     def __init__(
         self,
-        config: Wan2_1PipelineConfig,
+        config: AlpadreamsPipelineConfig,
         device: torch.device = torch.device("cuda"),
     ):
         self.text_encoder = config.text_encoder.setup(device=device)
@@ -58,30 +60,21 @@ class Wan2_1Pipeline:
         self.rng = torch.Generator(device=device).manual_seed(config.seed)
 
     def initialize_cache(
-        self,
-        video_height: int,
-        video_width: int,
-        text: list[list[str]],
-        image: Tensor | None = None,
-    ) -> Wan2_1PipelineCache:
+        self, text: list[list[str]], image: Tensor, view_names: list[str] | None = None
+    ) -> AlpadreamsPipelineCache:
         """
-        Initialize the cache for the Wan2_1 pipeline.
+        Initialize the cache for the Alpadreams pipeline.
 
         Args:
             text: The batch of texts to encode. [B, V]
-            image: The first frame of the video. [B, V, 1, 3, H, W] or None for text-to-video
+            image: The first frame of the video. [B, V, 1, 3, H, W]
         """
+        video_height, video_width = image.shape[-2:]
+
         encoded_height = video_height // self.tokenizer.spatial_compression_ratio
         encoded_width = video_width // self.tokenizer.spatial_compression_ratio
 
-        if image is not None:
-            assert image.shape[-2:] == (video_height, video_width), (
-                f"image shape must be {video_height}x{video_width}, but got {image.shape[-2:]}"
-            )
-            initial_latent = self.image_encoder.encode(image)
-        else:
-            initial_latent = None
-
+        image_embeddings = self.image_encoder.encode(image)
         text_embeddings = torch.stack(
             [self.text_encoder.encode(t) for t in text], dim=0
         )
@@ -89,19 +82,15 @@ class Wan2_1Pipeline:
         dit_cache = self.dit.initialize_cache(
             height=encoded_height,
             width=encoded_width,
+            image_embeddings=image_embeddings,
             text_embeddings=text_embeddings,
-            initial_latent=initial_latent,
+            view_names=view_names,
         )
 
         tokenizer_cache = self.tokenizer.initialize_encode_cache()
         detokenizer_cache = self.detokenizer.initialize_decode_cache()
 
-        # if the initial latent is available, refresh the cache with it.
-        if initial_latent is not None:
-            _ = self.detokenizer.decode(initial_latent, cache=detokenizer_cache)
-            _ = self.dit.finalize(dit_cache, context_noise=0.0, rng=self.rng)
-
-        return Wan2_1PipelineCache(
+        return AlpadreamsPipelineCache(
             tokenizer_cache=tokenizer_cache,
             detokenizer_cache=detokenizer_cache,
             dit_cache=dit_cache,
@@ -112,36 +101,41 @@ class Wan2_1Pipeline:
     def streaming_inference(
         self,
         autoregressive_index: int,
-        cache: Wan2_1PipelineCache,
+        hdmap: Tensor,
+        cache: AlpadreamsPipelineCache,
     ) -> Tensor:
         """
         Stream the inference of the video diffusion pipeline.
 
         Args:
             autoregressive_index: The autoregressive index.
-            cache: The cache for the Wan2_1 pipeline.
+            hdmap: The hdmap to encode. [B, V, T, C, H, W]
+            cache: The cache for the Alpadreams pipeline.
 
         Returns:
             The decoded video. [B, V, T, C, H, W]
         """
         if autoregressive_index >= len(cache.profile_events):
             cache.profile_events.append(ProfileEvents())
-        profile_events = cache.profile_events[-1]
+        profile_events = cache.profile_events[autoregressive_index]
 
         if profile_events is not None:
             profile_events.tic.record()
+
+        # 1. encode the hdmap
+        if hasattr(cache.tokenizer_cache, "autoregressive_index"):
+            cache.tokenizer_cache.autoregressive_index = autoregressive_index
+        encoded_hdmap = self.tokenizer.encode(hdmap, cache=cache.tokenizer_cache)
 
         if profile_events is not None:
             profile_events.toc_after_encode.record()
 
         # 2. run DiT denoising
-        assert autoregressive_index > cache.dit_cache.autoregressive_index, (
-            f"Autoregressive index must be greater than the current "
-            f"autoregressive index {cache.dit_cache.autoregressive_index}"
-        )
         cache.dit_cache.autoregressive_index = autoregressive_index
         clean_input = self.dit.generate(
-            condition=WanDiTCondition(), cache=cache.dit_cache, rng=self.rng
+            condition=CosmosDiTCondition(hdmap=encoded_hdmap),
+            cache=cache.dit_cache,
+            rng=self.rng,
         )
 
         if profile_events is not None:
@@ -163,14 +157,14 @@ class Wan2_1Pipeline:
     def finalize(
         self,
         autoregressive_index: int,
-        cache: Wan2_1PipelineCache,
+        cache: AlpadreamsPipelineCache,
     ) -> None:
         """
         Finalize the streaming inference. This will update the KV cache for the next block.
         """
         self.dit.finalize(cache.dit_cache, rng=self.rng)
 
-        profile_events = cache.profile_events[-1]
+        profile_events = cache.profile_events[autoregressive_index]
         profile_events.toc_after_finalize.record()
 
     @torch.no_grad()

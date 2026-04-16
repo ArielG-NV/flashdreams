@@ -1,14 +1,14 @@
-from flashsim.pipeline.lingbot_world import LingbotWorldPipelineConfig
+from projects.lingbot_world.pipeline import LingbotWorldPipelineConfig
 from flashsim.model.video_vae.wan import (
     WanVAEInterfaceConfig,
     AVAILABLE_WAN_VAE_CHECKPOINT_PATHS,
 )
 from flashsim.model.text_encoder.wan2_1 import WanTextEncoderConfig
-from flashsim.model.video_dit.lingbot_world.model import (
+from projects.lingbot_world.dit.model import (
     LingbotWorldDiTConfig,
     AVAILABLE_LINGBOT_WORLD_CHECKPOINT_PATHS,
 )
-from flashsim.model.video_dit.lingbot_world.network import (
+from projects.lingbot_world.dit.network import (
     LingbotWorldDiTNetwork14BConfig,
 )
 from flashsim.model.video_vae.pshuffle import PixelShuffleVAEInterfaceConfig

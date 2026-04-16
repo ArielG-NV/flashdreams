@@ -4,7 +4,7 @@ import torch
 from torch import Tensor
 
 from flashsim.checkpoint.load import load_checkpoint
-from flashsim.configs import InstantiateConfig
+from flashsim.config import InstantiateConfig
 
 from flashsim.model.video_dit.base import BaseVideoDiT, denoise, add_noise
 from flashsim.model.video_dit.rope import RotaryPositionEmbedding3D
@@ -431,7 +431,7 @@ class LingbotWorldDiT(BaseVideoDiT[LingbotWorldDiTCache]):
         )
 
 
-# python -m flashsim.model.video_dit.lingbot_world.model
+# python -m projects.lingbot_world.dit.model
 if __name__ == "__main__":
     device = torch.device("cuda")
     dtype = torch.bfloat16

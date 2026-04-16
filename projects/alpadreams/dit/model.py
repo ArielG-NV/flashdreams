@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from flashsim.checkpoint.load import load_checkpoint
-from flashsim.configs import InstantiateConfig
+from flashsim.config import InstantiateConfig
 from flashsim.distributed.context_parallel import split_inputs_cp
 
 from flashsim.model.video_dit.base import BaseVideoDiT, denoise, add_noise
@@ -479,7 +479,7 @@ class CosmosDiT(BaseVideoDiT[CosmosDiTCache]):
         )
 
 
-# python -m flashsim.model.video_dit.alpadreams.model
+# python -m projects.alpadreams.dit.model
 if __name__ == "__main__":
     import tyro
 

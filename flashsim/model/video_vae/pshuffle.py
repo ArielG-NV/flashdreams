@@ -5,7 +5,7 @@ from torch import Tensor
 import torch
 
 from flashsim.model.video_vae.base import BaseVideoVAE
-from flashsim.configs import InstantiateConfig
+from flashsim.config import InstantiateConfig
 
 
 @dataclass

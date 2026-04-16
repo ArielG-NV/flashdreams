@@ -1,11 +1,11 @@
 import torch
-from flashsim.configs.alpadreams import AlpadreamsPipelineConfig
+from projects.alpadreams.config import AlpadreamsPipelineConfig
 
 
 def test_alpadreams_streaming_inference():
     num_views = 1
-    height = 704
-    width = 1280
+    height = 480
+    width = 832
 
     device = torch.device("cuda")
     dtype = torch.bfloat16

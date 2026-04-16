@@ -6,12 +6,12 @@ from torch import Tensor
 from flashsim.model.video_vae.wan import WanVAEInterfaceConfig, WanVAECache
 from flashsim.model.video_vae.teahv import TeahvInterfaceConfig, TAEHVCache
 from flashsim.model.text_encoder.wan2_1 import WanTextEncoderConfig
-from flashsim.model.video_dit.wan2_2.model import (
+from projects.causal_wan2_2.dit.model import (
     WanDiTCache,
     WanDiTCondition,
     WanDiTConfig,
 )
-from flashsim.configs import InstantiateConfig
+from flashsim.config import InstantiateConfig
 from flashsim.model.video_dit.profiling import ProfileEvents
 
 

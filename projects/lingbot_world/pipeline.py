@@ -1,32 +1,33 @@
 from dataclasses import dataclass, field
 
 import torch
+import torch.nn.functional as F
 from torch import Tensor
 
 from flashsim.model.video_vae.wan import WanVAEInterfaceConfig, WanVAECache
 from flashsim.model.video_vae.teahv import TeahvInterfaceConfig, TAEHVCache
-from flashsim.model.text_encoder.cosmos_reason1 import CosmosReason1TextEncoderConfig
-from flashsim.model.video_dit.alpadreams.model import (
-    CosmosDiTCache,
-    CosmosDiTCondition,
-    CosmosDiTConfig,
+from flashsim.model.text_encoder.wan2_1 import WanTextEncoderConfig
+from projects.lingbot_world.dit.model import (
+    LingbotWorldDiTCache,
+    LingbotWorldDiTCondition,
+    LingbotWorldDiTConfig,
 )
-from flashsim.configs import InstantiateConfig
+from flashsim.config import InstantiateConfig
 from flashsim.model.video_dit.profiling import ProfileEvents
 
 
 @dataclass
-class AlpadreamsPipelineCache:
+class LingbotWorldPipelineCache:
     tokenizer_cache: WanVAECache | TAEHVCache
     detokenizer_cache: WanVAECache | TAEHVCache
-    dit_cache: CosmosDiTCache
+    dit_cache: LingbotWorldDiTCache
     profile_events: list[ProfileEvents]
 
 
 @dataclass
-class AlpadreamsPipelineConfig(InstantiateConfig["AlpadreamsPipeline"]):
-    _target: type["AlpadreamsPipeline"] = field(
-        default_factory=lambda: AlpadreamsPipeline
+class LingbotWorldPipelineConfig(InstantiateConfig["LingbotWorldPipeline"]):
+    _target: type["LingbotWorldPipeline"] = field(
+        default_factory=lambda: LingbotWorldPipeline
     )
 
     tokenizer: WanVAEInterfaceConfig | TeahvInterfaceConfig = field(
@@ -35,21 +36,21 @@ class AlpadreamsPipelineConfig(InstantiateConfig["AlpadreamsPipeline"]):
     detokenizer: WanVAEInterfaceConfig | TeahvInterfaceConfig = field(
         default_factory=lambda: TeahvInterfaceConfig()
     )
-    text_encoder: CosmosReason1TextEncoderConfig = field(
-        default_factory=lambda: CosmosReason1TextEncoderConfig()
+    text_encoder: WanTextEncoderConfig = field(
+        default_factory=lambda: WanTextEncoderConfig()
     )
     image_encoder: WanVAEInterfaceConfig | TeahvInterfaceConfig = field(
         default_factory=lambda: WanVAEInterfaceConfig()
     )
-    dit: CosmosDiTConfig = field(default_factory=lambda: CosmosDiTConfig())
+    dit: LingbotWorldDiTConfig = field(default_factory=lambda: LingbotWorldDiTConfig())
 
     seed: int = 42
 
 
-class AlpadreamsPipeline:
+class LingbotWorldPipeline:
     def __init__(
         self,
-        config: AlpadreamsPipelineConfig,
+        config: LingbotWorldPipelineConfig,
         device: torch.device = torch.device("cuda"),
     ):
         self.text_encoder = config.text_encoder.setup(device=device)
@@ -60,8 +61,8 @@ class AlpadreamsPipeline:
         self.rng = torch.Generator(device=device).manual_seed(config.seed)
 
     def initialize_cache(
-        self, text: list[list[str]], image: Tensor, view_names: list[str] | None = None
-    ) -> AlpadreamsPipelineCache:
+        self, text: list[list[str]], image: Tensor
+    ) -> LingbotWorldPipelineCache:
         """
         Initialize the cache for the Alpadreams pipeline.
 
@@ -74,7 +75,8 @@ class AlpadreamsPipeline:
         encoded_height = video_height // self.tokenizer.spatial_compression_ratio
         encoded_width = video_width // self.tokenizer.spatial_compression_ratio
 
-        image_embeddings = self.image_encoder.encode(image)
+        image_padded = F.pad(image, (0, 0, 0, 0, 0, 0, 0, 81 - 1))
+        image_embeddings = self.image_encoder.encode(image_padded)
         text_embeddings = torch.stack(
             [self.text_encoder.encode(t) for t in text], dim=0
         )
@@ -84,13 +86,12 @@ class AlpadreamsPipeline:
             width=encoded_width,
             image_embeddings=image_embeddings,
             text_embeddings=text_embeddings,
-            view_names=view_names,
         )
 
         tokenizer_cache = self.tokenizer.initialize_encode_cache()
         detokenizer_cache = self.detokenizer.initialize_decode_cache()
 
-        return AlpadreamsPipelineCache(
+        return LingbotWorldPipelineCache(
             tokenizer_cache=tokenizer_cache,
             detokenizer_cache=detokenizer_cache,
             dit_cache=dit_cache,
@@ -101,15 +102,15 @@ class AlpadreamsPipeline:
     def streaming_inference(
         self,
         autoregressive_index: int,
-        hdmap: Tensor,
-        cache: AlpadreamsPipelineCache,
+        plucker: Tensor,
+        cache: LingbotWorldPipelineCache,
     ) -> Tensor:
         """
         Stream the inference of the video diffusion pipeline.
 
         Args:
             autoregressive_index: The autoregressive index.
-            hdmap: The hdmap to encode. [B, V, T, C, H, W]
+            plucker: The plucker to encode. [B, V, T, C, H, W]
             cache: The cache for the Alpadreams pipeline.
 
         Returns:
@@ -125,7 +126,7 @@ class AlpadreamsPipeline:
         # 1. encode the hdmap
         if hasattr(cache.tokenizer_cache, "autoregressive_index"):
             cache.tokenizer_cache.autoregressive_index = autoregressive_index
-        encoded_hdmap = self.tokenizer.encode(hdmap, cache=cache.tokenizer_cache)
+        encoded_plucker = self.tokenizer.encode(plucker, cache=cache.tokenizer_cache)
 
         if profile_events is not None:
             profile_events.toc_after_encode.record()
@@ -133,7 +134,7 @@ class AlpadreamsPipeline:
         # 2. run DiT denoising
         cache.dit_cache.autoregressive_index = autoregressive_index
         clean_input = self.dit.generate(
-            condition=CosmosDiTCondition(hdmap=encoded_hdmap),
+            condition=LingbotWorldDiTCondition(plucker=encoded_plucker),
             cache=cache.dit_cache,
             rng=self.rng,
         )
@@ -157,7 +158,7 @@ class AlpadreamsPipeline:
     def finalize(
         self,
         autoregressive_index: int,
-        cache: AlpadreamsPipelineCache,
+        cache: LingbotWorldPipelineCache,
     ) -> None:
         """
         Finalize the streaming inference. This will update the KV cache for the next block.

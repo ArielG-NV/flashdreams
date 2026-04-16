@@ -13,7 +13,7 @@ import torch
 from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
 
 from flashsim.model.text_encoder.base import BaseTextEncoder
-from flashsim.configs import InstantiateConfig
+from flashsim.config import InstantiateConfig
 from flashsim.model.text_encoder.utils import str2bool
 
 

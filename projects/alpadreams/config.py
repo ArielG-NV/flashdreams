@@ -1,5 +1,5 @@
-from flashsim.configs import derive_conifg
-from flashsim.pipeline.alpadreams import AlpadreamsPipelineConfig
+from flashsim.config import derive_conifg
+from projects.alpadreams.pipeline import AlpadreamsPipelineConfig
 from flashsim.model.video_vae.wan import (
     WanVAEInterfaceConfig,
     AVAILABLE_WAN_VAE_CHECKPOINT_PATHS,
@@ -9,7 +9,7 @@ from flashsim.model.video_vae.teahv import (
     AVAILABLE_TAEHV_CHECKPOINT_PATHS,
 )
 from flashsim.model.text_encoder.cosmos_reason1 import CosmosReason1TextEncoderConfig
-from flashsim.model.video_dit.alpadreams.model import (
+from projects.alpadreams.dit.model import (
     CosmosDiTConfig,
     AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS,
 )

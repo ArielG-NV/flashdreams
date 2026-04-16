@@ -6,7 +6,7 @@ import torch
 from transformers import AutoTokenizer, UMT5EncoderModel
 
 from flashsim.model.text_encoder.base import BaseTextEncoder
-from flashsim.configs import InstantiateConfig
+from flashsim.config import InstantiateConfig
 from flashsim.model.text_encoder.utils import prompt_clean, str2bool
 
 

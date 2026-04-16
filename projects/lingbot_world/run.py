@@ -1,5 +1,6 @@
 import os
 import argparse
+from pathlib import Path
 
 import torch
 import numpy as np
@@ -9,7 +10,7 @@ from einops import rearrange
 from huggingface_hub import login as huggingface_login
 
 from flashsim.distributed import init as distributed_init
-from flashsim.configs.lingbot_world import LINGBOT_WORLD_CONFIGS
+from projects.lingbot_world.config import LINGBOT_WORLD_CONFIGS
 from flashsim.io.s3_sync import sync_s3_dir_to_local
 from flashsim.model.video_dit.profiling import ProfileEvents
 
@@ -118,10 +119,10 @@ parser.add_argument("--video_height", type=int, default=464, help="Video height.
 parser.add_argument("--video_width", type=int, default=832, help="Video width.")
 args = parser.parse_args()
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
 EXAMPLE_DATA_DIR_S3 = "s3://flashsim/assets/example_data/lingbot_world"
-EXAMPLE_DATA_DIR_LOCAL = os.path.join(
-    os.path.dirname(__file__), "../assets/example_data/lingbot_world"
-)
+EXAMPLE_DATA_DIR_LOCAL = str(_REPO_ROOT / "assets/example_data/lingbot_world")
 
 CAMERA_NAMES = ["default"]
 DATA = [
@@ -156,9 +157,7 @@ if rank == 0:
     print("logged in to huggingface")
 
     # download example data from S3
-    CREDENTIAL_PATH = os.path.join(
-        os.path.dirname(__file__), "../credentials/s3_checkpoint.secret"
-    )
+    CREDENTIAL_PATH = str(_REPO_ROOT / "credentials/s3_checkpoint.secret")
     assert os.path.exists(CREDENTIAL_PATH), (
         f"Credential file not found at {CREDENTIAL_PATH}"
     )

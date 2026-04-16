@@ -1,4 +1,4 @@
-from flashsim.pipeline.wan2_1 import Wan2_1PipelineConfig
+from projects.causal_wan2_1.pipeline import Wan2_1PipelineConfig
 from flashsim.model.video_vae.wan import (
     WanVAEInterfaceConfig,
     AVAILABLE_WAN_VAE_CHECKPOINT_PATHS,
@@ -8,7 +8,7 @@ from flashsim.model.video_vae.teahv import (
     AVAILABLE_TAEHV_CHECKPOINT_PATHS,
 )
 from flashsim.model.text_encoder.wan2_1 import WanTextEncoderConfig
-from flashsim.model.video_dit.wan2_1.model import (
+from projects.causal_wan2_1.dit.model import (
     WanDiTConfig,
     AVAILABLE_WAN2_1_CHECKPOINT_PATHS,
 )

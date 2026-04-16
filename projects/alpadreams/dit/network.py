@@ -7,7 +7,7 @@ from torch import Tensor
 from torch.distributed import ProcessGroup
 
 from flashsim.distributed.context_parallel import cat_outputs_cp, split_inputs_cp
-from flashsim.configs import InstantiateConfig
+from flashsim.config import InstantiateConfig
 
 from .modules import (
     FinalLayer,
@@ -445,7 +445,7 @@ class CosmosDiTNetwork(nn.Module):
         return x
 
 
-# python -m flashsim.model.video_dit.alpadreams.network --in-channels 3
+# python -m projects.alpadreams.dit.network --in-channels 3
 if __name__ == "__main__":
     import tyro
 
