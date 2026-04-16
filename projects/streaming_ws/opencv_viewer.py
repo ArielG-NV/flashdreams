@@ -1,4 +1,9 @@
-"""Optional OpenCV window to preview WebP frames from playout (laptop / local GUI)."""
+"""Optional OpenCV window to preview WebP frames from playout (laptop / local GUI).
+
+**Threading:** ``namedWindow`` / ``imshow`` / ``waitKey`` must run on the process **main**
+thread (the asyncio event-loop thread in our client). Do **not** call these from
+``asyncio.to_thread`` — macOS will often crash with an OpenCV C++ exception.
+"""
 
 from __future__ import annotations
 

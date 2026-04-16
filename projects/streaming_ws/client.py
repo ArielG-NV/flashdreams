@@ -11,7 +11,8 @@ queue+playout delay for the first frame of each batch.
 
 **Visual preview (laptop):** install ``opencv-python`` (extra ``streaming_viewer``) and pass
 ``--show-window``. Requires a local display (X11/Wayland on Linux, desktop on macOS/Windows);
-headless SSH without forwarding will not show a window.
+headless SSH without forwarding will not show a window. OpenCV runs on the asyncio **main**
+thread so macOS Cocoa does not throw from background threads.
 """
 
 from __future__ import annotations
@@ -123,8 +124,9 @@ def _make_on_frame(
         if cfg.show_window:
             from projects.streaming_ws.opencv_viewer import show_webp_in_window
 
-            await asyncio.to_thread(
-                show_webp_in_window,
+            # OpenCV HighGUI (Cocoa/Qt) must run on the **main** thread — especially on
+            # macOS. ``asyncio.to_thread`` here caused: Unknown C++ exception from OpenCV.
+            show_webp_in_window(
                 jpeg,
                 window_name=cfg.window_name,
                 window_created=window_created,
