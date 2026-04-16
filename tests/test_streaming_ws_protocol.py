@@ -2,9 +2,12 @@
 
 import pytest
 
+import numpy as np
+
 from projects.streaming_ws.protocol import (
     CTRL_MAGIC,
     FRME_MAGIC,
+    CameraCtrl,
     pack_ctrl,
     pack_frme,
     unpack_ctrl,
@@ -18,6 +21,28 @@ def test_pack_unpack_ctrl_roundtrip() -> None:
     c = unpack_ctrl(msg)
     assert c.seq == 7
     assert c.control == {"dx": 1, "dy": -2, "keys": ["a"]}
+    assert c.camera is None
+
+
+def test_pack_unpack_ctrl_camera_roundtrip() -> None:
+    c2w = np.eye(4, dtype=np.float64)
+    c2w[:3, 3] = [0.1, -0.2, 1.5]
+    cam = CameraCtrl(fov=0.9, aspect=16 / 9, c2w=c2w)
+    msg = pack_ctrl(3, {"phase": "tick"}, camera=cam)
+    c = unpack_ctrl(msg)
+    assert c.seq == 3
+    assert c.control == {"phase": "tick"}
+    assert c.camera is not None
+    assert c.camera.fov == 0.9
+    assert c.camera.aspect == pytest.approx(16 / 9)
+    np.testing.assert_allclose(c.camera.c2w, c2w)
+
+
+def test_camera_ctrl_get_K() -> None:
+    cam = CameraCtrl(fov=np.pi / 4, aspect=2.0, c2w=np.eye(4))
+    K = cam.get_K((640, 480))
+    assert K.shape == (3, 3)
+    assert K[0, 2] == 320 and K[1, 2] == 240
 
 
 def test_pack_unpack_frme_roundtrip() -> None:

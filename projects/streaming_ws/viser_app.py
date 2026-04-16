@@ -1,4 +1,4 @@
-"""Viser-only mock stream: **camera updates** trigger new batches (poses ignored for now).
+"""Viser-only mock stream: **camera updates** trigger new batches (camera → :class:`CameraCtrl`).
 
 Playout pushes RGB into each client's **scene background** via
 :meth:`viser.SceneApi.set_background_image` (not a GUI image panel), optionally with a
@@ -17,8 +17,47 @@ from io import BytesIO
 import numpy as np
 from PIL import Image
 
-from projects.streaming_ws.protocol import CtrlMessage
+from projects.streaming_ws.protocol import CameraCtrl, CtrlMessage
 from projects.streaming_ws.stub_frames import encode_stub_batch
+
+
+def _wxyz_to_R(wxyz: np.ndarray) -> np.ndarray:
+    """Unit quaternion (w, x, y, z) → 3×3 rotation (same convention as Viser SO3)."""
+    w, x, y, z = (float(v) for v in np.asarray(wxyz, dtype=np.float64).reshape(4))
+    return np.array(
+        [
+            [
+                1.0 - 2.0 * (y * y + z * z),
+                2.0 * (x * y - w * z),
+                2.0 * (x * z + w * y),
+            ],
+            [
+                2.0 * (x * y + w * z),
+                1.0 - 2.0 * (x * x + z * z),
+                2.0 * (y * z - w * x),
+            ],
+            [
+                2.0 * (x * z - w * y),
+                2.0 * (y * z + w * x),
+                1.0 - 2.0 * (x * x + y * y),
+            ],
+        ],
+        dtype=np.float64,
+    )
+
+
+def camera_ctrl_from_viser_camera(camera) -> CameraCtrl:
+    """Build :class:`CameraCtrl` from a Viser ``CameraHandle`` (``wxyz``, ``position``, …)."""
+    R = _wxyz_to_R(camera.wxyz)
+    pos = np.asarray(camera.position, dtype=np.float64).reshape(3)
+    c2w = np.eye(4, dtype=np.float64)
+    c2w[:3, :3] = R
+    c2w[:3, 3] = pos
+    return CameraCtrl(
+        fov=float(camera.fov),
+        aspect=float(camera.aspect),
+        c2w=c2w,
+    )
 
 
 def _webp_to_rgb(data: bytes) -> np.ndarray:
@@ -93,17 +132,12 @@ def run_viser(cfg: ViserOnlyConfig) -> None:
     buffer: deque[np.ndarray] = deque(maxlen=cfg.buffer_max_frames)
     trigger_q: asyncio.Queue[None] = asyncio.Queue(maxsize=1)
     produce_lock = asyncio.Lock()
+    latest_camera: dict[str, object | None] = {"cam": None}
     state: dict[str, int] = {"batch_id": 0, "base_frame": 0, "seq": 0}
     prefill_done = False
     background_started = False
 
     server = viser.ViserServer(host=cfg.host, port=cfg.port, verbose=cfg.verbose)
-
-    server.gui.add_markdown(
-        "**Camera-driven mock** — **orbit / pan** schedules stub batches. "
-        "Stream is drawn as the **scene background** (``set_background_image``), not a GUI image. "
-        "Poses are still ignored; optional ``--flat-background-depth-m`` sends a flat depth plane."
-    )
 
     async def produce_one(*, ctrl: CtrlMessage | None, apply_latency: bool) -> None:
         async with produce_lock:
@@ -128,8 +162,10 @@ def run_viser(cfg: ViserOnlyConfig) -> None:
         while True:
             await trigger_q.get()
             state["seq"] += 1
+            cam = latest_camera["cam"]
+            cc = camera_ctrl_from_viser_camera(cam) if cam is not None else None
             await produce_one(
-                ctrl=CtrlMessage(seq=state["seq"], control={}),
+                ctrl=CtrlMessage(seq=state["seq"], control={}, camera=cc),
                 apply_latency=True,
             )
 
@@ -154,7 +190,8 @@ def run_viser(cfg: ViserOnlyConfig) -> None:
                     depth=depth,
                 )
 
-    async def on_camera_update(_camera) -> None:
+    async def on_camera_update(camera) -> None:
+        latest_camera["cam"] = camera
         try:
             trigger_q.put_nowait(None)
         except asyncio.QueueFull:

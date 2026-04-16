@@ -6,6 +6,9 @@ CTRL layout::
 
     u32 magic | u32 seq | u32 payload_len | payload_len bytes UTF-8 JSON object
 
+The JSON object may include arbitrary keys plus an optional ``"camera"`` object
+(see :class:`CameraCtrl`) for view-dependent rendering on the server.
+
 FRME layout::
 
     u32 magic | u8 version | u8 n_frames | u16 width | u16 height | u32 batch_id
@@ -17,6 +20,9 @@ from __future__ import annotations
 import json
 import struct
 from dataclasses import dataclass
+from typing import Any
+
+import numpy as np
 
 CTRL_MAGIC = 0x4354524C
 FRME_MAGIC = 0x46524D45
@@ -29,11 +35,78 @@ _FRME_HEADER_STRUCT = struct.Struct(">IBBHHI")
 
 
 @dataclass(frozen=True)
+class CameraCtrl:
+    """Pinhole camera intrinsics + extrinsics for server-side rendering.
+
+    ``c2w`` is camera-to-world (OpenGL-style: ``+Y`` up, ``-Z`` forward), matching
+    typical Viser client camera matrices.
+    """
+
+    fov: float
+    aspect: float
+    c2w: np.ndarray
+
+    def __post_init__(self) -> None:
+        c2w = np.asarray(self.c2w, dtype=np.float64)
+        if c2w.shape != (4, 4):
+            raise ValueError(f"c2w must have shape (4, 4), got {c2w.shape}")
+        object.__setattr__(self, "c2w", c2w)
+
+    def get_K(self, img_wh: tuple[int, int]) -> np.ndarray:
+        """Intrinsic matrix for resolution ``(W, H)`` (``x`` right, ``y`` down)."""
+        W, H = img_wh
+        focal_length = H / 2.0 / np.tan(float(self.fov) / 2.0)
+        K = np.array(
+            [
+                [focal_length, 0.0, W / 2.0],
+                [0.0, focal_length, H / 2.0],
+                [0.0, 0.0, 1.0],
+            ],
+            dtype=np.float64,
+        )
+        return K
+
+    def to_wire(self) -> dict[str, Any]:
+        return {
+            "fov": float(self.fov),
+            "aspect": float(self.aspect),
+            "c2w": self.c2w.astype(np.float64).tolist(),
+        }
+
+    @classmethod
+    def from_wire(cls, obj: object) -> CameraCtrl | None:
+        """Parse the ``"camera"`` JSON value; ``None`` or JSON ``null`` → ``None``."""
+        if obj is None:
+            return None
+        if not isinstance(obj, dict):
+            raise ValueError('CTRL "camera" must be a JSON object or null')
+        try:
+            fov = float(obj["fov"])
+            aspect = float(obj["aspect"])
+            c2w_raw = obj["c2w"]
+        except (KeyError, TypeError, ValueError) as e:
+            raise ValueError('CTRL "camera" requires fov, aspect, c2w') from e
+        c2w = np.asarray(c2w_raw, dtype=np.float64)
+        if c2w.shape != (4, 4):
+            raise ValueError('CTRL "camera" c2w must be a 4×4 array')
+        if (
+            not np.isfinite(c2w).all()
+            or not np.isfinite(fov)
+            or not np.isfinite(aspect)
+        ):
+            raise ValueError('CTRL "camera" contains non-finite values')
+        if fov <= 0.0 or aspect <= 0.0:
+            raise ValueError('CTRL "camera" fov and aspect must be positive')
+        return cls(fov=fov, aspect=aspect, c2w=c2w)
+
+
+@dataclass(frozen=True)
 class CtrlMessage:
     """Decoded client control."""
 
     seq: int
     control: dict
+    camera: CameraCtrl | None = None
 
 
 @dataclass(frozen=True)
@@ -48,9 +121,14 @@ class FrmeMessage:
     frames: tuple[bytes, ...]
 
 
-def pack_ctrl(seq: int, control: dict) -> bytes:
+def pack_ctrl(seq: int, control: dict, camera: CameraCtrl | None = None) -> bytes:
     """Pack one WebSocket **binary** control message (not text WS frames)."""
-    payload = json.dumps(control, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    payload_obj: dict[str, Any] = dict(control)
+    if camera is not None:
+        payload_obj["camera"] = camera.to_wire()
+    payload = json.dumps(payload_obj, separators=(",", ":"), sort_keys=True).encode(
+        "utf-8"
+    )
     return _CTRL_HEADER_STRUCT.pack(CTRL_MAGIC, seq, len(payload)) + payload
 
 
@@ -74,7 +152,9 @@ def unpack_ctrl(data: bytes) -> CtrlMessage:
         raise ValueError("CTRL invalid JSON") from e
     if not isinstance(obj, dict):
         raise ValueError("CTRL JSON must be an object")
-    return CtrlMessage(seq=seq, control=obj)
+    cam_raw = obj.pop("camera", None)
+    camera = CameraCtrl.from_wire(cam_raw)
+    return CtrlMessage(seq=seq, control=obj, camera=camera)
 
 
 def pack_frme(
