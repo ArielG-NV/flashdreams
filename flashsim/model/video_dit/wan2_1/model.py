@@ -84,7 +84,7 @@ class WanDiTConfig(InstantiateConfig["WanDiT"]):
     window_size_t: int = 21
     sink_size_t: int = 0
 
-    # Chunk size: Number of tokens along T dimension. (after patchification)
+    # Chunk size: Number of tokens along T dimension.
     len_t: int = 3
 
     # Checkpoint path

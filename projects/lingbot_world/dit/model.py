@@ -51,13 +51,7 @@ class LingbotWorldDiTCache:
     num_tokens_per_chunk: int  # number of tokens per chunk after CP
     batch_shape: tuple[int, ...]  # The batch shape for (...)
 
-    image: Tensor  # first frame of the video [..., 1, C, H, W]
-    condition_video_input_mask_first_block: (
-        Tensor  # condition video input mask [..., T, 4, H, W]
-    )
-    condition_video_input_mask_other_blocks: (
-        Tensor  # condition video input mask [..., T, 4, H, W]
-    )
+    condition_image: Tensor  # mask and image latents [..., T, 4+C, H, W]
 
     network_cache_conditioned: LingbotWorldDiTNetworkCache
     network_cache_unconditioned: LingbotWorldDiTNetworkCache | None
@@ -243,19 +237,12 @@ class LingbotWorldDiT(BaseVideoDiT[LingbotWorldDiTCache]):
         else:
             network_cache_unconditioned = None
 
-        *batch_shape, _, _, H, W = image_latents.shape
-        condition_video_input_mask_first_block = torch.zeros(
-            *batch_shape, len_t, 4, H, W, device=self.device, dtype=self.dtype
+        *batch_shape, T, _, H, W = image_latents.shape
+        image_masks = torch.zeros(
+            *batch_shape, T, 4, H, W, device=self.device, dtype=self.dtype
         )
-        condition_video_input_mask_first_block[:, :, :1, :, :, :] = 1.0
-        condition_video_input_mask_other_blocks = torch.zeros(
-            *batch_shape, len_t, 4, H, W, device=self.device, dtype=self.dtype
-        )
-        # TODO[FIXME]: official code pads zeros to the image *before* VAE encode,
-        # meaning the first frame condition should gradually fade out over
-        # sequential rollout.
-        # image = F.pad(image_latents, (0, 0, 0, 0, 0, 0, 0, len_t - 1))
-        image = image_latents  # a block of latents
+        image_masks[..., :1, :, :, :] = 1.0
+        condition_image = torch.cat([image_masks, image_latents], dim=-3)
 
         cache = LingbotWorldDiTCache(
             len_h=len_h,
@@ -265,9 +252,7 @@ class LingbotWorldDiT(BaseVideoDiT[LingbotWorldDiTCache]):
             rope_adapter=rope_adapter,
             num_tokens_per_chunk=num_tokens_per_chunk,
             batch_shape=positive_text_embeddings.shape[:-2],
-            image=image,
-            condition_video_input_mask_first_block=condition_video_input_mask_first_block,
-            condition_video_input_mask_other_blocks=condition_video_input_mask_other_blocks,
+            condition_image=condition_image,
         )
         cache = self._patchify(cache)
         return cache
@@ -346,16 +331,12 @@ class LingbotWorldDiT(BaseVideoDiT[LingbotWorldDiTCache]):
         thw_start = autoregressive_index * len_thw
         thw_end = thw_start + len_thw
         if autoregressive_index == 0:
-            condition_image = cache.image[..., thw_start:thw_end, :]
-            condition_video_input_mask = cache.condition_video_input_mask_first_block
+            y = cache.condition_image[..., thw_start:thw_end, :]
         else:
-            if thw_end <= cache.image.shape[2]:
-                condition_image = cache.image[..., thw_start:thw_end, :]
+            if thw_end <= cache.condition_image.shape[-2]:
+                y = cache.condition_image[..., thw_start:thw_end, :]
             else:
-                condition_image = cache.image[..., -len_thw:, :]
-            condition_video_input_mask = cache.condition_video_input_mask_other_blocks
-
-        y = torch.cat([condition_video_input_mask, condition_image], dim=-1)
+                y = cache.condition_image[..., -len_thw:, :]
 
         predicted_flow_conditioned = self.network(
             x=torch.cat([noisy_input, y], dim=-1),
@@ -404,9 +385,9 @@ class LingbotWorldDiT(BaseVideoDiT[LingbotWorldDiTCache]):
             if x._is_patchified:
                 return x
             else:
-                # x.image stores [..., T*num_blocks, C, H, W]
+                # x.condition_image stores [..., T*num_blocks, 4+C, H, W]
                 per_block_images = torch.split(
-                    x.image,
+                    x.condition_image,
                     dim=-4,
                     split_size_or_sections=self.config.len_t,
                 )
@@ -418,22 +399,7 @@ class LingbotWorldDiT(BaseVideoDiT[LingbotWorldDiTCache]):
                     )
                     for image in per_block_images
                 ]
-                x.image = torch.cat(per_block_images, dim=-2)
-
-                x.condition_video_input_mask_first_block = (
-                    self.network.patchify_and_maybe_split_cp(
-                        x.condition_video_input_mask_first_block,
-                        process_groups=process_groups,
-                        cp_dims=cp_dims,
-                    )
-                )
-                x.condition_video_input_mask_other_blocks = (
-                    self.network.patchify_and_maybe_split_cp(
-                        x.condition_video_input_mask_other_blocks,
-                        process_groups=process_groups,
-                        cp_dims=cp_dims,
-                    )
-                )
+                x.condition_image = torch.cat(per_block_images, dim=-2)
                 x._is_patchified = True
                 return x
         if isinstance(x, LingbotWorldDiTCondition):
