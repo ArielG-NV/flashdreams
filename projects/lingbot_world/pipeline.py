@@ -1,8 +1,10 @@
 from dataclasses import dataclass, field
 
+import math
 import torch
 import torch.nn.functional as F
 from torch import Tensor
+from einops import rearrange
 
 from flashsim.model.video_vae.wan import WanVAEInterfaceConfig, WanVAECache
 from flashsim.model.video_vae.teahv import TeahvInterfaceConfig, TAEHVCache
@@ -14,6 +16,11 @@ from projects.lingbot_world.dit.model import (
 )
 from flashsim.config import InstantiateConfig
 from flashsim.model.video_dit.profiling import ProfileEvents
+
+from .camera_utils import (
+    compute_relative_poses_causal,
+    get_plucker_embeddings,
+)
 
 
 @dataclass
@@ -60,6 +67,8 @@ class LingbotWorldPipeline:
         self.dit = config.dit.setup(device=device)
         self.rng = torch.Generator(device=device).manual_seed(config.seed)
 
+        self.last_pose: Tensor | None = None
+
     def initialize_cache(
         self, text: list[list[str]], image: Tensor
     ) -> LingbotWorldPipelineCache:
@@ -102,15 +111,20 @@ class LingbotWorldPipeline:
     def streaming_inference(
         self,
         autoregressive_index: int,
-        plucker: Tensor,
+        height: int,
+        width: int,
+        intrinsics: Tensor,
+        poses: Tensor,
         cache: LingbotWorldPipelineCache,
+        world_scale: float = 1.0,
     ) -> Tensor:
         """
         Stream the inference of the video diffusion pipeline.
 
         Args:
             autoregressive_index: The autoregressive index.
-            plucker: The plucker to encode. [B, V, T, C, H, W]
+            intrinsics: The camera intrinsics. [B, V, T, 4]
+            poses: The camera-to-world poses. [B, V, T, 4, 4]
             cache: The cache for the Alpadreams pipeline.
 
         Returns:
@@ -124,6 +138,13 @@ class LingbotWorldPipeline:
             profile_events.tic.record()
 
         # 1. encode the hdmap
+        plucker = self.render_plucker(
+            height=height,
+            width=width,
+            intrinsics=intrinsics,
+            poses=poses,
+            world_scale=world_scale,
+        )
         if hasattr(cache.tokenizer_cache, "autoregressive_index"):
             cache.tokenizer_cache.autoregressive_index = autoregressive_index
         encoded_plucker = self.tokenizer.encode(plucker, cache=cache.tokenizer_cache)
@@ -181,3 +202,39 @@ class LingbotWorldPipeline:
             )
         else:
             return self.dit.config.len_t * self.detokenizer.temporal_compression_ratio
+
+    @torch.no_grad()
+    def render_plucker(
+        self,
+        height: int,
+        width: int,
+        intrinsics: Tensor,
+        poses: Tensor,
+        world_scale: float = 1.0,
+    ) -> Tensor:
+        """
+        Encode the plucker embeddings for the given intrinsics and poses.
+
+        Args:
+            intrinsics: The camera intrinsics. [..., 4]
+            poses: The camera-to-world poses. [..., 4, 4]
+            world_scale: The world scale used to normalize the poses.
+
+        Returns:
+            The plucker embeddings. [..., C, H, W]
+        """
+        assert intrinsics.dtype == poses.dtype == torch.float32
+        *batch_shape, _4, _4 = poses.shape
+        batch_size = math.prod(batch_shape)
+        intrinsics = intrinsics.view(batch_size, 4)
+        poses = poses.view(batch_size, 4, 4)
+
+        relative_poses = compute_relative_poses_causal(
+            poses, world_scale, ref_pose=self.last_pose
+        )
+        plucker = get_plucker_embeddings(relative_poses, intrinsics, height, width)
+        plucker = rearrange(plucker, "b h w c -> b c h w").to(torch.bfloat16)
+        plucker = plucker.reshape(*batch_shape, *plucker.shape[-3:])
+
+        self.last_pose = poses[..., -1:, :, :]
+        return plucker

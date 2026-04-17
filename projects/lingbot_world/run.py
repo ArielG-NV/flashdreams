@@ -17,7 +17,6 @@ from projects.lingbot_world.config import LINGBOT_WORLD_CONFIGS
 from projects.lingbot_world.camera_utils import (
     compute_relative_poses,
     get_plucker_embeddings,
-    compute_relative_poses_causal,
 )
 
 parser = argparse.ArgumentParser()
@@ -147,22 +146,14 @@ for i in range(args.total_blocks):
         f"autoregressive_index: {i}, num_frames: {num_frames}, start: {start}, end: {end}"
     )
 
-    curr_intrinsics = camera_intrinsics.squeeze(0).squeeze(0)[start:end]
-    curr_poses = camera_poses.squeeze(0).squeeze(0)[start:end]
-    curr_poses = compute_relative_poses_causal(curr_poses, trans_normalizer, last_pose)
-    last_pose = curr_poses[-1:]
-
-    curr_plucker = get_plucker_embeddings(curr_poses, curr_intrinsics, height, width)
-    curr_plucker = rearrange(curr_plucker, "t h w c -> t c h w").to(dtype=dtype)
-    curr_plucker = curr_plucker.unsqueeze(0).unsqueeze(0)
-
-    # _ref_plucker = plucker_videos[:, :, start:end]
-    # torch.testing.assert_close(curr_plucker, _ref_plucker, atol=1e-3, rtol=1e-3)
-
     generated_video.append(
         pipeline.streaming_inference(
             autoregressive_index=i,
-            plucker=curr_plucker,
+            height=height,
+            width=width,
+            intrinsics=camera_intrinsics[:, :, start:end],
+            poses=camera_poses[:, :, start:end],
+            world_scale=trans_normalizer,
             cache=cache,
         )
     )
