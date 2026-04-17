@@ -14,10 +14,18 @@ class CameraControlBlock(Block):
     def __init__(
         self,
         dim: int,
-        *args,
-        **kwargs,
+        ffn_dim: int,
+        num_heads: int,
+        cross_attn_norm: bool = True,
+        eps: float = 1e-6,
     ):
-        super().__init__(dim, *args, **kwargs)
+        super().__init__(
+            dim=dim,
+            ffn_dim=ffn_dim,
+            num_heads=num_heads,
+            cross_attn_norm=cross_attn_norm,
+            eps=eps,
+        )
         self.cam_injector_layer1 = nn.Linear(dim, dim)
         self.cam_injector_layer2 = nn.Linear(dim, dim)
         self.cam_scale_layer = nn.Linear(dim, dim)

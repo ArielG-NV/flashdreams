@@ -158,17 +158,7 @@ class WanDiTNetwork(nn.Module):
 
         # Transformer blocks
         self.blocks = nn.ModuleList(
-            [
-                Block(
-                    self.dim,
-                    self.ffn_dim,
-                    self.num_heads,
-                    self.cross_attn_norm,
-                    self.eps,
-                    i2v=self.cross_attn_enable_img,
-                )
-                for _ in range(self.num_layers)
-            ]
+            self.build_block(layer_idx) for layer_idx in range(self.num_layers)
         )
 
         # Final projection head
@@ -176,6 +166,17 @@ class WanDiTNetwork(nn.Module):
 
         self._is_shuffle_op_fused = False
         self._parameters_updated_after_loading_checkpoint = False
+
+    def build_block(self, layer_idx: int) -> nn.Module:
+        """Construct one transformer block."""
+        return Block(
+            dim=self.dim,
+            ffn_dim=self.ffn_dim,
+            num_heads=self.num_heads,
+            cross_attn_norm=self.cross_attn_norm,
+            eps=self.eps,
+            i2v=self.cross_attn_enable_img,
+        )
 
     def set_context_parallel_group(self, cp_group: ProcessGroup | None = None) -> None:
         """Set context-parallel process group for all blocks.
