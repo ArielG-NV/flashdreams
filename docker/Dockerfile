@@ -10,18 +10,18 @@ FROM nvcr.io/nvidia/pytorch:26.02-py3
 
 WORKDIR /workspace/flashsim
 
-# Copy only the package manifest so dep installation is decoupled from source
-# changes (source is bind-mounted at runtime via run_tests.sh).
-COPY pyproject.toml README.md ./
-# Stub the package so setuptools can register an editable install without the
-# full source tree; the real source replaces this stub at runtime.
-RUN mkdir -p flashsim && touch flashsim/__init__.py
+# Copy only manifests for dependency installation; source is bind-mounted at
+# runtime by docker/run_tests.sh.
+COPY flashsim/pyproject.toml flashsim/README.md /workspace/flashsim/flashsim/
 
-# Install all project dependencies from pyproject.toml (including dev/streaming
-# extras). torch and transformer-engine are pre-installed by the base image with
-# NVIDIA custom builds; the >=2.11.0a0 / >=2.12 lower bounds accept them.
-RUN pip install --no-cache-dir -e ".[dev,streaming,streaming_viser]"
+# Stub package directory so editable install can be created during image build.
+RUN mkdir -p /workspace/flashsim/flashsim/flashsim && touch /workspace/flashsim/flashsim/flashsim/__init__.py
+
+# Install dependencies from the real flashsim package manifest.
+# torch and transformer-engine are pre-installed by the base image with NVIDIA
+# custom builds; the >=2.11.0a0 / >=2.12 lower bounds accept them.
+RUN uv pip install --system --break-system-packages --no-cache-dir -e "/workspace/flashsim/flashsim[dev,streaming,streaming_viser]"
 
 # Source code is bind-mounted at runtime (see docker/run_tests.sh).
-# PYTHONPATH ensures projects/ and flashsim/ are importable via their source paths.
-ENV PYTHONPATH=/workspace/flashsim
+# Include monorepo package roots so integration packages are importable.
+ENV PYTHONPATH=/workspace/flashsim/flashsim:/workspace/flashsim/integrations/alpadreams:/workspace/flashsim/integrations/causal_wan2_1:/workspace/flashsim/integrations/causal_wan2_2:/workspace/flashsim/integrations/lingbot_world:/workspace/flashsim/integrations/streaming_ws:/workspace/flashsim/integrations/wan2_1

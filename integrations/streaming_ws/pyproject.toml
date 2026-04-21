@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flash-streaming-ws"
+version = "0.1.0"
+description = "Streaming websocket integration with flashsim"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "flashsim",
+    "pillow>=10.0",
+    "websockets>=14.0",
+]
+
+[tool.uv.sources]
+flashsim = { workspace = true }
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+streaming_viewer = [
+    "opencv-python>=4.8",
+]
+streaming_viser = [
+    "viser>=1.0",
+]
+
+[project.scripts]
+streaming-ws = "streaming_ws.__main__:main"
+
+[tool.setuptools.packages.find]
+exclude = ["tests"]

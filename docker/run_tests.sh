@@ -12,14 +12,14 @@
 #   docker/run_tests.sh
 #
 #   # Run a specific test file:
-#   docker/run_tests.sh tests/test_streaming_ws_protocol.py
+#   docker/run_tests.sh flashsim/tests/test_streaming_ws_protocol.py
 #
 #   # Rebuild image then run:
 #   docker/run_tests.sh --build
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-IMAGE="${FLASHSIM_TEST_IMAGE:-gitlab-master.nvidia.com:5005/sil/flashsim:base-v0.1dev1}"
+IMAGE="${FLASHSIM_TEST_IMAGE:-gitlab-master.nvidia.com:5005/sil/flashsim:base-v0.1dev2}"
 
 BUILD=0
 PYTEST_ARGS=()
@@ -36,7 +36,23 @@ if [[ $BUILD -eq 1 ]]; then
 fi
 
 if [[ ${#PYTEST_ARGS[@]} -eq 0 ]]; then
-    PYTEST_ARGS=(tests/ projects/)
+    PYTEST_ARGS=()
+    if [[ -d "${REPO_ROOT}/flashsim/tests" ]]; then
+        PYTEST_ARGS+=("flashsim/tests")
+    fi
+    if [[ -d "${REPO_ROOT}/integrations" ]]; then
+        PYTEST_ARGS+=("integrations")
+    fi
+
+    # Backward-compatible fallback for older layouts.
+    if [[ ${#PYTEST_ARGS[@]} -eq 0 && -d "${REPO_ROOT}/tests" ]]; then
+        PYTEST_ARGS+=("tests")
+    fi
+fi
+
+if [[ ${#PYTEST_ARGS[@]} -eq 0 ]]; then
+    echo "No test targets found (expected flashsim/tests, integrations, or tests)." >&2
+    exit 1
 fi
 
 docker run --rm \

@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flash-wan2-1"
+version = "0.1.0"
+description = "Wan 2.1 integration with flashsim"
+requires-python = ">=3.12"
+dependencies = [
+    "flashsim",
+]
+
+[tool.uv.sources]
+flashsim = { workspace = true }
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.setuptools.packages.find]
+exclude = ["tests"]
