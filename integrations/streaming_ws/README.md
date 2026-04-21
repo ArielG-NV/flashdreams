@@ -7,14 +7,16 @@ Small demo: **control → batched WebP frames**, with optional **Viser** browser
 From the repo root:
 
 ```bash
-# WebSocket server + Python client
-pip install -e '.[streaming]'
+uv pip install --system --break-system-packages --no-build-isolation \
+  -e "integrations/streaming_ws[dev]"
 
 # Optional: OpenCV window on the WS client
-pip install -e '.[streaming_viewer]'
+uv pip install --system --break-system-packages --no-build-isolation \
+  -e "integrations/streaming_ws[streaming_viewer]"
 
 # Optional: Viser-only “client” in the browser
-pip install -e '.[streaming_viser]'
+uv pip install --system --break-system-packages --no-build-isolation \
+  -e "integrations/streaming_ws[streaming_viser]"
 ```
 
 ## WebSocket server + client

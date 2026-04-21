@@ -1,5 +1,24 @@
 # Flashsim
 
+## Environment setup (one-time per container/environment)
+
+For inference, install only the integration you plan to run.
+It will pull in `flashsim` core as a dependency, so `PYTHONPATH=.` is not needed.
+
+```bash
+# Example: install the alpadreams integration before running its commands
+uv pip install --system --break-system-packages --no-build-isolation -e integrations/alpadreams[dev]
+
+# Swap `alpadreams` for any integration directory:
+# causal_wan2_1, causal_wan2_2, lingbot_world, streaming_ws, wan2_1
+```
+
+Optional (core-only development workflow):
+
+```bash
+uv pip install --system --break-system-packages --no-build-isolation -e flashsim[dev]
+```
+
 ## Instructions to run Alpadreams Inference.
 
 ```bash
@@ -41,12 +60,12 @@ export FLASHSIM_CACHE_DIR=~/.cache/flashsim # default
 
 # 4. Run inference script. Checkpoints and example data are auto-downloaded at first run.
 # - single view on single GPU
-PYTHONPATH=. torchrun   --standalone   --nnodes=1   --nproc_per_node=1  \
-    projects/alpadreams/run.py \
+torchrun   --standalone   --nnodes=1   --nproc_per_node=1  \
+    -m alpadreams.run \
     --n_cameras 1 --total_blocks 20
 # - multi view on 4 GPUs
-PYTHONPATH=. torchrun   --standalone   --nnodes=1   --nproc_per_node=4  \
-    projects/alpadreams/run.py \
+torchrun   --standalone   --nnodes=1   --nproc_per_node=4  \
+    -m alpadreams.run \
     --n_cameras 4 --total_blocks 20
 ```
 
@@ -63,8 +82,8 @@ export HF_TOKEN=<YOUR-HF-TOKEN>
 export HF_HOME=~/.cache/huggingface # default
 
 # 2. Run inference script. Checkpoint will be auto-downloaded at first run from huggingface.
-PYTHONPATH=. torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
-    projects/causal_wan2_1/run.py \
+torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
+    -m causal_wan2_1.run \
     --total_blocks 7
 ```
 
@@ -82,14 +101,14 @@ export HF_HOME=~/.cache/huggingface # default
 
 # 2. Run inference script. Checkpoint will be auto-downloaded at first run from huggingface.
 # - T2V
-PYTHONPATH=. torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
-    projects/causal_wan2_1/run.py \
+torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
+    -m causal_wan2_1.run \
     --total_blocks 21 \
     --overwrite_config_name casual_forcing_framewise
 
 # - I2V
-PYTHONPATH=. torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
-    projects/causal_wan2_1/run.py \
+torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
+    -m causal_wan2_1.run \
     --total_blocks 21 \
     --overwrite_config_name casual_forcing_framewise \
     --prompt_or_txt_path assets/example_data/i2v/prompt.txt  \
@@ -111,13 +130,13 @@ export HF_HOME=~/.cache/huggingface # default
 
 # 2. Run inference script. Checkpoint will be auto-downloaded at first run from huggingface.
 # - T2V
-PYTHONPATH=. torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
-    projects/causal_wan2_2/run.py \
+torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
+    -m causal_wan2_2.run \
     --total_blocks 21
 
 # # - I2V (not supported yet)
-# PYTHONPATH=. torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
-#     projects/wan2_2/run.py \
+# torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
+#     -m causal_wan2_2.run \
 #     --total_blocks 21 \
 #     --prompt_or_txt_path assets/example_data/i2v/prompt.txt  \
 #     --image_path assets/example_data/i2v/image.jpg
@@ -136,8 +155,8 @@ export HF_TOKEN=<YOUR-HF-TOKEN>
 export HF_HOME=~/.cache/huggingface # default
 
 # 2. Run inference script. Checkpoint will be auto-downloaded at first run from huggingface.
-PYTHONPATH=. torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
-    projects/lingbot_world/run.py \
+torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
+    -m lingbot_world.run \
     --total_blocks 21
 ```
 
@@ -155,6 +174,6 @@ export HF_TOKEN=<YOUR-HF-TOKEN>
 export HF_HOME=~/.cache/huggingface # default
 
 # 2. Run inference script. Checkpoint will be auto-downloaded at first run from huggingface.
-PYTHONPATH=. torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
-    projects/wan2_1/run_t2v.py
+torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
+    -m wan2_1.run_t2v
 ```
