@@ -18,10 +18,12 @@ dependencies = [
     "numpy>=1.24",
     "nvidia-ml-py>=12.0",
     "safetensors>=0.4",
-    "torch>=2.11.0a0",           # NVIDIA container ships 2.11.0a0+eb65b36914.nv26.2
     "tqdm>=4.60",
-    "transformer-engine>=2.12",  # NVIDIA container ships 2.12.0+5671fd36
     "transformers==4.57.6",
+
+    # packages provided by the base image below, not listing them to avoid `uv sync` downloading closest matching from PyPI
+    #"torch>=2.11.0a0",           # NVIDIA container ships 2.11.0a0+eb65b36914.nv26.2
+    #"transformer-engine>=2.12",  # NVIDIA container ships 2.12.0+5671fd36
 ]
 
 [project.optional-dependencies]

@@ -1,8 +1,6 @@
 # flashsim test runners
 
-Three independent entrypoints for running the flashsim test suite. Pick the
-one that matches your dev setup — the scripts do not call each other, so you
-can ignore the other two.
+Three entrypoints for running the flashsim test suite. Pick the one that matches your dev setup.
 
 | Script | Audience | What it does |
 | --- | --- | --- |
@@ -10,8 +8,9 @@ can ignore the other two.
 | [`run_tests_docker.sh`](./run_tests_docker.sh) | local machine with GPU + docker | `docker run` → install deps → run `pytest`. |
 | [`run_tests_slurm.sh`](./run_tests_slurm.sh) | login node without GPU | `srun --container-image=…` (Pyxis/enroot) → install deps → run `pytest`. Requires `--partition`, `--account`. |
 
-All three scripts must be invoked from the repo root (they resolve paths
-relative to their own location, so `cd`-ing elsewhere first is fine).
+All three scripts resolve paths relative to their own location and can be invoked from anywhere.
+
+`run_tests_docker` and `run_tests_slurm` dispatch internally (after establishing the environment) to `run_tests_local`.
 
 ## Quick examples
 
@@ -33,11 +32,7 @@ relative to their own location, so `cd`-ing elsewhere first is fine).
 
 ## What gets run
 
-When no `TEST_TARGET` is given, every script discovers tests via the same globs:
-
-- `flashsim/tests/test_*.py`
-- `integrations/*/tests/test_*.py`
-- `tests/test_*.py`
+When no `TEST_TARGET` is given, every script performs global discovery of `**/test_*.py`:
 
 Pytest is invoked with `-m "not manual"` so any test marked `@pytest.mark.manual`
 is skipped.
