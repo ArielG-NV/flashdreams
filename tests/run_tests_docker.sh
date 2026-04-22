@@ -10,7 +10,7 @@
 #   ./tests/run_tests_docker.sh [TEST_TARGET...]
 #
 # Environment overrides:
-#   FLASHSIM_TEST_IMAGE         (default: nvcr.io/nvidia/pytorch:26.02-py3)
+#   FLASHSIM_TEST_IMAGE         (default: gitlab-master.nvidia.com:5005/sil/flashsim:base-v0.2)
 #   FLASHSIM_UV_CACHE_DIR       (default: ${HOME}/.cache/uv)
 #   FLASHSIM_HF_CACHE_DIR       (default: ${HOME}/.cache/huggingface)
 #   FLASHSIM_CACHE_DIR          (default: ${HOME}/.cache/flashsim)

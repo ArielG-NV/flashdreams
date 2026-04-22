@@ -33,7 +33,7 @@
 #   --rebuild-image or `rm` the .sqsh file.
 #
 # Environment overrides:
-#   FLASHSIM_TEST_IMAGE        (default: gitlab-master.nvidia.com:5005/sil/flashsim:base-v0.2)
+#   FLASHSIM_TEST_IMAGE        (default: gitlab-master.nvidia.com/sil/flashsim:base-v0.2)
 #   FLASHSIM_UV_CACHE_DIR      (default: ${HOME}/.cache/uv)
 #   FLASHSIM_HF_CACHE_DIR      (default: ${HOME}/.cache/huggingface)
 #   FLASHSIM_CACHE_DIR         (default: ${HOME}/.cache/flashsim)
@@ -51,7 +51,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-IMAGE="${FLASHSIM_TEST_IMAGE:-gitlab-master.nvidia.com:5005/sil/flashsim:base-v0.2}"
+IMAGE="${FLASHSIM_TEST_IMAGE:-gitlab-master.nvidia.com/sil/flashsim:base-v0.2}"
 
 SLURM_PARTITION=""
 SLURM_ACCOUNT=""
