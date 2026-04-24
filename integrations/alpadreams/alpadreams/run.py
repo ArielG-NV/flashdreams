@@ -84,23 +84,31 @@ print(f"initialized distributed training with world size {world_size} and rank {
 device = torch.device(f"cuda:{local_rank}")
 dtype = torch.bfloat16
 
+# Download example data from S3. ``sync_s3_dir_to_local`` is designed to be
+# called by every rank: it internally gates the actual download on rank 0 and
+# ends with a ``dist.barrier()``, so a following rank-0-only block (like the
+# huggingface login below) stays symmetric with the other ranks.
+CREDENTIAL_PATH = str(_REPO_ROOT / "credentials/s3_checkpoint.secret")
+
 if rank == 0:
-    # download example data from S3
-    CREDENTIAL_PATH = str(_REPO_ROOT / "credentials/s3_checkpoint.secret")
     assert os.path.exists(CREDENTIAL_PATH), (
         f"Credential file not found at {CREDENTIAL_PATH}"
     )
-    sync_s3_dir_to_local(
-        s3_dir=EXAMPLE_DATA_DIR_S3,
-        s3_credential_path=CREDENTIAL_PATH,
-        cache_dir=EXAMPLE_DATA_DIR_LOCAL,
-        max_workers=10,
-        show_progress=True,
-        verify_checksum=True,
-        desc="Syncing from S3",
-    )
 
-    # login huggingface
+if torch.distributed.is_initialized():
+    torch.distributed.barrier()
+
+sync_s3_dir_to_local(
+    s3_dir=EXAMPLE_DATA_DIR_S3,
+    s3_credential_path=CREDENTIAL_PATH,
+    cache_dir=EXAMPLE_DATA_DIR_LOCAL,
+    max_workers=10,
+    show_progress=True,
+    verify_checksum=True,
+    desc="Syncing from S3",
+)
+
+if rank == 0:
     HF_TOKEN = os.getenv("HF_TOKEN")
     assert HF_TOKEN is not None, "HF_TOKEN is not set"
     huggingface_login(HF_TOKEN)
@@ -155,9 +163,12 @@ for i in range(args.total_blocks):
     end = start + num_frames
     if end > hdmap_num_frames:
         break
-    print(
-        f"autoregressive_index: {i}, num_frames: {num_frames}, start: {start}, end: {end}"
-    )
+
+    if rank == 0:
+        print(
+            f"autoregressive_index: {i}, num_frames: {num_frames}, start: {start}, end: {end}"
+        )
+
     generated_video.append(
         pipeline.streaming_inference(
             autoregressive_index=i,

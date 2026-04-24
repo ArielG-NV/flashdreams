@@ -40,7 +40,7 @@ srun \
     /bin/bash
 
 # 1. setup credentials in the file `credentials/s3_checkpoint.secret` similarly with I4:
-cat > credentials/s3_checkpoint.secret.2 <<EOF
+cat > credentials/s3_checkpoint.secret <<EOF
 {
   "aws_access_key_id": "team-sil-videogen",
   "aws_secret_access_key": <YOUR-SIL-VIDEOGEN-PDX-KEY>,
