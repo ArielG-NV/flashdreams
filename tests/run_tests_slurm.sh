@@ -175,16 +175,39 @@ if [[ -n "${SLURM_QOS}" ]]; then
     SRUN_ARGS+=(--qos="${SLURM_QOS}")
 fi
 
+SRUN_CONTAINER_ARGS=(
+    --container-image="${CONTAINER_IMAGE_ARG}"
+    --container-mounts="${REPO_ROOT}:/workspace/flashsim,${UV_CACHE_HOST}:/root/.cache/uv,${HF_CACHE_HOST}:/root/.cache/huggingface,${FLASHSIM_CACHE_HOST}:/root/.cache/flashsim,${TRITON_CACHE_HOST}:/root/.cache/triton"
+    --container-workdir=/workspace/flashsim
+    --container-writable
+    --container-mount-home
+    --container-remap-root
+    --export=ALL,HF_HOME=/root/.cache/huggingface,UV_LINK_MODE=copy,TRITON_CACHE_DIR=/root/.cache/triton
+)
+
+SRUN_CMD=(
+    srun
+    "${SRUN_ARGS[@]}"
+    "${SRUN_CONTAINER_ARGS[@]}"
+    bash -s --
+    "${TEST_TARGETS[@]}"
+)
+
+echo "=== srun invocation ==="
+printf '%q ' "${SRUN_CMD[@]}"
+printf "<<'EOF'\n"
+cat <<'EOF'
+set -euo pipefail
+
+uv venv --system-site-packages --clear
+uv sync --frozen --extra dev --no-build-isolation
+
+exec bash /workspace/flashsim/tests/run_tests_local.sh "$@"
+EOF
+echo "EOF"
+
 rc=0
-srun "${SRUN_ARGS[@]}" \
-    --container-image="${CONTAINER_IMAGE_ARG}" \
-    --container-mounts="${REPO_ROOT}:/workspace/flashsim,${UV_CACHE_HOST}:/root/.cache/uv,${HF_CACHE_HOST}:/root/.cache/huggingface,${FLASHSIM_CACHE_HOST}:/root/.cache/flashsim,${TRITON_CACHE_HOST}:/root/.cache/triton" \
-    --container-workdir=/workspace/flashsim \
-    --container-writable \
-    --container-mount-home \
-    --container-remap-root \
-    --export=ALL,HF_HOME=/root/.cache/huggingface,UV_LINK_MODE=copy,TRITON_CACHE_DIR=/root/.cache/triton,UV_PROJECT_ENVIRONMENT=/tmp/flashsim-venv \
-    bash -s -- "${TEST_TARGETS[@]}" <<'EOF' || rc=$?
+"${SRUN_CMD[@]}" <<'EOF' || rc=$?
 set -euo pipefail
 
 # UV_PROJECT_ENVIRONMENT is exported via srun --export so the venv lives

@@ -44,6 +44,7 @@ docker run --rm -i \
     -v "${HF_CACHE_HOST}:/root/.cache/huggingface" \
     -v "${FLASHSIM_CACHE_HOST}:/root/.cache/flashsim" \
     -v "${TRITON_CACHE_HOST}:/root/.cache/triton" \
+    -v "${HOME}/.netrc:/root/.netrc:ro" \
     -e HF_HOME=/root/.cache/huggingface \
     -e TRITON_CACHE_DIR=/root/.cache/triton \
     -e UV_LINK_MODE=copy \

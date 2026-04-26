@@ -11,9 +11,6 @@ To run all tests including manual:
 import pytest
 import torch
 
-# Mark all tests in this module as manual (slow, require GPU/network)
-pytestmark = [pytest.mark.manual, pytest.mark.slow]
-
 
 @pytest.fixture
 def device():
@@ -30,6 +27,7 @@ def dtype():
 class TestImageEncoder:
     """Tests for image encoders."""
 
+    @pytest.mark.manual
     def test_wan_image_encoder_instantiation(self, device, dtype):
         """Test WanImageEncoder can be instantiated and encode images."""
         from flashsim.model.img_encoder.clip import WanImageEncoderConfig
@@ -47,6 +45,7 @@ class TestImageEncoder:
 class TestTextEncoders:
     """Tests for text encoders."""
 
+    @pytest.mark.manual
     def test_wan_text_encoder_instantiation(self, device):
         """Test WanTextEncoder can be instantiated and encode text."""
         from flashsim.model.text_encoder.wan2_1 import WanTextEncoderConfig
@@ -59,6 +58,7 @@ class TestTextEncoders:
         assert text_embeddings.shape == (1, 512, 4096)
         assert text_embeddings.dtype == torch.bfloat16
 
+    @pytest.mark.manual
     def test_cosmos_reason1_text_encoder_instantiation(self, device):
         """Test CosmosReason1TextEncoder can be instantiated and encode text."""
         from flashsim.model.text_encoder.cosmos_reason1 import (
@@ -80,6 +80,7 @@ class TestTextEncoders:
 class TestVideoVAE:
     """Tests for video VAE models."""
 
+    @pytest.mark.manual
     def test_pixel_shuffle_vae_instantiation(self, device):
         """Test PixelShuffleVAEInterface can be instantiated."""
         from flashsim.model.video_vae.pshuffle import PixelShuffleVAEInterfaceConfig
@@ -89,6 +90,7 @@ class TestVideoVAE:
         assert model.temporal_compression_ratio == 4
         assert model.spatial_compression_ratio == 8
 
+    @pytest.mark.manual
     def test_teahv_vae_instantiation(self, device):
         """Test TeahvInterface can be instantiated."""
         from flashsim.model.video_vae.teahv import TeahvInterfaceConfig
@@ -98,6 +100,7 @@ class TestVideoVAE:
         assert model.temporal_compression_ratio == 4
         assert model.spatial_compression_ratio == 8
 
+    @pytest.mark.manual
     def test_wan_vae_instantiation(self, device):
         """Test WanVAEInterface can be instantiated."""
         from flashsim.model.video_vae.wan import WanVAEInterfaceConfig
@@ -111,6 +114,7 @@ class TestVideoVAE:
 class TestDiTNetwork:
     """Tests for DiT network models."""
 
+    @pytest.mark.manual
     def test_wan_dit_t2v_1_3b_instantiation_and_checkpoint_loading(self, device):
         """Test WanDiTNetwork 1.3B T2V can be instantiated and load checkpoint."""
         from flashsim.model.video_dit.wan2_1.network import WanDiTNetwork1pt3BConfig
@@ -126,6 +130,7 @@ class TestDiTNetwork:
 
         assert network is not None
 
+    @pytest.mark.manual
     def test_wan_dit_i2v_14b_instantiation_and_checkpoint_loading(self, device):
         """Test WanDiTNetwork 14B I2V can be instantiated and load checkpoint."""
         from flashsim.model.video_dit.wan2_1.network import WanDiTNetwork14BConfig

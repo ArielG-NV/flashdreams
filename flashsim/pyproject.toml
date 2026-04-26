@@ -20,6 +20,7 @@ dependencies = [
     "safetensors>=0.4",
     "tqdm>=4.60",
     "transformers==4.57.6",
+    "torchvision",
 
     "torch>=2.11",
     "torchvision>=0.22",
@@ -31,6 +32,7 @@ dev = [
     "pytest>=8.0",
     "tyro>=0.8",
     "mediapy>=1.1",
+    "pytest-manual-marker",
 ]
 
 [tool.setuptools.packages.find]

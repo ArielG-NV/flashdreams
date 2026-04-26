@@ -6,7 +6,6 @@ RUN mkdir -p /workspace
 # System deps: Python 3.12, ffmpeg, build tools for transformer-engine-torch
 RUN apt-get update -qq \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
-        git \
         python3 python3-dev python3-venv \
         ffmpeg \
         gcc g++ ninja-build \
@@ -15,3 +14,20 @@ RUN apt-get update -qq \
 
 # Install uv (fast Python package manager)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# install shell/completion and basic CLI utilities in separate layer
+RUN apt-get update -qq \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+        bash \
+        bash-completion \
+        less \
+        nano \
+        procps \
+        iproute2 \
+        iputils-ping \
+        curl \
+        git \
+        ca-certificates \
+        tmux \
+        screen \
+    && rm -rf /var/lib/apt/lists/*
