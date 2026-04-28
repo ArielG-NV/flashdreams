@@ -254,7 +254,7 @@ class StreamInferencePipeline(
         self,
         autoregressive_index: int,
         cache: StreamInferencePipelineCache[EncCacheT, TransformerCacheT, DecCacheT],
-    ) -> None:
+    ) -> dict[str, float] | None:
         """Advance the diffusion AR cache for the next AR step.
 
         Args:
@@ -264,10 +264,22 @@ class StreamInferencePipeline(
                 ``cache.final_state`` (the :class:`DiffusionModel.FinalState`
                 stashed there).
 
-        Note: when :attr:`StreamInferencePipelineConfig.enable_sync_and_profile`
-        is ``True``, records the post-finalize CUDA event onto
-        ``cache.event_profiler`` and logs the per-stage breakdown for
-        this AR step.
+        Returns:
+            ``None`` when :attr:`StreamInferencePipelineConfig.enable_sync_and_profile`
+            is ``False``. Otherwise a flat ``dict[str, float]`` snapshot of
+            this AR step's per-stage timings (ms) and current GPU memory
+            (GiB), with keys::
+
+                {<stage>_ms for stage in stats},   # e.g. encode_ms, diffuse_ms, ...
+                "total_ms",
+                "total_ms_wo_finalize",
+                "mem_alloc_gib",                    # only if torch.cuda available
+                "mem_reserved_gib",
+                "mem_peak_gib",
+
+            The same numbers are also emitted via ``logger.info``; the
+            return value lets callers persist them (CSV, JSONL, MLflow,
+            ...) without re-parsing the log line.
         """
         assert cache.autoregressive_index == autoregressive_index, (
             f"autoregressive_index mismatch: generate() ran with "
@@ -278,33 +290,41 @@ class StreamInferencePipeline(
             "finalize() called before generate() — no FinalState on the cache."
         )
         self.diffusion_model.finalize(final_state=cache.final_state)
-        if self.config.enable_sync_and_profile:
-            assert cache.event_profiler is not None, (
-                "finalize() called before any generate() — "
-                "no EventProfiler on the cache."
+        if not self.config.enable_sync_and_profile:
+            return None
+
+        assert cache.event_profiler is not None, (
+            "finalize() called before any generate() — no EventProfiler on the cache."
+        )
+        cache.event_profiler.record("finalize")
+        stats_ms = cache.event_profiler.sync_and_summarize()
+        total_ms = sum(stats_ms.values())
+        total_ms_wo_finalize = total_ms - stats_ms.get("finalize", 0.0)
+        stages_str = " ".join(f"{stage} {ms:.3f} ms" for stage, ms in stats_ms.items())
+
+        stats: dict[str, float] = {f"{stage}_ms": ms for stage, ms in stats_ms.items()}
+        stats["total_ms"] = total_ms
+        stats["total_ms_wo_finalize"] = total_ms_wo_finalize
+
+        mem_str = ""
+        if torch.cuda.is_available():
+            device = torch.cuda.current_device()
+            gib = 1024**3
+            mem_alloc_gib = torch.cuda.memory_allocated(device) / gib
+            mem_reserved_gib = torch.cuda.memory_reserved(device) / gib
+            mem_peak_gib = torch.cuda.max_memory_allocated(device) / gib
+            stats["mem_alloc_gib"] = mem_alloc_gib
+            stats["mem_reserved_gib"] = mem_reserved_gib
+            stats["mem_peak_gib"] = mem_peak_gib
+            mem_str = (
+                f" | GPU mem alloc {mem_alloc_gib:.3f} GiB "
+                f"reserved {mem_reserved_gib:.3f} GiB "
+                f"peak {mem_peak_gib:.3f} GiB"
             )
-            cache.event_profiler.record("finalize")
-            stats_ms = cache.event_profiler.sync_and_summarize()
-            total_ms = sum(stats_ms.values())
-            total_ms_wo_finalize = total_ms - stats_ms.get("finalize", 0.0)
-            stages_str = " ".join(
-                f"{stage} {ms:.3f} ms" for stage, ms in stats_ms.items()
-            )
-            mem_str = ""
-            if torch.cuda.is_available():
-                device = torch.cuda.current_device()
-                gib = 1024**3
-                mem_alloc_gib = torch.cuda.memory_allocated(device) / gib
-                mem_reserved_gib = torch.cuda.memory_reserved(device) / gib
-                mem_peak_gib = torch.cuda.max_memory_allocated(device) / gib
-                mem_str = (
-                    f" | GPU mem alloc {mem_alloc_gib:.3f} GiB "
-                    f"reserved {mem_reserved_gib:.3f} GiB "
-                    f"peak {mem_peak_gib:.3f} GiB"
-                )
-            logger.info(
-                f"AR {autoregressive_index} {stages_str} | "
-                f"total(w/o finalize) {total_ms_wo_finalize:.3f} ms "
-                f"total {total_ms:.3f} ms"
-                f"{mem_str}"
-            )
+        logger.info(
+            f"AR {autoregressive_index} {stages_str} | "
+            f"total(w/o finalize) {total_ms_wo_finalize:.3f} ms "
+            f"total {total_ms:.3f} ms"
+            f"{mem_str}"
+        )
+        return stats

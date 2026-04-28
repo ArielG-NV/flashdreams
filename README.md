@@ -59,6 +59,7 @@ uv run --package flashdreams --extra examples \
   python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=1 \
     flashdreams/examples/run_alpadreams.py \
     --n_cameras 1 --total_blocks 20
+
 # - multi view on 4 GPUs
 uv run --package flashdreams --extra examples \
   python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
