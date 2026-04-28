@@ -193,10 +193,11 @@ def main() -> None:
     for i in range(args.total_blocks):
         num_frames = pipeline.get_num_output_frames(i)
         print(f"autoregressive_index: {i}, num_frames: {num_frames}")
-        chunks.append(pipeline.generate(i, cache).cpu())
+        video_chunk = pipeline.generate(i, cache)
         stats = pipeline.finalize(i, cache)
         if stats is not None:
             stats_history.append({"autoregressive_index": i, **stats})
+        chunks.append(video_chunk.cpu())
     generated_video = torch.cat(chunks, dim=1)  # [B, T, C, H, W]
     print("end of streaming inference, generated_video.shape:", generated_video.shape)
 

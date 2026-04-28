@@ -221,17 +221,16 @@ def main() -> None:
             poses=camera_poses_t[:, :, start:end],
             world_scale=float(trans_normalizer),
         )
-        generated_video.append(
-            pipeline.generate(
-                autoregressive_index=i,
-                cache=cache,
-                input=camctrl_input,
-            ).cpu()
+        video_chunk = pipeline.generate(
+            autoregressive_index=i,
+            cache=cache,
+            input=camctrl_input,
         )
-        start = end
         stats = pipeline.finalize(i, cache)
         if stats is not None:
             stats_history.append({"autoregressive_index": i, **stats})
+        generated_video.append(video_chunk.cpu())
+        start = end
 
     video = torch.cat(generated_video, dim=2)  # [B, V, T, C, H, W]
     print("end of streaming inference, generated_video.shape:", video.shape)
