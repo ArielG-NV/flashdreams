@@ -230,6 +230,7 @@ def build_bbox_conditioned_api(
         resolution_wh=RESO_MAP[reso],
         local_attn_size=local_attn_size,
         sink_size=sink_size,
+        cp_size=cp_size,
         denoising_step_list=denoising_step_list,
         num_frames_per_block=num_frames_per_block,
         compile_net=compile_net,
