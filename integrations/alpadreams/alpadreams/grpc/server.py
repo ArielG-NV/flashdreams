@@ -29,8 +29,8 @@ from ludus_renderer import nvjpeg
 
 from alpadreams.conditioning.world_scenario.data_types import SceneData
 from alpadreams.conditioning.world_scenario.ftheta import FThetaCamera
-from flashsim.distributed import init as distributed_init
-from flashsim.distributed.context_parallel import (
+from flashsim.core.distributed import init as distributed_init
+from flashsim.core.distributed.context_parallel import (
     cat_outputs_cp_object_list,
     split_inputs_cp_object_list,
 )

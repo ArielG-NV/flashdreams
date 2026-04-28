@@ -168,7 +168,6 @@ SRUN_ARGS=(
     --nodes="${SLURM_NODES}"
     --gpus-per-node="${SLURM_GPUS}"
     --cpus-per-gpu="${SLURM_CPUS_PER_GPU}"
-    --exclusive
     --time="${SLURM_TIME}"
 )
 if [[ -n "${SLURM_QOS}" ]]; then
@@ -199,8 +198,8 @@ printf "<<'EOF'\n"
 cat <<'EOF'
 set -euo pipefail
 
-uv venv --system-site-packages --clear
-uv sync --frozen --extra dev --no-build-isolation
+uv venv --clear
+uv sync --frozen --extra dev
 
 exec bash /workspace/flashsim/tests/run_tests_local.sh "$@"
 EOF

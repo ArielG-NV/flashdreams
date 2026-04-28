@@ -11,21 +11,36 @@ from alpadreams.conditioning.video_model_api import (
     TextPrompt,
     VideoModelAPI,
 )
-from alpadreams.dit.model import AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS, CosmosDiTConfig
-from alpadreams.pipeline import (
+from flashsim.infra.diffusion.model import DiffusionModelConfig
+from flashsim.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
+from flashsim.infra.encoder.text.cosmos_qwen import (
+    CosmosReason1TextEncoderConfig,
+)
+from flashsim.recipes.alpadreams.config import (
+    AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS,
+)
+from flashsim.recipes.alpadreams.encoder.pixel_shuffle import (
+    PixelShuffleVAEEncoderConfig,
+)
+from flashsim.recipes.alpadreams.pipeline import (
     AlpadreamsPipeline,
     AlpadreamsPipelineCache,
     AlpadreamsPipelineConfig,
 )
-from flashsim.model.text_encoder.cosmos_reason1 import CosmosReason1TextEncoderConfig
-from flashsim.model.video_vae.pshuffle import PixelShuffleVAEInterfaceConfig
-from flashsim.model.video_vae.teahv import (
-    AVAILABLE_TAEHV_CHECKPOINT_PATHS,
-    TeahvInterfaceConfig,
+from flashsim.recipes.alpadreams.transformer import (
+    CosmosTransformerConfig,
 )
-from flashsim.model.video_vae.wan import (
+from flashsim.recipes.alpadreams.transformer.impl.network import (
+    CosmosDiTNetworkConfig,
+)
+from flashsim.recipes.taehv import (
+    AVAILABLE_TAEHV_CHECKPOINT_PATHS,
+    TeahvVAEDecoderConfig,
+)
+from flashsim.recipes.wan.autoencoder.vae import (
     AVAILABLE_WAN_VAE_CHECKPOINT_PATHS,
-    WanVAEInterfaceConfig,
+    WanVAEDecoderConfig,
+    WanVAEEncoderConfig,
 )
 
 
@@ -118,7 +133,7 @@ class FlashsimPipelineVideoModelAPI(VideoModelAPI[FlashsimPipelineLatentCache]):
             no_tae=no_tae,
             seed=seed_for_every_rollout if seed_for_every_rollout is not None else 42,
         )
-        self.pipeline: AlpadreamsPipeline = pipeline_config.setup(device=device)
+        self.pipeline: AlpadreamsPipeline = pipeline_config.setup().to(device=device)
 
     @property
     def n_cameras(self) -> int:
@@ -166,7 +181,7 @@ class FlashsimPipelineVideoModelAPI(VideoModelAPI[FlashsimPipelineLatentCache]):
                 checkpoint_path = AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS["single_view"][
                     "pixel_shuffle"
                 ]
-                tokenizer = PixelShuffleVAEInterfaceConfig()
+                hdmap_encoder_config = PixelShuffleVAEEncoderConfig()
             else:
                 if len_t not in (2, 3):
                     raise ValueError(
@@ -176,8 +191,8 @@ class FlashsimPipelineVideoModelAPI(VideoModelAPI[FlashsimPipelineLatentCache]):
                     "vae_encoding"
                 ][f"chunk{len_t}"]
                 tokenizer_key = "vae" if no_tae else "lightvae"
-                tokenizer = WanVAEInterfaceConfig(
-                    checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS[tokenizer_key]
+                hdmap_encoder_config = WanVAEEncoderConfig(
+                    checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS[tokenizer_key],
                 )
         else:
             if len_t != 4:
@@ -188,33 +203,36 @@ class FlashsimPipelineVideoModelAPI(VideoModelAPI[FlashsimPipelineLatentCache]):
                 checkpoint_path = AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS["4views"][
                     "pixel_shuffle"
                 ]
-                tokenizer = PixelShuffleVAEInterfaceConfig()
+                hdmap_encoder_config = PixelShuffleVAEEncoderConfig()
             else:
                 checkpoint_path = AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS["4views"][
                     "vae_encoding"
                 ]
-                tokenizer = WanVAEInterfaceConfig(
-                    checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"]
+                hdmap_encoder_config = WanVAEEncoderConfig(
+                    checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
                 )
 
         if no_tae:
-            detokenizer = WanVAEInterfaceConfig(
-                checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"]
+            decoder_config = WanVAEDecoderConfig(
+                checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
             )
         else:
-            detokenizer = TeahvInterfaceConfig(
-                checkpoint_path=AVAILABLE_TAEHV_CHECKPOINT_PATHS["lighttae"]
+            decoder_config = TeahvVAEDecoderConfig(
+                checkpoint_path=AVAILABLE_TAEHV_CHECKPOINT_PATHS["lighttae"],
             )
 
         _, height = resolution_wh
         extrapolation = 2.0 if height <= 480 else 3.0
-        dit = CosmosDiTConfig(
+        transformer_config = CosmosTransformerConfig(
+            network=CosmosDiTNetworkConfig(),
+            batch_shape=(1,),
+            height=height // 8,
+            width=resolution_wh[0] // 8,
             enable_hdmap_condition=True,
             encode_with_pixel_shuffle=encode_with_pixel_shuffle,
             num_views=n_cameras,
             h_extrapolation_ratio=extrapolation,
             w_extrapolation_ratio=extrapolation,
-            denoising_timesteps=denoising_step_list,
             window_size_t=local_attn_size,
             sink_size_t=sink_size,
             len_t=len_t,
@@ -222,12 +240,33 @@ class FlashsimPipelineVideoModelAPI(VideoModelAPI[FlashsimPipelineLatentCache]):
             compile_network=compile_net,
         )
 
+        scheduler_config = FlowMatchSchedulerConfig(
+            num_inference_steps=len(denoising_step_list),
+            denoising_timesteps=denoising_step_list,
+            warp_denoising_step=True,
+            shift=5.0,
+            sigma_min=0.0,
+            extra_one_step=True,
+        )
+
+        # `image_encoder` (first-frame) is pinned to the full Wan VAE to
+        # match the training distribution regardless of which encoder is
+        # used for the per-AR-step HDMap.
+        image_encoder_config = WanVAEEncoderConfig(
+            checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
+        )
+
         return AlpadreamsPipelineConfig(
-            tokenizer=tokenizer,
-            detokenizer=detokenizer,
             text_encoder=CosmosReason1TextEncoderConfig(),
-            dit=dit,
-            seed=seed,
+            image_encoder=image_encoder_config,
+            encoder=hdmap_encoder_config,
+            decoder=decoder_config,
+            diffusion_model=DiffusionModelConfig(
+                seed=seed,
+                context_noise=128,
+                transformer=transformer_config,
+                scheduler=scheduler_config,
+            ),
         )
 
     def set_rollout_seed(self, seed: int | None) -> None:
@@ -247,10 +286,17 @@ class FlashsimPipelineVideoModelAPI(VideoModelAPI[FlashsimPipelineLatentCache]):
         )
 
     def _seed_pipeline_for_next_rollout(self) -> None:
+        # `AlpadreamsPipeline` delegates RNG to the underlying DiffusionModel,
+        # which lazily materializes a torch.Generator seeded from
+        # DiffusionModelConfig.seed (set in `_build_pipeline_config`, never None).
+        rng = self.pipeline.diffusion_model.rng
+        assert rng is not None, (
+            "DiffusionModelConfig.seed must not be None for streaming rollouts."
+        )
         if self._rollout_seed is None:
-            _ = self.pipeline.rng.seed()
+            _ = rng.seed()
         else:
-            self.pipeline.rng.manual_seed(int(self._rollout_seed))
+            rng.manual_seed(int(self._rollout_seed))
 
     def _normalize_start_inputs(
         self, initial_rgb_frames: Tensor, initial_condition_frames: Tensor
@@ -327,8 +373,10 @@ class FlashsimPipelineVideoModelAPI(VideoModelAPI[FlashsimPipelineLatentCache]):
         first_frame = self._to_model_range(initial_rgb_frames).unsqueeze(2)
         condition = self._to_model_range(initial_condition_frames)
 
-        pipeline_cache = self.pipeline.initialize_cache(text=text, image=first_frame, view_names=view_names)
-        rgb_frames = self.pipeline.streaming_inference(
+        pipeline_cache = self.pipeline.initialize_cache(
+            text=text, image=first_frame, view_names=view_names
+        )
+        rgb_frames = self.pipeline.generate(
             autoregressive_index=0,
             hdmap=condition,
             cache=pipeline_cache,
@@ -359,7 +407,7 @@ class FlashsimPipelineVideoModelAPI(VideoModelAPI[FlashsimPipelineLatentCache]):
         condition = self._to_model_range(condition_frames)
 
         block_idx = latent_cache.next_autoregressive_index
-        rgb_frames = self.pipeline.streaming_inference(
+        rgb_frames = self.pipeline.generate(
             autoregressive_index=block_idx,
             hdmap=condition,
             cache=latent_cache.pipeline_cache,

@@ -4,7 +4,7 @@ import tempfile
 import os
 import torch
 
-from flashsim.checkpoint.load import load_checkpoint
+from flashsim.core.checkpoint.load import load_checkpoint
 
 S3_PTH_PATH = "s3://flashsim/assets/checkpoints/autoencoders/taew2_1.pth"
 

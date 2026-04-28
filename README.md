@@ -12,10 +12,10 @@ Then run commands with `uv run` (auto-activates the venv):
 
 ```bash
 uv run pytest flashsim/tests
-uv run -m alpadreams.run --help
+uv run --package flashsim --extra examples flashsim/examples/run_alpadreams.py --help
 ```
 
-## Instructions to run Alpadreams Inference.
+## Instructions to run Alpadreams Inference
 
 ```bash
 # 0. request interactive node with the pre-built container [IPP5 cluster as example].
@@ -26,7 +26,7 @@ srun \
     --partition=gtc_demo \
     --time=24:00:00  \
     --pty \
-    --container-image=gitlab-master.nvidia.com:5005/sil/flashsim:base-v0.3 \
+    --container-image=gitlab-master.nvidia.com:5005/sil/flashsim:base-v0.3-20260424-55bd566 \
     --container-mounts=/dev/nvidia-caps-imex-channels:/dev/nvidia-caps-imex-channels,/home:/home,/cm:/cm,/usr/share/glvnd/egl_vendor.d:/usr/share/glvnd/egl_vendor.d \
     --container-remap-root \
     --container-mount-home \
@@ -55,17 +55,16 @@ export FLASHSIM_CACHE_DIR=~/.cache/flashsim # default
 
 # 4. Run inference script. Checkpoints and example data are auto-downloaded at first run.
 # - single view on single GPU
-torchrun   --standalone   --nnodes=1   --nproc_per_node=1  \
-    -m alpadreams.run \
+uv run --package flashsim --extra examples torchrun --standalone --nnodes=1 --nproc_per_node=1 \
+    flashsim/examples/run_alpadreams.py \
     --n_cameras 1 --total_blocks 20
 # - multi view on 4 GPUs
-torchrun   --standalone   --nnodes=1   --nproc_per_node=4  \
-    -m alpadreams.run \
+uv run --package flashsim --extra examples torchrun --standalone --nnodes=1 --nproc_per_node=4 \
+    flashsim/examples/run_alpadreams.py \
     --n_cameras 4 --total_blocks 20
 ```
 
-
-## Instructions to run Self-forcing T2V Inference.
+## Instructions to run Self-forcing T2V Inference
 
 ```bash
 # 0. request interactive node with pre-built container save as above alpadreams demo.
@@ -77,13 +76,12 @@ export HF_TOKEN=<YOUR-HF-TOKEN>
 export HF_HOME=~/.cache/huggingface # default
 
 # 2. Run inference script. Checkpoint will be auto-downloaded at first run from huggingface.
-torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
-    -m causal_wan2_1.run \
+uv run --package flashsim --extra examples torchrun --standalone --nnodes=1 --nproc_per_node=1 \
+    flashsim/examples/run_causal_wan21.py \
     --total_blocks 7
 ```
 
-
-## Instructions to run Causal-forcing T2V and I2V Inference.
+## Instructions to run Causal-forcing T2V and I2V Inference
 
 ```bash
 # 0. request interactive node with pre-built container save as above alpadreams demo.
@@ -96,23 +94,27 @@ export HF_HOME=~/.cache/huggingface # default
 
 # 2. Run inference script. Checkpoint will be auto-downloaded at first run from huggingface.
 # - T2V
-torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
-    -m causal_wan2_1.run \
+uv run --package flashsim --extra examples torchrun --standalone --nnodes=1 --nproc_per_node=1 \
+    flashsim/examples/run_causal_wan21.py \
     --total_blocks 21 \
-    --overwrite_config_name casual_forcing_framewise
+    --overwrite_config_name causal_forcing_framewise
 
 # - I2V
-torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
-    -m causal_wan2_1.run \
+uv run --package flashsim --extra examples torchrun --standalone --nnodes=1 --nproc_per_node=1 \
+    flashsim/examples/run_causal_wan21.py \
     --total_blocks 21 \
-    --overwrite_config_name casual_forcing_framewise \
+    --overwrite_config_name causal_forcing_framewise \
     --prompt_or_txt_path assets/example_data/i2v/prompt.txt  \
     --image_path assets/example_data/i2v/image.jpg
 ```
 
+## Instructions to run FastVideo Wan2.2 Causal T2V Inference
 
-## Instructions to run FastVideo Wan2.2 Causal T2V and I2V Inference.
 reference: [FastVideo official inference script](https://github.com/hao-ai-lab/FastVideo/blob/main/examples/inference/basic/basic_self_forcing_causal_wan2_2_i2v.py)
+
+T2V only for now; the FastVideo Wan2.2 checkpoint's I2V protocol (one-shot
+first-frame VAE-seed warmup) doesn't fit the unified streaming pipeline's
+per-AR-step mask-injection I2V and isn't wired here.
 
 ```bash
 # 0. request interactive node with pre-built container save as above alpadreams demo.
@@ -124,20 +126,13 @@ export HF_TOKEN=<YOUR-HF-TOKEN>
 export HF_HOME=~/.cache/huggingface # default
 
 # 2. Run inference script. Checkpoint will be auto-downloaded at first run from huggingface.
-# - T2V
-torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
-    -m causal_wan2_2.run \
+uv run --package flashsim --extra examples torchrun --standalone --nnodes=1 --nproc_per_node=1 \
+    flashsim/examples/run_causal_wan22.py \
     --total_blocks 21
-
-# # - I2V (not supported yet)
-# torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
-#     -m causal_wan2_2.run \
-#     --total_blocks 21 \
-#     --prompt_or_txt_path assets/example_data/i2v/prompt.txt  \
-#     --image_path assets/example_data/i2v/image.jpg
 ```
 
-## Instructions to run Lingbot-World Camera Control I2V Inference.
+## Instructions to run Lingbot-World Camera Control I2V Inference
+
 reference: [Lingbot-World repo](https://github.com/robbyant/lingbot-world?tab=readme-ov-file#fast-inference)
 
 ```bash
@@ -150,13 +145,14 @@ export HF_TOKEN=<YOUR-HF-TOKEN>
 export HF_HOME=~/.cache/huggingface # default
 
 # 2. Run inference script. Checkpoint will be auto-downloaded at first run from huggingface.
-torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
-    -m lingbot_world.run \
+uv run --package flashsim --extra examples torchrun --standalone --nnodes=1 --nproc_per_node=1 \
+    flashsim/examples/run_lingbot_world.py \
     --total_blocks 21
 ```
 
 
-## Instructions to run Bidirectional Wan2.1 T2V Inference.
+## Instructions to run Bidirectional Wan2.1 T2V Inference
+
 reference: [Wan2.1 official repo](https://github.com/Wan-Video/Wan2.1/tree/main?tab=readme-ov-file#run-text-to-video-generation)
 
 ```bash
@@ -169,6 +165,18 @@ export HF_TOKEN=<YOUR-HF-TOKEN>
 export HF_HOME=~/.cache/huggingface # default
 
 # 2. Run inference script. Checkpoint will be auto-downloaded at first run from huggingface.
-torchrun   --standalone   --nnodes=1   --nproc_per_node=1 \
-    -m wan2_1.run_t2v
+#    The single entry point picks T2V (1.3B) when --image_path is omitted
+#    and I2V (14B 480P) when --image_path is provided.
+# - T2V (1.3B)
+uv run --package flashsim --extra examples flashsim/examples/run_wan21.py --height 480 --width 832
+
+# - I2V (14B 480P) — pass --image_path to switch modes
+uv run --package flashsim --extra examples flashsim/examples/run_wan21.py --height 480 --width 832 \
+    --image_path assets/example_data/i2v/image.jpg \
+    --prompt_or_txt_path assets/example_data/i2v/prompt.txt
+
+# - I2V (14B 480P) using the example data from Wan2.1 codebase.
+uv run --package flashsim --extra examples flashsim/examples/run_wan21.py \
+    --image_path ../Wan2.1/examples/i2v_input.JPG \
+    --prompt_or_txt_path "Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline's intricate details and the refreshing atmosphere of the seaside."
 ```

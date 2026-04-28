@@ -29,13 +29,13 @@ class TestImageEncoder:
 
     @pytest.mark.manual
     def test_wan_image_encoder_instantiation(self, device, dtype):
-        """Test WanImageEncoder can be instantiated and encode images."""
-        from flashsim.model.img_encoder.clip import WanImageEncoderConfig
+        """Test CLIPImageEncoder can be instantiated and encode images."""
+        from flashsim.infra.encoder.image.clip import CLIPImageEncoderConfig
 
-        image_encoder = WanImageEncoderConfig().setup(device=device)
+        image_encoder = CLIPImageEncoderConfig().setup().to(device)
 
         image = torch.rand(1, 2, 3, 224, 224, device=device, dtype=dtype) * 2.0 - 1.0
-        image_embeds = image_encoder.encode(image)
+        image_embeds = image_encoder(image)
 
         assert image_embeds.shape == (1, 2, 257, 1280)
         assert image_embeds.dtype == dtype
@@ -47,13 +47,13 @@ class TestTextEncoders:
 
     @pytest.mark.manual
     def test_wan_text_encoder_instantiation(self, device):
-        """Test WanTextEncoder can be instantiated and encode text."""
-        from flashsim.model.text_encoder.wan2_1 import WanTextEncoderConfig
+        """Test UMT5TextEncoder can be instantiated and encode text."""
+        from flashsim.infra.encoder.text.umt5 import UMT5TextEncoderConfig
 
-        text_encoder = WanTextEncoderConfig().setup()
+        text_encoder = UMT5TextEncoderConfig().setup().to(device)
 
         text = ["hello world"]
-        text_embeddings = text_encoder.encode(text)
+        text_embeddings = text_encoder(text)
 
         assert text_embeddings.shape == (1, 512, 4096)
         assert text_embeddings.dtype == torch.bfloat16
@@ -61,15 +61,14 @@ class TestTextEncoders:
     @pytest.mark.manual
     def test_cosmos_reason1_text_encoder_instantiation(self, device):
         """Test CosmosReason1TextEncoder can be instantiated and encode text."""
-        from flashsim.model.text_encoder.cosmos_reason1 import (
-            CosmosReason1TextEncoder,
+        from flashsim.infra.encoder.text.cosmos_qwen import (
             CosmosReason1TextEncoderConfig,
         )
 
-        text_encoder = CosmosReason1TextEncoder(config=CosmosReason1TextEncoderConfig())
+        text_encoder = CosmosReason1TextEncoderConfig().setup().to(device)
 
         text = ["A beautiful sunset over a calm ocean."]
-        text_embeddings = text_encoder.encode(text)
+        text_embeddings = text_encoder(text)
 
         # full_concat strategy: 28 layers * 3584 hidden_size = 100352
         assert text_embeddings.shape == (1, 512, 100352)
@@ -83,9 +82,11 @@ class TestVideoVAE:
     @pytest.mark.manual
     def test_pixel_shuffle_vae_instantiation(self, device):
         """Test PixelShuffleVAEInterface can be instantiated."""
-        from flashsim.model.video_vae.pshuffle import PixelShuffleVAEInterfaceConfig
+        from flashsim.recipes.alpadreams.encoder.pixel_shuffle import (
+            PixelShuffleVAEEncoderConfig,
+        )
 
-        model = PixelShuffleVAEInterfaceConfig().setup()
+        model = PixelShuffleVAEEncoderConfig().setup().to(device)
 
         assert model.temporal_compression_ratio == 4
         assert model.spatial_compression_ratio == 8
@@ -93,9 +94,9 @@ class TestVideoVAE:
     @pytest.mark.manual
     def test_teahv_vae_instantiation(self, device):
         """Test TeahvInterface can be instantiated."""
-        from flashsim.model.video_vae.teahv import TeahvInterfaceConfig
+        from flashsim.recipes.taehv import TeahvVAEDecoderConfig
 
-        model = TeahvInterfaceConfig().setup()
+        model = TeahvVAEDecoderConfig().setup().to(device)
 
         assert model.temporal_compression_ratio == 4
         assert model.spatial_compression_ratio == 8
@@ -103,9 +104,9 @@ class TestVideoVAE:
     @pytest.mark.manual
     def test_wan_vae_instantiation(self, device):
         """Test WanVAEInterface can be instantiated."""
-        from flashsim.model.video_vae.wan import WanVAEInterfaceConfig
+        from flashsim.recipes.wan.autoencoder.vae import WanVAEEncoderConfig
 
-        model = WanVAEInterfaceConfig().setup()
+        model = WanVAEEncoderConfig().setup().to(device)
 
         assert model.temporal_compression_ratio == 4
         assert model.spatial_compression_ratio == 8
@@ -117,8 +118,10 @@ class TestDiTNetwork:
     @pytest.mark.manual
     def test_wan_dit_t2v_1_3b_instantiation_and_checkpoint_loading(self, device):
         """Test WanDiTNetwork 1.3B T2V can be instantiated and load checkpoint."""
-        from flashsim.model.video_dit.wan2_1.network import WanDiTNetwork1pt3BConfig
-        from flashsim.checkpoint.load import load_checkpoint
+        from flashsim.recipes.wan.transformer.impl.network import (
+            WanDiTNetwork1pt3BConfig,
+        )
+        from flashsim.core.checkpoint.load import load_checkpoint
 
         network_config = WanDiTNetwork1pt3BConfig()
         network = network_config.setup().to(device)
@@ -133,8 +136,10 @@ class TestDiTNetwork:
     @pytest.mark.manual
     def test_wan_dit_i2v_14b_instantiation_and_checkpoint_loading(self, device):
         """Test WanDiTNetwork 14B I2V can be instantiated and load checkpoint."""
-        from flashsim.model.video_dit.wan2_1.network import WanDiTNetwork14BConfig
-        from flashsim.checkpoint.load import load_checkpoint
+        from flashsim.recipes.wan.transformer.impl.network import (
+            WanDiTNetwork14BConfig,
+        )
+        from flashsim.core.checkpoint.load import load_checkpoint
 
         network_config = WanDiTNetwork14BConfig(
             cross_attn_enable_img=True, in_dim=16 + 20

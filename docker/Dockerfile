@@ -30,4 +30,17 @@ RUN apt-get update -qq \
         ca-certificates \
         tmux \
         screen \
+        unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Install AWS CLI v2
+RUN ARCH="$(uname -m)" \
+    && case "$ARCH" in \
+         x86_64)  AWS_ARCH="x86_64" ;; \
+         aarch64) AWS_ARCH="aarch64" ;; \
+         *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${AWS_ARCH}.zip" -o /tmp/awscliv2.zip \
+    && unzip -q /tmp/awscliv2.zip -d /tmp \
+    && /tmp/aws/install \
+    && rm -rf /tmp/aws /tmp/awscliv2.zip

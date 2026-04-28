@@ -293,7 +293,9 @@ class BboxConditionedT2V(nn.Module, Generic[LatentCacheT]):
             model_cond = condition_frames[:, 0]  # [B, T, 3, H, W]
 
         latent_cache, rgb_frames, finalization_state = (
-            self.video_model_api.start_generation(text_prompts, model_rgb, model_cond, camera_names)
+            self.video_model_api.start_generation(
+                text_prompts, model_rgb, model_cond, camera_names
+            )
         )
 
         # Re-insert V dimension if model returned single-view output [B, T, 3, H, W]

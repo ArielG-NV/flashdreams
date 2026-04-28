@@ -12,7 +12,7 @@ import torch.distributed as dist
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.tensor import Shard, distribute_tensor
 
-from flashsim.attention import RingAttention, NativeAttention
+from flashsim.core.attention import RingAttention, NativeAttention
 
 
 def test_attention():

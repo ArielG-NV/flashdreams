@@ -5,7 +5,7 @@ Unit tests for BlockKVCache.
 import pytest
 import torch
 
-from flashsim.attention.kvcache import BlockKVCache
+from flashsim.core.attention.kvcache import BlockKVCache
 
 
 class _NaiveKVCache:

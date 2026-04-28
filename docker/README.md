@@ -12,7 +12,7 @@ Rebuild only when the Dockerfile or pinned dependencies change.
 
 | File | Purpose |
 |---|---|
-| `Dockerfile` | Image recipe. Based on `nvcr.io/nvidia/pytorch:26.02-py3`. |
+| `Dockerfile` | Image recipe. Based on `nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04`. |
 | `build_with_docker.sh` | Build + push a multi-arch (`linux/arm64` + `linux/amd64`) image to `gitlab-master.nvidia.com:5005/sil/flashsim`. |
 | `docker_farm_setup.sh` | One-time Buildx "farm" setup so arm64 builds run natively on `dgx-spark` instead of under QEMU emulation. |
 
@@ -21,7 +21,7 @@ Rebuild only when the Dockerfile or pinned dependencies change.
 ## Canonical image
 
 ```
-gitlab-master.nvidia.com:5005/sil/flashsim:base-v0.3
+gitlab-master.nvidia.com:5005/sil/flashsim:base-v0.3-20260424-55bd566
 ```
 
 Multi-arch (linux/arm64 + linux/amd64) — the container runtime picks the

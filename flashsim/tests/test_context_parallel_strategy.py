@@ -2,7 +2,7 @@
 
 import pytest
 
-from flashsim.model.video_dit.context_parallel_strategy import (
+from flashsim.recipes.alpadreams.transformer.impl.context_parallel import (
     create_hierarchical_cp_groups,
 )
 

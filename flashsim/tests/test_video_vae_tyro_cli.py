@@ -1,20 +1,23 @@
 import pytest
 
 import tyro
-from flashsim.model.video_vae.pshuffle import (
-    PixelShuffleVAEInterface,
-    PixelShuffleVAEInterfaceConfig,
+from flashsim.recipes.taehv import (
+    TeahvVAEDecoder,
+    TeahvVAEDecoderConfig,
 )
-from flashsim.model.video_vae.teahv import TeahvInterface, TeahvInterfaceConfig
-from flashsim.model.video_vae.wan import WanVAEInterface, WanVAEInterfaceConfig
+from flashsim.recipes.alpadreams.encoder.pixel_shuffle import (
+    PixelShuffleVAEEncoderConfig,
+    PixelShuffleVAEEncoder,
+)
+from flashsim.recipes.wan.autoencoder.vae import WanVAEEncoder, WanVAEEncoderConfig
 
 
 @pytest.mark.parametrize(
     ("config_cls", "target_cls"),
     [
-        (PixelShuffleVAEInterfaceConfig, PixelShuffleVAEInterface),
-        (TeahvInterfaceConfig, TeahvInterface),
-        (WanVAEInterfaceConfig, WanVAEInterface),
+        (PixelShuffleVAEEncoderConfig, PixelShuffleVAEEncoder),
+        (TeahvVAEDecoderConfig, TeahvVAEDecoder),
+        (WanVAEEncoderConfig, WanVAEEncoder),
     ],
 )
 def test_video_vae_config_cli_defaults(config_cls: type, target_cls: type) -> None:
@@ -25,7 +28,7 @@ def test_video_vae_config_cli_defaults(config_cls: type, target_cls: type) -> No
 
 def test_pixelshuffle_cli_accepts_frame_selection_override() -> None:
     config = tyro.cli(
-        PixelShuffleVAEInterfaceConfig,
+        PixelShuffleVAEEncoderConfig,
         args=["--frame-selection-mode", "first_frame"],
     )
     assert config.frame_selection_mode == "first_frame"
