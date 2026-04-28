@@ -290,8 +290,21 @@ class StreamInferencePipeline(
             stages_str = " ".join(
                 f"{stage} {ms:.3f} ms" for stage, ms in stats_ms.items()
             )
+            mem_str = ""
+            if torch.cuda.is_available():
+                device = torch.cuda.current_device()
+                gib = 1024**3
+                mem_alloc_gib = torch.cuda.memory_allocated(device) / gib
+                mem_reserved_gib = torch.cuda.memory_reserved(device) / gib
+                mem_peak_gib = torch.cuda.max_memory_allocated(device) / gib
+                mem_str = (
+                    f" | GPU mem alloc {mem_alloc_gib:.3f} GiB "
+                    f"reserved {mem_reserved_gib:.3f} GiB "
+                    f"peak {mem_peak_gib:.3f} GiB"
+                )
             logger.info(
                 f"AR {autoregressive_index} {stages_str} | "
                 f"total(w/o finalize) {total_ms_wo_finalize:.3f} ms "
                 f"total {total_ms:.3f} ms"
+                f"{mem_str}"
             )

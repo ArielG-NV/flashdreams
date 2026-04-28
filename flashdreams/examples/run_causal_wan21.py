@@ -191,14 +191,14 @@ def main() -> None:
     for i in range(args.total_blocks):
         num_frames = pipeline.get_num_output_frames(i)
         print(f"autoregressive_index: {i}, num_frames: {num_frames}")
-        chunks.append(pipeline.generate(i, cache))
+        chunks.append(pipeline.generate(i, cache).cpu())
         pipeline.finalize(i, cache)
     generated_video = torch.cat(chunks, dim=1)  # [B, T, C, H, W]
     print("end of streaming inference, generated_video.shape:", generated_video.shape)
 
     if rank == 0:
         canvas = rearrange(generated_video, "1 t c h w -> t h w c")
-        canvas = (canvas.float().cpu().numpy() + 1.0) / 2.0
+        canvas = (canvas.float().numpy() + 1.0) / 2.0
         canvas = (canvas * 255).clip(0, 255).astype(np.uint8)
         suffix = "i2v" if is_i2v else "t2v"
         save_path = (
