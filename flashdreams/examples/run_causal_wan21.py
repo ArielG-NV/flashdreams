@@ -39,6 +39,7 @@ Run::
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 
@@ -188,11 +189,14 @@ def main() -> None:
 
     # ---------------------------------------------------------------- rollout
     chunks: list[torch.Tensor] = []
+    stats_history: list[dict[str, float]] = []
     for i in range(args.total_blocks):
         num_frames = pipeline.get_num_output_frames(i)
         print(f"autoregressive_index: {i}, num_frames: {num_frames}")
         chunks.append(pipeline.generate(i, cache).cpu())
-        pipeline.finalize(i, cache)
+        stats = pipeline.finalize(i, cache)
+        if stats is not None:
+            stats_history.append({"autoregressive_index": i, **stats})
     generated_video = torch.cat(chunks, dim=1)  # [B, T, C, H, W]
     print("end of streaming inference, generated_video.shape:", generated_video.shape)
 
@@ -208,6 +212,15 @@ def main() -> None:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         media.write_video(save_path, canvas, fps=16)
         print(f"saved generated video to {save_path}")
+
+        if stats_history:
+            stats_path = (
+                f"{REPO_ROOT}/outputs/stats_causal_wan21_{args.config_name}"
+                f"_{suffix}_{world_size}gpus.json"
+            )
+            with open(stats_path, "w") as f:
+                json.dump(stats_history, f, indent=2)
+            print(f"saved per-AR-step stats to {stats_path}")
 
     if torch.distributed.is_initialized():
         torch.distributed.destroy_process_group()

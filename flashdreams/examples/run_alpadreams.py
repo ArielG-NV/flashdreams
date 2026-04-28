@@ -33,6 +33,7 @@ Run::
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 
@@ -230,6 +231,7 @@ def main() -> None:
         torch.distributed.barrier()
 
     generated_video: list[torch.Tensor] = []
+    stats_history: list[dict[str, float]] = []
     start = 0
     for i in range(args.total_blocks):
         num_frames = pipeline.get_num_frames(i)
@@ -247,7 +249,9 @@ def main() -> None:
             ).cpu()
         )
         start = end
-        pipeline.finalize(i, cache)
+        stats = pipeline.finalize(i, cache)
+        if stats is not None:
+            stats_history.append({"autoregressive_index": i, **stats})
 
     video = torch.cat(generated_video, dim=2)  # [B, V, T, C, H, W]
     generated_num_frames = video.shape[2]
@@ -265,6 +269,15 @@ def main() -> None:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         media.write_video(save_path, canvas, fps=30)
         print(f"saved generated video to {save_path}")
+
+        if stats_history:
+            stats_path = (
+                f"{REPO_ROOT}/outputs/"
+                f"stats_alpadreams_{config_name}_{world_size}gpus.json"
+            )
+            with open(stats_path, "w") as f:
+                json.dump(stats_history, f, indent=2)
+            print(f"saved per-AR-step stats to {stats_path}")
 
     if torch.distributed.is_initialized():
         torch.distributed.destroy_process_group()

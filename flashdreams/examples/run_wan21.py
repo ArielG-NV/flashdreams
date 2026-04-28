@@ -36,6 +36,7 @@ Run::
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 
@@ -159,7 +160,7 @@ def main() -> None:
 
     # Single-AR-step rollouts don't need finalize; run it for API
     # symmetry (and to log this step's per-stage profiling).
-    pipeline.finalize(autoregressive_index=0, cache=cache)
+    stats = pipeline.finalize(autoregressive_index=0, cache=cache)
 
     # Save the generated video
     canvas = rearrange(generated_video, "t c h w -> t h w c")
@@ -170,6 +171,12 @@ def main() -> None:
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     media.write_video(save_path, canvas, fps=16)
     print(f"saved generated video to {save_path}")
+
+    if stats is not None:
+        stats_path = f"{REPO_ROOT}/outputs/stats_wan21_{suffix}.json"
+        with open(stats_path, "w") as f:
+            json.dump([{"autoregressive_index": 0, **stats}], f, indent=2)
+        print(f"saved per-AR-step stats to {stats_path}")
 
 
 if __name__ == "__main__":
