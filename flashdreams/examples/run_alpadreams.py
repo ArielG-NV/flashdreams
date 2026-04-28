@@ -244,7 +244,7 @@ def main() -> None:
                 autoregressive_index=i,
                 cache=cache,
                 hdmap=hdmap_videos_t[:, :, start:end],
-            )
+            ).cpu()
         )
         start = end
         pipeline.finalize(i, cache)
@@ -254,12 +254,12 @@ def main() -> None:
     print("end of streaming inference, generated_video.shape:", video.shape)
 
     if rank == 0:
-        condition = hdmap_videos_t[:, :, :generated_num_frames]
+        condition = hdmap_videos_t[:, :, :generated_num_frames].cpu()
         canvas = rearrange(
             torch.cat([condition, video], dim=-2),
             "1 v t c h w -> t h (v w) c",
         )
-        canvas = (canvas.float().cpu().numpy() + 1.0) / 2.0
+        canvas = (canvas.float().numpy() + 1.0) / 2.0
         canvas = (canvas * 255).clip(0, 255).astype(np.uint8)
         save_path = f"{REPO_ROOT}/outputs/alpadreams_{config_name}_{world_size}gpus.mp4"
         os.makedirs(os.path.dirname(save_path), exist_ok=True)

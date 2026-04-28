@@ -55,11 +55,13 @@ export FLASHDREAMS_CACHE_DIR=~/.cache/flashdreams # default
 
 # 4. Run inference script. Checkpoints and example data are auto-downloaded at first run.
 # - single view on single GPU
-uv run --package flashdreams --extra examples torchrun --standalone --nnodes=1 --nproc_per_node=1 \
+uv run --package flashdreams --extra examples \
+  python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=1 \
     flashdreams/examples/run_alpadreams.py \
     --n_cameras 1 --total_blocks 20
 # - multi view on 4 GPUs
-uv run --package flashdreams --extra examples torchrun --standalone --nnodes=1 --nproc_per_node=4 \
+uv run --package flashdreams --extra examples \
+  python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
     flashdreams/examples/run_alpadreams.py \
     --n_cameras 4 --total_blocks 20
 ```
@@ -76,7 +78,8 @@ export HF_TOKEN=<YOUR-HF-TOKEN>
 export HF_HOME=~/.cache/huggingface # default
 
 # 2. Run inference script. Checkpoint will be auto-downloaded at first run from huggingface.
-uv run --package flashdreams --extra examples torchrun --standalone --nnodes=1 --nproc_per_node=1 \
+uv run --package flashdreams --extra examples \
+  python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=1 \
     flashdreams/examples/run_causal_wan21.py \
     --total_blocks 7
 ```
@@ -94,13 +97,15 @@ export HF_HOME=~/.cache/huggingface # default
 
 # 2. Run inference script. Checkpoint will be auto-downloaded at first run from huggingface.
 # - T2V
-uv run --package flashdreams --extra examples torchrun --standalone --nnodes=1 --nproc_per_node=1 \
+uv run --package flashdreams --extra examples \
+  python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=1 \
     flashdreams/examples/run_causal_wan21.py \
     --total_blocks 21 \
     --overwrite_config_name causal_forcing_framewise
 
 # - I2V
-uv run --package flashdreams --extra examples torchrun --standalone --nnodes=1 --nproc_per_node=1 \
+uv run --package flashdreams --extra examples \
+  python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=1 \
     flashdreams/examples/run_causal_wan21.py \
     --total_blocks 21 \
     --overwrite_config_name causal_forcing_framewise \
@@ -126,7 +131,8 @@ export HF_TOKEN=<YOUR-HF-TOKEN>
 export HF_HOME=~/.cache/huggingface # default
 
 # 2. Run inference script. Checkpoint will be auto-downloaded at first run from huggingface.
-uv run --package flashdreams --extra examples torchrun --standalone --nnodes=1 --nproc_per_node=1 \
+uv run --package flashdreams --extra examples \
+  python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=1 \
     flashdreams/examples/run_causal_wan22.py \
     --total_blocks 21
 ```
@@ -145,7 +151,8 @@ export HF_TOKEN=<YOUR-HF-TOKEN>
 export HF_HOME=~/.cache/huggingface # default
 
 # 2. Run inference script. Checkpoint will be auto-downloaded at first run from huggingface.
-uv run --package flashdreams --extra examples torchrun --standalone --nnodes=1 --nproc_per_node=1 \
+uv run --package flashdreams --extra examples \
+  python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=1 \
     flashdreams/examples/run_lingbot_world.py \
     --total_blocks 21
 ```
@@ -168,15 +175,20 @@ export HF_HOME=~/.cache/huggingface # default
 #    The single entry point picks T2V (1.3B) when --image_path is omitted
 #    and I2V (14B 480P) when --image_path is provided.
 # - T2V (1.3B)
-uv run --package flashdreams --extra examples flashdreams/examples/run_wan21.py --height 480 --width 832
+uv run --package flashdreams --extra examples \
+  flashdreams/examples/run_wan21.py \
+    --height 480 --width 832
 
 # - I2V (14B 480P) — pass --image_path to switch modes
-uv run --package flashdreams --extra examples flashdreams/examples/run_wan21.py --height 480 --width 832 \
+uv run --package flashdreams --extra examples \
+  flashdreams/examples/run_wan21.py \
+    --height 480 --width 832 \
     --image_path assets/example_data/i2v/image.jpg \
     --prompt_or_txt_path assets/example_data/i2v/prompt.txt
 
 # - I2V (14B 480P) using the example data from Wan2.1 codebase.
-uv run --package flashdreams --extra examples flashdreams/examples/run_wan21.py \
+uv run --package flashdreams --extra examples \
+  flashdreams/examples/run_wan21.py \
     --image_path ../Wan2.1/examples/i2v_input.JPG \
     --prompt_or_txt_path "Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline's intricate details and the refreshing atmosphere of the seaside."
 ```

@@ -154,7 +154,7 @@ def main() -> None:
 
         cache = pipeline.initialize_cache(text=[prompt])
 
-    generated_video = pipeline.generate(autoregressive_index=0, cache=cache)
+    generated_video = pipeline.generate(autoregressive_index=0, cache=cache).cpu()
     print("Generated video shape:", generated_video.shape)
 
     # Single-AR-step rollouts don't need finalize; run it for API
@@ -163,7 +163,7 @@ def main() -> None:
 
     # Save the generated video
     canvas = rearrange(generated_video, "t c h w -> t h w c")
-    canvas = (canvas.float().cpu().numpy() + 1.0) / 2.0
+    canvas = (canvas.float().numpy() + 1.0) / 2.0
     canvas = (canvas * 255).clip(0, 255).astype(np.uint8)
     suffix = "i2v_14b_480p" if is_i2v else "t2v_1.3b"
     save_path = f"{REPO_ROOT}/outputs/wan21_{suffix}.mp4"

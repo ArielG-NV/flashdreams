@@ -224,7 +224,7 @@ def main() -> None:
                 autoregressive_index=i,
                 cache=cache,
                 input=camctrl_input,
-            )
+            ).cpu()
         )
         start = end
         pipeline.finalize(i, cache)
@@ -234,7 +234,7 @@ def main() -> None:
 
     if rank == 0:
         canvas = rearrange(video, "1 v t c h w -> t h (v w) c")
-        canvas = (canvas.float().cpu().numpy() + 1.0) / 2.0
+        canvas = (canvas.float().numpy() + 1.0) / 2.0
         canvas = (canvas * 255).clip(0, 255).astype(np.uint8)
         save_path = (
             f"{REPO_ROOT}/outputs/lingbot_{args.config_name}_{world_size}gpus.mp4"
