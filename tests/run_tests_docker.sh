@@ -10,7 +10,7 @@
 #   ./tests/run_tests_docker.sh [TEST_TARGET...]
 #
 # Environment overrides:
-#   FLASHDREAMS_TEST_IMAGE         (default: gitlab-master.nvidia.com:5005/sil/flashdreams:base-v0.3-20260424-55bd566)
+#   FLASHDREAMS_TEST_IMAGE         (default: ghcr.io/nvidia/flashdreams:base-v0.3-20260424-55bd566)
 #   FLASHDREAMS_UV_CACHE_DIR       (default: ${HOME}/.cache/uv)
 #   FLASHDREAMS_HF_CACHE_DIR       (default: ${HOME}/.cache/huggingface)
 #   FLASHDREAMS_CACHE_DIR          (default: ${HOME}/.cache/flashdreams)
@@ -25,7 +25,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-IMAGE="${FLASHDREAMS_TEST_IMAGE:-gitlab-master.nvidia.com:5005/sil/flashdreams:base-v0.3-20260424-55bd566}"
+IMAGE="${FLASHDREAMS_TEST_IMAGE:-ghcr.io/nvidia/flashdreams:base-v0.3-20260424-55bd566}"
 
 UV_CACHE_HOST="${FLASHDREAMS_UV_CACHE_DIR:-${HOME}/.cache/uv}"
 HF_CACHE_HOST="${FLASHDREAMS_HF_CACHE_DIR:-${HOME}/.cache/huggingface}"
