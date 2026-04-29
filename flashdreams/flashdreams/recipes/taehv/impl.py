@@ -236,6 +236,13 @@ class TAEHV(nn.Module):
     image tensor in ``[0, 1]``. Each rollout uses a fresh
     :class:`TAEHVCache`.
 
+    Supported ``model_type`` values: ``"wan21"`` (default; ReLU,
+    ``patch_size=1``, ``latent_channels=16``) and ``"wan22"`` (ReLU,
+    ``patch_size=2``, ``latent_channels=48``). The legacy ``"hy15"``
+    (LeakyReLU + ``[-1, 1]`` clamp) and ``"taecvx"`` (cogvideox even-T
+    skip-trim) variants are NOT supported here -- pass them and the
+    constructor raises.
+
     Per-rollout dispatch when ``use_cuda_graph=True``:
         - Rollout 1: bare decoder / wrapper.drain -- drains Inductor
           autotune on the eager path against the wrapper's static
@@ -257,6 +264,8 @@ class TAEHV(nn.Module):
     TEMPORAL_COMPRESSION_RATIO = 4
     SPATIAL_COMPRESSION_RATIO = 8
 
+    SUPPORTED_MODEL_TYPES = ("wan21", "wan22")
+
     def __init__(
         self,
         checkpoint_path: str = "taew2_1.pth",
@@ -266,10 +275,24 @@ class TAEHV(nn.Module):
         latent_channels: int = 16,
         model_type: str = "wan21",
         use_cuda_graph: bool = True,
-        use_compile: bool = True,
+        use_compile: bool = False,
         warmup_iters: int = 2,
     ):
         super().__init__()
+        if model_type not in self.SUPPORTED_MODEL_TYPES:
+            raise ValueError(
+                f"TAEHV: model_type={model_type!r} is not supported by this slim "
+                f"impl (supported: {self.SUPPORTED_MODEL_TYPES}). The legacy "
+                f"'hy15' / 'taecvx' branches (different activation, clamp range, "
+                f"or trim semantics) were dropped in the decode-only refactor."
+            )
+        if checkpoint_path is not None and "taecvx" in checkpoint_path:
+            # CogVideoX checkpoints relied on a legacy ``skip_trim`` branch
+            # (``is_cogvideox and x.shape[1] % 2 == 0``) that is not ported.
+            raise ValueError(
+                f"TAEHV: cogvideox checkpoint {checkpoint_path!r} is not "
+                f"supported by this slim impl."
+            )
         # ``wan22`` uses a different patch-size / latent-channel config; the
         # other supported model types share the defaults above.
         if model_type == "wan22":

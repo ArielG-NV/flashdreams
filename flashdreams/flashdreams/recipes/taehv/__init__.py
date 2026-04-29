@@ -103,7 +103,10 @@ class TeahvVAEDecoder(Decoder[TAEHVCache]):
         if cache is None:
             cache = self.initialize_autoregressive_cache()
 
-        assert input.ndim >= 4, "Expected input to have shape [..., T, C, H, W]"
+        assert input.ndim >= 4, (
+            f"Expected input to have shape [..., T, C, H, W] (ndim>=4), "
+            f"got ndim={input.ndim}"
+        )
 
         *batch_shape, T, C, H, W = input.shape
         batch_size = math.prod(batch_shape)

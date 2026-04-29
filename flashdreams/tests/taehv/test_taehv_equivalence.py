@@ -1,14 +1,21 @@
 """Numerical equivalence between reference and slim TAEHV decode.
 
-Requires GPU. Compares the upstream reference :class:`TAEHV` in
-:mod:`impl_reference` (sibling module in this folder) against the
+Requires GPU + network (downloads the lighttae checkpoint from S3) and
+is therefore marked ``@pytest.mark.manual`` -- opt in via
+``pytest -m manual ...``. Compares the upstream reference :class:`TAEHV`
+in :mod:`impl_reference` (sibling module in this folder) against the
 rewrite in :mod:`flashdreams.recipes.taehv.impl` on a streaming causal
-decode (5 same-shape body chunks -- enough to exercise the
-warmup -> capture -> replay path of the CUDA-graph wrapper).
+decode (5 same-shape body chunks).
+
+The default ``_MODES`` table only exercises ``eager`` (no compile, no
+CUDA graph). Add a ``compile_cg`` row to also smoke-test the
+warmup -> capture -> replay path of :class:`CUDAGraphWrapper` (use loose
+bf16 tolerances).
 """
 
 from __future__ import annotations
 
+import copy
 from unittest.mock import patch
 
 import pytest
@@ -37,13 +44,17 @@ def _build_pair(
 
     The checkpoint is loaded once, cast to ``dtype``, and re-served via
     a patch on each impl module's ``load_checkpoint`` so both models
-    see identical weights without a second S3 round-trip.
+    see identical weights without a second S3 round-trip. Each call
+    returns a *fresh shallow copy* of the dict, because the legacy
+    ``patch_tgrow_layers`` mutates entries in place -- otherwise the
+    new impl would see the already-truncated TGrow weights when the
+    legacy constructor runs first.
     """
     weights = load_checkpoint(checkpoint_path)
     weights = {k: v.to(dtype) for k, v in weights.items()}
 
     def _cached(_path):
-        return weights
+        return copy.copy(weights)
 
     with (
         patch.object(_impl_reference, "load_checkpoint", _cached),
@@ -62,13 +73,18 @@ def _build_pair(
 
 # (mode_id, dtype, use_compile, use_cuda_graph, atol, rtol)
 #
-# - "eager" runs in fp32 with strict bit-exact tolerances: this isolates
-#   the impl-vs-legacy logic. Any diff is a real impl bug.
+# - "eager" runs in fp32 with tight (but not bit-exact) tolerances:
+#   isolates the impl-vs-legacy logic. The new impl uses different
+#   reduction orders for some reshapes (e.g. ``view`` instead of
+#   ``reshape`` paths) so float accumulations can drift by a few ULPs;
+#   ``1e-5 / 1.3e-6`` keeps real divergences (>= ~5 ULPs of bf16) easy
+#   to spot while tolerating the noise.
 _MODES: list[tuple[str, torch.dtype, bool, bool, float, float]] = [
     ("eager", torch.float32, False, False, 1e-5, 1.3e-6),
 ]
 
 
+@pytest.mark.manual
 @pytest.mark.skipif(
     not torch.cuda.is_available(), reason="TAEHV equivalence test requires GPU"
 )
@@ -94,8 +110,9 @@ def test_taehv_streaming_equivalence(
       - Decode rollout 1 (chunk A): T=2 latents -> 5 frames (after
         ``frames_to_trim=3``). Bare / drain path.
       - Decode rollouts 2-5 (chunks B0..B3): T=2 latents -> 8 frames
-        each. With ``compile_cg`` the wrapper does 2 warmup + 1 capture
-        + 1 replay over these 4 calls.
+        each. With a ``compile_cg`` row (not in the default ``_MODES``)
+        the wrapper would do 2 warmup + 1 capture + 1 replay over these
+        4 calls.
     """
     device = torch.device("cuda")
     checkpoint_path = AVAILABLE_TAEHV_CHECKPOINT_PATHS[checkpoint_key]
@@ -110,9 +127,7 @@ def test_taehv_streaming_equivalence(
 
     torch.manual_seed(0)
     # 5 chunks of T=2 latents (10 total) at a small spatial size.
-    latents = torch.empty(1, 10, 16, 32, 32, dtype=dtype, device=device).uniform_(
-        -1, 1
-    )
+    latents = torch.empty(1, 10, 16, 32, 32, dtype=dtype, device=device).uniform_(-1, 1)
 
     cache_legacy = legacy.prepare_cache()
     cache_new = new.prepare_cache()

@@ -53,11 +53,16 @@ def _build_pair(
     *,
     use_compile: bool,
 ) -> tuple[TAEHVLegacy, TAEHVNew]:
+    import copy
+
     weights = load_checkpoint(checkpoint_path)
     weights = {k: v.to(dtype) for k, v in weights.items()}
 
+    # Return a fresh shallow copy each call: the legacy ``patch_tgrow_layers``
+    # mutates the dict in place, which would otherwise feed the new impl
+    # already-truncated TGrow weights when the legacy ctor ran first.
     def _cached(_path):
-        return weights
+        return copy.copy(weights)
 
     targets = (
         "impl_reference.load_checkpoint",
@@ -67,9 +72,9 @@ def _build_pair(
         legacy = TAEHVLegacy(checkpoint_path=checkpoint_path).to(
             device=device, dtype=dtype
         )
-        new = TAEHVNew(
-            checkpoint_path=checkpoint_path, use_compile=use_compile
-        ).to(device=device, dtype=dtype)
+        new = TAEHVNew(checkpoint_path=checkpoint_path, use_compile=use_compile).to(
+            device=device, dtype=dtype
+        )
     return legacy, new
 
 
@@ -180,9 +185,7 @@ def main() -> None:
         f"TAEHV 2nd-rollout decode latency: legacy vs slim "
         f"(bf16, {device}, H={h}, W={w}, use_compile={use_compile})"
     )
-    print(
-        f"  decode chunk A=B={args.chunk_t} latents (warm + timed x{args.n_repeat})"
-    )
+    print(f"  decode chunk A=B={args.chunk_t} latents (warm + timed x{args.n_repeat})")
     print(f"  ckpts={args.ckpts}")
     print(f"  inductor cache: {os.environ['TORCHINDUCTOR_CACHE_DIR']}")
     print(f"  triton cache:   {os.environ['TRITON_CACHE_DIR']}")
