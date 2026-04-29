@@ -29,6 +29,11 @@ from typing import TypeAlias
 import torch
 from torch import Tensor
 
+from flashdreams.core.distributed.context_parallel import (
+    cat_outputs_cp,
+    split_inputs_cp,
+    split_inputs_cp_object_list,
+)
 from flashdreams.infra.decoder import DecoderAutoregressiveCache
 from flashdreams.infra.encoder import EncoderAutoregressiveCache
 from flashdreams.infra.encoder.text.cosmos_qwen import (
@@ -47,12 +52,6 @@ from flashdreams.recipes.wan.autoencoder.vae import (
     WanVAEEncoder,
     WanVAEEncoderConfig,
 )
-from flashdreams.core.distributed.context_parallel import (
-    split_inputs_cp,
-    cat_outputs_cp,
-    split_inputs_cp_object_list,
-)
-
 
 AlpadreamsPipelineCache: TypeAlias = StreamInferencePipelineCache[
     EncoderAutoregressiveCache,  # EncCacheT
