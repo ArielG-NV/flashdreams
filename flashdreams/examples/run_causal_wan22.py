@@ -171,7 +171,20 @@ def main() -> None:
                 json.dump(stats_history, f, indent=2)
             print(f"saved per-AR-step stats to {stats_path}")
 
+    # Drop captured CUDA graphs / private mempools BEFORE NCCL teardown so
+    # they don't hold workspace buffers across the destroy. Otherwise the
+    # private mempool can outlive the communicator and rank-0's destroy
+    # can hang waiting for already-exited peers.
+    del cache
+    del pipeline
+    torch.cuda.synchronize()
+    torch.cuda.empty_cache()
+    # Hold every rank here until rank 0 finishes its mp4 encode. Without
+    # this barrier rank>0 races to destroy_process_group() and exits while
+    # rank 0 is still encoding; rank 0's later destroy then deadlocks
+    # trying to talk to peers that no longer exist.
     if torch.distributed.is_initialized():
+        torch.distributed.barrier()
         torch.distributed.destroy_process_group()
 
 
