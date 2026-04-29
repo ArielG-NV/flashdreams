@@ -6,11 +6,11 @@
 # WHAT THIS SCRIPT DOES
 # ---------------------
 # Builds `docker/Dockerfile` for both linux/arm64 and linux/amd64 in a single
-# buildx invocation and pushes the resulting manifest list to the NVIDIA
-# GitLab container registry.
+# buildx invocation and pushes the resulting manifest list to the GitHub
+# Container Registry (GHCR).
 #
 # Tag scheme:
-#     gitlab-master.nvidia.com:5005/sil/flashdreams:<TAG>-<YYYYMMDD>-<git-sha>
+#     ghcr.io/nvidia/flashdreams:<TAG>-<YYYYMMDD>-<git-sha>
 #
 # The date + short git SHA make every build uniquely addressable, while the
 # TAG prefix (e.g. "base-v0.3") tracks the Dockerfile's major revision.
@@ -26,9 +26,9 @@
 #      significantly slower.
 #      To request access to dgx-spark (SSH config, account), contact
 #      qiwu@nvidia.com.
-#   3. You are logged in to the NVIDIA GitLab registry:
-#          docker login gitlab-master.nvidia.com:5005
-#      (use a GitLab personal access token with `read_registry`+`write_registry`).
+#   3. You are logged in to the GitHub Container Registry:
+#          docker login ghcr.io
+#      (use a GitHub personal access token with `write:packages` scope).
 #   4. The working directory is the repo root (the build context is ".") and
 #      `docker/Dockerfile` is reachable. Invoke as:
 #          bash docker/build_with_docker.sh
@@ -76,5 +76,5 @@ docker buildx build \
     --allow network.host \
     --network host \
     --push \
-    -t gitlab-master.nvidia.com:5005/sil/flashdreams:$TAG-$(date +%Y%m%d)-$(git rev-parse --short HEAD) \
+    -t ghcr.io/nvidia/flashdreams:$TAG-$(date +%Y%m%d)-$(git rev-parse --short HEAD) \
     -f docker/Dockerfile .

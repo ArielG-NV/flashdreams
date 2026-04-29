@@ -13,7 +13,7 @@ Rebuild only when the Dockerfile or pinned dependencies change.
 | File | Purpose |
 |---|---|
 | `Dockerfile` | Image recipe. Based on `nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04`. |
-| `build_with_docker.sh` | Build + push a multi-arch (`linux/arm64` + `linux/amd64`) image to `gitlab-master.nvidia.com:5005/sil/flashdreams`. |
+| `build_with_docker.sh` | Build + push a multi-arch (`linux/arm64` + `linux/amd64`) image to `ghcr.io/nvidia/flashdreams`. |
 | `docker_farm_setup.sh` | One-time Buildx "farm" setup so arm64 builds run natively on `dgx-spark` instead of under QEMU emulation. |
 
 ---
@@ -21,7 +21,7 @@ Rebuild only when the Dockerfile or pinned dependencies change.
 ## Canonical image
 
 ```
-gitlab-master.nvidia.com:5005/sil/flashdreams:base-v0.3-20260424-55bd566
+ghcr.io/nvidia/flashdreams:base-v0.3-20260424-55bd566
 ```
 
 Multi-arch (linux/arm64 + linux/amd64) — the container runtime picks the
@@ -91,9 +91,9 @@ workstation, which is correct but noticeably slower.
 ### 2. Log in to the registry
 
 ```bash
-docker login gitlab-master.nvidia.com:5005
-# username: your NVIDIA handle
-# password: a GitLab personal access token with read_registry + write_registry
+docker login ghcr.io
+# username: your GitHub handle
+# password: a GitHub personal access token with read:packages + write:packages
 ```
 
 ### 3. Bump the tag (when the Dockerfile changes)

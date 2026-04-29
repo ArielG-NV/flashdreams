@@ -26,7 +26,7 @@ srun \
     --partition=gtc_demo \
     --time=24:00:00  \
     --pty \
-    --container-image=gitlab-master.nvidia.com:5005/sil/flashdreams:base-v0.3-20260424-55bd566 \
+    --container-image=ghcr.io/nvidia/flashdreams:base-v0.3-20260424-55bd566 \
     --container-mounts=/dev/nvidia-caps-imex-channels:/dev/nvidia-caps-imex-channels,/home:/home,/cm:/cm,/usr/share/glvnd/egl_vendor.d:/usr/share/glvnd/egl_vendor.d \
     --container-remap-root \
     --container-mount-home \

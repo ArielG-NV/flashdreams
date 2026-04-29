@@ -30,7 +30,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 REPO_ROOT="${FLASHDREAMS_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-IMAGE="${FLASHDREAMS_TEST_IMAGE:-gitlab-master.nvidia.com/sil/flashdreams:base-v0.3-20260424-55bd566}"
+IMAGE="${FLASHDREAMS_TEST_IMAGE:-ghcr.io/nvidia/flashdreams:base-v0.3-20260424-55bd566}"
 
 UV_CACHE_HOST="${FLASHDREAMS_UV_CACHE_DIR:-${HOME}/.cache/uv}"
 HF_CACHE_HOST="${FLASHDREAMS_HF_CACHE_DIR:-${HOME}/.cache/huggingface}"
