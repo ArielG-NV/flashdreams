@@ -30,6 +30,7 @@ def test_tokenizer(
             WanVAEEncoderConfig(
                 checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["lightvae"],
                 dtype=dtype,
+                use_cuda_graph=False,
             )
             .setup()
             .to(device)
@@ -39,6 +40,7 @@ def test_tokenizer(
             WanVAEEncoderConfig(
                 checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
                 dtype=dtype,
+                use_cuda_graph=False,
             )
             .setup()
             .to(device)
@@ -51,6 +53,8 @@ def test_tokenizer(
             TeahvVAEDecoderConfig(
                 checkpoint_path=AVAILABLE_TAEHV_CHECKPOINT_PATHS["lighttae"],
                 dtype=dtype,
+                use_cuda_graph=False,
+                use_compile=False,
             )
             .setup()
             .to(device)
@@ -60,6 +64,7 @@ def test_tokenizer(
             WanVAEDecoderConfig(
                 checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["lightvae"],
                 dtype=dtype,
+                use_cuda_graph=False,
             )
             .setup()
             .to(device)
@@ -69,6 +74,7 @@ def test_tokenizer(
             WanVAEDecoderConfig(
                 checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
                 dtype=dtype,
+                use_cuda_graph=False,
             )
             .setup()
             .to(device)

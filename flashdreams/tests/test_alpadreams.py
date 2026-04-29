@@ -8,7 +8,7 @@ from flashdreams.recipes.alpadreams.config import (
 def test_alpadreams_streaming_inference():
     num_views = 1
     # Must match the alpadreams checkpoint training resolution
-    height = 720
+    height = 704
     width = 1280
 
     device = torch.device("cuda")

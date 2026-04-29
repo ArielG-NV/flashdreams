@@ -662,6 +662,16 @@ class WanVAEEncoderConfig(EncoderConfig):
 
     checkpoint_path: str = AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"]
     dtype: torch.dtype = torch.bfloat16
+    use_cuda_graph: bool = True
+    """Wrap the encoder forward in a CUDA graph for steady-state replay."""
+    use_compile: bool = False
+    """Apply ``torch.compile(mode="max-autotune-no-cudagraphs")`` to the
+    encoder. Off by default: Inductor autotune workspaces add several GiB
+    of transient VRAM per unique input shape, which on smaller GPUs can
+    surface as ``illegal memory access`` when paired with the full-channel
+    ``vae`` checkpoint. Opt in for steady-state rollouts; combine with
+    ``use_cuda_graph=True`` for the rollout-aware dispatch (drain Inductor
+    autotune in rollout 1, capture in rollout 2)."""
 
 
 class WanVAEEncoder(Encoder[WanVAECache]):
@@ -683,6 +693,8 @@ class WanVAEEncoder(Encoder[WanVAECache]):
         self.vae = WanVAE(
             vae_path=config.checkpoint_path,
             use_lightvae=use_lightvae,
+            use_cuda_graph=config.use_cuda_graph,
+            use_compile=config.use_compile,
             enable_encoder=True,
             enable_decoder=False,
         ).to(dtype=config.dtype)
@@ -724,6 +736,16 @@ class WanVAEDecoderConfig(DecoderConfig):
 
     checkpoint_path: str = AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"]
     dtype: torch.dtype = torch.bfloat16
+    use_cuda_graph: bool = True
+    """Wrap the decoder forward in a CUDA graph for steady-state replay."""
+    use_compile: bool = False
+    """Apply ``torch.compile(mode="max-autotune-no-cudagraphs")`` to the
+    decoder. Off by default: Inductor autotune workspaces add several GiB
+    of transient VRAM per unique input shape, which on smaller GPUs can
+    surface as ``illegal memory access`` when paired with the full-channel
+    ``vae`` checkpoint. Opt in for steady-state rollouts; combine with
+    ``use_cuda_graph=True`` for the rollout-aware dispatch (drain Inductor
+    autotune in rollout 1, capture in rollout 2)."""
 
 
 class WanVAEDecoder(Decoder[WanVAECache]):
@@ -745,6 +767,8 @@ class WanVAEDecoder(Decoder[WanVAECache]):
         self.vae = WanVAE(
             vae_path=config.checkpoint_path,
             use_lightvae=use_lightvae,
+            use_cuda_graph=config.use_cuda_graph,
+            use_compile=config.use_compile,
             enable_encoder=False,
             enable_decoder=True,
         ).to(dtype=config.dtype)

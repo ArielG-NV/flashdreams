@@ -71,9 +71,7 @@ def _build_pair(
 
     with (
         patch.object(_impl_reference, "load_checkpoint", _cached),
-        patch(
-            "flashdreams.recipes.wan.autoencoder.vae.load_checkpoint", _cached
-        ),
+        patch("flashdreams.recipes.wan.autoencoder.vae.load_checkpoint", _cached),
     ):
         legacy = WanVAELegacy(
             vae_path=checkpoint_path,
