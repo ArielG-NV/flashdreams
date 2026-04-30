@@ -40,10 +40,7 @@ jobs:
           echo "Building wheels..."
           # Add your wheel build commands here
 
-      - name: Run doc build
-        run: |
-          echo "Building documentation..."
-          # Add your doc build commands here
+      # Documentation is built and deployed by `.github/workflows/doc.yml`.
 
   gpu:
     runs-on: linux-amd64-gpu-rtxpro6000-latest-2
