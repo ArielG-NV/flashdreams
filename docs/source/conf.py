@@ -2,15 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Sphinx configuration for the FlashDreams documentation site.
-# Layout follows the gsplat docs (nerfstudio-project/gsplat).
 
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 
 # -- Project information -----------------------------------------------------
 
-project = "flashdreams"
-copyright = "2026, NVIDIA"
+project = "FlashDreams"
+copyright = "2026, NVIDIA Corporation & Affiliates"
 author = "NVIDIA"
 
 try:
@@ -18,7 +17,7 @@ try:
 except PackageNotFoundError:
     release = "0.0.0"
 
-# Pretty-print numeric versions like gsplat does (0.1.0 -> v0.1.0).
+# Pretty-print numeric versions (0.1.0 -> v0.1.0).
 version = release if release[:1].isalpha() else f"v{release}"
 
 # -- General configuration ---------------------------------------------------
@@ -29,12 +28,11 @@ warningiserror = True
 
 extensions = [
     "sphinx.ext.napoleon",
-    "sphinx.ext.duration",
-    "sphinx.ext.doctest",
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
     "sphinx.ext.intersphinx",
     "sphinx.ext.viewcode",
+    "sphinx.ext.githubpages",
     "sphinx_copybutton",
     "sphinx_design",
 ]
@@ -46,18 +44,43 @@ intersphinx_mapping = {
 }
 intersphinx_disabled_domains = ["std"]
 
+master_doc = "index"
+
 templates_path = ["_templates"]
 exclude_patterns: list[str] = []
 
 # -- Options for HTML output -------------------------------------------------
 
-html_theme = "furo"
-html_static_path = ["assets"]
+html_theme = "nvidia_sphinx_theme"
+html_title = f"FlashDreams {version}"
+html_show_sphinx = False
+html_static_path = ["_static"]
+
+html_theme_options = {
+    "secondary_sidebar_items": ["page-toc"],
+    "copyright_override": {"start": 2026},
+    "pygments_light_style": "tango",
+    "pygments_dark_style": "monokai",
+    "footer_links": {},
+    "github_url": "https://github.com/NVIDIA/flashdreams",
+    "navigation_depth": -1,
+    "collapse_navigation": False,
+}
+
+html_context = {
+    "github_user": "NVIDIA",
+    "github_repo": "flashdreams",
+    "github_version": "main",
+    "doc_path": "docs/source",
+    "default_mode": "light",
+}
+
+html_css_files = ["custom.css"]
 
 # -- Copybutton --------------------------------------------------------------
 
-# Strip Python REPL prompts when copying snippets.
-copybutton_prompt_text = r">>> |\.\.\. "
+# Strip Python REPL prompts and shell prompts when copying snippets.
+copybutton_prompt_text = r">>> |\.\.\. |\$ "
 copybutton_prompt_is_regexp = True
 
 # -- Autodoc -----------------------------------------------------------------

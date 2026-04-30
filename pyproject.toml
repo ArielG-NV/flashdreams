@@ -25,7 +25,7 @@ lint = ["pre-commit>=4.3.0"]
 
 # Sphinx toolchain for building docs locally (`uv run --group docs sphinx-build ...`).
 docs = [
-    "furo",
+    "nvidia-sphinx-theme",
     "sphinx",
     "sphinx-copybutton",
     "sphinx-design",
