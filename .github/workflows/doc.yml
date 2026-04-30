@@ -1,0 +1,102 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  release:
+    types: [created]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The doc build only needs `flashdreams` to be importable. The heavy
+      # GPU stack (transformer-engine, pynvml, cv2, mediapy, boto3/botocore)
+      # is mocked via `autodoc_mock_imports` in `docs/source/conf.py`, so we
+      # install a minimal CPU-only set of deps and the package with --no-deps.
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r docs/requirements.txt
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install \
+            loguru \
+            einops \
+            numpy \
+            ftfy \
+            huggingface-hub \
+            safetensors \
+            tqdm \
+            "transformers==4.57.6"
+          pip install --no-deps ./flashdreams
+
+      # Read version from `flashdreams/pyproject.toml` so we can deploy
+      # under `versions/<version>/` on releases (mirrors gsplat's layout).
+      - name: Get version + subdirectory
+        run: |
+          VERSION=$(python -c "import tomllib; print(tomllib.load(open('flashdreams/pyproject.toml','rb'))['project']['version'])")
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "DOCS_SUBDIR=versions/$VERSION" >> $GITHUB_ENV
+
+      # On pushes to main, render the version banner as `main` and deploy
+      # under `main/` instead of `versions/<x.y.z>/`.
+      - name: Override version + subdirectory for pushes to main
+        if: github.event_name == 'push'
+        run: |
+          sed -i 's/^version = ".*"/version = "main"/' flashdreams/pyproject.toml
+          echo "DOCS_SUBDIR=main" >> $GITHUB_ENV
+
+      - name: Sphinx build
+        run: |
+          sphinx-build -b html docs/source _build
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        if: github.event_name != 'pull_request'
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: _build/
+          destination_dir: ${{ env.DOCS_SUBDIR }}
+          keep_files: false  # only erases the destination subdirectory
+          # Uncomment + set if you wire up a custom domain later:
+          # cname: docs.flashdreams.nvidia.com
+
+      # Maintain a flat index of all released versions on the gh-pages branch
+      # at `versions/index.txt`. Useful for dynamically generating a version
+      # picker on the docs site (mirrors gsplat).
+      - name: Update versions/index.txt
+        if: github.event_name == 'release'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ env.VERSION }}
+        run: |
+          git fetch
+          git checkout .  # revert the version-banner sed from earlier (no-op on releases)
+          git checkout gh-pages
+          git pull
+          git config --global user.email "${{ github.actor }}@users.noreply.github.com"
+          git config --global user.name "${{ github.actor }}"
+          FILE="versions/index.txt"
+          mkdir -p versions
+          touch "$FILE"
+          if ! grep -qx "$VERSION" "$FILE"; then
+            echo "$VERSION" >> "$FILE"
+            git add "$FILE"
+            git commit -m "Update versions/index.txt with new version $VERSION"
+            git push origin gh-pages
+          fi
