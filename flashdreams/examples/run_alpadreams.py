@@ -43,6 +43,17 @@ Run::
         examples/run_alpadreams.py \\
         --n_cameras 4 \\
         --total_blocks 60
+
+    # Use precomputed embeddings (skip Cosmos-Reason1 + Wan-VAE-encoder
+    # load entirely; saves ~14 GB of VRAM):
+    python examples/precompute_alpadreams_embeddings.py \\
+        --n_cameras 1 \\
+        --output outputs/alpadreams_sv_embeddings.pt
+    torchrun --nproc_per_node=N \\
+        examples/run_alpadreams.py \\
+        --n_cameras 1 \\
+        --total_blocks 60 \\
+        --embeddings_path outputs/alpadreams_sv_embeddings.pt
 """
 
 from __future__ import annotations
@@ -132,6 +143,18 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Disable torch.compile of the DiT network.",
     )
+    parser.add_argument(
+        "--embeddings_path",
+        type=str,
+        default=None,
+        help=(
+            "Optional path to a .pt file produced by "
+            "examples/precompute_alpadreams_embeddings.py. When set, the "
+            "Cosmos-Reason1 text encoder and Wan VAE first-frame image "
+            "encoder are NOT loaded (saving ~14 GB of VRAM); the cache is "
+            "hydrated from the precomputed tensors instead."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -192,6 +215,11 @@ def main() -> None:
         compile_network=not args.no_compile,
         seed=42 + rank,
     )
+    if args.embeddings_path is not None:
+        # Skip the one-shot encoder load entirely; embeddings are
+        # hydrated below from the precomputed file.
+        pipeline_config.text_encoder = None
+        pipeline_config.image_encoder = None
     pipeline = pipeline_config.setup()
     pipeline.to(device=device)
 
@@ -206,13 +234,16 @@ def main() -> None:
     first_frames: list[torch.Tensor] = []
     hdmap_videos: list[torch.Tensor] = []
     prompts: list[str] = []
+    needs_first_frames = args.embeddings_path is None
     for entry in data:
-        first_frame = media.read_image(entry["first_frame_path"])
-        first_frame = cv2.resize(first_frame, (pixel_w, pixel_h))
-        first_frame_t = (
-            torch.from_numpy(first_frame).to(dtype=dtype, device=device) / 127.5 - 1.0
-        )
-        first_frames.append(rearrange(first_frame_t, "h w c -> 1 c h w"))
+        if needs_first_frames:
+            first_frame = media.read_image(entry["first_frame_path"])
+            first_frame = cv2.resize(first_frame, (pixel_w, pixel_h))
+            first_frame_t = (
+                torch.from_numpy(first_frame).to(dtype=dtype, device=device) / 127.5
+                - 1.0
+            )
+            first_frames.append(rearrange(first_frame_t, "h w c -> 1 c h w"))
 
         hdmap_video_np = media.read_video(entry["hdmap_video_path"])
         if hdmap_video_np.shape[1:3] != (pixel_h, pixel_w):
@@ -227,26 +258,43 @@ def main() -> None:
 
         prompts.append(entry["prompt"])
 
-    first_frames_t = torch.stack(first_frames, dim=0).unsqueeze(
-        0
-    )  # [B=1, V, 1, C, H, W]
     hdmap_videos_t = torch.stack(hdmap_videos, dim=0).unsqueeze(
         0
     )  # [B=1, V, T, C, H, W]
-    prompts_2d: list[list[str]] = [prompts]  # [B=1, V]
     hdmap_num_frames = hdmap_videos_t.shape[2]
     print("loaded hdmap_videos.shape:", hdmap_videos_t.shape)
 
-    cache = pipeline.initialize_cache(
-        text=prompts_2d,  # ty:ignore[unknown-argument]
-        image=first_frames_t,  # ty:ignore[unknown-argument]
-        view_names=camera_names,  # ty:ignore[unknown-argument]
-    )
-    # This demo runs a single rollout, so drop the one-shot text and
-    # first-frame image encoders before the AR loop to free VRAM
-    # (Cosmos-Reason1-7B alone is ~14 GB in bf16). The gRPC server keeps
-    # them around since it reuses the pipeline across sessions.
-    pipeline.release_oneshot_encoders()
+    if args.embeddings_path is not None:
+        print(f"loading precomputed embeddings from {args.embeddings_path}")
+        payload = torch.load(args.embeddings_path, map_location="cpu")
+        # Trust the saved view ordering; sanity-check it matches the
+        # camera ordering for this run so the embeddings line up
+        # correctly when the multi-view CP split is applied.
+        saved_view_names = payload["view_names"]
+        assert saved_view_names == camera_names, (
+            f"view_names mismatch: saved {saved_view_names} vs current "
+            f"{camera_names}. Re-run precompute with the matching --n_cameras."
+        )
+        cache = pipeline.initialize_cache_from_embeddings(
+            text_embeddings=payload["text_embeddings"],
+            image_embeddings=payload["image_embeddings"],
+            view_names=saved_view_names,
+        )
+    else:
+        first_frames_t = torch.stack(first_frames, dim=0).unsqueeze(
+            0
+        )  # [B=1, V, 1, C, H, W]
+        prompts_2d: list[list[str]] = [prompts]  # [B=1, V]
+        cache = pipeline.initialize_cache(
+            text=prompts_2d,  # ty:ignore[unknown-argument]
+            image=first_frames_t,  # ty:ignore[unknown-argument]
+            view_names=camera_names,  # ty:ignore[unknown-argument]
+        )
+        # This demo runs a single rollout, so drop the one-shot text and
+        # first-frame image encoders before the AR loop to free VRAM
+        # (Cosmos-Reason1-7B alone is ~14 GB in bf16). The gRPC server keeps
+        # them around since it reuses the pipeline across sessions.
+        pipeline.release_oneshot_encoders()
 
     torch.cuda.synchronize()
     if torch.distributed.is_initialized():
