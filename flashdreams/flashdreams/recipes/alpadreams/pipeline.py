@@ -140,12 +140,12 @@ class AlpadreamsPipeline(
 
     def __init__(self, config: AlpadreamsPipelineConfig) -> None:
         super().__init__(config)
-        self.text_encoder = (
+        self.text_encoder = (  # ty:ignore[invalid-assignment]
             config.text_encoder.setup() if config.text_encoder is not None else None
-        )  # ty:ignore[invalid-assignment]
-        self.image_encoder = (
+        )
+        self.image_encoder = (  # ty:ignore[invalid-assignment]
             config.image_encoder.setup() if config.image_encoder is not None else None
-        )  # ty:ignore[invalid-assignment]
+        )
 
         assert self.encoder is not None, (
             "AlpadreamsPipeline requires a per-AR-step HDMap encoder; "

@@ -250,9 +250,9 @@ def _save_embeddings_and_exit(args: argparse.Namespace) -> None:
     )
 
     transformer_cfg = pipeline_config.diffusion_model.transformer
-    decoder_sp = pipeline_config.decoder._target.SPATIAL_COMPRESSION_RATIO  # type: ignore[union-attr]
-    pixel_h = transformer_cfg.height * decoder_sp
-    pixel_w = transformer_cfg.width * decoder_sp
+    decoder_sp = pipeline_config.decoder._target.SPATIAL_COMPRESSION_RATIO  # ty:ignore[unresolved-attribute]
+    pixel_h = transformer_cfg.height * decoder_sp  # ty:ignore[unresolved-attribute]
+    pixel_w = transformer_cfg.width * decoder_sp  # ty:ignore[unresolved-attribute]
 
     text_encoder = pipeline_config.text_encoder.setup().to(device=device)
     image_encoder = pipeline_config.image_encoder.setup().to(device=device)
@@ -268,7 +268,9 @@ def _save_embeddings_and_exit(args: argparse.Namespace) -> None:
         first_frames.append(rearrange(first_frame_t, "h w c -> 1 c h w"))
         prompts.append(entry["prompt"])
 
-    first_frames_t = torch.stack(first_frames, dim=0).unsqueeze(0)  # [B=1, V, 1, C, H, W]
+    first_frames_t = torch.stack(first_frames, dim=0).unsqueeze(
+        0
+    )  # [B=1, V, 1, C, H, W]
     prompts_2d: list[list[str]] = [prompts]  # [B=1, V]
 
     with torch.no_grad():
@@ -389,9 +391,9 @@ def main() -> None:
         # Read the input pixel resolution off the configs without
         # instantiating the transformer or decoder.
         pre_transformer_cfg = pipeline_config.diffusion_model.transformer
-        pre_decoder_sp = pipeline_config.decoder._target.SPATIAL_COMPRESSION_RATIO  # type: ignore[union-attr]
-        pre_pixel_h = pre_transformer_cfg.height * pre_decoder_sp
-        pre_pixel_w = pre_transformer_cfg.width * pre_decoder_sp
+        pre_decoder_sp = pipeline_config.decoder._target.SPATIAL_COMPRESSION_RATIO  # ty:ignore[unresolved-attribute]
+        pre_pixel_h = pre_transformer_cfg.height * pre_decoder_sp  # ty:ignore[unresolved-attribute]
+        pre_pixel_w = pre_transformer_cfg.width * pre_decoder_sp  # ty:ignore[unresolved-attribute]
 
         pre_first_frames: list[torch.Tensor] = []
         pre_prompts: list[str] = []
@@ -452,9 +454,7 @@ def main() -> None:
     # First frames are only needed when the image encoder will run
     # below; in both precomputed paths it has already been consumed
     # (offload: above; from-disk: never, since embeddings are loaded).
-    needs_first_frames = (
-        args.embeddings_path is None and not args.offload_text_encoder
-    )
+    needs_first_frames = args.embeddings_path is None and not args.offload_text_encoder
     for entry in data:
         if needs_first_frames:
             first_frame = media.read_image(entry["first_frame_path"])
@@ -495,13 +495,13 @@ def main() -> None:
             f"view_names mismatch: saved {saved_view_names} vs current "
             f"{camera_names}. Re-run precompute with the matching --n_cameras."
         )
-        cache = pipeline.initialize_cache_from_embeddings(
+        cache = pipeline.initialize_cache_from_embeddings(  # ty:ignore[call-non-callable]
             text_embeddings=payload["text_embeddings"],
             image_embeddings=payload["image_embeddings"],
             view_names=saved_view_names,
         )
     elif precomputed_embeddings is not None:
-        cache = pipeline.initialize_cache_from_embeddings(
+        cache = pipeline.initialize_cache_from_embeddings(  # ty:ignore[call-non-callable]
             text_embeddings=precomputed_embeddings["text_embeddings"],
             image_embeddings=precomputed_embeddings["image_embeddings"],
             view_names=camera_names,
@@ -520,7 +520,7 @@ def main() -> None:
         # first-frame image encoders before the AR loop to free VRAM
         # (Cosmos-Reason1-7B alone is ~14 GB in bf16). The gRPC server keeps
         # them around since it reuses the pipeline across sessions.
-        pipeline.release_oneshot_encoders()
+        pipeline.release_oneshot_encoders()  # ty:ignore[call-non-callable]
 
     torch.cuda.synchronize()
     if torch.distributed.is_initialized():
