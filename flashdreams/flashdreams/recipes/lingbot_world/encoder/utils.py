@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Camera-pose math: SE(3) helpers, relative poses, and Plücker rays."""
+
 import torch
 from torch import Tensor
 
@@ -56,7 +58,7 @@ def compute_relative_poses(
 
 def compute_relative_poses_causal(
     c2ws_mat: Tensor,
-    trans_normalizer: float = 1.0,
+    trans_normalizer: Tensor | float = 1.0,
     ref_pose: Tensor | None = None,
 ) -> Tensor:
     if ref_pose is None:

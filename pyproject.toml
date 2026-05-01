@@ -19,6 +19,12 @@ no-build-isolation-package = ["transformer-engine-torch"]
 
 [tool.pyright]
 extraPaths = ["flashdreams", "integrations/alpadreams", "integrations/lingbot"]
+# For pyright to pickup the correct python.
+venvPath = "."
+venv = ".venv"
+# Mirror the ty rule `invalid-method-override = "ignore"` below.
+reportIncompatibleMethodOverride = "none"
+reportIncompatibleVariableOverride = "none"
 
 [tool.ty.environment]
 python-version = "3.12"

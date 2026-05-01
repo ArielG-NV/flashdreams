@@ -13,16 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .base import (
+"""Decoder base interface."""
+
+from flashdreams.infra.decoder.base import (
     DecCacheT,
     Decoder,
     DecoderAutoregressiveCache,
-    DecoderConfig,
 )
 
 __all__ = [
     "DecCacheT",
     "Decoder",
     "DecoderAutoregressiveCache",
-    "DecoderConfig",
 ]

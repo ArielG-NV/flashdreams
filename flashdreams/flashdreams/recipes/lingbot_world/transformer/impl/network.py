@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Lingbot World project-local DiT network."""
+"""Lingbot World DiT network: Wan 2.1 backbone with per-block camera control."""
 
 from __future__ import annotations
 
@@ -91,7 +91,7 @@ class LingbotWorldDiTNetwork(WanDiTNetwork):
         self.c2ws_hidden_states_layer1 = nn.Linear(self.dim, self.dim)
         self.c2ws_hidden_states_layer2 = nn.Linear(self.dim, self.dim)
 
-    def _build_block(self, layer_idx: int) -> nn.Module:
+    def _build_block(self, layer_idx: int) -> CamCtrlBlock:
         return CamCtrlBlock(
             dim=self.dim,
             ffn_dim=self.ffn_dim,

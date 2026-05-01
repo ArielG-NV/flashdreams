@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Wan 2.1 DiT network"""
+"""Wan 2.1 DiT network."""
 
 from __future__ import annotations
 
@@ -31,8 +31,7 @@ from flashdreams.core.distributed.context_parallel import (
     split_inputs_cp,
 )
 from flashdreams.infra.config import InstantiateConfig
-
-from .modules import (
+from flashdreams.recipes.wan.transformer.impl.modules import (
     Block,
     BlockCache,
     Head,
@@ -174,9 +173,8 @@ class WanDiTNetwork(nn.Module):
         if self.cross_attn_enable_img:
             self.img_emb = MLPProj(1280, self.dim)
 
-        # Transformer blocks
         self.blocks = nn.ModuleList(
-            self._build_block(layer_idx) for layer_idx in range(self.num_layers)
+            [self._build_block(layer_idx) for layer_idx in range(self.num_layers)]
         )
 
         # Final projection head
@@ -185,7 +183,7 @@ class WanDiTNetwork(nn.Module):
         self._is_shuffle_op_fused = False
         self._parameters_updated_after_loading_checkpoint = False
 
-    def _build_block(self, layer_idx: int) -> nn.Module:
+    def _build_block(self, layer_idx: int) -> Block:
         """Construct one transformer block."""
         return Block(
             dim=self.dim,
@@ -202,7 +200,8 @@ class WanDiTNetwork(nn.Module):
         This must be called before ``initialize_cache`` when CP is used.
         """
         for block in self.blocks:
-            block.set_context_parallel_group(cp_group)  # ty:ignore[call-non-callable]
+            assert isinstance(block, Block)
+            block.set_context_parallel_group(cp_group)
 
     def patchify_and_maybe_split_cp(
         self,
@@ -317,14 +316,15 @@ class WanDiTNetwork(nn.Module):
         else:
             context_img = None
 
-        return WanDiTNetworkCache(
-            block_caches=[
+        block_caches: list[BlockCache] = []
+        for block in self.blocks:
+            assert isinstance(block, Block)
+            block_caches.append(
                 block.initialize_cache(
                     chunk_size, window_size, sink_size, context_text, context_img
-                )  # ty:ignore[call-non-callable]
-                for block in self.blocks
-            ],
-        )
+                )
+            )
+        return WanDiTNetworkCache(block_caches=block_caches)
 
     def update_parameters_after_loading_checkpoint(self) -> None:
         # This function should be called after loading the checkpoint, to fuse some operations in the model
@@ -334,7 +334,8 @@ class WanDiTNetwork(nn.Module):
 
         self._fuse_shuffle_op_into_last_layer()
         for block in self.blocks:
-            block.update_parameters_after_loading_checkpoint()  # ty:ignore[call-non-callable]
+            assert isinstance(block, Block)
+            block.update_parameters_after_loading_checkpoint()
         self.head.update_parameters_after_loading_checkpoint()
 
         self._parameters_updated_after_loading_checkpoint = True
@@ -443,6 +444,7 @@ class WanDiTNetwork(nn.Module):
         if eager_mode:
             cache.before_update(current_chunk_idx)
         for block_idx, block in enumerate(self.blocks):
+            assert isinstance(block, Block)
             x = block(
                 x=x,
                 e=torch.broadcast_to(e0, batch_shape + e0.shape[-2:]),
@@ -471,7 +473,7 @@ if __name__ == "__main__":
     t2v_state_dict = load_checkpoint(
         "https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B/blob/main/diffusion_pytorch_model.safetensors"
     )
-    t2v_network.load_state_dict(t2v_state_dict)  # ty:ignore[invalid-argument-type]
+    t2v_network.load_state_dict(t2v_state_dict)
     print("Test T2V network loading done")
 
     i2v_network_config = WanDiTNetwork14BConfig(
@@ -481,5 +483,5 @@ if __name__ == "__main__":
     i2v_state_dict = load_checkpoint(
         "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-720P/blob/main/diffusion_pytorch_model.safetensors.index.json"
     )
-    i2v_network.load_state_dict(i2v_state_dict)  # ty:ignore[invalid-argument-type]
+    i2v_network.load_state_dict(i2v_state_dict)
     print("Test I2V network loading done")

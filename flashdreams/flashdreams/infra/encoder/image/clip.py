@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Wan CLIP image encoder, exposed as a infra :class:`Encoder`."""
+"""Wan CLIP image encoder, exposed as an infra Encoder."""
 
 from __future__ import annotations
 
@@ -23,15 +23,18 @@ from typing import Literal, cast
 
 import torch
 from torch import Tensor
-from transformers import CLIPImageProcessor, CLIPVisionModel
+from transformers import BatchFeature, CLIPImageProcessor, CLIPVisionModel
 from transformers.modeling_outputs import BaseModelOutputWithPooling
 
 from flashdreams.core.io.hf import should_use_local_files_only
-from flashdreams.infra.encoder import Encoder, EncoderConfig
+from flashdreams.infra.config import InstantiateConfig
+from flashdreams.infra.encoder import Encoder, EncoderAutoregressiveCache
 
 
 @dataclass(kw_only=True)
-class CLIPImageEncoderConfig(EncoderConfig):
+class CLIPImageEncoderConfig(InstantiateConfig["CLIPImageEncoder"]):
+    """Config for the Wan I2V CLIP image encoder."""
+
     _target: type["CLIPImageEncoder"] = field(default_factory=lambda: CLIPImageEncoder)
 
     model_id_or_local_path: Literal[
@@ -39,15 +42,20 @@ class CLIPImageEncoderConfig(EncoderConfig):
         "Wan-AI/Wan2.1-I2V-14B-720P-Diffusers",
         "Wan-AI/Wan2.2-TI2V-5B-Diffusers",
     ] = "Wan-AI/Wan2.1-I2V-14B-480P-Diffusers"
+    """HF repo id or local snapshot path."""
+
     dtype: torch.dtype = torch.bfloat16
 
 
 class CLIPImageEncoder(Encoder):
     """CLIP image encoder used by Wan I2V.
 
-    Stateless: no per-rollout cache, so :meth:`forward` takes only ``input``.
-    Input images are expected in shape ``[..., C, H, W]`` with values in
-    ``[-1, 1]``.
+    Stateless. Input images are ``[..., C, H, W]`` in ``[-1, 1]``.
+
+    Typical usage example:
+
+      >>> encoder = CLIPImageEncoderConfig().setup().to("cuda")
+      >>> embeddings = encoder(image)  # [..., 257, 1280]
     """
 
     def __init__(self, config: CLIPImageEncoderConfig) -> None:
@@ -70,20 +78,23 @@ class CLIPImageEncoder(Encoder):
             local_files_only=local_files_only,
         )
 
+    def initialize_autoregressive_cache(self) -> EncoderAutoregressiveCache:
+        return EncoderAutoregressiveCache()
+
     @torch.no_grad()
     def forward(self, input: Tensor) -> Tensor:
-        """Encode images of shape ``[..., C, H, W]`` (range ``[-1, 1]``).
-
-        Returns embeddings of shape ``[..., 257, 1280]``.
-        """
+        """Encode images ``[..., C, H, W]`` in ``[-1, 1]``; returns ``[..., 257, 1280]``."""
         batch_shape = input.shape[:-3]
         batch_size = math.prod(batch_shape)
         images = input.reshape(batch_size, *input.shape[-3:])
 
         device = self.image_encoder.device
         images = (images + 1) / 2.0
-        images = cast(
-            Tensor,
+        # ``CLIPImageProcessor.__call__`` returns a ``BatchFeature`` (dict-like
+        # over named tensors) which is moved to device/dtype and unpacked as
+        # kwargs into the vision model.
+        processed = cast(
+            BatchFeature,
             self.image_processor(
                 images=images.to(dtype=torch.float32),
                 return_tensors="pt",
@@ -91,7 +102,7 @@ class CLIPImageEncoder(Encoder):
             ),
         ).to(device, dtype=self.image_encoder.dtype)
         image_embeds: BaseModelOutputWithPooling = self.image_encoder(
-            **images,  # ty: ignore[invalid-argument-type]
+            **processed,
             output_hidden_states=True,
         )
 

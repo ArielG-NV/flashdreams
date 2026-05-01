@@ -23,67 +23,82 @@ from typing import Any, Generic
 import torch
 import torch.nn as nn
 from torch import Tensor
+from typing_extensions import TypeVar
 
 from flashdreams.infra.config import InstantiateConfig
-from flashdreams.infra.diffusion.scheduler import (
-    Scheduler,
-    SchedulerConfig,
-)
+from flashdreams.infra.diffusion.scheduler import Scheduler
 from flashdreams.infra.diffusion.transformer import (
     Transformer,
+    TransformerAutoregressiveCache,
     TransformerCacheT,
-    TransformerConfig,
+)
+
+# Distinct TypeVar for ``DiffusionModel.FinalState`` so the nested generic
+# owns its own parameter instead of shadowing the outer ``TransformerCacheT``
+# (which would make ty resolve ``FinalState`` calls to the TypeVar's default).
+_FinalStateCacheT = TypeVar(
+    "_FinalStateCacheT",
+    bound=TransformerAutoregressiveCache,
+    default=TransformerAutoregressiveCache,
 )
 
 
 @dataclass(kw_only=True)
 class DiffusionModelConfig(InstantiateConfig["DiffusionModel"]):
-    """Hyperparameters for a :class:`DiffusionModel`."""
+    """Config for the autoregressive diffusion model."""
 
     _target: type["DiffusionModel"] = field(default_factory=lambda: DiffusionModel)
 
-    transformer: TransformerConfig
+    transformer: InstantiateConfig[Any]
     """Flow-prediction network config."""
 
-    scheduler: SchedulerConfig
+    scheduler: InstantiateConfig[Any]
     """Denoising-loop config."""
 
     seed: int | None = None
-    """RNG seed for the initial-noise draw and scheduler sampling. ``None`` uses the global RNG."""
+    """RNG seed for initial-noise draws and scheduler sampling.
+    ``None`` uses the global RNG."""
 
     context_noise: int = 0
-    """Timestep used by :meth:`DiffusionModel.finalize` for the AR cache-update forward. ``0`` skips :meth:`Scheduler.add_noise`."""
+    """Timestep used by ``finalize`` for the AR cache-update forward.
+    ``0`` skips ``add_noise``."""
 
 
 class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
-    """Autoregressive diffusion model: scheduler + transformer.
+    """Autoregressive diffusion model (scheduler + transformer).
 
-    Generic over the concrete ``TransformerAutoregressiveCache`` subclass
-    so user-facing typing on ``cache`` is preserved end-to-end.
+    Generic over the transformer's AR cache type so user-facing typing on
+    ``cache`` is preserved end-to-end.
 
-    Example::
+    Typical usage example:
 
         model = config.setup().to("cuda")
         cache = model.transformer.initialize_autoregressive_cache(...)
         clean, final_state = model.generate(autoregressive_index=0, cache=cache)
-        model.finalize(final_state)  # advance KV cache for the next AR step
+        model.finalize(final_state)
     """
 
     @dataclass(kw_only=True)
-    class FinalState(Generic[TransformerCacheT]):  # ty:ignore[shadowed-type-variable]
-        """State passed from :meth:`generate` to :meth:`finalize`."""
+    class FinalState(Generic[_FinalStateCacheT]):
+        """State passed from ``generate`` to ``finalize``.
+
+        Uses its own ``_FinalStateCacheT`` rather than the enclosing class's
+        ``TransformerCacheT`` because nested classes don't inherit outer-scope
+        type parameters; reusing the same TypeVar object would only shadow
+        it and confuse the type checker.
+        """
 
         clean_latent: Tensor
-        """Patchified clean latent from the end of the denoising loop."""
+        """Patchified clean latent at the end of denoising."""
 
         autoregressive_index: int
-        """AR step index this state was produced at."""
+        """AR step this state was produced at."""
 
-        cache: TransformerCacheT
+        cache: _FinalStateCacheT
         """Long-lived AR cache used during generation."""
 
         input: Any = None
-        """Per-AR-step encoder output (already patchified), or ``None`` if the pipeline has no encoder."""
+        """Patchified per-AR-step encoder output, or ``None``."""
 
     transformer: Transformer[TransformerCacheT]
     scheduler: Scheduler
@@ -91,7 +106,7 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
     def __init__(self, config: DiffusionModelConfig) -> None:
         super().__init__()
         self.config = config
-        self.transformer = self.config.transformer.setup()  # ty:ignore[invalid-assignment]
+        self.transformer = self.config.transformer.setup()
         self.scheduler = self.config.scheduler.setup()
         self._rng: torch.Generator | None = None
 
@@ -105,14 +120,12 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
 
     @property
     def rng(self) -> torch.Generator | None:
-        """Per-model :class:`torch.Generator` (lazily built on the current device).
+        """Per-model generator, lazily built on the current device.
 
-        Returns ``None`` when :attr:`DiffusionModelConfig.seed` is ``None``.
-        Rebuilt the first time the model's device changes after a ``.to(...)``.
-
-        Warning: a device move resets the RNG stream — fine for the
-        usual "construct on CPU, ``.to(gpu)`` once" workflow, but
-        mid-rollout device hops will lose RNG state.
+        Returns ``None`` when ``config.seed`` is ``None``. Rebuilt the first
+        time the model's device changes after a ``.to(...)``. A device move
+        resets the RNG stream — fine for "construct on CPU, ``.to(gpu)``
+        once" but mid-rollout device hops lose RNG state.
         """
         if self.config.seed is None:
             return None
@@ -135,19 +148,15 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
         """Run the denoising loop for one AR step.
 
         Args:
-            autoregressive_index: Index of this AR step.
-            cache: Long-lived AR cache; mutated in place across AR steps.
-            input: Optional per-AR-step encoder output. When provided it
-                is patchified via :meth:`Transformer.patchify_and_maybe_split_cp`
-                and forwarded to :meth:`Transformer.predict_flow` /
-                :meth:`Transformer.postprocess_clean_latent`, then saved
-                on the returned :class:`FinalState` for re-use in
-                :meth:`finalize`.
+            autoregressive_index: AR step index.
+            cache: Long-lived AR cache, mutated in place.
+            input: Optional per-AR-step encoder output. Patchified here and
+                forwarded to ``predict_flow`` / ``postprocess_clean_latent``,
+                then stashed on the returned ``FinalState`` for ``finalize``.
 
         Returns:
-            ``(clean_latent, final_state)`` where ``clean_latent`` is the
-            unpatchified clean latent and ``final_state`` should be passed
-            to :meth:`finalize` to advance the AR cache.
+            ``(clean_latent, final_state)``. ``clean_latent`` is unpatchified;
+            ``final_state`` should be passed to ``finalize``.
         """
         if input is not None:
             input = self.transformer.patchify_and_maybe_split_cp(input)
@@ -180,8 +189,9 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
             input=input,
         )
 
-        # Postpone KV cache update to the finalization step.
-        final_state = DiffusionModel.FinalState[TransformerCacheT](
+        # Postpone KV cache update to the finalization step. No runtime
+        # subscript: ``_FinalStateCacheT`` is bound from ``cache``'s type.
+        final_state = DiffusionModel.FinalState(
             clean_latent=clean_latent,
             autoregressive_index=autoregressive_index,
             cache=cache,
@@ -189,27 +199,22 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
         )
 
         clean_latent = self.transformer.unpatchify_and_maybe_gather_cp(clean_latent)
-        return clean_latent, final_state  # ty:ignore[invalid-return-type]
+        return clean_latent, final_state
 
     def finalize(
         self,
         final_state: "DiffusionModel.FinalState[TransformerCacheT]",
     ) -> None:
-        """Advance the AR cache using the clean latent from :meth:`generate`.
+        """Advance the AR cache using the clean latent from ``generate``.
 
-        Renoises the clean latent to
-        :attr:`DiffusionModelConfig.context_noise`, then defers the
-        actual cache-update forward(s) to
-        :meth:`Transformer.finalize_kv_cache` (one network for vanilla
-        transformers, both for Wan 2.2's dual-network DiT, etc.).
+        Re-noises the clean latent to ``config.context_noise`` and runs the
+        transformer's ``finalize_kv_cache`` (one forward for vanilla
+        transformers, multiple for dual-network DiTs).
 
-        Args:
-            final_state: The :class:`FinalState` returned by :meth:`generate`.
-
-        Note: ``context_noise == 0`` skips :meth:`Scheduler.add_noise`
-        (sigma=0 is the identity) and feeds the clean latent directly,
-        which also avoids needing schedulers to support a ``t=0`` lookup
-        (e.g. UniPC's inference schedule does not contain ``t=0``).
+        ``context_noise == 0`` skips ``add_noise`` (sigma=0 is identity) and
+        feeds the clean latent directly. This also dodges the requirement
+        for schedulers to support a ``t=0`` lookup (UniPC's inference
+        schedule has no ``t=0`` entry).
         """
         context_noise = self.config.context_noise
         timestep = torch.tensor(context_noise, device=self.device, dtype=self.dtype)

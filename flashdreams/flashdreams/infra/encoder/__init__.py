@@ -13,11 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .base import (
+"""Encoder base interface and the null encoder."""
+
+from flashdreams.infra.encoder.base import (
     EncCacheT,
     Encoder,
     EncoderAutoregressiveCache,
-    EncoderConfig,
     NullEncoder,
     NullEncoderConfig,
 )
@@ -26,7 +27,6 @@ __all__ = [
     "EncCacheT",
     "Encoder",
     "EncoderAutoregressiveCache",
-    "EncoderConfig",
     "NullEncoder",
     "NullEncoderConfig",
 ]

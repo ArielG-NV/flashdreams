@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Wan 2.1 UMT5 text encoder, exposed as a infra :class:`Encoder`."""
+"""Wan 2.1 UMT5 text encoder, exposed as an infra Encoder."""
 
 from __future__ import annotations
 
@@ -28,7 +28,8 @@ from torch import Tensor
 from transformers import AutoTokenizer, UMT5EncoderModel
 
 from flashdreams.core.io.hf import should_use_local_files_only
-from flashdreams.infra.encoder import Encoder, EncoderConfig
+from flashdreams.infra.config import InstantiateConfig
+from flashdreams.infra.encoder import Encoder, EncoderAutoregressiveCache
 
 
 def prompt_clean(text: str) -> str:
@@ -40,7 +41,9 @@ def prompt_clean(text: str) -> str:
 
 
 @dataclass(kw_only=True)
-class UMT5TextEncoderConfig(EncoderConfig):
+class UMT5TextEncoderConfig(InstantiateConfig["UMT5TextEncoder"]):
+    """Config for the Wan 2.x UMT5 text encoder."""
+
     _target: type["UMT5TextEncoder"] = field(default_factory=lambda: UMT5TextEncoder)
 
     model_id_or_local_path: Literal[
@@ -48,15 +51,20 @@ class UMT5TextEncoderConfig(EncoderConfig):
         "Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
         "Wan-AI/Wan2.2-TI2V-5B-Diffusers",
     ] = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers"
+    """HF repo id or local snapshot path."""
+
     dtype: torch.dtype = torch.bfloat16
 
 
 class UMT5TextEncoder(Encoder):
     """UMT5 text encoder for Wan 2.x.
 
-    Stateless: no per-rollout cache, so :meth:`forward` takes only ``input``.
-    Used outside the AR pipeline (e.g. once before rollout starts) to encode
-    prompts. Call as ``embeddings = text_encoder(["my prompt"])``.
+    Stateless; called once before a rollout to encode prompts.
+
+    Typical usage example:
+
+      >>> encoder = UMT5TextEncoderConfig().setup().to("cuda")
+      >>> embeddings = encoder(["a cat playing piano"])
     """
 
     def __init__(self, config: UMT5TextEncoderConfig) -> None:
@@ -78,6 +86,9 @@ class UMT5TextEncoder(Encoder):
             subfolder="tokenizer",
             local_files_only=local_files_only,
         )
+
+    def initialize_autoregressive_cache(self) -> EncoderAutoregressiveCache:
+        return EncoderAutoregressiveCache()
 
     @torch.no_grad()
     def forward(self, input: list[str]) -> Tensor:

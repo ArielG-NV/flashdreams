@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Cosmos DiT building blocks (attention, AdaLN-LoRA, cross-view ops)."""
+
 import math
 from dataclasses import dataclass
 
@@ -52,6 +54,8 @@ class Timesteps(nn.Module):
 
     SINUSOIDAL_FREQ_BASE = 10000
 
+    emb: Tensor
+
     def __init__(self, num_channels: int) -> None:
         super().__init__()
         self.num_channels = num_channels
@@ -73,7 +77,7 @@ class Timesteps(nn.Module):
         Returns:
             Embedded tensor of shape (..., num_channels).
         """
-        emb = timesteps.unsqueeze(-1) * self.emb  # ty:ignore[unsupported-operator]
+        emb = timesteps.unsqueeze(-1) * self.emb
         emb = torch.cat([torch.cos(emb), torch.sin(emb)], dim=-1)
         return emb
 

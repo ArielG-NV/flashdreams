@@ -22,10 +22,10 @@ from dataclasses import dataclass, field
 import torch
 from torch import Tensor
 
+from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.diffusion.scheduler import (
     FlowPredictor,
     Scheduler,
-    SchedulerConfig,
 )
 
 
@@ -35,18 +35,18 @@ def _warp(sigmas: Tensor, shift: float) -> Tensor:
 
 
 @dataclass(kw_only=True)
-class FlowMatchSchedulerConfig(SchedulerConfig):
-    """Hyperparameters for :class:`FlowMatchScheduler`."""
+class FlowMatchSchedulerConfig(InstantiateConfig["FlowMatchScheduler"]):
+    """Config for the flow-matching scheduler."""
 
     _target: type["FlowMatchScheduler"] = field(
         default_factory=lambda: FlowMatchScheduler
     )
 
     num_inference_steps: int = 4
-    """Number of denoising steps. Must equal ``len(denoising_timesteps)``."""
+    """Must equal ``len(denoising_timesteps)``."""
 
     shift: float = 8.0
-    """Schedule warp factor (``shift * s / (1 + (shift - 1) * s)``)."""
+    """Schedule warp factor."""
 
     denoising_timesteps: list[int] = field(
         default_factory=lambda: [1000, 750, 500, 250]
@@ -54,10 +54,10 @@ class FlowMatchSchedulerConfig(SchedulerConfig):
     """Per-step diffusion timesteps in ``[0, num_train_timesteps]``."""
 
     warp_denoising_step: bool = True
-    """If ``True``, map ``denoising_timesteps`` through the warped sigma schedule."""
+    """Map ``denoising_timesteps`` through the warped sigma schedule."""
 
     num_train_timesteps: int = 1000
-    """Length of the underlying training sigma table."""
+    """Length of the training sigma table."""
 
     sigma_min: float = 0.0
     """Reserved for upstream parity; only ``0.0`` is supported."""
@@ -67,23 +67,20 @@ class FlowMatchSchedulerConfig(SchedulerConfig):
 
 
 class FlowMatchScheduler(Scheduler):
-    """Flow-matching scheduler (DiffSynth-style step).
+    """Flow-matching scheduler with self-forcing renoise (DiffSynth-style).
 
-    Self-forcing renoise loop -- at each iteration the network's flow
-    prediction is converted to an ``x0`` estimate, then re-noised at
-    the *same* sigma to feed the next iteration. The final ``x0`` is
-    returned.
-
-    .. code-block:: text
+    Each iteration converts the predicted flow to an ``x0`` estimate, then
+    re-noises at the same sigma to feed the next iteration. The final
+    ``x0`` is returned::
 
         x_t = initial_noise
         for t in denoising_step_list:
             v = predict_flow(x_t, t)
             x0 = x_t - sigma(t) * v
-            x_t = (1 - sigma(t)) * x0 + sigma(t) * eps    # re-noise at same t
+            x_t = (1 - sigma(t)) * x0 + sigma(t) * eps
         return x0
 
-    Example::
+    Typical usage example:
 
         scheduler = FlowMatchSchedulerConfig(
             num_inference_steps=4,
@@ -92,11 +89,14 @@ class FlowMatchScheduler(Scheduler):
         ).setup().to("cuda")
         clean = scheduler.sample(initial_noise=noise, predict_flow=fn)
 
-    Note:
-        Schedule buffers are pinned to fp32 even after
-        ``module.to(bf16)`` (see :meth:`_apply`); integer timesteps
-        like ``1000`` would otherwise round to ``1024``.
+    Schedule buffers are pinned to fp32 even after ``module.to(bf16)``;
+    integer timesteps like 1000 would otherwise round to 1024.
     """
+
+    denoising_step_list: Tensor
+    denoising_sigmas: Tensor
+    _full_sigmas: Tensor
+    _full_timesteps: Tensor
 
     def __init__(self, config: FlowMatchSchedulerConfig) -> None:
         super().__init__(config)
@@ -162,8 +162,7 @@ class FlowMatchScheduler(Scheduler):
         self.register_buffer("_full_sigmas", full_sigmas, persistent=False)
         self.register_buffer("_full_timesteps", full_timesteps, persistent=False)
 
-    # Buffers pinned to fp32 by :meth:`_apply` regardless of the
-    # parent module's dtype.
+    # Pinned to fp32 by ``_apply`` regardless of the parent module's dtype.
     _FP32_BUFFERS = (
         "denoising_step_list",
         "denoising_sigmas",
@@ -171,12 +170,12 @@ class FlowMatchScheduler(Scheduler):
         "_full_timesteps",
     )
 
-    def _apply(self, fn, recurse=True):  # type: ignore[override]
+    def _apply(self, fn, recurse=True):
         """Move buffers with the parent ``.to(...)`` but keep them fp32.
 
-        ``fn`` may be a lossy bf16 cast; we snapshot the fp32 originals
-        before super() (which would overwrite the buffer slots) and
-        restore them with a pure device move on the way out.
+        ``fn`` may be a lossy bf16 cast; snapshot the fp32 originals before
+        ``super()._apply`` (which would overwrite them) and restore them
+        with a pure device move afterward.
         """
         saved = {name: getattr(self, name) for name in self._FP32_BUFFERS}
         super()._apply(fn, recurse=recurse)
@@ -193,25 +192,10 @@ class FlowMatchScheduler(Scheduler):
     ) -> Tensor:
         """Run the self-forcing flow-match denoising loop.
 
-        Iteration 0 trusts ``initial_noise`` as the sigma=1 sample;
-        later iterations re-noise the previous ``x0`` estimate to the
-        new sigma BEFORE the network forward.
-
-        Args:
-            initial_noise: ``[...]`` Gaussian noise on any device/dtype.
-            predict_flow: Closure called ``len(denoising_timesteps)``
-                times. Its ``timestep`` arg is a 0-d ``float32`` tensor
-                (the schedule's per-step value, e.g. 1000.0, 750.0).
-            rng: Generator on the same device as ``initial_noise``;
-                drives the per-step renoise draw.
-
-        Returns:
-            ``[...]`` clean latent with the same shape/device/dtype as
-            ``initial_noise``.
-
-        Note:
-            Schedule arithmetic auto-promotes to fp32 (the buffers are
-            fp32); the result is cast back to ``initial_noise.dtype``.
+        Iteration 0 trusts ``initial_noise`` as the ``sigma=1`` sample;
+        later iterations re-noise the previous ``x0`` estimate to the new
+        sigma before the network forward. Schedule arithmetic auto-promotes
+        to fp32; the result is cast back to ``initial_noise.dtype``.
         """
         input_dtype = initial_noise.dtype
         sigmas = self.denoising_sigmas
@@ -219,16 +203,17 @@ class FlowMatchScheduler(Scheduler):
 
         noisy = initial_noise
         clean: Tensor | None = None
-        for i in range(timesteps.shape[0]):  # ty:ignore[not-subscriptable]
-            sigma = sigmas[i]  # ty:ignore[not-subscriptable]
+        for i in range(timesteps.shape[0]):
+            sigma = sigmas[i]
             # Schedule buffers are pinned to fp32 (to preserve integer
             # timestep values under a stray `module.to(bf16)`), but the
             # network expects timesteps in the input dtype so that
             # downstream modulation / Linear layers stay consistent.
-            timestep = timesteps[i].to(dtype=input_dtype)  # ty:ignore[not-subscriptable]
+            timestep = timesteps[i].to(dtype=input_dtype)
             if i > 0:
+                assert clean is not None
                 noise = torch.randn_like(noisy, generator=rng)
-                noisy = ((1.0 - sigma) * clean + sigma * noise).to(input_dtype)  # type: ignore[operator]  # ty:ignore[unsupported-operator]
+                noisy = ((1.0 - sigma) * clean + sigma * noise).to(input_dtype)
             flow = predict_flow(noisy, timestep)
             clean = noisy - sigma * flow
         assert clean is not None, "denoising_step_list is empty"
@@ -242,23 +227,12 @@ class FlowMatchScheduler(Scheduler):
     ) -> Tensor:
         """Forward corruption at an arbitrary timestep.
 
-        ``timestep`` is snapped to the nearest entry of the warped
-        training table (no exact-match requirement) and used as sigma
-        in the standard lerp.
-
-        Args:
-            clean_input: ``[...]`` clean latent on any device/dtype.
-            timestep: 0-d numeric tensor on the same device. Any value
-                in ``[0, num_train_timesteps]`` works.
-            rng: Generator on the same device as ``clean_input``.
-
-        Returns:
-            ``[...]`` noisy latent with the same shape/device/dtype as
-            ``clean_input``.
+        Snaps ``timestep`` to the nearest entry of the warped training table
+        and uses it as sigma in the standard lerp.
         """
         assert timestep.shape == (), f"expected scalar timestep, got {timestep.shape}"
         full_t = self._full_timesteps
-        idx = torch.argmin((full_t - timestep.to(full_t.dtype)).abs()).reshape(1)  # ty:ignore[no-matching-overload]
-        sigma = self._full_sigmas.index_select(0, idx).reshape(())  # ty:ignore[call-non-callable]
+        idx = torch.argmin((full_t - timestep.to(full_t.dtype)).abs()).reshape(1)
+        sigma = self._full_sigmas.index_select(0, idx).reshape(())
         noise = torch.randn_like(clean_input, generator=rng)
         return ((1.0 - sigma) * clean_input + sigma * noise).to(clean_input.dtype)

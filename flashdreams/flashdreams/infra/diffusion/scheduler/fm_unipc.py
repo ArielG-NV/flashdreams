@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Flow-matching UniPC multistep scheduler"""
+"""Flow-matching UniPC multistep scheduler."""
 
 from __future__ import annotations
 
@@ -23,10 +23,10 @@ import numpy as np
 import torch
 from torch import Tensor
 
+from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.diffusion.scheduler import (
     FlowPredictor,
     Scheduler,
-    SchedulerConfig,
 )
 
 
@@ -172,12 +172,12 @@ def _build_per_step_coefs(sigmas: np.ndarray) -> dict[str, np.ndarray]:
 
 
 @dataclass(kw_only=True)
-class FlowMatchUniPCSchedulerConfig(SchedulerConfig):
-    """Hyperparameters for :class:`FlowMatchUniPCScheduler`.
+class FlowMatchUniPCSchedulerConfig(InstantiateConfig["FlowMatchUniPCScheduler"]):
+    """Config for the flow-matching UniPC scheduler.
 
     Defaults match the official Wan 2.1 inference recipe (UniPC, BH2,
-    order 2, ``shift=5.0``). Override ``shift`` per checkpoint as
-    recommended upstream (e.g. ``3.0`` for Wan 2.1 14B I2V 480P).
+    order 2, shift 5.0). Override ``shift`` per checkpoint as recommended
+    upstream (e.g. 3.0 for Wan 2.1 14B I2V 480P).
     """
 
     _target: type["FlowMatchUniPCScheduler"] = field(
@@ -188,32 +188,40 @@ class FlowMatchUniPCSchedulerConfig(SchedulerConfig):
     """Number of UniPC denoising steps."""
 
     shift: float = 5.0
-    """Schedule warp factor (``shift * s / (1 + (shift - 1) * s)``)."""
+    """Schedule warp factor."""
 
     num_train_timesteps: int = 1000
-    """Length of the training sigma table; scales ``sigma -> timestep``."""
+    """Length of the training sigma table."""
 
     solver_order: int = 2
-    """UniPC solver order. Only ``2`` is supported by this slim impl."""
+    """UniPC solver order; only 2 is supported."""
 
 
 class FlowMatchUniPCScheduler(Scheduler):
     """Order-2 UniPC predictor-corrector for flow-matching.
 
-    Specialized + pre-baked variant of the upstream Wan 2.1 UniPC
-    solver -- see the module docstring for the locked-in config.
+    Specialized + pre-baked variant of the upstream Wan 2.1 UniPC solver.
+    Schedule buffers (sigmas + per-step coefficients) stay fp32 regardless
+    of ``module.to(dtype)``.
 
-    Example::
+    Typical usage example:
 
         scheduler = FlowMatchUniPCSchedulerConfig(
             num_inference_steps=50, shift=5.0,
         ).setup().to("cuda")
         clean = scheduler.sample(initial_noise=noise, predict_flow=fn)
-
-    Note:
-        Schedule buffers (sigmas + per-step coefficients) stay fp32
-        regardless of ``module.to(dtype)`` -- see :meth:`_apply`.
     """
+
+    timesteps: Tensor
+    sigmas: Tensor
+    _sigmas_full: Tensor
+    a_pred: Tensor
+    b_pred_m0: Tensor
+    b_pred_dprev: Tensor
+    a_corr: Tensor
+    b_corr_m0: Tensor
+    b_corr_dprev: Tensor
+    b_corr_dt: Tensor
 
     def __init__(self, config: FlowMatchUniPCSchedulerConfig) -> None:
         super().__init__(config)
@@ -284,12 +292,11 @@ class FlowMatchUniPCScheduler(Scheduler):
             self.register_buffer(k, torch.from_numpy(v), persistent=False)
         self._FP32_BUFFERS = ("sigmas", "_sigmas_full", *coefs.keys())
 
-    def _apply(self, fn, recurse=True):  # type: ignore[override]
+    def _apply(self, fn, recurse=True):
         """Move buffers with the parent ``.to(...)`` but keep them fp32.
 
-        ``fn`` may be a lossy bf16 cast; we snapshot the fp32 originals
-        before super() (which would overwrite the buffer slots) and
-        restore them with a pure device move on the way out.
+        ``fn`` may be a lossy bf16 cast; snapshot the fp32 originals before
+        ``super()._apply`` and restore them with a pure device move after.
         """
         saved = {name: getattr(self, name) for name in self._FP32_BUFFERS}
         super()._apply(fn, recurse=recurse)
@@ -306,31 +313,14 @@ class FlowMatchUniPCScheduler(Scheduler):
     ) -> Tensor:
         """Run the order-2 UniPC predictor-corrector denoising loop.
 
-        Per iteration: network produces a flow estimate -> converted
-        to ``x0`` -> plugged into the corrector (skipped at step 0)
-        -> advanced by the predictor. All per-step coefficients are
-        pre-baked at construction; the loop is pure tensor ops with
-        no Python-level linear solves or list shuffling.
-
-        Args:
-            initial_noise: ``[...]`` Gaussian noise on any device/dtype.
-            predict_flow: Closure called ``num_inference_steps`` times.
-                Its ``timestep`` arg is a 0-d ``int64`` tensor (the
-                schedule's per-step value).
-            rng: Unused (deterministic ODE solver); accepted for
-                interface conformance.
-
-        Returns:
-            ``[...]`` clean latent with the same shape/device/dtype as
-            ``initial_noise``.
-
-        Note:
-            Internal arithmetic is fp32 (matches upstream's
-            ``model_output.to(torch.float32)`` before convert); the
-            result is cast back to ``initial_noise.dtype``.
+        Each iteration: network → flow → ``x0`` → corrector (skipped at
+        step 0) → predictor. All per-step coefficients are pre-baked at
+        construction; the loop is pure tensor ops. Internal arithmetic is
+        fp32; the result is cast back to ``initial_noise.dtype``. ``rng``
+        is unused (deterministic ODE) but accepted for interface conformance.
         """
         input_dtype = initial_noise.dtype
-        N = self.timesteps.shape[0]  # ty:ignore[not-subscriptable]
+        N = self.timesteps.shape[0]
 
         sample = initial_noise
         m_prev: Tensor | None = None
@@ -338,7 +328,7 @@ class FlowMatchUniPCScheduler(Scheduler):
         last_sample: Tensor | None = None
 
         for i in range(N):
-            timestep = self.timesteps[i]  # ty:ignore[not-subscriptable]
+            timestep = self.timesteps[i]
             # Network forward (heavy compute -- everything else here is
             # ~free relative to this).
             flow = predict_flow(sample, timestep)
@@ -348,7 +338,7 @@ class FlowMatchUniPCScheduler(Scheduler):
             # Promote to fp32 to match upstream's
             # ``model_output = model_output.to(dtype=torch.float32)``
             # before convert_model_output.
-            m_curr = sample.to(torch.float32) - self.sigmas[i] * flow.to(torch.float32)  # ty:ignore[not-subscriptable]
+            m_curr = sample.to(torch.float32) - self.sigmas[i] * flow.to(torch.float32)
 
             # Corrector (skip on first step).
             #
@@ -363,10 +353,10 @@ class FlowMatchUniPCScheduler(Scheduler):
                 assert last_sample is not None and m_prev is not None
                 m_pp = m_prev_prev if m_prev_prev is not None else m_prev
                 corrected = (
-                    self.a_corr[i] * last_sample.to(torch.float32)  # ty:ignore[not-subscriptable]
-                    + self.b_corr_m0[i] * m_prev  # ty:ignore[not-subscriptable]
-                    + self.b_corr_dprev[i] * (m_pp - m_prev)  # ty:ignore[not-subscriptable]
-                    + self.b_corr_dt[i] * (m_curr - m_prev)  # ty:ignore[not-subscriptable]
+                    self.a_corr[i] * last_sample.to(torch.float32)
+                    + self.b_corr_m0[i] * m_prev
+                    + self.b_corr_dprev[i] * (m_pp - m_prev)
+                    + self.b_corr_dt[i] * (m_curr - m_prev)
                 )
                 sample = corrected.to(input_dtype)
 
@@ -383,9 +373,9 @@ class FlowMatchUniPCScheduler(Scheduler):
             # the warmup step to skip a zero-tensor allocation.
             m_p = m_prev if m_prev is not None else m_curr
             predicted = (
-                self.a_pred[i] * sample.to(torch.float32)  # ty:ignore[not-subscriptable]
-                + self.b_pred_m0[i] * m_curr  # ty:ignore[not-subscriptable]
-                + self.b_pred_dprev[i] * (m_p - m_curr)  # ty:ignore[not-subscriptable]
+                self.a_pred[i] * sample.to(torch.float32)
+                + self.b_pred_m0[i] * m_curr
+                + self.b_pred_dprev[i] * (m_p - m_curr)
             )
             sample = predicted.to(input_dtype)
 
@@ -403,23 +393,12 @@ class FlowMatchUniPCScheduler(Scheduler):
     ) -> Tensor:
         """Forward corruption at an arbitrary timestep.
 
-        ``timestep`` is snapped to the nearest entry of the inference
-        schedule :attr:`timesteps` (on-device, no Python sync); the
-        corresponding sigma drives the standard lerp.
-
-        Args:
-            clean_input: ``[...]`` clean latent on any device/dtype.
-            timestep: 0-d numeric tensor on the same device. Any value
-                in ``[0, num_train_timesteps]`` works.
-            rng: Generator on the same device as ``clean_input``.
-
-        Returns:
-            ``[...]`` noisy latent with the same shape/device/dtype as
-            ``clean_input``.
+        Snaps ``timestep`` to the nearest entry of the inference schedule
+        on-device (no Python sync) and uses the matching sigma in the lerp.
         """
         assert timestep.shape == (), f"expected scalar timestep, got {timestep.shape}"
         ts = self.timesteps
-        idx = torch.argmin((ts - timestep.to(ts.dtype)).abs()).reshape(1)  # ty:ignore[no-matching-overload]
-        sigma = self._sigmas_full.index_select(0, idx).reshape(())  # ty:ignore[call-non-callable]
+        idx = torch.argmin((ts - timestep.to(ts.dtype)).abs()).reshape(1)
+        sigma = self._sigmas_full.index_select(0, idx).reshape(())
         noise = torch.randn_like(clean_input, generator=rng)
         return ((1.0 - sigma) * clean_input + sigma * noise).to(clean_input.dtype)

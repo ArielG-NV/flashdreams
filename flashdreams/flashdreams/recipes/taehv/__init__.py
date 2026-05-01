@@ -13,11 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""TAEHV video decoder, exposed as an infra :class:`Decoder`.
-
-TAEHV is decode-only in our pipelines, so this module ports just the
-decode side. See :mod:`.impl` for the streaming + CUDA-graph design.
-"""
+"""TAEHV video decoder."""
 
 from __future__ import annotations
 
@@ -27,9 +23,9 @@ from dataclasses import dataclass, field
 import torch
 from torch import Tensor
 
-from flashdreams.infra.decoder import Decoder, DecoderConfig
-
-from .impl import TAEHV, TAEHVCache
+from flashdreams.infra.config import InstantiateConfig
+from flashdreams.infra.decoder import Decoder
+from flashdreams.recipes.taehv.impl import TAEHV, TAEHVCache
 
 AVAILABLE_TAEHV_CHECKPOINT_PATHS = {
     "lighttae": "s3://flashdreams/assets/checkpoints/autoencoders/lighttaew2_1.pth",
@@ -37,33 +33,36 @@ AVAILABLE_TAEHV_CHECKPOINT_PATHS = {
 
 
 @dataclass(kw_only=True)
-class TeahvVAEDecoderConfig(DecoderConfig):
+class TeahvVAEDecoderConfig(InstantiateConfig["TeahvVAEDecoder"]):
+    """Config for the TAEHV decoder."""
+
     _target: type["TeahvVAEDecoder"] = field(default_factory=lambda: TeahvVAEDecoder)
 
     checkpoint_path: str = AVAILABLE_TAEHV_CHECKPOINT_PATHS["lighttae"]
     dtype: torch.dtype = torch.bfloat16
     use_cuda_graph: bool = True
-    """Wrap the decoder forward in a CUDA graph for steady-state replay."""
+    """Wrap the decoder forward in a CUDA graph for replay."""
+
     use_compile: bool = True
-    """Apply ``torch.compile(mode="max-autotune-no-cudagraphs")`` to the
-    decoder. Combine with ``use_cuda_graph=True`` for the rollout-aware
-    dispatch (drain Inductor autotune in rollout 1, capture in rollout 2)."""
+    """``torch.compile(mode="max-autotune-no-cudagraphs")``."""
 
 
 class TeahvVAEDecoder(Decoder[TAEHVCache]):
     """TAEHV (Tiny AutoEncoder for Hunyuan Video) decoder.
 
-    Forward input is a latent tensor of shape ``[..., Tl, Cl, Hl, Wl]``;
-    output is a video tensor of shape ``[..., T, C, H, W]`` with values in
-    ``[-1, 1]``.
+    Forward input is a latent ``[..., Tl, Cl, Hl, Wl]``; output is a video
+    tensor ``[..., T, C, H, W]`` in ``[-1, 1]``.
 
-    Note:
-        Set ``torch.backends.cudnn.benchmark = True`` once at process
-        start for ~5% extra on the eager seed/tail chunks.
+    Set ``torch.backends.cudnn.benchmark = True`` at process start for ~5%
+    extra on the eager seed/tail chunks.
     """
 
     TEMPORAL_COMPRESSION_RATIO = TAEHV.TEMPORAL_COMPRESSION_RATIO
     SPATIAL_COMPRESSION_RATIO = TAEHV.SPATIAL_COMPRESSION_RATIO
+
+    # Lighttae per-channel scaling buffers (registered when need_scaled).
+    mean: Tensor
+    std: Tensor
 
     # Per-channel scaling for the lighttae checkpoint.
     _LIGHTTAE_MEAN: tuple[float, ...] = (
@@ -129,7 +128,7 @@ class TeahvVAEDecoder(Decoder[TAEHVCache]):
         z = input.reshape(batch_size, T, C, H, W)
 
         if self.need_scaled:
-            z = z * self.std  # ty:ignore[unsupported-operator]
+            z = z * self.std
             z = z + self.mean
 
         x = self.taehv.decode(z, cache=cache).mul_(2).sub_(1)

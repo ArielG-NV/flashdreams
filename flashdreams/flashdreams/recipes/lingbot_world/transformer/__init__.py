@@ -13,11 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Lingbot World project-local Transformer adapter."""
+"""Wan 2.1 transformer adapter with Plücker camera control for Lingbot World."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import overload
 
 import torch
 from torch import Tensor
@@ -38,25 +39,26 @@ from .impl.network import (
 
 @dataclass(kw_only=True)
 class LingbotWorldTransformerCache(Wan21TransformerCache):
-    """Long-lived AR cache for ``LingbotWorldTransformer``."""
+    """Long-lived AR cache for the Lingbot World transformer.
+
+    The guidance scale lives on the config because it is a model-level
+    hyperparameter, not per-rollout state.
+    """
 
     network_cache_cond: LingbotWorldDiTNetworkCache
-    """Conditional per-block KV / cross-attention caches."""
+    """Conditional per-block KV / cross-attn cache."""
 
     network_cache_uncond: LingbotWorldDiTNetworkCache | None = None
-    """Unconditional per-block caches; ``None`` disables CFG. The
-    guidance scale lives on :class:`LingbotWorldTransformerConfig` rather than
-    here, since it is a model-level hyperparameter rather than per-rollout
-    state."""
+    """Unconditional per-block caches; ``None`` disables CFG."""
 
 
 @dataclass(kw_only=True)
 class LingbotWorldTransformerConfig(Wan21TransformerConfig):
-    """Configuration for :class:`LingbotWorldTransformer`.
+    """Config for the Lingbot World transformer.
 
     Each instance is bound to one ``(batch_shape, height, width,
-    len_t)`` layout AND one ``cp_size``. The I2V channel-concat
-    ``in_dim`` is enforced in ``__post_init__``.
+    len_t)`` layout and one ``cp_size``. The I2V channel-concat ``in_dim``
+    is enforced in ``__post_init__``.
     """
 
     _target: type["LingbotWorldTransformer"] = field(
@@ -93,6 +95,12 @@ class LingbotWorldTransformer(Wan21Transformer):
             network_extra_kwargs={"plucker": input.plucker},
         )
 
+    @overload
+    def patchify_and_maybe_split_cp(self, x: Tensor) -> Tensor: ...
+    @overload
+    def patchify_and_maybe_split_cp(
+        self, x: I2VCamCtrlEmbeddings
+    ) -> I2VCamCtrlEmbeddings: ...
     def patchify_and_maybe_split_cp(
         self, x: Tensor | I2VCamCtrlEmbeddings
     ) -> Tensor | I2VCamCtrlEmbeddings:
@@ -100,11 +108,9 @@ class LingbotWorldTransformer(Wan21Transformer):
         if isinstance(x, I2VCamCtrlEmbeddings):
             if x._is_patchified:
                 return x
-            else:
-                return I2VCamCtrlEmbeddings(
-                    i2v=super().patchify_and_maybe_split_cp(x.i2v),  # ty:ignore[invalid-argument-type]
-                    plucker=super().patchify_and_maybe_split_cp(x.plucker),  # ty:ignore[invalid-argument-type]
-                    _is_patchified=True,
-                )
-        else:
-            return super().patchify_and_maybe_split_cp(x)  # ty:ignore[invalid-return-type]
+            return I2VCamCtrlEmbeddings(
+                i2v=super().patchify_and_maybe_split_cp(x.i2v),
+                plucker=super().patchify_and_maybe_split_cp(x.plucker),
+                _is_patchified=True,
+            )
+        return super().patchify_and_maybe_split_cp(x)
