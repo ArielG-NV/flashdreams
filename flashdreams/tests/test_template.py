@@ -234,6 +234,11 @@ def test_template_no_control() -> None:
 
     base = build_cfg_offline(seed=0)
     config = cast(StreamInferencePipelineConfig, derive_config(base, encoder=None))
+    # Seed before each ``setup()`` so the no-control and with-control
+    # pipelines initialise identical weights — the assertion below only
+    # isolates the control branch when the underlying networks match
+    # bit-for-bit.
+    torch.manual_seed(0)
     pipeline = config.setup()
     assert isinstance(pipeline, StreamInferencePipeline)
     assert pipeline.encoder is None
@@ -602,24 +607,13 @@ def test_template_cp_equivalence() -> None:
     torch.cuda.set_device(rank)
     device = torch.device(f"cuda:{rank}")
 
-    if world_size > 1:
-        assert dist.is_nccl_available()
-        if not dist.is_initialized():
-            dist.init_process_group(
-                backend="nccl",
-                init_method="env://",
-                world_size=world_size,
-                rank=rank,
-            )
-
-    flow_global = _cp_one_predict_flow(
-        device=device,
-        seed=0,
-        ar_idx=0,
-        timestep_value=500.0,
-    )
-
     if world_size == 1:
+        flow_global = _cp_one_predict_flow(
+            device=device,
+            seed=0,
+            ar_idx=0,
+            timestep_value=500.0,
+        )
         _CP_REFERENCE_PATH.parent.mkdir(parents=True, exist_ok=True)
         torch.save(
             {"flow_global": flow_global.detach().cpu()},
@@ -628,27 +622,50 @@ def test_template_cp_equivalence() -> None:
         assert torch.isfinite(flow_global).all()
         return
 
+    # Check the reference file *before* initialising NCCL so a missing
+    # reference doesn't leak the process group via ``pytest.skip``.
     if not _CP_REFERENCE_PATH.exists():
         pytest.skip(
             f"CP reference {_CP_REFERENCE_PATH} not found — run the "
             f"single-GPU branch (plain pytest, no torchrun) first."
         )
 
-    if rank == 0:
-        reference = torch.load(_CP_REFERENCE_PATH, weights_only=True)["flow_global"]
-        # bf16 + ring-attention fp32 LSE merge gives ~2-3 decimal
-        # digits at the gathered flow; 2e-2 catches real shard bugs
-        # without flaking on merge drift.
-        torch.testing.assert_close(
-            flow_global.detach().cpu(),
-            reference,
-            rtol=2e-2,
-            atol=2e-2,
+    assert dist.is_nccl_available()
+    if not dist.is_initialized():
+        dist.init_process_group(
+            backend="nccl",
+            init_method="env://",
+            world_size=world_size,
+            rank=rank,
         )
 
-    if world_size > 1 and dist.is_initialized():
-        dist.barrier()
-        dist.destroy_process_group()
+    # Anything that can raise after ``init_process_group`` must run in a
+    # ``try``/``finally`` — otherwise an assertion failure (or any other
+    # exception) would leak the process group into the next test in the
+    # same torchrun worker.
+    try:
+        flow_global = _cp_one_predict_flow(
+            device=device,
+            seed=0,
+            ar_idx=0,
+            timestep_value=500.0,
+        )
+
+        if rank == 0:
+            reference = torch.load(_CP_REFERENCE_PATH, weights_only=True)["flow_global"]
+            # bf16 + ring-attention fp32 LSE merge gives ~2-3 decimal
+            # digits at the gathered flow; 2e-2 catches real shard bugs
+            # without flaking on merge drift.
+            torch.testing.assert_close(
+                flow_global.detach().cpu(),
+                reference,
+                rtol=2e-2,
+                atol=2e-2,
+            )
+    finally:
+        if dist.is_initialized():
+            dist.barrier()
+            dist.destroy_process_group()
 
 
 if __name__ == "__main__":
