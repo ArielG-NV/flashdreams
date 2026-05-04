@@ -149,9 +149,7 @@ def _run_rollout(
         "width": width,
     }
     if use_cfg:
-        transformer_context["negative_context"] = inputs[
-            "negative_context_embeddings"
-        ]
+        transformer_context["negative_context"] = inputs["negative_context_embeddings"]
 
     cache = pipeline.initialize_cache(transformer_context=transformer_context)
     assert isinstance(cache.transformer_cache, TemplateTransformerCache)
@@ -235,9 +233,7 @@ def test_template_no_control() -> None:
     from typing import cast
 
     base = build_cfg_offline(seed=0)
-    config = cast(
-        StreamInferencePipelineConfig, derive_config(base, encoder=None)
-    )
+    config = cast(StreamInferencePipelineConfig, derive_config(base, encoder=None))
     pipeline = config.setup()
     assert isinstance(pipeline, StreamInferencePipeline)
     assert pipeline.encoder is None
@@ -419,9 +415,7 @@ def test_template_compile_and_cudagraph_equivalence() -> None:
     device = torch.device("cuda")
     seed = 0
 
-    base = _with_cfg(
-        build_cfg_autoregressive(seed=seed), guidance_scale=2.0
-    )
+    base = _with_cfg(build_cfg_autoregressive(seed=seed), guidance_scale=2.0)
     fast = with_compile_and_cuda_graph(base)
 
     torch.manual_seed(seed)
@@ -447,7 +441,10 @@ def test_template_compile_and_cudagraph_equivalence() -> None:
     ):
         assert name_e == name_f, (name_e, name_f)
         torch.testing.assert_close(
-            p_e.detach(), p_f.detach(), rtol=0, atol=0,
+            p_e.detach(),
+            p_f.detach(),
+            rtol=0,
+            atol=0,
             msg=f"seeded init diverged on parameter {name_e}",
         )
 
@@ -525,9 +522,7 @@ def _cp_one_predict_flow(
     """
     from flashdreams.core.distributed.context_parallel import split_inputs_cp
 
-    base = _with_cfg(
-        build_cfg_autoregressive(seed=seed), guidance_scale=2.0
-    )
+    base = _with_cfg(build_cfg_autoregressive(seed=seed), guidance_scale=2.0)
     torch.manual_seed(seed)
     pipeline = base.setup().to(device).eval()
     transformer = pipeline.diffusion_model.transformer
@@ -585,9 +580,7 @@ def _cp_one_predict_flow(
     )
     transformer_cache.finalize(ar_idx)
 
-    return cat_outputs_cp(
-        flow_local, seq_dim=1, cp_group=transformer._cp_group
-    )
+    return cat_outputs_cp(flow_local, seq_dim=1, cp_group=transformer._cp_group)
 
 
 def test_template_cp_equivalence() -> None:

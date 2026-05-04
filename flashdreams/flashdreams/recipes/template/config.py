@@ -31,7 +31,6 @@ from flashdreams.recipes.template.encoder import TemplateControlEncoderConfig
 from flashdreams.recipes.template.transformer import TemplateTransformerConfig
 from flashdreams.recipes.template.transformer.network import TemplateDiTConfig
 
-
 _DEFAULT_IN_CHANNELS = 4
 _DEFAULT_CONTROL_CHANNELS = 8
 _DEFAULT_OUT_CHANNELS = 3

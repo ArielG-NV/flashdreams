@@ -91,9 +91,7 @@ class TemplateTransformerConfig(InstantiateConfig["TemplateTransformer"]):
     network: TemplateDiTConfig = field(default_factory=TemplateDiTConfig)
     """Underlying DiT network config."""
 
-    context_encoder: InstantiateConfig[Any] = field(
-        default_factory=NullEncoderConfig
-    )
+    context_encoder: InstantiateConfig[Any] = field(default_factory=NullEncoderConfig)
     """One-shot encoder applied to raw ``context`` inside
     :meth:`TemplateTransformer.initialize_autoregressive_cache`. The
     default :class:`~flashdreams.infra.encoder.NullEncoder` is identity;
@@ -284,9 +282,7 @@ class TemplateTransformer(Transformer[TemplateTransformerCache]):
                 f"guidance_scale={cfg.guidance_scale} > 1.0 requires "
                 "negative_context_embeddings."
             )
-            negative_context_embeddings = self.context_encoder(
-                input=negative_context
-            )
+            negative_context_embeddings = self.context_encoder(input=negative_context)
             network_cache_uncond = self.network.initialize_cache(
                 chunk_size=chunk_size,
                 window_size=window_size,
