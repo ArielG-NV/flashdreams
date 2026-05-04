@@ -12,7 +12,7 @@ House style distilled from `flashdreams/`. Match it when adding or editing Pytho
 Every `.py` file starts with the SPDX + Apache-2.0 block, then a blank line, then the module docstring, then a blank line, then imports.
 
 ```python
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) <YEAR> NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,6 +29,10 @@ Every `.py` file starts with the SPDX + Apache-2.0 block, then a blank line, the
 
 """Block KV cache for causal attention with a fixed-size local window."""
 ```
+
+**`<YEAR>` is the *current* calendar year, not a hardcoded literal.** Before stamping the header into a brand-new file, look up today's date (the agent host's clock, the system context, or `date +%Y` in a shell) and substitute it. The conversation's training-cutoff year is *not* the source of truth — emit e.g. `Copyright (c) 2027 …` if the file is being created in 2027.
+
+When **editing an existing file**, leave the existing year alone — the SPDX year reflects when the file was first authored, not when it was last touched. Only update the year if the file genuinely had no header before, or you're explicitly asked to refresh copyright years across the tree.
 
 ## Module docstring
 
