@@ -29,9 +29,9 @@ from flashdreams.core.distributed.context_parallel import (
     split_inputs_cp,
     split_inputs_cp_object_list,
 )
-from flashdreams.infra.decoder import DecoderAutoregressiveCache
-from flashdreams.infra.encoder import EncoderAutoregressiveCache
-from flashdreams.infra.encoder.text.cosmos_qwen import (
+from flashdreams.infra.decoder import StreamingDecoderCache
+from flashdreams.infra.encoder import StreamingEncoderCache
+from flashdreams.infra.encoder.text.cosmos_reason1 import (
     CosmosReason1TextEncoder,
     CosmosReason1TextEncoderConfig,
 )
@@ -54,9 +54,9 @@ from flashdreams.recipes.wan.autoencoder.vae import (
 )
 
 AlpadreamsPipelineCache: TypeAlias = StreamInferencePipelineCache[
-    EncoderAutoregressiveCache,  # EncCacheT
+    StreamingEncoderCache,  # StreamingEncoderCacheT
     CosmosTransformerCache,  # TransformerCacheT
-    DecoderAutoregressiveCache,  # DecCacheT
+    StreamingDecoderCache,  # StreamingDecoderCacheT
 ]
 
 
@@ -88,9 +88,9 @@ class AlpadreamsPipelineConfig(StreamInferencePipelineConfig):
 
 class AlpadreamsPipeline(
     StreamInferencePipeline[
-        EncoderAutoregressiveCache,
+        StreamingEncoderCache,
         CosmosTransformerCache,
-        DecoderAutoregressiveCache,
+        StreamingDecoderCache,
     ]
 ):
     """Alpadreams streaming inference pipeline (Cosmos DiT + HDMap + I2V mask).
@@ -228,7 +228,9 @@ class AlpadreamsPipeline(
             text_embeddings: ``[B, V, L, D]``. Moved to ``self.device``.
                 Pass the full multi-view tensor; the CP split is applied here.
             image_embeddings: ``[B, V, 1, Cl, Hl, Wl]``. Same device / split
-                contract as ``text_embeddings``.
+                contract as ``text_embeddings``. ``Hl`` / ``Wl`` define the
+                per-rollout latent ``(height, width)`` forwarded to the
+                transformer.
             negative_text_embeddings: Optional ``[B, V, L, D]`` embeddings for
                 the recipe's training negative prompt. Required when the
                 transformer config requires negative text embeddings.
@@ -239,6 +241,11 @@ class AlpadreamsPipeline(
         image_embeddings = image_embeddings.to(device=self.device)
         if negative_text_embeddings is not None:
             negative_text_embeddings = negative_text_embeddings.to(device=self.device)
+
+        # The image latent's [..., Hl, Wl] are the per-rollout latent
+        # spatial dims; thread them to the transformer cache init.
+        height = image_embeddings.shape[-2]
+        width = image_embeddings.shape[-1]
 
         text_embeddings = split_inputs_cp(
             text_embeddings,
@@ -260,6 +267,8 @@ class AlpadreamsPipeline(
             view_names = split_inputs_cp_object_list(view_names, cp_group=self.V_group)
 
         transformer_context = {
+            "height": height,
+            "width": width,
             "text_embeddings": text_embeddings,
             "image_embeddings": image_embeddings,
             "view_names": view_names,
