@@ -144,4 +144,21 @@ uv run python examples/benchmark_renderer.py --scene example_data/test_hdmap --m
 
 ## License
 
-NVIDIA Proprietary
+This project is licensed under the Apache License, Version 2.0. See the
+[LICENSE](LICENSE) file for the full license text.
+
+## Contributing
+
+Contributions are welcome, thank you. This project only accepts contributions under the
+Apache License, Version 2.0. All contributions must be signed off in accordance with the
+[Developer Certificate of Origin (DCO)](CONTRIBUTING).
+
+Sign off your commits by adding a `Signed-off-by` line to each commit message
+(`git commit -s`):
+
+```
+Signed-off-by: Your Name <your.email@example.com>
+```
+
+Third-party attributions for any code bundled in this repository are listed in
+[THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
