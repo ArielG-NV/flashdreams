@@ -7,6 +7,8 @@ members = [
     # folders alongside them are intentional placeholders for future
     # extractions and don't ship a ``pyproject.toml`` yet.
     "integrations/*",
+    # Nested sub-packages that the ``integrations/*`` glob does not reach.
+    "integrations/alpadreams/ludus-renderer",
 ]
 
 # Override nvidia-cublas to >=13.4 because transformer-engine-cu13 2.14.0 was
@@ -41,6 +43,7 @@ transformer-engine-torch = { git = "https://github.com/NVIDIA/TransformerEngine.
 extraPaths = [
     "flashdreams",
     "integrations/alpadreams",
+    "integrations/alpadreams/ludus-renderer",
     "integrations/causal_forcing",
     "integrations/cosmos_predict2",
     "integrations/fastvideo_causal_wan22",
@@ -60,6 +63,7 @@ python-version = "3.12"
 extra-paths = [
     "flashdreams",
     "integrations/alpadreams",
+    "integrations/alpadreams/ludus-renderer",
     "integrations/causal_forcing",
     "integrations/cosmos_predict2",
     "integrations/fastvideo_causal_wan22",

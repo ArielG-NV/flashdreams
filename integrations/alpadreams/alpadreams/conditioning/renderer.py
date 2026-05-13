@@ -37,7 +37,7 @@ from ludus_renderer.render_utils import (
     SceneAdapter,
 )
 from ludus_renderer.torch import (
-    LudusCudaTimestampedContext,
+    LudusTimestampedContext,
 )
 from ludus_renderer.torch.ops import (
     CAMERA_TYPE_REGULAR,
@@ -117,7 +117,7 @@ class LudusRenderer:
         )
 
         # Create context
-        self.ctx = LudusCudaTimestampedContext(device=self.device)
+        self.ctx = LudusTimestampedContext(device=self.device)
         self.ctx.set_depth_scaling(True)
         self.ctx.set_msaa_samples(4)
         self.ctx.set_max_tessellation_levels(cube=0)
@@ -237,7 +237,7 @@ class LudusRenderer:
 
     def cleanup(self) -> None:
         """Cleanup the renderer."""
-        # LudusCudaTimestampedContext handles cleanup in its destructor
+        # LudusTimestampedContext handles cleanup in its destructor
         pass
 
 
