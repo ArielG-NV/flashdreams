@@ -10,6 +10,8 @@ import torch
 import torch.distributed as dist
 from lingbot.webrtc import session
 
+pytestmark = pytest.mark.ci_gpu
+
 
 def _write_minimal_assets(data_dir: Path) -> None:
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -177,6 +179,7 @@ def test_initialize_sync_keeps_base_seed_without_context_parallel(
     assert derive_calls[0]["diffusion_model"]["seed"] == 10
 
 
+@pytest.mark.manual
 def test_runtime_distributed_ops_use_world_cp_and_rank_seed(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

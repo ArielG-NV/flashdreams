@@ -26,6 +26,8 @@ from test_cudaraster_api import (
     _to_vertices,
 )
 
+pytestmark = pytest.mark.ci_gpu
+
 ROOT = Path(__file__).resolve().parents[1] / "ludus_renderer" / "_cpp" / "cudaraster"
 
 

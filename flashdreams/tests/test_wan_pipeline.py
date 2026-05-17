@@ -20,6 +20,8 @@ from flashdreams.recipes.wan import pipeline as wan_pipeline_module
 from flashdreams.recipes.wan.pipeline import WanInferencePipeline
 from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
 
+pytestmark = pytest.mark.ci_cpu
+
 
 class _FakeTextEncoder:
     def __init__(self, calls: list[list[str]]) -> None:

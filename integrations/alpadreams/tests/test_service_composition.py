@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import pytest
 from alpadreams.grpc.server import WorldModelService
+
+pytestmark = pytest.mark.ci_gpu
 
 
 class _DummyWrapper:

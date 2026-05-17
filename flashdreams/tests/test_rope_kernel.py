@@ -256,7 +256,7 @@ _PERF_SHAPES = [
 
 
 @_requires_te
-@pytest.mark.slow
+@pytest.mark.manual
 @pytest.mark.parametrize("interleaved", [False, True])
 @pytest.mark.parametrize("shape", _PERF_SHAPES)
 def test_perf_vs_te(cuda_device, shape, interleaved):
@@ -266,7 +266,7 @@ def test_perf_vs_te(cuda_device, shape, interleaved):
     loose so cluster noise does not flake CI; the printed
     ``triton vs TE`` line is the actual signal across kernel edits.
 
-    Excluded from CI (``@pytest.mark.slow``) because the ratio varies
+    Excluded from CI (``@pytest.mark.manual``) because the ratio varies
     across GPU architectures and can flake on shared runners.
     """
     B, S, H, D = shape

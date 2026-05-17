@@ -26,6 +26,7 @@ from pathlib import Path
 
 import grpc
 import numpy as np
+import pytest
 from alpadreams.grpc.protos import (
     camera_pb2,
     common_pb2,
@@ -33,6 +34,8 @@ from alpadreams.grpc.protos import (
     video_model_pb2_grpc,
 )
 from PIL import Image
+
+pytestmark = pytest.mark.ci_gpu
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 

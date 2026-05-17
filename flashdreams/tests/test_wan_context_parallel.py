@@ -14,6 +14,8 @@ from flashdreams.recipes.wan.transformer.wan21 import (
     Wan21TransformerConfig,
 )
 
+pytestmark = pytest.mark.ci_cpu
+
 
 class _FakeProcessGroup:
     def __init__(self, world_size: int, rank: int) -> None:

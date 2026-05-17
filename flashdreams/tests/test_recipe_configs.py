@@ -24,6 +24,8 @@ pipeline.recipe_name drift (which would surface as confusing
 
 from __future__ import annotations
 
+import pytest
+
 # Importing ``runner_configs`` triggers each in-tree recipe's
 # self-registration side effects. Without this import the registry
 # would be empty when tests run in isolation.
@@ -31,6 +33,8 @@ import flashdreams.configs.runner_configs  # noqa: F401
 from flashdreams.configs.registry import supported_runners
 from flashdreams.recipes.alpadreams.config import ALPADREAMS_RUNNERS
 from flashdreams.recipes.template.config import TEMPLATE_RUNNERS
+
+pytestmark = pytest.mark.ci_cpu
 
 
 def test_supported_runners_keys_match_runner_name() -> None:

@@ -22,6 +22,8 @@ import pytest
 from flashdreams.core.io import internal
 from flashdreams.recipes.alpadreams import hf
 
+pytestmark = pytest.mark.ci_cpu
+
 
 @pytest.fixture(autouse=True)
 def _scrub_env(monkeypatch: pytest.MonkeyPatch) -> None:

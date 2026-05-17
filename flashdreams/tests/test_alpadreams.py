@@ -19,6 +19,8 @@ from typing import Any, cast
 import pytest
 import torch
 
+# Mixed markers: most tests are ci_cpu; streaming_inference is manual.
+# Per-function markers used below.
 from flashdreams.infra.diffusion.scheduler.fm_unipc import (
     FlowMatchUniPCSchedulerConfig,
 )
@@ -50,6 +52,7 @@ def _make_uninitialized_alpadreams_pipeline() -> AlpadreamsPipeline:
     return pipeline
 
 
+@pytest.mark.ci_cpu
 def test_alpadreams_initialize_cache_from_embeddings_negative_text_optional(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -92,6 +95,7 @@ def test_alpadreams_initialize_cache_from_embeddings_negative_text_optional(
     assert captured_contexts[-1]["negative_text_embeddings"] is negative_text_embeddings
 
 
+@pytest.mark.ci_cpu
 def test_alpadreams_initialize_cache_encodes_cfg_negative_prompt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -144,6 +148,7 @@ def test_alpadreams_initialize_cache_encodes_cfg_negative_prompt(
     assert captured_embeddings["negative_text_embeddings"] is not None
 
 
+@pytest.mark.ci_cpu
 def test_bidirectional_transformer_requires_and_wires_negative_embeddings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -247,6 +252,7 @@ def test_bidirectional_transformer_requires_and_wires_negative_embeddings(
     assert fake_network.cache_kwargs[-1]["context"] is negative_text_embeddings
 
 
+@pytest.mark.ci_cpu
 @pytest.mark.parametrize(
     (
         "config_name",

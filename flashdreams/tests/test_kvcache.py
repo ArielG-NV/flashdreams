@@ -84,6 +84,7 @@ def dtype() -> torch.dtype:
     return torch.float32
 
 
+@pytest.mark.ci_cpu
 @pytest.mark.parametrize("sink_size,window_size", [(0, 8), (0, 24), (3, 5), (3, 21)])
 def test_block_kvcache_matches_baseline(
     device: torch.device,

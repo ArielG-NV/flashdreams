@@ -31,6 +31,10 @@ jobs:
 
   cpu:
     runs-on: linux-amd64-cpu8
+    container:
+      image: ghcr.io/nvidia/flashdreams:base-v0.3-20260424-55bd566
+    env:
+      UV_PROJECT_ENVIRONMENT: /tmp/flashdreams-venv
     steps:
       - name: Get PR info
         if: startsWith(github.ref_name, 'pull-request/')
@@ -53,17 +57,11 @@ jobs:
 
       - name: Install test dependencies
         run: |
-          uv sync --extra dev \
-            --no-install-package transformer-engine-torch
+          uv venv --clear
+          uv sync --extra dev
 
       - name: Run CPU unit tests
-        run: |
-          # Restricted to paths that do not transitively import cv2
-          # (cv2 needs libGL.so.1 which is unavailable on the CPU runner).
-          # The GPU job runs the full test suite without path restrictions.
-          uv run --no-sync pytest -m "not ci_gpu" -v \
-            flashdreams/tests/ \
-            integrations/lingbot/tests/test_controls.py
+        run: uv run --no-sync pytest -m ci_cpu -v
 
       # Documentation is built and deployed by `.github/workflows/doc.yml`.
 
@@ -102,11 +100,10 @@ jobs:
           echo "Verifying GPU access..."
           nvidia-smi
 
-      - name: Run unit tests
+      - name: Run GPU unit tests
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: |
-          uv run --no-sync pytest -m "not slow" -v
+        run: uv run --no-sync pytest -m ci_gpu -v
 
   # ===========================================================================
   # Publish to Test PyPI -- runs only on main after lint passes.

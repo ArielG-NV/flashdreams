@@ -6,6 +6,8 @@ import pytest
 import torch
 from lingbot.webrtc import server
 
+pytestmark = pytest.mark.ci_gpu
+
 
 class _FakeSessionManager:
     def __init__(self) -> None:

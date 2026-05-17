@@ -239,6 +239,8 @@ import pytest
 import torch
 from ludus_renderer._ops._plugin import _get_plugin
 
+pytestmark = pytest.mark.ci_gpu
+
 
 def _require_cuda() -> None:
     if not torch.cuda.is_available():

@@ -13,11 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import pytest
 import torch
 from lingbot.encoder.utils import (
     compute_relative_poses,
     compute_relative_poses_causal,
 )
+
+pytestmark = pytest.mark.ci_cpu
 
 
 def random_SO3(batch_size: tuple[int], device="cpu"):

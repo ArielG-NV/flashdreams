@@ -15,6 +15,7 @@
 
 """Context-parallel patchify smoke test for the Lingbot World transformer."""
 
+import pytest
 import torch
 from lingbot.encoder.camctrl import I2VCamCtrlEmbeddings
 from lingbot.transformer import (
@@ -26,6 +27,8 @@ from lingbot.transformer.impl.network import (
 )
 
 from flashdreams.recipes.wan.autoencoder.i2v import I2VCtrl
+
+pytestmark = pytest.mark.ci_cpu
 
 
 def test_lingbot_patchify_marks_i2v_and_plucker_as_patchified() -> None:

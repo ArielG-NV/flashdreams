@@ -27,6 +27,8 @@ from flashdreams.recipes.taehv import (
 )
 from flashdreams.recipes.wan.autoencoder.vae import WanVAEEncoder, WanVAEEncoderConfig
 
+pytestmark = pytest.mark.ci_cpu
+
 
 @pytest.mark.parametrize(
     ("config_cls", "target_cls"),

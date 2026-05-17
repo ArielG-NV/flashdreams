@@ -21,6 +21,8 @@ from flashdreams.recipes.alpadreams.transformer.impl.context_parallel import (
     create_hierarchical_cp_groups,
 )
 
+pytestmark = pytest.mark.ci_cpu
+
 
 def _get_expected_groups(world_size: int, V: int, T: int) -> dict:
     """Return expected group configurations for various world_size, V, T combinations."""
