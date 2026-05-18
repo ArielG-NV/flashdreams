@@ -128,10 +128,22 @@ jobs:
       - name: Build wheel
         run: uv build --wheel --package flashdreams
 
+      - name: Previously published check
+        id: previously_published
+        run: |
+          version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' flashdreams/flashdreams/_version.py)
+          echo "version=$version"
+          if curl -sSf "https://test.pypi.org/simple/flashdreams/" \
+             | grep -q "flashdreams-${version}-"; then
+            echo "Version $version already exists on Test PyPI -- skipping publish"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Version $version not found on Test PyPI -- will publish"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish to Test PyPI
-        # --check-url skips uploads when the exact same file already exists
-        # on the index. CI is the sole publisher so hashes will always match
-        # for repeated builds of the same version.
+        if: steps.previously_published.outputs.skip != 'true'
         run: >
           uv publish
           --publish-url https://test.pypi.org/legacy/
