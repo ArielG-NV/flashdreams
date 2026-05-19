@@ -58,7 +58,7 @@ from ._ops import (
     Cube,
     CubePool,
     FThetaCamera,
-    # Context (CUDA-only)
+    # Context
     LudusCudaTimestampedContext,
     ObstaclePool,
     Polygon,

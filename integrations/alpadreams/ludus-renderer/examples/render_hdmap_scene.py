@@ -507,7 +507,7 @@ def _get_ffmpeg_binary():
 def _render_mp4_ffmpeg(ctx, scene_id, timestamps, all_poses, camera_type_id,
                        camera_names, output_base, width, height, n_frames, n_cameras,
                        batch_size, device, fps=30, bitrate=10_000_000):
-    """MP4 via ffmpeg software encoding (fallback when HW encoder unavailable)."""
+    """MP4 via ffmpeg software encoding."""
     import subprocess
 
     ffmpeg_bin = _get_ffmpeg_binary()

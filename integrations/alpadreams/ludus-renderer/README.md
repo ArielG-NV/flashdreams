@@ -5,7 +5,7 @@ GPU-native F-theta CUDA software rasterizer for autonomous vehicle simulation.
 ## Features
 
 - **F-theta Camera Model**: Native support for fisheye lens distortion using polynomial projection
-- **CUDA Software Rasterizer**: GL-free rendering backend — no OpenGL/EGL/display dependencies required
+- **CUDA Software Rasterizer**: GPU rendering backend built on the CudaRaster (HPG 2011) triangle rasterizer
 - **Timestamped Rendering**: Efficient temporal queries for simulation playback
 - **Adaptive Tessellation**: Automatic subdivision based on distortion error
 - **MSAA**: 4x antialiasing via 2x supersampling
@@ -25,8 +25,6 @@ GPU-native F-theta CUDA software rasterizer for autonomous vehicle simulation.
 - Python 3.10+
 - ffmpeg (for MP4 muxing with `--output-format mp4`)
 
-No OpenGL/EGL/display dependencies are required.
-
 ## Installation
 
 ```bash
@@ -45,9 +43,6 @@ Dependencies installed:
 from ludus_renderer import LudusCudaTimestampedContext
 ctx = LudusCudaTimestampedContext(device="cuda")
 ```
-
-`LudusCudaTimestampedContext` is the only rendering context — the legacy
-EGL/OpenGL backend has been removed.
 
 ## Examples
 
@@ -80,7 +75,7 @@ uv run python examples/render_hdmap_scene.py --scene example_data/test_hdmap --s
 - `--camera NAME`: Render from a specific scene camera (use `--list-cameras` to see available)
 - `--all-cameras`: Render from all available cameras in the scene
 - `--fps N`: Output frame rate in Hz (default: 10)
-- `--output-format`: `png` (default), `jpg` (nvJPEG hardware encode), or `mp4` (H264 hardware encode)
+- `--output-format`: `png` (default), `jpg` (nvJPEG hardware encode), or `mp4` (H264 via ffmpeg libx264)
 - `--batch-size N`: Number of frames to render per GPU batch (default: all frames at once)
 - `--quality N`: JPEG quality 1-100 (default: 90)
 - `--bitrate N`: MP4 bitrate in bps (default: 10Mbps)

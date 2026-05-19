@@ -90,20 +90,15 @@ _DEFAULT_CACHE_DIR = os.path.expanduser("~/.cache/ludus")
 def compute_format_hash() -> str:
     """Compute a hash that changes when the packed buffer layout changes.
 
-    Combines C++ struct sizes (from pybind) with Python packing constants.
-    Any struct or packing change auto-invalidates cache.
+    Driven entirely by Python packing constants; bump ``CACHE_VERSION``
+    if the on-disk cache layout ever changes.
     """
-    # The legacy GL plugin exposed a ``get_struct_sizes`` helper that fed
-    # into this hash. The CUDA-only plugin does not, so the format hash
-    # is purely Python-side; bump ``CACHE_VERSION`` if the on-disk cache
-    # layout ever changes.
     parts = [
         f"cache_version={CACHE_VERSION}",
         "vertex_stride=4",
         "triangle_stride=4",
         "aabb_per_element=6",
         "cube_float_layout=trans3_quat4_scale3_color6",
-        "cpp_sizes=unavailable",
     ]
     sig = ",".join(parts)
     return hashlib.sha256(sig.encode()).hexdigest()[:16]

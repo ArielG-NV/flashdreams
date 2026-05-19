@@ -19,13 +19,13 @@ Low-level rendering operations for Ludus renderer.
 This module re-exports all symbols from the split submodules:
 - _plugin: JIT compilation
 - primitives: Data classes and packing functions
-- context: ``LudusCudaTimestampedContext`` (CUDA-only rendering context)
+- context: ``LudusCudaTimestampedContext`` rendering context
 """
 
 # JIT compilation
 from ._plugin import _get_plugin, get_log_level, set_log_level
 
-# Ludus rendering context (CUDA-only).
+# Ludus rendering context.
 from .context import LudusCudaTimestampedContext
 
 # Primitive data types and packing
@@ -119,6 +119,6 @@ __all__ = [
     "CubePool",
     "ObstaclePool",
     "TimestampedScene",
-    # Ludus rendering context (CUDA-only)
+    # Ludus rendering context
     "LudusCudaTimestampedContext",
 ]

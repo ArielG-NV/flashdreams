@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Ludus rendering context - ``LudusCudaTimestampedContext`` (CUDA-only)."""
+"""Ludus rendering context - ``LudusCudaTimestampedContext``."""
 
 from typing import List, Optional, Tuple
 
@@ -57,11 +57,10 @@ def _compute_element_aabbs(
 
 
 class LudusCudaTimestampedContext:
-    """CUDA-only context for timestamped scene rendering.
+    """CUDA context for timestamped scene rendering.
 
     All timestamp search, element extraction, color/width lookup, and
-    geometry generation happen on the GPU via CUDA kernels.  No OpenGL
-    / EGL dependency.
+    geometry generation happen on the GPU via CUDA kernels.
     """
 
     def __init__(self, device=None):
@@ -84,7 +83,7 @@ class LudusCudaTimestampedContext:
 
     @property
     def max_batch_size(self) -> int:
-        """CUDA rasterizer has no GL texture layer limit."""
+        """Maximum number of images that can be rendered in a single batch."""
         return 2048
 
     # ------------------------------------------------------------------

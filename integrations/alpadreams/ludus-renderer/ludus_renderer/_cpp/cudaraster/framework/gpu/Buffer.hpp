@@ -36,10 +36,6 @@ namespace FW
 class Buffer : public Serializable
 {
 public:
-    // ``Module::GL`` and ``Hint_CudaGL`` were removed when the framework was
-    // pruned to a CUDA-only build path. Bit 1 is left vacant rather than
-    // renumbered so any historical persisted state continues to round-trip
-    // unambiguously.
     enum Module
     {
         CPU             = 1 << 0,

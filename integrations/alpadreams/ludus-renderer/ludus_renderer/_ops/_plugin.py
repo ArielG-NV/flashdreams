@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""JIT compilation of the CUDA-only C++/CUDA plugin for Ludus renderer."""
+"""JIT compilation of the C++/CUDA plugin for Ludus renderer."""
 
 import logging
 import os
@@ -25,7 +25,7 @@ _cached_plugin = None
 
 
 def _get_plugin():
-    """Get or compile the CUDA-only C++/CUDA plugin.
+    """Get or compile the C++/CUDA plugin.
 
     Returns:
         The compiled plugin module.
@@ -74,7 +74,7 @@ def _get_plugin():
     if os.name == "nt":
         cc_opts += ["/wd4067", "/wd4624"]
 
-    # Linker options and source files (CUDA-only).
+    # Linker options and source files.
     ldflags: list[str] = []
     if os.name == "posix":
         ldflags = ["-lcuda"]

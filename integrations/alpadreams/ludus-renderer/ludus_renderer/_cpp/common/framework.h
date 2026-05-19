@@ -15,9 +15,7 @@
 
 #pragma once
 
-// Framework-specific macros for the CUDA-only Torch plugin. The TensorFlow
-// branch and a parallel OpenGL backend used to live here too; both have been
-// pruned now that the renderer is CUDA-only.
+// Framework-specific macros for the Torch plugin.
 
 //------------------------------------------------------------------------
 // PyTorch.

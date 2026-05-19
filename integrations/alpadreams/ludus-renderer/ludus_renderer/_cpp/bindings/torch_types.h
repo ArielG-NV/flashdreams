@@ -22,7 +22,7 @@
 struct LudusCudaState;
 
 //------------------------------------------------------------------------
-// Python Ludus CUDA state wrapper (fully CUDA-based rendering, no OpenGL).
+// Python Ludus CUDA state wrapper.
 
 class LudusCudaStateWrapper
 {
