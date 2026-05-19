@@ -38,6 +38,8 @@ import pytest
 import torch
 from flashvsr import corrector as cc_module
 
+pytestmark = pytest.mark.manual
+
 _GPU_REASON = "color corrector benchmark requires CUDA"
 
 

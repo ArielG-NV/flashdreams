@@ -54,6 +54,8 @@ from flashvsr.encoder.network import (
 
 from flashdreams.core.checkpoint.load import load_checkpoint
 
+pytestmark = pytest.mark.ci_gpu
+
 _PROJECTOR_URL = AVAILABLE_FLASHVSR_CHECKPOINT_PATHS["v1.1-tiny-long"]["encoder"]
 
 _GPU_REASON = "projector CUDA-graph equivalence requires CUDA"

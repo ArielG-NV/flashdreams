@@ -44,6 +44,8 @@ from flashvsr.transformer import FlashVSRTransformerConfig
 
 from flashdreams.infra.config import derive_config
 
+pytestmark = pytest.mark.ci_gpu
+
 _V1_1_PATHS = AVAILABLE_FLASHVSR_CHECKPOINT_PATHS["v1.1-tiny-long"]
 
 
@@ -293,6 +295,7 @@ def test_runner_overrides_topk_ratio_via_derive_config() -> None:
     assert (target_H, target_W) == (768, 1536)
 
 
+@pytest.mark.manual
 def test_flashvsr_pipeline_setup() -> None:
     """``build_flashvsr_v1_1(...).setup()`` instantiates the full pipeline.
 
@@ -303,7 +306,8 @@ def test_flashvsr_pipeline_setup() -> None:
     HF URLs in :data:`AVAILABLE_FLASHVSR_CHECKPOINT_PATHS` through
     ``hf_hub_download`` (i.e. the standard
     ``~/.cache/huggingface/hub/`` cache) -- a previously cached run or
-    network access is required.
+    network access is required. Marked ``manual`` to keep the
+    HF-cache-dependent path opt-in.
     """
     config = build_flashvsr_v1_1(
         input_H=384,

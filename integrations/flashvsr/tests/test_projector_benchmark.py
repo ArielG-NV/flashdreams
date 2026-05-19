@@ -39,6 +39,8 @@ from flashvsr.config import build_flashvsr_v1_1
 from flashvsr.pipeline import FlashVSRPipeline
 from flashvsr.transformer import FlashVSRTransformer
 
+pytestmark = pytest.mark.manual
+
 # (cold first-chunk frames, steady frame count) keyed by chunk_size.
 # Mirrors the legacy ``_CHUNK_TARGET = {5: 8, 13: 16, 8: 8, 16: 16}``.
 _CHUNK_MODES: dict[int, tuple[int, int]] = {16: (13, 16), 8: (5, 8)}
