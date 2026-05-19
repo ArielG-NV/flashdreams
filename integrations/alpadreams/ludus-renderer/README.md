@@ -1,15 +1,14 @@
 # Ludus Renderer
 
-GPU-native F-theta mesh shader rendering for autonomous vehicle simulation.
+GPU-native F-theta CUDA software rasterizer for autonomous vehicle simulation.
 
 ## Features
 
 - **F-theta Camera Model**: Native support for fisheye lens distortion using polynomial projection
-- **Mesh Shader Rendering**: High-performance GPU rendering using NVIDIA mesh shaders
 - **CUDA Software Rasterizer**: GL-free rendering backend — no OpenGL/EGL/display dependencies required
 - **Timestamped Rendering**: Efficient temporal queries for simulation playback
 - **Adaptive Tessellation**: Automatic subdivision based on distortion error
-- **MSAA**: 4x antialiasing via hardware MSAA (GL) or 2x supersampling (CUDA)
+- **MSAA**: 4x antialiasing via 2x supersampling
 - **Mirror Augmentation**: Extend scenes by tiling reflected copies for longer driving sequences
 - **GPU Spatial Culling**: Per-element AABB/sphere culling for large scenes
 
@@ -21,18 +20,12 @@ GPU-native F-theta mesh shader rendering for autonomous vehicle simulation.
 
 ## Requirements
 
-**GL backend:**
-- NVIDIA GPU with mesh shader support (Turing or later)
-- OpenGL 4.6 with EGL
-
-**CUDA backend:**
 - NVIDIA GPU (Turing or later)
-- No OpenGL/EGL/display dependencies
-
-**Common:**
 - CUDA 11+
 - Python 3.10+
 - ffmpeg (for MP4 muxing with `--output-format mp4`)
+
+No OpenGL/EGL/display dependencies are required.
 
 ## Installation
 
@@ -49,14 +42,12 @@ Dependencies installed:
 ## Usage
 
 ```python
-# GL backend
-from ludus_renderer import LudusTimestampedContext
-ctx = LudusTimestampedContext(device="cuda")
-
-# CUDA backend (no GL required)
 from ludus_renderer import LudusCudaTimestampedContext
 ctx = LudusCudaTimestampedContext(device="cuda")
 ```
+
+`LudusCudaTimestampedContext` is the only rendering context — the legacy
+EGL/OpenGL backend has been removed.
 
 ## Examples
 
@@ -80,15 +71,11 @@ uv run python examples/render_hdmap_scene.py --scene example_data/test_hdmap --s
 # Render specific camera with JPEG output
 uv run python examples/render_hdmap_scene.py --scene example_data/test_hdmap --sequence --camera camera:front:wide:120fov --output-format jpg
 
-# Use CUDA backend (no GL/EGL needed)
-uv run python examples/render_hdmap_scene.py --scene example_data/test_hdmap --sequence --cuda
-
 # Enable 4x antialiasing
-uv run python examples/render_hdmap_scene.py --scene example_data/test_hdmap --sequence --cuda --msaa 4
+uv run python examples/render_hdmap_scene.py --scene example_data/test_hdmap --sequence --msaa 4
 ```
 
 **Key options:**
-- `--cuda`: Use CUDA software rasterizer backend instead of OpenGL
 - `--msaa N`: MSAA sample count (`0` = disabled, `4` = 4x antialiasing)
 - `--camera NAME`: Render from a specific scene camera (use `--list-cameras` to see available)
 - `--all-cameras`: Render from all available cameras in the scene
@@ -146,16 +133,6 @@ GPU-side spatial culling ensures that rendering cost stays constant regardless o
 
 ```python
 ctx.set_cull_radius(scale=1.5)  # 0 disables culling
-```
-
-### Benchmarking
-
-```bash
-# Single scene benchmark
-uv run python examples/benchmark_renderer.py --scene example_data/test_hdmap --iters 10
-
-# Multi-camera benchmark (8 cameras per timestamp)
-uv run python examples/benchmark_renderer.py --scene example_data/test_hdmap --multicam
 ```
 
 # Contributing

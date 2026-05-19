@@ -1163,7 +1163,6 @@ dependencies = [
     { name = "pandas" },
     { name = "pillow" },
     { name = "pyarrow" },
-    { name = "pynvvideocodec" },
     { name = "scipy" },
     { name = "setuptools" },
     { name = "torch", version = "2.11.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'win32'" },
@@ -1187,7 +1186,6 @@ requires-dist = [
     { name = "pandas" },
     { name = "pillow" },
     { name = "pyarrow" },
-    { name = "pynvvideocodec" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "scipy" },
     { name = "setuptools" },
@@ -2009,16 +2007,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/1e/51/2e9b34f484cbdd3bac999bf1f48b696d7389433e900639089e8fc4e0da0d/pylibsrtp-1.0.0-cp310-abi3-win32.whl", hash = "sha256:bae377c3b402b17b9bbfbfe2534c2edba17aa13bea4c64ce440caacbe0858b55", size = 1247503, upload-time = "2025-10-13T16:12:27.39Z" },
     { url = "https://files.pythonhosted.org/packages/c3/70/43db21af194580aba2d9a6d4c7bd8c1a6e887fa52cd810b88f89096ecad2/pylibsrtp-1.0.0-cp310-abi3-win_amd64.whl", hash = "sha256:8d6527c4a78a39a8d397f8862a8b7cdad4701ee866faf9de4ab8c70be61fd34d", size = 1601659, upload-time = "2025-10-13T16:12:29.037Z" },
     { url = "https://files.pythonhosted.org/packages/8e/ec/6e02b2561d056ea5b33046e3cad21238e6a9097b97d6ccc0fbe52b50c858/pylibsrtp-1.0.0-cp310-abi3-win_arm64.whl", hash = "sha256:2696bdb2180d53ac55d0eb7b58048a2aa30cd4836dd2ca683669889137a94d2a", size = 1159246, upload-time = "2025-10-13T16:12:30.285Z" },
-]
-
-[[package]]
-name = "pynvvideocodec"
-version = "2.1.0"
-source = { registry = "https://pypi.org/simple" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/8f/e7/21cf5d01286aebfacad92f3a78f24c05b373d9bce754b689c5bb3a81bc9d/pynvvideocodec-2.1.0-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:af7e44d13cfb524626c72d947f12a3b192cfa1deb4b598a7778bd4aa1e6fd4ac", size = 46251588, upload-time = "2026-01-30T12:03:08.327Z" },
-    { url = "https://files.pythonhosted.org/packages/67/dd/99ab1d310aaadc7e20d434cf27b387a5a0878f1dfbb3788c365905647c7b/pynvvideocodec-2.1.0-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:c317fbad725b1b81936b863edcd98920bc4be423b9965719657030359d7afe29", size = 36745131, upload-time = "2026-01-30T12:03:06.838Z" },
-    { url = "https://files.pythonhosted.org/packages/0d/59/639cc6ba3a0cc9ff37b64b8bcc6ab063e562bd21c8d0b7294e215f8929ff/pynvvideocodec-2.1.0-cp312-cp312-win_amd64.whl", hash = "sha256:09cdd222c761855cde9b05ddc13d21893473cebae50077eca20b4eac0fed8acb", size = 38533044, upload-time = "2026-01-30T12:03:10.507Z" },
 ]
 
 [[package]]

@@ -488,7 +488,7 @@ class CudaRasterHarness:
 @pytest.fixture(scope="module")
 def cudaraster_plugin() -> Any:
     _require_cuda()
-    return _get_plugin(gl=False)
+    return _get_plugin()
 
 
 @pytest.fixture
@@ -1356,7 +1356,7 @@ _DEPTH_PEEL_TWO_LAYER_SCRIPT = textwrap.dedent(
     import torch
     from ludus_renderer._ops._plugin import _get_plugin
 
-    plugin = _get_plugin(gl=False)
+    plugin = _get_plugin()
     w = plugin.CudaRasterTestWrapper(torch.cuda.current_device())
     flags = int(plugin.CR_RENDER_MODE_ENABLE_DEPTH_PEELING)
     verts = torch.tensor(
@@ -1659,7 +1659,7 @@ _OVERFLOW_SCRIPT = textwrap.dedent(
     import torch
     from ludus_renderer._ops._plugin import _get_plugin
 
-    plugin = _get_plugin(gl=False)
+    plugin = _get_plugin()
     w = plugin.CudaRasterTestWrapper(torch.cuda.current_device())
     triangle_count = (1 << 24) + 1024
 
@@ -1844,7 +1844,7 @@ _DEPTH_PEEL_THREE_LAYER_SCRIPT = textwrap.dedent(
     import torch
     from ludus_renderer._ops._plugin import _get_plugin
 
-    plugin = _get_plugin(gl=False)
+    plugin = _get_plugin()
     w = plugin.CudaRasterTestWrapper(torch.cuda.current_device())
     flags = int(plugin.CR_RENDER_MODE_ENABLE_DEPTH_PEELING)
     verts = torch.tensor(
@@ -1888,7 +1888,7 @@ _DEPTH_PEEL_SINGLE_LAYER_SCRIPT = textwrap.dedent(
     import torch
     from ludus_renderer._ops._plugin import _get_plugin
 
-    plugin = _get_plugin(gl=False)
+    plugin = _get_plugin()
     w = plugin.CudaRasterTestWrapper(torch.cuda.current_device())
     flags = int(plugin.CR_RENDER_MODE_ENABLE_DEPTH_PEELING)
     verts = torch.tensor(

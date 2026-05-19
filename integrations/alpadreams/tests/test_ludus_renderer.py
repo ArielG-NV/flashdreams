@@ -13,16 +13,35 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Smoke tests for the vendored ludus-renderer backends.
+"""Smoke tests guarding the CUDA rendering path consumed by alpadreams.
 
-Tests cover:
-- EGL/OpenGL backend (``LudusTimestampedContext``) -- requires Turing+ GPU with EGL
-- CUDA software rasterizer (``LudusCudaTimestampedContext``) -- any CUDA GPU
-- High-level ``LudusRenderer`` wrapper (uses CUDA backend by default)
+The vendored ``ludus-renderer`` is now CUDA-only -- the legacy EGL/OpenGL
+backend has been removed. ``alpadreams.conditioning.renderer.LudusRenderer``
+wraps ``LudusCudaTimestampedContext`` and is the single integration point
+that the alpadreams gRPC server / conditioning wrapper exercises in
+production.
 
-All tests are excluded from the default test run.  Run explicitly with::
+Tests in this module:
 
-    uv run pytest integrations/alpadreams/tests/test_ludus_renderer.py --runxfail -v
+- ``test_alpadreams_ludus_renderer_imports_resolve`` (``ci_cpu``):
+  imports the alpadreams renderer module and verifies that every
+  module-level symbol still resolves after the GL pruning. Catches
+  accidental references to removed GL symbols at module load -- the
+  most likely regression mode -- on every CPU CI run with no GPU
+  required.
+
+- ``test_ludus_cuda_context_renders_frame`` (``manual``):
+  JIT-compiles the CUDA-only plugin, loads a real clipgt scene, and
+  renders one frame through ``LudusCudaTimestampedContext``. Pins the
+  low-level CUDA path.
+
+- ``test_ludus_renderer_wrapper_renders_frames`` (``manual``,
+  parametrized over batch sizes): exercises the high-level
+  ``LudusRenderer`` wrapper that the alpadreams gRPC server uses, with
+  particular attention to the single-image (batch=1) edge case.
+
+The two ``manual`` tests are the canonical CUDA regression net for
+alpadreams; run them with ``--runxfail -m manual``.
 """
 
 from __future__ import annotations
@@ -53,58 +72,34 @@ def clipgt_scene_dir() -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Low-level: LudusTimestampedContext renders without crashing
+# Module-import smoke test (CPU-only, runs in every GPU-free CI lane).
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.manual
-def test_ludus_timestamped_context_renders_frame(clipgt_scene_dir: Path) -> None:
-    """JIT-compile the EGL plugin, load a clipgt scene, render one frame."""
-    from ludus_renderer import load_clipgt_scene
-    from ludus_renderer.render_utils import compute_camera_poses, create_camera
-    from ludus_renderer.torch import LudusTimestampedContext
-    from ludus_renderer.torch.ops import CAMERA_TYPE_REGULAR
-    from ludus_renderer.util import resample_timestamps
+@pytest.mark.ci_cpu
+def test_alpadreams_ludus_renderer_imports_resolve() -> None:
+    """Importing alpadreams' Ludus wrapper must not reference removed GL symbols.
 
-    device = torch.device("cuda")
-    width, height = 640, 360  # small resolution for speed
-
-    # Load scene
-    scene_raw = load_clipgt_scene(str(clipgt_scene_dir), device=device)
-    from ludus_renderer.render_utils import SceneAdapter
-
-    scene = SceneAdapter(scene_raw)
-
-    # Resample timestamps to 10 Hz, take just the first frame
-    timestamps = resample_timestamps(scene.ego_tracks.timestamps, 100_000, 20_000_000)
-    assert len(timestamps) > 0, "No timestamps after resampling"
-
-    # Create context + camera
-    ctx = LudusTimestampedContext(device=device)
-    ctx.set_depth_scaling(True)
-    camera = create_camera(width, height, device, scene=scene)
-    ctx.upload_cameras([camera])
-    scene_id = ctx.upload_scene(scene.timestamped_scene)
-
-    # Compute pose for first frame
-    poses, _ = compute_camera_poses(scene, timestamps[:1], device)
-
-    # Render
-    images = ctx.render(
-        torch.tensor([scene_id], dtype=torch.int32, device=device),
-        torch.zeros(1, dtype=torch.int32, device=device),
-        timestamps[:1].to(torch.int64),
-        torch.full((1,), CAMERA_TYPE_REGULAR, dtype=torch.int32, device=device),
-        poses,
-        resolution=(height, width),
+    The GL pruning deleted ``LudusTimestampedContext`` / ``LudusGLContext``
+    / ``ludus_render`` / the high-level ``LudusRenderer`` from
+    ``ludus_renderer``. If any of those names crept back into the
+    alpadreams import chain, this test trips at module load. No GPU is
+    required.
+    """
+    from alpadreams.conditioning.renderer import (
+        LudusRenderer,
+        load_and_attach_ludus_scene,
     )
 
-    # Validate
-    assert images.shape == (1, height, width, 4), f"Unexpected shape {images.shape}"
-    assert images.dtype == torch.uint8
-    # Ensure the frame is not entirely black (renderer actually produced output)
-    rgb = images[0, :, :, :3]
-    assert rgb.any(), "Rendered frame is entirely black -- renderer may have failed"
+    assert LudusRenderer is not None
+    assert load_and_attach_ludus_scene is not None
+
+    # Confirm the CUDA-only context the wrapper depends on is the one
+    # actually re-exported from ludus_renderer.torch -- guards against an
+    # accidental re-introduction of the GL context behind the same name.
+    from ludus_renderer.torch import LudusCudaTimestampedContext
+
+    assert LudusCudaTimestampedContext.__name__ == "LudusCudaTimestampedContext"
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +109,11 @@ def test_ludus_timestamped_context_renders_frame(clipgt_scene_dir: Path) -> None
 
 @pytest.mark.manual
 def test_ludus_cuda_context_renders_frame(clipgt_scene_dir: Path) -> None:
-    """JIT-compile the CUDA-only plugin, load a clipgt scene, render one frame."""
+    """JIT-compile the CUDA-only plugin, load a clipgt scene, render one frame.
+
+    Pins the low-level ``LudusCudaTimestampedContext`` rendering path that
+    the alpadreams ``LudusRenderer`` wrapper ultimately calls into.
+    """
     from ludus_renderer import load_clipgt_scene
     from ludus_renderer.render_utils import (
         SceneAdapter,
@@ -128,14 +127,12 @@ def test_ludus_cuda_context_renders_frame(clipgt_scene_dir: Path) -> None:
     device = torch.device("cuda")
     width, height = 640, 360
 
-    # Load scene
     scene_raw = load_clipgt_scene(str(clipgt_scene_dir), device=device)
     scene = SceneAdapter(scene_raw)
 
     timestamps = resample_timestamps(scene.ego_tracks.timestamps, 100_000, 20_000_000)
     assert len(timestamps) > 0
 
-    # Create CUDA context (no EGL/GL dependency)
     ctx = LudusCudaTimestampedContext(device=device)
     assert not ctx.needs_vflip, (
         "CUDA backend renders top-down, needs_vflip should be False"
@@ -177,8 +174,10 @@ def test_ludus_renderer_wrapper_renders_frames(
 ) -> None:
     """Exercise the ``LudusRenderer`` wrapper that the gRPC server uses.
 
-    Parametrized over batch sizes to cover the single-image edge case where
-    the batch dimension is 1.
+    This is the canonical end-to-end guard for the CUDA rendering path
+    consumed by ``alpadreams``: the wrapper calls ``LudusCudaTimestampedContext``
+    under the hood. Parametrized over batch sizes to cover the
+    single-image edge case where the batch dimension is 1.
     """
     from alpadreams.conditioning.renderer import (
         LudusRenderer,
@@ -190,9 +189,8 @@ def test_ludus_renderer_wrapper_renders_frames(
 
     device = torch.device("cuda")
     camera_name = "camera_front_wide_120fov"
-    target_h, target_w = 360, 640  # small for speed
+    target_h, target_w = 360, 640
 
-    # Load scene data via the ClipGT loader
     scene_data = load_scene(
         str(clipgt_scene_dir),
         camera_names=[camera_name],
@@ -201,19 +199,16 @@ def test_ludus_renderer_wrapper_renders_frames(
         resize_resolution_hw=[target_h, target_w],
     )
 
-    # Attach the ludus GPU scene
     scene_data = load_and_attach_ludus_scene(
         str(clipgt_scene_dir),
         scene_data,
         device=device,
     )
 
-    # Get camera model
     assert camera_name in scene_data.camera_models
     camera_model = scene_data.camera_models[camera_name]
     assert isinstance(camera_model, FThetaCamera)
 
-    # Build renderer
     renderer = LudusRenderer(
         scene_data=scene_data,
         camera_models={camera_name: camera_model},
@@ -234,7 +229,7 @@ def test_ludus_renderer_wrapper_renders_frames(
         frame_timestamps_us=timestamps_us,
     )
 
-    # [n_cameras=1, n_frames={1, 2}, 3, H, W]
+    # [n_cameras=1, n_frames={1, 2, 3}, 3, H, W]
     assert output.shape == (1, n_frames, 3, target_h, target_w), f"Got {output.shape}"
     assert output.device.type == "cuda"
 

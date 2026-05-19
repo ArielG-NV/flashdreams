@@ -116,10 +116,9 @@ class LudusRenderer:
             "FLU coordinate system is expected for LudusRenderer"
         )
 
-        # Create context -- use the CUDA software rasterizer (no OpenGL/EGL
-        # dependency).  The GL backend (LudusTimestampedContext) requires an
-        # EGL stack and GL_NV_mesh_shader support; the CUDA backend works on
-        # any CUDA-capable GPU.
+        # ``LudusCudaTimestampedContext`` is the only rendering context
+        # in ``ludus_renderer``: a CUDA software rasterizer with no
+        # OpenGL/EGL/display dependencies.  Works on any CUDA-capable GPU.
         self.ctx = LudusCudaTimestampedContext(device=self.device)
         self.ctx.set_depth_scaling(True)
         self.ctx.set_msaa_samples(4)

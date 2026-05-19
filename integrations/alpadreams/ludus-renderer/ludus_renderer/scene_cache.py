@@ -93,20 +93,18 @@ def compute_format_hash() -> str:
     Combines C++ struct sizes (from pybind) with Python packing constants.
     Any struct or packing change auto-invalidates cache.
     """
+    # The legacy GL plugin exposed a ``get_struct_sizes`` helper that fed
+    # into this hash. The CUDA-only plugin does not, so the format hash
+    # is purely Python-side; bump ``CACHE_VERSION`` if the on-disk cache
+    # layout ever changes.
     parts = [
         f"cache_version={CACHE_VERSION}",
         "vertex_stride=4",
         "triangle_stride=4",
         "aabb_per_element=6",
         "cube_float_layout=trans3_quat4_scale3_color6",
+        "cpp_sizes=unavailable",
     ]
-    try:
-        from ._ops._ludus_gl import get_struct_sizes  # ty:ignore[unresolved-import]
-        sizes = get_struct_sizes()
-        for name in sorted(sizes.keys()):
-            parts.append(f"sizeof_{name}={sizes[name]}")
-    except ImportError:
-        parts.append("cpp_sizes=unavailable")
     sig = ",".join(parts)
     return hashlib.sha256(sig.encode()).hexdigest()[:16]
 
