@@ -69,7 +69,11 @@ def _get_plugin():
             os.environ["PATH"] += ";" + cl_path
 
     # Compiler options.
-    common_opts = ["-DNVDR_TORCH", "-DFW_DO_NOT_OVERRIDE_NEW_DELETE"]
+    # WARNING: "-w" suppresses ALL C/C++/CUDA compiler diagnostics. This hides
+    # potentially serious issues (uninitialized values, signed/unsigned bugs,
+    # deprecated APIs, ABI mismatches, etc.) and should ideally be fixed rather
+    # than ignored.
+    common_opts = ["-DNVDR_TORCH", "-DFW_DO_NOT_OVERRIDE_NEW_DELETE", "-w"]
     cc_opts = []
     if os.name == "nt":
         cc_opts += ["/wd4067", "/wd4624"]
