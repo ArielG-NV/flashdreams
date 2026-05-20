@@ -36,21 +36,14 @@ no-build-isolation-package = ["transformer-engine-torch"]
 # `block-sparse-attn` has the same need (its `setup.py` does `import torch`
 # to compile a CUDA extension) but takes a different route. Listing it under
 # `no-build-isolation-package` would also disable `extra-build-dependencies`
-# for the package (https://github.com/astral-sh/uv/issues/16243), and Python
-# 3.12 no longer ships setuptools in the stdlib (PEP 632), so a clean venv
-# has neither the build backend nor the rest of what `setup.py` needs at
-# module load (`from wheel.bdist_wheel import bdist_wheel`,
-# `from packaging.version import parse`) or via `setup_requires` (`packaging`,
-# `psutil`, `ninja`). Instead, keep build isolation on and seed the isolated
-# build env explicitly; `match-runtime = true` on torch picks up the CUDA-
-# enabled torch resolved for the project venv, which is what the upstream
-# README's `python setup.py install` instructions implicitly assume.
+# for the package (https://github.com/astral-sh/uv/issues/16243). Instead,
+# keep build isolation on and seed the isolated build env with the packages
+# that `setup.py` imports at module load but aren't provided by the default
+# PEP 517 build environment; `match-runtime = true` on torch picks up the
+# CUDA-enabled torch resolved for the project venv.
 [tool.uv.extra-build-dependencies]
 block-sparse-attn = [
     { requirement = "torch", match-runtime = true },
-    "setuptools",
-    "wheel",
-    "packaging",
     "psutil",
     "ninja",
 ]
