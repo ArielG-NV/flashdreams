@@ -46,7 +46,7 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument("--host", type=str, default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8081)
+    parser.add_argument("--port", type=int, default=8082)
     parser.add_argument(
         "--pipeline_config_name",
         type=str,
@@ -56,11 +56,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--scene_dir",
         type=Path,
-        default=Path(__file__).resolve().parents[4]
-        / "assets"
-        / "example_data"
-        / "omnidreams-webrtc"
-        / "0b10bce8-61f1-4350-8577-cf3c9493ffc3",
+        default=None,
+        help=(
+            "Local WebRTC scene directory containing clipgt/first_image.* "
+            "and clipgt/prompt.txt. If omitted, the server downloads and "
+            "stages the selected Hugging Face scene."
+        ),
+    )
+    parser.add_argument(
+        "--scene-uuid",
+        type=str,
+        default=None,
+        help=(
+            "Scene UUID for nvidia/omni-dreams-scenes. Expected dataset asset: "
+            "scenes/clipgt-<uuid>.usdz."
+        ),
     )
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--seed", type=int, default=42)
@@ -92,7 +102,8 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="camera_front_wide_120fov",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    return args
 
 
 def create_app(
@@ -117,6 +128,7 @@ def build_runtime_config(
     return OmnidreamsRuntimeConfig(
         pipeline_config_name=args.pipeline_config_name,
         scene_dir=args.scene_dir,
+        scene_uuid=args.scene_uuid,
         seed=args.seed,
         device=device_override or args.device,
         video_height=args.video_height,
