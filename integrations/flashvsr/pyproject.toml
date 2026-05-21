@@ -50,9 +50,9 @@ dev = [
 ]
 
 [project.scripts]
-flashvsr-grpc-server = "flashvsr.grpc.server:main"
-flashvsr-grpc-client = "flashvsr.grpc.client:main"
-flashvsr-feed-frames = "flashvsr.grpc.continuous_stream_client:main"
+flashvsr-grpc-server = "flashvsr.grpc.uplift_server:main"
+flashvsr-grpc-client = "flashvsr.grpc.uplift_client:main"
+flashvsr-feed-frames = "flashvsr.grpc.uplift_client:run_continuous_client"
 
 # Each entry registers one ``runner_name`` slug with ``flashdreams-run``.
 # The discovery layer (``flashdreams.plugins.registry.discover_runners``)

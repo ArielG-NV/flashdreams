@@ -28,7 +28,7 @@ and bounded queues provide backpressure plus paced browser playback.
 
 Usage (from repo root):
 
-    uv run --no-sync python -m flashvsr.grpc.server --viewer_port 8080
+    uv run --no-sync python -m flashvsr.grpc.uplift_server --viewer_port 8080
 """
 
 import argparse
@@ -36,6 +36,8 @@ import importlib
 import logging
 import os
 import queue
+import signal
+import sys
 import threading
 import time
 import uuid
@@ -613,6 +615,7 @@ class FlashVSR(pb2_grpc.FlashVSRServicer):
         inbound: queue.Queue = queue.Queue(maxsize=in_depth)
         outbound: queue.Queue = queue.Queue(maxsize=out_depth)
         abort = threading.Event()
+        context.add_callback(abort.set)
         cache_holder: list[FlashVSRPipelineCache | None] = [None]
         session_id_box: list[str] = [str(uuid.uuid4())]
         count_lock = threading.Lock()
@@ -1126,8 +1129,13 @@ class FlashVSR(pb2_grpc.FlashVSRServicer):
         rx.start()
         gx.start()
         try:
-            while True:
-                item = outbound.get()
+            while not abort.is_set():
+                try:
+                    item = outbound.get(timeout=0.25)
+                except queue.Empty:
+                    if not context.is_active():
+                        break
+                    continue
                 if item is _OUTBOUND_END:
                     break
                 assert isinstance(item, pb2.UpscaleChunkResponse)
@@ -1382,14 +1390,32 @@ def main():
         args.max_message_mb,
     )
 
+    stop_requested = threading.Event()
+
+    def _on_signal(signum: int, _frame: object) -> None:
+        if stop_requested.is_set():
+            log.warning("Second signal %d received; forcing exit.", signum)
+            os._exit(130)
+        log.info("Signal %d received; requesting shutdown.", signum)
+        stop_requested.set()
+
+    signal.signal(signal.SIGINT, _on_signal)
+    signal.signal(signal.SIGTERM, _on_signal)
+
     try:
-        server.wait_for_termination()
-    except KeyboardInterrupt:
-        log.info("Shutting down ...")
-        server.stop(grace=5)
+        while not stop_requested.wait(timeout=0.5):
+            pass
     finally:
+        log.info("Shutting down ...")
+        stopped = server.stop(grace=5)
+        if not stopped.wait(timeout=10):
+            log.warning("gRPC server.stop did not complete within 10s; exiting anyway.")
         if viewer is not None:
-            viewer.stop()
+            try:
+                viewer.stop()
+            except Exception:
+                log.exception("viewer.stop() raised; continuing shutdown")
+        sys.exit(0)
 
 
 if __name__ == "__main__":

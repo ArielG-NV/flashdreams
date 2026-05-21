@@ -126,7 +126,7 @@ Start a server with an HTTP viewer on port 8080:
 
 ```bash
 PYTHONPATH=integrations/flashvsr:flashdreams \
-uv run --no-sync python -m flashvsr.grpc.server \
+uv run --no-sync python -m flashvsr.grpc.uplift_server \
     --port 50051 \
     --viewer_port 8080 \
     --cuda_graph \
@@ -143,20 +143,29 @@ installed and falls back to the dense full-attention backend otherwise. To force
 the dense path in an environment without `block_sparse_attn`, pass
 `--attention_mode full`.
 
-Use the repo-root live-ingest helper to loop a video into the server at 30 fps:
+Use the live-ingest client to loop a video into the server at 30 fps:
 
 ```bash
-./feed_frames.sh --server localhost:50051 --input /path/to/clip.mp4
+PYTHONPATH=integrations/flashvsr:flashdreams \
+uv run --no-sync python -m flashvsr.grpc.uplift_client \
+    --continuous \
+    --server localhost:50051 \
+    --input /path/to/clip.mp4
 
 # finite smoke test:
-./feed_frames.sh --server localhost:50051 --input /path/to/clip.mp4 --max_chunks 4
+PYTHONPATH=integrations/flashvsr:flashdreams \
+uv run --no-sync python -m flashvsr.grpc.uplift_client \
+    --continuous \
+    --server localhost:50051 \
+    --input /path/to/clip.mp4 \
+    --max_chunks 4
 ```
 
 For a save-to-disk test client, use:
 
 ```bash
 PYTHONPATH=integrations/flashvsr:flashdreams \
-uv run --no-sync python -m flashvsr.grpc.client \
+uv run --no-sync python -m flashvsr.grpc.uplift_client \
     --server localhost:50051 \
     --input /path/to/clip.mp4 \
     --output /tmp/clip_2x.mp4
