@@ -160,6 +160,7 @@ uv sync --extra=cu130
 
 # ----------------------------------------------------------- inference T2V
 echo "[run] T2V: assets/base/robot_welding.json -> outputs/base_text2world"
+export COSMOS_PARITY_STATS_PATH="outputs/base_text2world/step_stats.json"
 uv run --extra=cu130 python examples/inference.py \
     -i assets/base/robot_welding.json \
     -o outputs/base_text2world \
@@ -168,6 +169,7 @@ uv run --extra=cu130 python examples/inference.py \
 
 # ----------------------------------------------------------- inference I2V
 echo "[run] I2V: assets/base/robot_welding.json -> outputs/base_image2world"
+export COSMOS_PARITY_STATS_PATH="outputs/base_image2world/step_stats.json"
 uv run --extra=cu130 python examples/inference.py \
     -i assets/base/robot_welding.json \
     -o outputs/base_image2world \
