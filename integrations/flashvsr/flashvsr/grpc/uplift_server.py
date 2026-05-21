@@ -1238,9 +1238,13 @@ def main():
         "--no_combine_8_frame_chunks",
         action="store_true",
         help=(
-            "Disable the default behavior that frame-coalesces streams that "
-            "start with 8-frame UpscaleVideo requests into a 13-frame cold "
-            "start followed by steady 16-frame FlashVSR calls."
+            "Run FlashVSR on every incoming 8-frame request directly, instead "
+            "of the default behavior of coalescing two 8-frame requests into "
+            "one 16-frame FlashVSR call (with a 13-frame cold start on the "
+            "first call). Smaller chunks reduce per-request latency because "
+            "the server does not wait for a second 8-frame request before "
+            "running the model, but usually hurt throughput since FlashVSR "
+            "is most efficient at 16-frame chunks."
         ),
     )
     parser.add_argument(
