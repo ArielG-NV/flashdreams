@@ -21,7 +21,7 @@ Drives :class:`flashvsr.pipeline.FlashVSRPipeline` once per
 lives on :class:`FlashVSRPipelineCache` instances obtained from
 ``upsampler.initialize_cache()``.
 
-``UpscaleVideo`` pipelines receive/decode → buffer/coalesce → GPU → send/viewer:
+``upscale_video`` pipelines receive/decode → buffer/coalesce → GPU → send/viewer:
 a reader thread decodes and enqueues incoming chunks (FIFO), a worker optionally frame-coalesces
 8-frame ingest into FlashVSR's 13-frame cold start plus steady 16-frame calls,
 and bounded queues provide backpressure plus paced browser playback.
@@ -32,6 +32,7 @@ Usage (from repo root):
 """
 
 import argparse
+import importlib
 import logging
 import os
 import queue
@@ -72,7 +73,7 @@ log = logging.getLogger(__name__)
 
 DEFAULT_PORT = 50051
 DEFAULT_MAX_MESSAGE_MB = 512
-# UpscaleVideo: bounded FIFO queues so receive / GPU / send can overlap (depth per stream).
+# upscale_video: bounded FIFO queues so receive / GPU / send can overlap (depth per stream).
 DEFAULT_STREAM_INBOUND_QUEUE_DEPTH = 16
 DEFAULT_STREAM_CHUNK_QUEUE_DEPTH = 16
 DEFAULT_VIEWER_METADATA_QUEUE_DEPTH = 64
@@ -80,6 +81,7 @@ DEFAULT_VIEWER_METADATA_QUEUE_DEPTH = 64
 _INBOUND_END = object()
 _OUTBOUND_END = object()
 AttentionMode = Literal["sparse", "full"]
+RequestedAttentionMode = Literal["sparse", "full", "auto"]
 Scale = Literal[2, 4]
 
 
@@ -100,6 +102,30 @@ def _resolve_scale(scale: int) -> Scale:
     if scale == 4:
         return 4
     raise ValueError(f"FlashVSR scale must be 2 or 4, got {scale}")
+
+
+def _block_sparse_attn_available() -> bool:
+    try:
+        importlib.import_module("block_sparse_attn")
+    except ModuleNotFoundError:
+        return False
+    return True
+
+
+def _resolve_attention_mode(attention_mode: RequestedAttentionMode) -> AttentionMode:
+    if attention_mode == "full":
+        return "full"
+    if _block_sparse_attn_available():
+        return "sparse"
+    if attention_mode == "auto":
+        log.warning(
+            "block_sparse_attn is unavailable; falling back to attention_mode=full"
+        )
+        return "full"
+    raise RuntimeError(
+        "FlashVSR attention_mode='sparse' requires the block_sparse_attn CUDA "
+        "extension. Install block-sparse-attn or pass --attention_mode full/auto."
+    )
 
 
 @dataclass
@@ -461,7 +487,7 @@ class FlashVSR(pb2_grpc.FlashVSRServicer):
     # RPC implementations
     # ------------------------------------------------------------------
 
-    def GetStatus(self, request, context):
+    def get_status(self, request, context):
         with self._sessions_lock:
             active = list(self._sessions.keys())
         return pb2.StatusResponse(
@@ -471,7 +497,7 @@ class FlashVSR(pb2_grpc.FlashVSRServicer):
             active_sessions=active,
         )
 
-    def StartSession(self, request, context):
+    def start_session(self, request, context):
         session_id = request.session_id or str(uuid.uuid4())
         H = request.input_height or self._default_H
         W = request.input_width or self._default_W
@@ -483,7 +509,7 @@ class FlashVSR(pb2_grpc.FlashVSRServicer):
                 return pb2.StartSessionResponse(
                     session_id=session_id,
                     success=False,
-                    error=f"session '{session_id}' already exists; call EndSession first",
+                    error=f"session '{session_id}' already exists; call end_session first",
                 )
 
         try:
@@ -495,7 +521,7 @@ class FlashVSR(pb2_grpc.FlashVSRServicer):
                     cache=cache,
                 )
             log.info(
-                "StartSession %s (%d×%d scale=%d sparse_ratio=%.3g attention_mode=%s)",
+                "start_session %s (%d×%d scale=%d sparse_ratio=%.3g attention_mode=%s)",
                 session_id,
                 H,
                 W,
@@ -505,24 +531,24 @@ class FlashVSR(pb2_grpc.FlashVSRServicer):
             )
             return pb2.StartSessionResponse(session_id=session_id, success=True)
         except Exception as exc:
-            log.exception("StartSession failed")
+            log.exception("start_session failed")
             return pb2.StartSessionResponse(success=False, error=str(exc))
 
-    def EndSession(self, request, context):
+    def end_session(self, request, context):
         with self._sessions_lock:
             removed = self._sessions.pop(request.session_id, None)
         if removed:
-            log.info("EndSession %s", request.session_id)
+            log.info("end_session %s", request.session_id)
             # FlashVSRPipelineCache holds GPU buffers via its sub-caches;
             # dropping the reference is enough — the next initialize_cache
             # call rebuilds them. No explicit free() needed.
         return pb2.EndSessionResponse(success=True)
 
-    def UpscaleChunk(self, request, context):
+    def upscale_chunk(self, request, context):
         with self._sessions_lock:
             session = self._sessions.get(request.session_id)
         if session is None:
-            msg = f"session '{request.session_id}' not found; call StartSession first"
+            msg = f"session '{request.session_id}' not found; call start_session first"
             context.set_code(grpc.StatusCode.NOT_FOUND)
             context.set_details(msg)
             return pb2.UpscaleChunkResponse(error=msg)
@@ -540,7 +566,7 @@ class FlashVSR(pb2_grpc.FlashVSRServicer):
                 return_frames=not omit_frames,
             )
             log.info(
-                "UpscaleChunk %s chunk=%d T=%d → %.0f ms",
+                "upscale_chunk %s chunk=%d T=%d → %.0f ms",
                 request.session_id,
                 request.chunk_index,
                 request.num_frames,
@@ -557,12 +583,12 @@ class FlashVSR(pb2_grpc.FlashVSRServicer):
                 frames_omitted=omit_frames,
             )
         except Exception as exc:
-            log.exception("UpscaleChunk failed")
+            log.exception("upscale_chunk failed")
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(str(exc))
             return pb2.UpscaleChunkResponse(error=str(exc))
 
-    def UpscaleVideo(self, request_iterator, context):
+    def upscale_video(self, request_iterator, context):
         """Pipelined streaming: Rx thread → inbound FIFO → GPU worker → outbound FIFO → yields.
 
         Receive and gRPC send can overlap with inference. Chunk order is preserved end-to-end
@@ -629,15 +655,15 @@ class FlashVSR(pb2_grpc.FlashVSRServicer):
                         counts["rx"] += 1
             except grpc.RpcError as exc:
                 if abort.is_set() or not context.is_active():
-                    log.info("UpscaleVideo: client stream closed")
+                    log.info("upscale_video: client stream closed")
                 else:
                     log.warning(
-                        "UpscaleVideo: receive loop ended with gRPC error: %s",
+                        "upscale_video: receive loop ended with gRPC error: %s",
                         exc,
                     )
                     reader_err = _UpscaleVideoReaderError(exc)
             except BaseException as exc:
-                log.exception("UpscaleVideo: receive loop failed")
+                log.exception("upscale_video: receive loop failed")
                 reader_err = _UpscaleVideoReaderError(exc)
             finally:
                 if reader_err is not None:
@@ -669,7 +695,7 @@ class FlashVSR(pb2_grpc.FlashVSRServicer):
                 cache_local = upsampler_local.initialize_cache()
                 cache_holder[0] = cache_local
                 log.info(
-                    "UpscaleVideo stream %s (%d×%d scale=%d) pipelined "
+                    "upscale_video stream %s (%d×%d scale=%d) pipelined "
                     "inbound_depth=%d outbound_depth=%d combine_8_frame_chunks=%s",
                     sid,
                     H,
@@ -736,7 +762,7 @@ class FlashVSR(pb2_grpc.FlashVSRServicer):
                 try:
                     ensure_stream(reqs[0])
                 except Exception as exc:
-                    log.exception("UpscaleVideo: model init failed")
+                    log.exception("upscale_video: model init failed")
                     put_outbound(pb2.UpscaleChunkResponse(error=str(exc)))
                     put_outbound(_OUTBOUND_END)
                     return False
@@ -792,7 +818,7 @@ class FlashVSR(pb2_grpc.FlashVSRServicer):
                         cum_gpu = counts["gpu_done"]
                         cum_sent = counts["sent"]
                     log.info(
-                        "UpscaleVideo %s model_chunk=%d source_chunks=%s "
+                        "upscale_video %s model_chunk=%d source_chunks=%s "
                         "source_frames=%s model_T=%d infer=%.0f ms wall=%.0f ms "
                         "(grpc_overhead=%.0f ms) buf_inbound=%d buf_outbound=%d "
                         "cum_rx_chunks=%d cum_model_done=%d cum_sent=%d",
@@ -814,7 +840,7 @@ class FlashVSR(pb2_grpc.FlashVSRServicer):
                     return True
                 except Exception as exc:
                     log.exception(
-                        "UpscaleVideo: model chunk %d failed for source chunks %s",
+                        "upscale_video: model chunk %d failed for source chunks %s",
                         model_chunk_index,
                         source_indexes,
                     )
@@ -956,7 +982,7 @@ class FlashVSR(pb2_grpc.FlashVSRServicer):
                         cum_gpu = counts["gpu_done"]
                         cum_sent = counts["sent"]
                     log.info(
-                        "UpscaleVideo %s coalesced_model_chunk=%d "
+                        "upscale_video %s coalesced_model_chunk=%d "
                         "source_chunks=%s source_request_frames=%s model_T=%d "
                         "infer=%.0f ms wall=%.0f ms (grpc_overhead=%.0f ms) "
                         "buf_frames=%d buf_requests=%d buf_inbound=%d "
@@ -982,7 +1008,7 @@ class FlashVSR(pb2_grpc.FlashVSRServicer):
                     return True
                 except Exception as exc:
                     log.exception(
-                        "UpscaleVideo: coalesced model chunk %d failed for "
+                        "upscale_video: coalesced model chunk %d failed for "
                         "source chunks %s",
                         model_chunk_index,
                         source_indexes,
@@ -1005,7 +1031,7 @@ class FlashVSR(pb2_grpc.FlashVSRServicer):
                     if frame_buffer:
                         dropped = len(frame_buffer)
                         log.warning(
-                            "UpscaleVideo stream %s: dropping %d trailing "
+                            "upscale_video stream %s: dropping %d trailing "
                             "frame(s) that do not form a supported FlashVSR "
                             "final chunk",
                             sid,
@@ -1025,7 +1051,7 @@ class FlashVSR(pb2_grpc.FlashVSRServicer):
                     frames = item.frames
                     coalesced_decode_ms += item.decode_ms
                 except Exception as exc:
-                    log.exception("UpscaleVideo: coalesced request prepare failed")
+                    log.exception("upscale_video: coalesced request prepare failed")
                     put_outbound(pb2.UpscaleChunkResponse(error=str(exc)))
                     put_outbound(_OUTBOUND_END)
                     return False
@@ -1077,7 +1103,7 @@ class FlashVSR(pb2_grpc.FlashVSRServicer):
                     if not process_requests([item]):
                         return
             except Exception:
-                log.exception("UpscaleVideo: GPU worker crashed")
+                log.exception("upscale_video: GPU worker crashed")
                 try:
                     put_outbound(
                         pb2.UpscaleChunkResponse(error="internal GPU worker error")
@@ -1109,7 +1135,11 @@ class FlashVSR(pb2_grpc.FlashVSRServicer):
             gx.join(timeout=120.0)
             rx.join(timeout=5.0)
             cache_holder[0] = None
-            log.info("UpscaleVideo stream %s: cache released", session_id_box[0])
+            log.info("upscale_video stream %s: cache released", session_id_box[0])
+
+
+def _add_flash_vsr_servicer_to_server(servicer: FlashVSR, server: grpc.Server) -> None:
+    pb2_grpc.add_FlashVSRServicer_to_server(servicer, server)
 
 
 # ---------------------------------------------------------------------------
@@ -1153,13 +1183,14 @@ def main():
     )
     parser.add_argument(
         "--attention_mode",
-        choices=["sparse", "full"],
+        choices=["sparse", "full", "auto"],
         default="sparse",
         help=(
             "Attention backend for the FlashVSR DiT. sparse requires the "
             "block_sparse_attn CUDA extension (a hard dependency of the "
             "FlashVSR integration); if it cannot be imported the server "
-            "will fail loudly at warmup. Pass --attention_mode full to opt "
+            "will fail loudly at startup. Pass --attention_mode auto to fall "
+            "back to dense attention, or --attention_mode full to opt "
             "into dense attention instead (default: %(default)s)."
         ),
     )
@@ -1184,7 +1215,7 @@ def main():
         type=int,
         default=DEFAULT_STREAM_INBOUND_QUEUE_DEPTH,
         help=(
-            "UpscaleVideo only: max incoming request chunks buffered per stream "
+            "upscale_video only: max incoming request chunks buffered per stream "
             "before gRPC backpressure reaches the client (default: %(default)s)."
         ),
     )
@@ -1193,7 +1224,7 @@ def main():
         type=int,
         default=DEFAULT_STREAM_CHUNK_QUEUE_DEPTH,
         help=(
-            "UpscaleVideo only: max UpscaleChunkResponse messages queued between GPU "
+            "upscale_video only: max UpscaleChunkResponse messages queued between GPU "
             "completion and gRPC send (FIFO). Larger values overlap send with the next "
             "chunk on the GPU (default: %(default)s)."
         ),
@@ -1281,7 +1312,7 @@ def main():
         parser.error("--viewer_jpeg_quality must be between 1 and 100")
     if args.viewer_frame_stride < 1:
         parser.error("--viewer_frame_stride must be at least 1")
-    attention_mode: AttentionMode = args.attention_mode
+    attention_mode = _resolve_attention_mode(args.attention_mode)
 
     compile_network = bool(args.compile or args.cuda_graph)
     if args.cuda_graph and not args.compile:
@@ -1347,7 +1378,7 @@ def main():
         omit_grpc_frames_when_viewing=not args.viewer_return_grpc_frames,
     )
 
-    pb2_grpc.add_FlashVSRServicer_to_server(servicer, server)
+    _add_flash_vsr_servicer_to_server(servicer, server)
     server.start()
     log.info(
         "Server listening on [::]:%d (max msg %d MB)",

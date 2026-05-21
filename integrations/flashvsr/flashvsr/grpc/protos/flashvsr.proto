@@ -24,24 +24,24 @@ package flashvsr;
 // Two usage patterns:
 //
 //   Unary chunk-by-chunk flow (best for integration into existing pipelines):
-//     1. StartSession  — allocates a fresh KV-cache for one video
-//     2. UpscaleChunk  — send one chunk at a time (T=13 first, T=16 subsequent)
-//     3. EndSession    — frees server-side state
+//     1. start_session  — allocates a fresh KV-cache for one video
+//     2. upscale_chunk  — send one chunk at a time (T=13 first, T=16 subsequent)
+//     3. end_session    — frees server-side state
 //
 //   Bidirectional streaming (lowest latency, single RPC for the full video):
-//     UpscaleVideo     — first message carries session config; server replies
+//     upscale_video     — first message carries session config; server replies
 //                        to each chunk immediately so the client can pipeline
 //
 //   Health probe:
-//     GetStatus        — liveness/readiness check
+//     get_status        — liveness/readiness check
 // ---------------------------------------------------------------------------
 
 service FlashVSR {
-  rpc GetStatus    (StatusRequest)         returns (StatusResponse);
-  rpc StartSession (StartSessionRequest)   returns (StartSessionResponse);
-  rpc EndSession   (EndSessionRequest)     returns (EndSessionResponse);
-  rpc UpscaleChunk (UpscaleChunkRequest)   returns (UpscaleChunkResponse);
-  rpc UpscaleVideo (stream UpscaleChunkRequest) returns (stream UpscaleChunkResponse);
+  rpc get_status    (StatusRequest)         returns (StatusResponse);
+  rpc start_session (StartSessionRequest)   returns (StartSessionResponse);
+  rpc end_session   (EndSessionRequest)     returns (EndSessionResponse);
+  rpc upscale_chunk (UpscaleChunkRequest)   returns (UpscaleChunkResponse);
+  rpc upscale_video (stream UpscaleChunkRequest) returns (stream UpscaleChunkResponse);
 }
 
 // ---------------------------------------------------------------------------
@@ -58,7 +58,7 @@ message StatusResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Session management (used with the unary UpscaleChunk flow)
+// Session management (used with the unary upscale_chunk flow)
 // ---------------------------------------------------------------------------
 
 message StartSessionRequest {
@@ -78,7 +78,7 @@ message StartSessionRequest {
 }
 
 message StartSessionResponse {
-  string session_id = 1;  // the session ID to use in subsequent UpscaleChunk calls
+  string session_id = 1;  // the session ID to use in subsequent upscale_chunk calls
   bool   success    = 2;
   string error      = 3;  // non-empty on failure
 }
@@ -92,7 +92,7 @@ message EndSessionResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Chunk messages (shared by UpscaleChunk and UpscaleVideo)
+// Chunk messages (shared by upscale_chunk and upscale_video)
 // ---------------------------------------------------------------------------
 
 enum FrameEncoding {
@@ -105,12 +105,12 @@ enum FrameEncoding {
 //   num_frames × height × width × 3 bytes.
 // JPEG frame data is one encoded RGB image per input frame.
 message UpscaleChunkRequest {
-  // For UpscaleChunk (unary): the session ID from StartSession.
-  // For UpscaleVideo (streaming): ignored after the first message.
+  // For upscale_chunk (unary): the session ID from start_session.
+  // For upscale_video (streaming): ignored after the first message.
   string session_id = 1;
 
-  // Session config — required in the first UpscaleVideo message (or via
-  // StartSession for the unary flow).  Ignored on subsequent streaming msgs.
+  // Session config — required in the first upscale_video message (or via
+  // start_session for the unary flow).  Ignored on subsequent streaming msgs.
   int32  input_height = 2;  // 0 → infer from frame height
   int32  input_width  = 3;  // 0 → infer from frame width
   int32  scale        = 4;  // 0 → 2

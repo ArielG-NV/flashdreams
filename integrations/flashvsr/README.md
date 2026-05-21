@@ -117,8 +117,8 @@ OOMs.
 
 The FlashVSR integration also ships a gRPC upsampler service that keeps the
 pipeline warm, accepts incoming frame chunks, and can publish an MJPEG browser
-viewer. The service supports unary chunks (`StartSession` / `UpscaleChunk` /
-`EndSession`) and bidirectional streaming (`UpscaleVideo`). Streaming clients
+viewer. The service supports unary chunks (`start_session` / `upscale_chunk` /
+`end_session`) and bidirectional streaming (`upscale_video`). Streaming clients
 may send 8-frame chunks at live-ingest cadence; the server coalesces those into
 FlashVSR-compatible 13-frame cold-start and 16-frame steady-state model calls.
 

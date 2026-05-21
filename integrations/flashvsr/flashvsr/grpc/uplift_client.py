@@ -179,7 +179,7 @@ def circular_chunk(frames: np.ndarray, start: int, size: int) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# Streaming flow: UpscaleVideo
+# Streaming flow: upscale_video
 # ---------------------------------------------------------------------------
 
 
@@ -219,7 +219,7 @@ def upsample_stream(
 
     output_chunks: dict[int, np.ndarray] = {}
     t_start = time.time()
-    for response in stub.UpscaleVideo(request_iter()):
+    for response in stub.upscale_video(request_iter()):
         if response.error:
             raise RuntimeError(
                 f"Server error on chunk {response.chunk_index}: {response.error}"
@@ -254,7 +254,7 @@ def upsample_stream(
 
 
 # ---------------------------------------------------------------------------
-# Unary chunk-by-chunk flow: StartSession + UpscaleChunk + EndSession
+# Unary chunk-by-chunk flow: start_session + upscale_chunk + end_session
 # ---------------------------------------------------------------------------
 
 
@@ -280,7 +280,7 @@ def upsample_unary(
         print(f"  Using first {usable} of {T} frames.")
 
     session_id = str(uuid.uuid4())
-    resp = stub.StartSession(
+    resp = stub.start_session(
         pb2.StartSessionRequest(
             session_id=session_id,
             input_height=H,
@@ -290,7 +290,7 @@ def upsample_unary(
         )
     )
     if not resp.success:
-        raise RuntimeError(f"StartSession failed: {resp.error}")
+        raise RuntimeError(f"start_session failed: {resp.error}")
     print(f"  Session: {resp.session_id}")
 
     output_chunks = []
@@ -308,7 +308,7 @@ def upsample_unary(
                 display_only=display_only,
             )
             req.session_id = session_id
-            response = stub.UpscaleChunk(req)
+            response = stub.upscale_chunk(req)
             if response.error:
                 raise RuntimeError(
                     f"Server error on chunk {chunk_idx}: {response.error}"
@@ -333,7 +333,7 @@ def upsample_unary(
                 f"  ({response.elapsed_ms:.0f} ms)"
             )
     finally:
-        stub.EndSession(pb2.EndSessionRequest(session_id=session_id))
+        stub.end_session(pb2.EndSessionRequest(session_id=session_id))
 
     total_ms = (time.time() - t_start) * 1000
     print(f"  Total: {total_ms:.0f} ms for {len(chunks)} chunks")
@@ -374,7 +374,7 @@ def run_file_client(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--unary",
         action="store_true",
-        help="Use unary UpscaleChunk flow instead of streaming",
+        help="Use unary upscale_chunk flow instead of streaming",
     )
     parser.add_argument(
         "--chunk_size",
@@ -421,7 +421,7 @@ def run_file_client(argv: list[str] | None = None) -> None:
     # Health check
     print(f"Checking server at {args.server} ...")
     try:
-        status = stub.GetStatus(pb2.StatusRequest(), timeout=10)
+        status = stub.get_status(pb2.StatusRequest(), timeout=10)
     except grpc.RpcError as exc:
         print(f"Cannot reach server: {grpc_error_details(exc)}", file=sys.stderr)
         sys.exit(1)
@@ -601,7 +601,7 @@ def run_continuous_client(argv: list[str] | None = None) -> None:
     stub = pb2_grpc.FlashVSRStub(channel)
 
     try:
-        status = stub.GetStatus(pb2.StatusRequest(), timeout=10)
+        status = stub.get_status(pb2.StatusRequest(), timeout=10)
     except grpc.RpcError as exc:
         print(f"Cannot reach server: {grpc_error_details(exc)}", file=sys.stderr)
         sys.exit(1)
@@ -657,7 +657,7 @@ def run_continuous_client(argv: list[str] | None = None) -> None:
             yield req
 
     try:
-        for response in stub.UpscaleVideo(requests()):
+        for response in stub.upscale_video(requests()):
             if response.error:
                 raise RuntimeError(
                     f"server error on chunk {response.chunk_index}: {response.error}"

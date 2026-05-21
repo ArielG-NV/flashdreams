@@ -33,16 +33,16 @@ class FlashVSRStub(object):
     Two usage patterns:
 
     Unary chunk-by-chunk flow (best for integration into existing pipelines):
-    1. StartSession  — allocates a fresh KV-cache for one video
-    2. UpscaleChunk  — send one chunk at a time (T=13 first, T=16 subsequent)
-    3. EndSession    — frees server-side state
+    1. start_session  — allocates a fresh KV-cache for one video
+    2. upscale_chunk  — send one chunk at a time (T=13 first, T=16 subsequent)
+    3. end_session    — frees server-side state
 
     Bidirectional streaming (lowest latency, single RPC for the full video):
-    UpscaleVideo     — first message carries session config; server replies
+    upscale_video     — first message carries session config; server replies
     to each chunk immediately so the client can pipeline
 
     Health probe:
-    GetStatus        — liveness/readiness check
+    get_status        — liveness/readiness check
     ---------------------------------------------------------------------------
 
     """
@@ -53,28 +53,28 @@ class FlashVSRStub(object):
         Args:
             channel: A grpc.Channel.
         """
-        self.GetStatus = channel.unary_unary(
-                '/flashvsr.FlashVSR/GetStatus',
+        self.get_status = channel.unary_unary(
+                '/flashvsr.FlashVSR/get_status',
                 request_serializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.StatusRequest.SerializeToString,
                 response_deserializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.StatusResponse.FromString,
                 _registered_method=True)
-        self.StartSession = channel.unary_unary(
-                '/flashvsr.FlashVSR/StartSession',
+        self.start_session = channel.unary_unary(
+                '/flashvsr.FlashVSR/start_session',
                 request_serializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.StartSessionRequest.SerializeToString,
                 response_deserializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.StartSessionResponse.FromString,
                 _registered_method=True)
-        self.EndSession = channel.unary_unary(
-                '/flashvsr.FlashVSR/EndSession',
+        self.end_session = channel.unary_unary(
+                '/flashvsr.FlashVSR/end_session',
                 request_serializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.EndSessionRequest.SerializeToString,
                 response_deserializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.EndSessionResponse.FromString,
                 _registered_method=True)
-        self.UpscaleChunk = channel.unary_unary(
-                '/flashvsr.FlashVSR/UpscaleChunk',
+        self.upscale_chunk = channel.unary_unary(
+                '/flashvsr.FlashVSR/upscale_chunk',
                 request_serializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.UpscaleChunkRequest.SerializeToString,
                 response_deserializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.UpscaleChunkResponse.FromString,
                 _registered_method=True)
-        self.UpscaleVideo = channel.stream_stream(
-                '/flashvsr.FlashVSR/UpscaleVideo',
+        self.upscale_video = channel.stream_stream(
+                '/flashvsr.FlashVSR/upscale_video',
                 request_serializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.UpscaleChunkRequest.SerializeToString,
                 response_deserializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.UpscaleChunkResponse.FromString,
                 _registered_method=True)
@@ -88,45 +88,45 @@ class FlashVSRServicer(object):
     Two usage patterns:
 
     Unary chunk-by-chunk flow (best for integration into existing pipelines):
-    1. StartSession  — allocates a fresh KV-cache for one video
-    2. UpscaleChunk  — send one chunk at a time (T=13 first, T=16 subsequent)
-    3. EndSession    — frees server-side state
+    1. start_session  — allocates a fresh KV-cache for one video
+    2. upscale_chunk  — send one chunk at a time (T=13 first, T=16 subsequent)
+    3. end_session    — frees server-side state
 
     Bidirectional streaming (lowest latency, single RPC for the full video):
-    UpscaleVideo     — first message carries session config; server replies
+    upscale_video     — first message carries session config; server replies
     to each chunk immediately so the client can pipeline
 
     Health probe:
-    GetStatus        — liveness/readiness check
+    get_status        — liveness/readiness check
     ---------------------------------------------------------------------------
 
     """
 
-    def GetStatus(self, request, context):
+    def get_status(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def StartSession(self, request, context):
+    def start_session(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def EndSession(self, request, context):
+    def end_session(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def UpscaleChunk(self, request, context):
+    def upscale_chunk(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def UpscaleVideo(self, request_iterator, context):
+    def upscale_video(self, request_iterator, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -135,28 +135,28 @@ class FlashVSRServicer(object):
 
 def add_FlashVSRServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'GetStatus': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetStatus,
+            'get_status': grpc.unary_unary_rpc_method_handler(
+                    servicer.get_status,
                     request_deserializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.StatusRequest.FromString,
                     response_serializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.StatusResponse.SerializeToString,
             ),
-            'StartSession': grpc.unary_unary_rpc_method_handler(
-                    servicer.StartSession,
+            'start_session': grpc.unary_unary_rpc_method_handler(
+                    servicer.start_session,
                     request_deserializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.StartSessionRequest.FromString,
                     response_serializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.StartSessionResponse.SerializeToString,
             ),
-            'EndSession': grpc.unary_unary_rpc_method_handler(
-                    servicer.EndSession,
+            'end_session': grpc.unary_unary_rpc_method_handler(
+                    servicer.end_session,
                     request_deserializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.EndSessionRequest.FromString,
                     response_serializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.EndSessionResponse.SerializeToString,
             ),
-            'UpscaleChunk': grpc.unary_unary_rpc_method_handler(
-                    servicer.UpscaleChunk,
+            'upscale_chunk': grpc.unary_unary_rpc_method_handler(
+                    servicer.upscale_chunk,
                     request_deserializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.UpscaleChunkRequest.FromString,
                     response_serializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.UpscaleChunkResponse.SerializeToString,
             ),
-            'UpscaleVideo': grpc.stream_stream_rpc_method_handler(
-                    servicer.UpscaleVideo,
+            'upscale_video': grpc.stream_stream_rpc_method_handler(
+                    servicer.upscale_video,
                     request_deserializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.UpscaleChunkRequest.FromString,
                     response_serializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.UpscaleChunkResponse.SerializeToString,
             ),
@@ -176,22 +176,22 @@ class FlashVSR(object):
     Two usage patterns:
 
     Unary chunk-by-chunk flow (best for integration into existing pipelines):
-    1. StartSession  — allocates a fresh KV-cache for one video
-    2. UpscaleChunk  — send one chunk at a time (T=13 first, T=16 subsequent)
-    3. EndSession    — frees server-side state
+    1. start_session  — allocates a fresh KV-cache for one video
+    2. upscale_chunk  — send one chunk at a time (T=13 first, T=16 subsequent)
+    3. end_session    — frees server-side state
 
     Bidirectional streaming (lowest latency, single RPC for the full video):
-    UpscaleVideo     — first message carries session config; server replies
+    upscale_video     — first message carries session config; server replies
     to each chunk immediately so the client can pipeline
 
     Health probe:
-    GetStatus        — liveness/readiness check
+    get_status        — liveness/readiness check
     ---------------------------------------------------------------------------
 
     """
 
     @staticmethod
-    def GetStatus(request,
+    def get_status(request,
             target,
             options=(),
             channel_credentials=None,
@@ -204,7 +204,7 @@ class FlashVSR(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/flashvsr.FlashVSR/GetStatus',
+            '/flashvsr.FlashVSR/get_status',
             flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.StatusRequest.SerializeToString,
             flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.StatusResponse.FromString,
             options,
@@ -218,7 +218,7 @@ class FlashVSR(object):
             _registered_method=True)
 
     @staticmethod
-    def StartSession(request,
+    def start_session(request,
             target,
             options=(),
             channel_credentials=None,
@@ -231,7 +231,7 @@ class FlashVSR(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/flashvsr.FlashVSR/StartSession',
+            '/flashvsr.FlashVSR/start_session',
             flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.StartSessionRequest.SerializeToString,
             flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.StartSessionResponse.FromString,
             options,
@@ -245,7 +245,7 @@ class FlashVSR(object):
             _registered_method=True)
 
     @staticmethod
-    def EndSession(request,
+    def end_session(request,
             target,
             options=(),
             channel_credentials=None,
@@ -258,7 +258,7 @@ class FlashVSR(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/flashvsr.FlashVSR/EndSession',
+            '/flashvsr.FlashVSR/end_session',
             flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.EndSessionRequest.SerializeToString,
             flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.EndSessionResponse.FromString,
             options,
@@ -272,7 +272,7 @@ class FlashVSR(object):
             _registered_method=True)
 
     @staticmethod
-    def UpscaleChunk(request,
+    def upscale_chunk(request,
             target,
             options=(),
             channel_credentials=None,
@@ -285,7 +285,7 @@ class FlashVSR(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/flashvsr.FlashVSR/UpscaleChunk',
+            '/flashvsr.FlashVSR/upscale_chunk',
             flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.UpscaleChunkRequest.SerializeToString,
             flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.UpscaleChunkResponse.FromString,
             options,
@@ -299,7 +299,7 @@ class FlashVSR(object):
             _registered_method=True)
 
     @staticmethod
-    def UpscaleVideo(request_iterator,
+    def upscale_video(request_iterator,
             target,
             options=(),
             channel_credentials=None,
@@ -312,7 +312,7 @@ class FlashVSR(object):
         return grpc.experimental.stream_stream(
             request_iterator,
             target,
-            '/flashvsr.FlashVSR/UpscaleVideo',
+            '/flashvsr.FlashVSR/upscale_video',
             flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.UpscaleChunkRequest.SerializeToString,
             flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.UpscaleChunkResponse.FromString,
             options,

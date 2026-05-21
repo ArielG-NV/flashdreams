@@ -258,9 +258,9 @@ class StreamingViewer:
   <script>
     const button = document.getElementById('screenshot');
     const panes = Array.from(document.querySelectorAll('.pane'));
-    let showingScreenshot = false;
+    let showing_screenshot = false;
 
-    function capturePane(pane) {
+    function capture_pane(pane) {
       const img = pane.querySelector('.live');
       const overlay = pane.querySelector('.screenshot');
       const canvas = pane.querySelector('canvas');
@@ -274,16 +274,16 @@ class StreamingViewer:
       pane.classList.add('screenshot-active');
     }
 
-    function discardScreenshot(pane) {
+    function discard_screenshot(pane) {
       const overlay = pane.querySelector('.screenshot');
       pane.classList.remove('screenshot-active');
       overlay.removeAttribute('src');
     }
 
     button.addEventListener('click', () => {
-      showingScreenshot = !showingScreenshot;
-      button.textContent = showingScreenshot ? 'Resume' : 'Screenshot';
-      panes.forEach(showingScreenshot ? capturePane : discardScreenshot);
+      showing_screenshot = !showing_screenshot;
+      button.textContent = showing_screenshot ? 'Resume' : 'Screenshot';
+      panes.forEach(showing_screenshot ? capture_pane : discard_screenshot);
     });
   </script>
 </body>
