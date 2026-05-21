@@ -15,10 +15,10 @@
 
 syntax = "proto3";
 
-package ultraflashvsr;
+package flashvsr;
 
 // ---------------------------------------------------------------------------
-// UltraFlashVSR gRPC Service
+// FlashVSR gRPC Service
 //
 // Streaming video super-resolution (2× or 4×) using a diffusion-based model.
 // Two usage patterns:
@@ -36,7 +36,7 @@ package ultraflashvsr;
 //     GetStatus        — liveness/readiness check
 // ---------------------------------------------------------------------------
 
-service UltraFlashVSRService {
+service FlashVSR {
   rpc GetStatus    (StatusRequest)         returns (StatusResponse);
   rpc StartSession (StartSessionRequest)   returns (StartSessionResponse);
   rpc EndSession   (EndSessionRequest)     returns (EndSessionResponse);

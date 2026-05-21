@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Continuously stream one video to UltraFlashVSR in 8-frame chunks.
+"""Continuously stream one video to FlashVSR in 8-frame chunks.
 
 This is a live-ingest stress client for the browser-viewer server path:
 
@@ -39,8 +39,8 @@ import grpc
 import mediapy as media
 import numpy as np
 from flashvsr.grpc.client import build_chunk_request, grpc_error_details, video_fps
-from flashvsr.grpc.protos import ultraflashvsr_pb2 as pb2
-from flashvsr.grpc.protos import ultraflashvsr_pb2_grpc as pb2_grpc
+from flashvsr.grpc.protos import flashvsr_pb2 as pb2
+from flashvsr.grpc.protos import flashvsr_pb2_grpc as pb2_grpc
 
 DEFAULT_SERVER = "localhost:50051"
 DEFAULT_MAX_MESSAGE_MB = 512
@@ -76,7 +76,7 @@ def _video_fps(path: str) -> float:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Endless 8-frame UltraFlashVSR streaming stress client"
+        description="Endless 8-frame FlashVSR streaming stress client"
     )
     parser.add_argument(
         "--server",
@@ -187,7 +187,7 @@ def main() -> None:
             ("grpc.max_receive_message_length", max_bytes),
         ],
     )
-    stub = pb2_grpc.UltraFlashVSRServiceStub(channel)
+    stub = pb2_grpc.FlashVSRStub(channel)
 
     try:
         status = stub.GetStatus(pb2.StatusRequest(), timeout=10)

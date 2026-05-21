@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Test client for the UltraFlashVSR gRPC service.
+"""Test client for the FlashVSR gRPC service.
 
 Usage (from repo root):
     uv run --no-sync python -m flashvsr.grpc.client --input clip.mp4 --output out.mp4
@@ -38,8 +38,8 @@ import uuid
 import grpc
 import mediapy as media
 import numpy as np
-from flashvsr.grpc.protos import ultraflashvsr_pb2 as pb2
-from flashvsr.grpc.protos import ultraflashvsr_pb2_grpc as pb2_grpc
+from flashvsr.grpc.protos import flashvsr_pb2 as pb2
+from flashvsr.grpc.protos import flashvsr_pb2_grpc as pb2_grpc
 
 DEFAULT_SERVER = "localhost:50051"
 DEFAULT_MAX_MESSAGE_MB = 512
@@ -156,7 +156,7 @@ def rgb_bytes_to_video(data: bytes, T: int, H: int, W: int) -> np.ndarray:
 
 
 def upsample_stream(
-    stub: pb2_grpc.UltraFlashVSRServiceStub,
+    stub: pb2_grpc.FlashVSRStub,
     video_np: np.ndarray,
     scale: int,
     sparse_ratio: float,
@@ -231,7 +231,7 @@ def upsample_stream(
 
 
 def upsample_unary(
-    stub: pb2_grpc.UltraFlashVSRServiceStub,
+    stub: pb2_grpc.FlashVSRStub,
     video_np: np.ndarray,
     scale: int,
     sparse_ratio: float,
@@ -320,7 +320,7 @@ def upsample_unary(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="UltraFlashVSR gRPC test client")
+    parser = argparse.ArgumentParser(description="FlashVSR gRPC test client")
     parser.add_argument(
         "--server",
         default=DEFAULT_SERVER,
@@ -388,7 +388,7 @@ def main():
         ("grpc.max_receive_message_length", max_bytes),
     ]
     channel = grpc.insecure_channel(args.server, options=channel_options)
-    stub = pb2_grpc.UltraFlashVSRServiceStub(channel)
+    stub = pb2_grpc.FlashVSRStub(channel)
 
     # Health check
     print(f"Checking server at {args.server} ...")

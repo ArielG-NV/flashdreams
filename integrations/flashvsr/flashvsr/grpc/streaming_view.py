@@ -209,7 +209,7 @@ class StreamingViewer:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>UltraFlashVSR Stream</title>
+  <title>FlashVSR Stream</title>
   <style>
     html, body { margin: 0; min-height: 100%; background: #111; color: #eee; font-family: system-ui, sans-serif; }
     body { display: grid; place-items: stretch; }
@@ -233,7 +233,7 @@ class StreamingViewer:
 <body>
   <main>
     <header>
-      <h1>UltraFlashVSR stream viewer</h1>
+      <h1>FlashVSR stream viewer</h1>
       <button id="screenshot" type="button">Screenshot</button>
     </header>
     <section id="viewer" class="grid">
@@ -373,8 +373,10 @@ class StreamingViewer:
             assert isinstance(item, _ViewerPlaybackChunk)
             frames = item.frames
             jpegs = item.jpegs
-            frame_count = len(jpegs) if jpegs is not None else (
-                int(frames.shape[0]) if frames is not None else 0
+            frame_count = (
+                len(jpegs)
+                if jpegs is not None
+                else (int(frames.shape[0]) if frames is not None else 0)
             )
             if frame_count == 0:
                 continue
@@ -418,7 +420,9 @@ class StreamingViewer:
         """Compatibility shim for older upscaled-frame call sites."""
         self.enqueue_upscaled_chunk(frames, elapsed_ms)
 
-    def enqueue_upscaled_jpeg_chunk(self, jpegs: list[bytes], elapsed_ms: float) -> None:
+    def enqueue_upscaled_jpeg_chunk(
+        self, jpegs: list[bytes], elapsed_ms: float
+    ) -> None:
         item = _ViewerPlaybackChunk(
             elapsed_ms=max(1.0, float(elapsed_ms)),
             jpegs=jpegs,

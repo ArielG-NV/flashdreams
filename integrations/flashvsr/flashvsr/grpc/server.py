@@ -48,8 +48,8 @@ import grpc
 import numpy as np
 import torch
 from flashvsr.config import build_flashvsr_v1_1
-from flashvsr.grpc.protos import ultraflashvsr_pb2 as pb2
-from flashvsr.grpc.protos import ultraflashvsr_pb2_grpc as pb2_grpc
+from flashvsr.grpc.protos import flashvsr_pb2 as pb2
+from flashvsr.grpc.protos import flashvsr_pb2_grpc as pb2_grpc
 from flashvsr.grpc.streaming_view import (
     DEFAULT_VIEWER_CHUNK_QUEUE_DEPTH,
     DEFAULT_VIEWER_FRAME_STRIDE,
@@ -179,7 +179,7 @@ class _DecodedStreamRequest:
     decode_ms: float
 
 
-class UltraFlashVSRServicer(pb2_grpc.UltraFlashVSRServiceServicer):
+class FlashVSR(pb2_grpc.FlashVSRServicer):
     def __init__(
         self,
         model_path: str,
@@ -1355,7 +1355,7 @@ def main():
         )
         viewer.start()
 
-    servicer = UltraFlashVSRServicer(
+    servicer = FlashVSR(
         model_path=args.model_path,
         model_name=args.model_name,
         default_H=args.default_H,
@@ -1374,7 +1374,7 @@ def main():
         omit_grpc_frames_when_viewing=not args.viewer_return_grpc_frames,
     )
 
-    pb2_grpc.add_UltraFlashVSRServiceServicer_to_server(servicer, server)
+    pb2_grpc.add_FlashVSRServicer_to_server(servicer, server)
     server.start()
     log.info(
         "Server listening on [::]:%d (max msg %d MB)",
