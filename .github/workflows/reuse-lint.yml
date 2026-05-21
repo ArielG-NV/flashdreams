@@ -2,6 +2,8 @@ name: reuse-lint
 
 on:
   pull_request:
+  merge_group:
+    branches: [main]
   push:
     branches:
       - main
