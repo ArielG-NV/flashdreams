@@ -179,6 +179,16 @@ investing implementation effort.
 - We squash-merge to keep `main`'s history readable. The PR title and
   description become the squash commit message — please make them
   descriptive and reviewer-facing.
+- `main` is gated by GitHub's **merge queue**. Once your PR is approved
+  and CI is green, click "Merge when ready" — GitHub will rebase your
+  branch on top of `main` plus any earlier queued PRs, re-run the
+  required checks against that combined state, and only land the merge
+  if everything is still green. You do not need to manually rebase or
+  re-run CI when another PR lands first. PRs that would conflict or
+  fail after rebase are kicked back out of the queue automatically.
+  Maintainers: do not enable "Require branches to be up to date before
+  merging" alongside the queue — they're redundant, and enabling both
+  reintroduces the rebase-storm problem the queue exists to solve.
 - If a review comment is unclear, ask. We'd rather have a 30-second
   clarifying exchange than a misunderstanding turning into rework.
 
