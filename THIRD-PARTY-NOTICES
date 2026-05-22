@@ -73,6 +73,11 @@ downloads under integrations/omnidreams/omnidreams_singleview/3rdparty/.
 Those downloaded trees are ignored by Git and are not source-level
 redistributions in this repository.
 
+CUTLASS                BSD-3-Clause https://github.com/NVIDIA/cutlass
+    Pinned by integrations/omnidreams/omnidreams_singleview/
+    thirdparty_sources.json at
+    f3fde58372d33e9a5650ba7b80fc48b3b49d40c8.
+
 SageAttention          Apache-2.0   https://github.com/thu-ml/SageAttention
     Pinned by integrations/omnidreams/omnidreams_singleview/
     thirdparty_sources.json at
