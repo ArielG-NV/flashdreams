@@ -54,7 +54,7 @@ PIPELINE_COSMOS2_T2V_2B_720P = CosmosInferencePipelineConfig(
             # Official code uses formula with 7.0: cond + guidance * (cond - uncond)
             # Equivalent to our formula with 8.0: uncond + guidance * (cond - uncond)
             guidance_scale=8.0,
-            compile_network=False,
+            compile_network=True,
             use_cuda_graph=False,
         ),
         scheduler=FlowMatchUniPCSchedulerConfig(
@@ -87,7 +87,7 @@ PIPELINE_COSMOS2_I2V_2B_720P = CosmosInferencePipelineConfig(
             len_t=24,
             window_size_t=24,
             guidance_scale=8.0,
-            compile_network=False,
+            compile_network=True,
             use_cuda_graph=False,
             conditional_frame_timestep=0.1,
         ),

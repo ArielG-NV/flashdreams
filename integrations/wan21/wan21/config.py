@@ -61,6 +61,7 @@ PIPELINE_WAN21_T2V_1PT3B_480P = WanInferencePipelineConfig(
         scheduler=FlowMatchUniPCSchedulerConfig(
             num_inference_steps=50,
             shift=8.0,
+            enable_tqdm=True,
         ),
     ),
 )
@@ -94,6 +95,7 @@ PIPELINE_WAN21_I2V_14B_480P = WanInferencePipelineConfig(
         scheduler=FlowMatchUniPCSchedulerConfig(
             num_inference_steps=40,
             shift=3.0,
+            enable_tqdm=True,
         ),
     ),
     image_encoder=CLIPImageEncoderConfig(
