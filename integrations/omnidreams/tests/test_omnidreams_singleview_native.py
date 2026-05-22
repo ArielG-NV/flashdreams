@@ -135,8 +135,8 @@ def test_load_extension_uses_build_root_for_torch_cache(
     monkeypatch.setattr(native, "_extension_load_error", None)
     monkeypatch.setattr(native, "validate_thirdparty", lambda: thirdparty_info)
     monkeypatch.setattr(cpp_extension, "load", fake_load_torch_extension)
+    monkeypatch.setattr(native.os, "cpu_count", lambda: 48)
     monkeypatch.delenv("MAX_JOBS", raising=False)
-    monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_NATIVE_MAX_JOBS", raising=False)
 
     extension = native.load_extension(build_root=build_root)
 
@@ -189,7 +189,7 @@ def test_load_extension_uses_build_root_for_torch_cache(
         "-DOMNIDREAMS_SINGLEVIEW_WITH_CUDA",
     ]
     assert captured["with_cuda"] is True
-    assert captured["max_jobs_env"] == "1"
+    assert captured["max_jobs_env"] == "8"
     assert captured["cuda_arch_list_env"] == "12.0a"
     assert "MAX_JOBS" not in os.environ
     assert "TORCH_CUDA_ARCH_LIST" not in os.environ

@@ -41,9 +41,8 @@ _SOURCE_DIR = _ROOT / "src"
 _EXTENSION_SOURCE = _SOURCE_DIR / "omnidreams_singleview_ext.cpp"
 _NATIVE_PRIMITIVES_SOURCE = _SOURCE_DIR / "native_primitives.cpp"
 _NATIVE_PRIMITIVES_CUDA_SOURCE = _SOURCE_DIR / "native_primitives_cuda.cu"
-_NATIVE_MAX_JOBS_ENV = "OMNIDREAMS_SINGLEVIEW_NATIVE_MAX_JOBS"
 _PYTORCH_MAX_JOBS_ENV = "MAX_JOBS"
-_DEFAULT_NATIVE_MAX_JOBS = "1"
+_DEFAULT_MAX_JOBS_CAP = 8
 _NATIVE_CUDA_ARCH_LIST_ENV = "OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST"
 _PYTORCH_CUDA_ARCH_LIST_ENV = "TORCH_CUDA_ARCH_LIST"
 _DEFAULT_CUDA_ARCH_LIST = "12.0a"
@@ -151,9 +150,7 @@ def _resolved_max_jobs(max_jobs: int | str | None) -> str | None:
         return _validate_max_jobs(max_jobs)
     if os.environ.get(_PYTORCH_MAX_JOBS_ENV):
         return None
-    return _validate_max_jobs(
-        os.environ.get(_NATIVE_MAX_JOBS_ENV, _DEFAULT_NATIVE_MAX_JOBS)
-    )
+    return str(min(os.cpu_count() or 1, _DEFAULT_MAX_JOBS_CAP))
 
 
 def _resolved_cuda_arch_list() -> str | None:
@@ -207,8 +204,8 @@ def load_extension(
     """Compile and load the CUDA native extension on demand.
 
     PyTorch's extension builder uses ``MAX_JOBS`` for Ninja fanout. If the caller
-    has not already set it, this loader defaults to one compile job to avoid
-    surprising memory spikes in local clean builds.
+    has not already set it, this loader sets a modest default cap to avoid
+    runaway memory use in local clean builds.
 
     Returns ``None`` if the extension cannot be built on the current host. The
     full exception is retained and exposed through ``extension_load_error()``.
