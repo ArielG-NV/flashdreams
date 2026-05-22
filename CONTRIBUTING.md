@@ -81,6 +81,11 @@ not.
 
 ## Developer Certificate of Origin (DCO)
 
+**This project will only accept contributions under the Apache-2.0
+license.** By submitting a pull request you agree that your
+contribution is licensed under the Apache License, Version 2.0 (see
+[LICENSE](LICENSE)).
+
 All contributions to FlashDreams are made under the
 [Developer Certificate of Origin](https://developercertificate.org/).
 This is a lightweight, well-understood mechanism (used by the Linux
@@ -89,21 +94,29 @@ attest that you have the right to submit your contribution under the
 project's license — without requiring a separate Contributor License
 Agreement.
 
-To sign off, add a `Signed-off-by` line to every commit:
+### Signing Your Work
+
+To sign off, add a `Signed-off-by` line to every commit. The short
+flag and the long flag are equivalent:
 
 ```
-git commit --signoff
+git commit -s          # short form
+git commit --signoff   # long form
 ```
 
-which appends a trailer that looks like:
+Either form appends a trailer that looks like:
 
 ```
 Signed-off-by: Your Name <your@email.address>
 ```
 
+The `user.name` and `user.email` git config values must be set to your
+real name and a verifiable email address — sign-offs from anonymous or
+pseudonymous identities cannot be accepted.
+
 By signing off, you are stating that you agree to the
 [Developer Certificate of Origin](https://developercertificate.org/),
-reproduced below for convenience:
+reproduced below in full for convenience:
 
 > Developer Certificate of Origin
 > Version 1.1
@@ -381,7 +394,8 @@ contributed only if:
 
 1. its license is compatible with Apache-2.0;
 2. its origin and license are clearly recorded in
-   [`reuse.toml`](reuse.toml) and [`NOTICE`](NOTICE);
+   [`REUSE.toml`](REUSE.toml) and
+   [`THIRD-PARTY-NOTICES`](THIRD-PARTY-NOTICES);
 3. its files retain whatever attribution headers the upstream license
    requires.
 

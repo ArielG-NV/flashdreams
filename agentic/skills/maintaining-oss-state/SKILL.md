@@ -1,6 +1,6 @@
 ---
 name: maintaining-oss-state
-description: Maintain FlashDreams's OSS-release state — the LICENSE / NOTICE / REUSE.toml / LICENSES/ / CONTRIBUTING.md collateral that satisfies OSRB Bug 6107043, the per-file SPDX headers, the third-party dependency manifest in NOTICE, and the pyproject.toml + uv.lock dependency pins. Use when adding or upgrading a runtime dependency, vendoring third-party source into the repo, adding a new first-party source file (any .py / .pyx / .pyi / .c / .cc / .cpp / .h / .hpp / .cu / .cuh), reviewing whether a change requires reopening an OSRB bug or filing a self-cert, or triaging a reuse-lint CI failure.
+description: Maintain FlashDreams's OSS-release state — the LICENSE / NOTICE / THIRD-PARTY-NOTICES / REUSE.toml / LICENSES/ / CONTRIBUTING.md collateral that satisfies OSRB Bug 6107043, the per-file SPDX headers, the third-party dependency manifest in THIRD-PARTY-NOTICES, and the pyproject.toml + uv.lock dependency pins. Use when adding or upgrading a runtime dependency, vendoring third-party source into the repo, adding a new first-party source file (any .py / .pyx / .pyi / .c / .cc / .cpp / .h / .hpp / .cu / .cuh / .sh / .proto / Dockerfile), reviewing whether a change requires reopening an OSRB bug or filing a self-cert, or triaging a reuse-lint CI failure.
 ---
 
 # Maintaining FlashDreams's OSS state
@@ -21,22 +21,39 @@ gates catch what.
 
 ## TL;DR
 
-- **Five files at repo root + one CI workflow define OSS state:** `LICENSE`,
-  `LICENSES/`, `NOTICE`, `REUSE.toml`, `CONTRIBUTING.md`, and
+- **Six files at repo root + one CI workflow define OSS state:**
+  `LICENSE`, `LICENSES/`, `NOTICE`, `THIRD-PARTY-NOTICES`,
+  `REUSE.toml`, `CONTRIBUTING.md`, and
   `.github/workflows/reuse-lint.yml`. Touch any of them with the same
   care you'd give to a public API.
+- **`LICENSE` has a multi-license preamble** explaining that the bulk
+  of the repo is Apache-2.0 and that two subtrees
+  (cudaraster → BSD-3-Clause, LodePNG → Zlib) carry different OSI
+  licenses, then reproduces the full Apache-2.0 text. CI verifies the
+  preamble cross-references all three `LICENSES/*.txt` files plus
+  `THIRD-PARTY-NOTICES`.
+- **`NOTICE` is the minimal Apache 2.0 §4(d) notice** — NVIDIA
+  copyright + pointers to `LICENSE`, `LICENSES/`, and
+  `THIRD-PARTY-NOTICES`. It is *not* the full attribution document.
+- **`THIRD-PARTY-NOTICES` is the full per-dependency attribution
+  document** — direct runtime deps, reference architectures, optional
+  integrations, and source-level redistributions, each with SPDX
+  identifier and upstream URL.
 - **Every first-party source file carries an inline SPDX header.**
   `REUSE.toml`'s `**` aggregate keeps the lint green for files that
   can't carry one (config, assets, binaries), but `reuse-lint`'s
   "Inline SPDX headers on first-party source files" step rejects any
-  new `.py` / `.c` / `.cpp` / `.cu` / etc. without the inline tag.
+  new `.py` / `.c` / `.cpp` / `.cu` / `.sh` / `.proto` / `Dockerfile`
+  / etc. without the inline tag.
 - **Direct deps are mirrored in three places:** the workspace member's
   `pyproject.toml` `dependencies`, the resolved `uv.lock` pin, and the
-  `NOTICE` "Direct runtime dependencies" table. All three must agree.
+  `THIRD-PARTY-NOTICES` "Direct runtime dependencies" table. All
+  three must agree.
 - **Third-party source physically present in the repo** (cudaraster,
-  LodePNG) lives in `NOTICE` "Source-level redistributions", carries
-  the full license text under `LICENSES/<SPDX>.txt`, and has a
-  matching `REUSE.toml` `override` annotation.
+  LodePNG) lives in `THIRD-PARTY-NOTICES` "Source-level
+  redistributions", carries the full license text under
+  `LICENSES/<SPDX>.txt`, has a matching `REUSE.toml` `override`
+  annotation, and is cross-referenced from the `LICENSE` preamble.
 - **OSRB Bug 6107043 §14 is the source of truth for which deps are
   "covered" by the contribution approval.** Adding a new direct dep =
   reopen 6107043 and amend §14. Adding a transitive that only matters
@@ -48,14 +65,15 @@ gates catch what.
 
 | File / path | Role | OSRB anchor |
 |---|---|---|
-| `LICENSE` | Canonical Apache-2.0 v2.0 text. CI gate: byte-identical to `LICENSES/Apache-2.0.txt`. | 6107043 item #3 |
-| `LICENSES/Apache-2.0.txt` | REUSE 3.3 license-bundle copy of Apache-2.0. | 6107043 item #3 |
+| `LICENSE` | Multi-license preamble (Apache-2.0 + BSD-3 + Zlib pointer) followed by the canonical Apache-2.0 v2.0 text. CI verifies: preamble references `LICENSES/BSD-3-Clause.txt`, `LICENSES/Zlib.txt`, `THIRD-PARTY-NOTICES`, and contains all canonical Apache-2.0 sentinel strings. | 6107043 item #3 + OSRB unified-posture review |
+| `LICENSES/Apache-2.0.txt` | REUSE 3.3 license-bundle copy of the canonical Apache-2.0 text (no preamble — must remain reusable verbatim by REUSE tooling). | 6107043 item #3 |
 | `LICENSES/BSD-3-Clause.txt` | Full BSD-3 text covering the in-source cudaraster port. | 6107043 Cmt #5 (2) |
 | `LICENSES/Zlib.txt` | Full Zlib text covering the embedded LodePNG codec. | 6107043 Cmt #5 (2) |
-| `NOTICE` | Third-party attribution table + source-level redistribution disclosures. | 6107043 items #2, #4 + Cmt #5 (2) |
-| `REUSE.toml` | REUSE 3.3 aggregate annotations for files without inline SPDX. | 6107043 item #2 |
-| `CONTRIBUTING.md` | DCO v1.1 reproduction + signoff process + IP-review reference. | 6107043 item #6 |
-| `.github/workflows/reuse-lint.yml` | CI gate enforcing REUSE compliance, OSRB collateral presence, inline SPDX headers, no legacy proprietary banners. | (enforces the above) |
+| `NOTICE` | Apache 2.0 §4(d) minimal notice — NVIDIA copyright + pointers to `LICENSE`, `LICENSES/`, and `THIRD-PARTY-NOTICES`. Carried forward verbatim by downstream redistributions. | Apache-2.0 §4(d) |
+| `THIRD-PARTY-NOTICES` | Full per-dependency attribution: Direct runtime deps + Reference architectures + Optional-integration deps + Source-level redistributions. The source of truth for the third-party manifest. | OSRB review (canonical attribution doc) |
+| `REUSE.toml` | REUSE 3.3 aggregate / override annotations for files without inline SPDX. | 6107043 item #2 |
+| `CONTRIBUTING.md` | Apache-2.0-only contribution statement + DCO v1.1 reproduction + "Signing Your Work" subsection (with `git commit -s` and `--signoff`) + IP-review reference. | 6107043 item #6 + OSRB DCO template |
+| `.github/workflows/reuse-lint.yml` | CI gate enforcing REUSE compliance, OSRB collateral presence, inline SPDX headers (incl. `.sh` / `.proto` / Dockerfile), no legacy proprietary banners, `THIRD-PARTY-NOTICES` content shape, `CONTRIBUTING.md` policy assertions. | (enforces the above) |
 
 The CI workflow runs on every PR, every push to `main`, and inside the
 GitHub merge queue. A failed `reuse-lint` blocks merge — never bypass it,
@@ -154,42 +172,76 @@ under that subtree, then the lodepng `override` overrides the cudaraster
 block for the lodepng leaf. Order the annotations so specific paths come
 *after* general ones.
 
-## 4. `NOTICE` — the dependency manifest
+## 4. `NOTICE` vs `THIRD-PARTY-NOTICES` — what goes where
 
-`NOTICE` is the consumer-facing attribution document. It has four named
-sections; do not invent new ones without a corresponding `REUSE.toml`
-change.
+Two distinct files. Mixing them up is the most common OSS-state mistake.
+
+### `NOTICE` — minimal, downstream-propagated
+
+`NOTICE` exists to satisfy **Apache 2.0 §4(d)**: any derivative work must
+carry a readable copy of the upstream `NOTICE` text. Keep it small so
+downstream consumers do not pay an unreasonable carry-forward cost.
+Shape:
 
 ```
 NVIDIA FlashDreams
 Copyright (c) <YEAR> NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+This product is licensed under the Apache License, Version 2.0; the
+full license text is reproduced in LICENSE at the repository root and
+in LICENSES/Apache-2.0.txt.
 
-================================================================================
+Two subtrees physically vendored into this repository carry
+different OSI-approved licenses; full texts are reproduced under
+LICENSES/:
+
+  - integrations/omnidreams/ludus-renderer/ludus_renderer/_cpp/cudaraster/
+        BSD-3-Clause  (see LICENSES/BSD-3-Clause.txt)
+  - integrations/omnidreams/ludus-renderer/ludus_renderer/_cpp/
+    cudaraster/framework/3rdparty/lodepng/{lodepng.h,lodepng.cpp}
+        Zlib          (see LICENSES/Zlib.txt)
+
+Third-party software attributions, source-level redistribution
+disclosures, and the full per-dependency license inventory are
+documented in THIRD-PARTY-NOTICES at the repository root.
+```
+
+Do not enumerate transitive dependencies, SPDX tables, or per-package
+attributions in `NOTICE`. Those go in `THIRD-PARTY-NOTICES`.
+
+### `THIRD-PARTY-NOTICES` — full per-dependency manifest
+
+`THIRD-PARTY-NOTICES` is the consumer-facing attribution document and
+the source of truth for the third-party manifest. It has four named
+sections; do not invent new ones without a corresponding `REUSE.toml`
+change.
+
+```
+NVIDIA FlashDreams — Third-Party Notices
+Copyright (c) <YEAR> NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
   Preamble explaining the dynamic-import / no-source-redistribution
   default and pointing readers at the Source-level redistributions
   section at the bottom.
 
---------------------------------------------------------------------------------
+================================================================================
 Direct runtime dependencies
---------------------------------------------------------------------------------
+================================================================================
 
   <name>  <SPDX>  <upstream-URL>
   ... one row per direct dep ...
 
---------------------------------------------------------------------------------
+================================================================================
 Reference architectures
---------------------------------------------------------------------------------
+================================================================================
 
   Wan 2.1 / Wan 2.2   Apache-2.0   https://github.com/Wan-Video/Wan2.1
       <one paragraph explaining the reference-architecture relationship
        and confirming weights/sources aren't redistributed>
 
---------------------------------------------------------------------------------
+================================================================================
 Optional integration: integrations/<name>
---------------------------------------------------------------------------------
+================================================================================
 
   <one block per integration that pulls in deps not used by the root
    package — currently omnidreams (mediapy, opencv-python-headless,
@@ -234,7 +286,7 @@ This is the highest-frequency OSS-state edit. It touches **four** places:
    API is known-unstable across minor versions.
 2. `uv.lock` — regenerate with `uv lock` so the hash-pinned resolved
    version lands in the lockfile.
-3. `NOTICE` "Direct runtime dependencies" table — add a row with
+3. `THIRD-PARTY-NOTICES` "Direct runtime dependencies" table — add a row with
    `name  SPDX  upstream-URL`.
 4. OSRB Bug 6107043 §14 — **reopen the bug and amend §14** with the
    new (name, version, license, URL) row (per the OSRB policy at
@@ -262,20 +314,21 @@ This is the highest-frequency OSS-state edit. It touches **four** places:
       hold, the dep needs to be vendored (see §6) and OSRB review is
       mandatory.
 - [ ] **Codec / crypto**: if the new dep implements an audio/video
-      codec or encryption, NOTICE belongs in the corresponding
-      Optional-integration block, and the OSRB bug Q11 / Q12 answers
-      may need re-confirming.
+      codec or encryption, the entry belongs in the corresponding
+      Optional-integration block of `THIRD-PARTY-NOTICES`, and the
+      OSRB bug Q11 / Q12 answers may need re-confirming.
 
 ### Upgrading an existing dep version
 
 - **Same license, same SPDX, version-bump only** → update
-  `pyproject.toml` floor (if needed), regen `uv.lock`. NOTICE may not
-  need a touch (we don't pin exact versions in NOTICE). OSRB bug does
-  **not** need to be reopened (policy explicit: "version updates
-  without licensing changes don't require reopening").
+  `pyproject.toml` floor (if needed), regen `uv.lock`.
+  `THIRD-PARTY-NOTICES` may not need a touch (we don't pin exact
+  versions there). OSRB bug does **not** need to be reopened (policy
+  explicit: "version updates without licensing changes don't require
+  reopening").
 - **License change between versions** → treat as a new dep:
-  reopen 6107043 §14, update NOTICE, possibly re-check codec/crypto
-  questions.
+  reopen 6107043 §14, update `THIRD-PARTY-NOTICES`, possibly re-check
+  codec/crypto questions.
 - **Major version bump that changes the dep's *use*** (e.g.,
   switching from sync-only to async-only, or adding a new transitive
   family) — reopen 6107043 §14 even if the SPDX hasn't changed
@@ -304,9 +357,15 @@ pattern, PR #111) is heavier — it touches **six** places:
 2. **Add the full license text** under `LICENSES/<SPDX>.txt`.
 3. **Extend `REUSE.toml`** with an `override` annotation for the
    subtree (license = upstream SPDX, copyright = upstream copyright).
-4. **Add a "Source-level redistributions" block in `NOTICE`** —
-   path, license + pointer to `LICENSES/<SPDX>.txt`, upstream URL,
-   one paragraph describing what we modified vs. upstream.
+4. **Add a "Source-level redistributions" block in
+   `THIRD-PARTY-NOTICES`** — path, license + pointer to
+   `LICENSES/<SPDX>.txt`, upstream URL, one paragraph describing what
+   we modified vs. upstream. **Also update `NOTICE`** to add a
+   one-line entry under the existing two-subtree bullet list, since
+   physically-redistributed third-party source is one of the things
+   downstream consumers must see when carrying our Apache 2.0
+   §4(d) notice forward. **Also update the `LICENSE` preamble** to
+   cross-reference the new `LICENSES/<SPDX>.txt`.
 5. **OSRB Bug 6107043** — reopen + add a §14 row *and* note the
    source-level redistribution in a comment (per Cmt #5 (2) workflow).
    Filing an OSRB Bug for the upstream project itself may be required
@@ -344,12 +403,12 @@ with the Apache-2.0 SPDX header.
 |---|---|
 | Bump version, same license | None (policy explicit). |
 | Bump version, license changed | Reopen 6107043, amend §14. |
-| Add new direct dep | Reopen 6107043, amend §14, update NOTICE. |
+| Add new direct dep | Reopen 6107043, amend §14, update `THIRD-PARTY-NOTICES`. |
 | Add new transitive flagged by SBOM scanner | Reopen 6107043 §14 (preferred), OR file self-cert under `osrb/`. |
 | Add dev/test-only transitive (`[dev]` extra) flagged by scanner | File **SBOM correction** — not in product delivery. Self-cert as fallback. |
 | Vendor third-party source physically into repo | Reopen 6107043 + Cmt thread; possibly file a sub-OSRB bug for the upstream project (cf. 6105127 for ludus-renderer). |
-| Remove a dep | Update `pyproject.toml`, `uv.lock`, NOTICE. No OSRB action — removal doesn't add new attack surface. |
-| Drop a previously-approved transitive (closure shift) | Update NOTICE if it was listed; no OSRB action required. |
+| Remove a dep | Update `pyproject.toml`, `uv.lock`, `THIRD-PARTY-NOTICES`. No OSRB action — removal doesn't add new attack surface. |
+| Drop a previously-approved transitive (closure shift) | Update `THIRD-PARTY-NOTICES` if it was listed; no OSRB action required. |
 
 OSRB self-cert templates live under `osrb/` (e.g.,
 `osrb/selfcert-certifi-2026.4.22.md`). Mirror the OSS-USE form
@@ -402,8 +461,9 @@ The workflow has two jobs and five checks. Read
 1. `LICENSE` and `LICENSES/Apache-2.0.txt` are byte-identical, and
    both contain the canonical Apache-2.0 sentinel strings.
 2. The required OSRB collateral files exist at the repo root:
-   `LICENSE`, `LICENSES/Apache-2.0.txt`, `CONTRIBUTING.md`, `NOTICE`,
-   `REUSE.toml`.
+   `LICENSE`, `LICENSES/Apache-2.0.txt`, `LICENSES/BSD-3-Clause.txt`,
+   `LICENSES/Zlib.txt`, `CONTRIBUTING.md`, `NOTICE`,
+   `THIRD-PARTY-NOTICES`, `REUSE.toml`.
 3. `CONTRIBUTING.md` references the DCO / sign-off.
 4. Every tracked source file (`.py`, `.pyx`, `.pyi`, `.c`, `.cc`,
    `.cpp`, `.cxx`, `.h`, `.hh`, `.hpp`, `.hxx`, `.cu`, `.cuh`,
@@ -422,22 +482,33 @@ Triggers: every PR, every push to `main`, and every merge-queue group
 - **Editing `LICENSE` without mirroring into `LICENSES/Apache-2.0.txt`**
   — the collateral step compares them byte-for-byte. If you fix a typo
   in one, fix it in both.
-- **Adding a new direct dep and forgetting NOTICE**. The lint won't
-  catch this (NOTICE is free-form text). Add it the same commit that
-  touches `pyproject.toml` / `uv.lock` and the matching PR.
+- **Adding a new direct dep and forgetting `THIRD-PARTY-NOTICES`**.
+  The lint won't catch this (the file is free-form prose). Add the
+  attribution row in the same commit that touches `pyproject.toml` /
+  `uv.lock` and the matching PR.
+- **Touching `NOTICE` when only `THIRD-PARTY-NOTICES` should
+  change**. `NOTICE` is the small Apache 2.0 §4(d) file that
+  downstream consumers carry forward verbatim — keep it minimal.
+  Routine dep additions belong in `THIRD-PARTY-NOTICES`. Touch
+  `NOTICE` only when (a) the year on line 2 rolls forward, (b) a new
+  source-level redistribution subtree appears (rare), or (c) the
+  pointer text needs to mention a new top-level OSS file.
 - **Renaming an integration (e.g., alpadreams → omnidreams)** —
   remember to update the matching path in `REUSE.toml`'s annotations,
-  the path in `NOTICE`'s "Source-level redistributions" block, and the
-  exclusion regex in `.github/workflows/reuse-lint.yml`. The rename in
-  PRs #128 / #132 is the reference.
+  the path in `THIRD-PARTY-NOTICES`'s "Source-level redistributions"
+  block, the path in the `NOTICE` two-subtree bullet list, the path
+  in the `LICENSE` preamble, and the exclusion regex in
+  `.github/workflows/reuse-lint.yml`. The rename in PRs #128 / #132
+  is the reference.
 - **Using single-quoted SPDX-FileCopyrightText**. REUSE is forgiving;
   the rest of the repo uses double-quoted strings. Mismatch breaks
   human grep, not the lint.
 - **Year stamp drift**. The SPDX header year is *when the file was
   first authored*, not when it was last touched — never mass-rewrite
-  the year across the tree. The one exception is `NOTICE` line 2,
-  which is the project's overall copyright year and is allowed to roll
-  forward annually.
+  the year across the tree. The two exceptions are line 2 of `NOTICE`
+  and line 2 of `THIRD-PARTY-NOTICES` (and the project copyright in
+  the `LICENSE` preamble), which are the project's overall copyright
+  year and are allowed to roll forward annually.
 - **Adding an OSRB self-cert ticket to a public branch.** OSRB tickets
   are NVIDIA-internal — file them on the `gitlab` remote
   (`gitlab-master.nvidia.com/sil/flashdreams`), not on `origin`
@@ -469,7 +540,7 @@ Triggers: every PR, every push to `main`, and every merge-queue group
    `dependencies = [...]`.
 2. `uv lock` from the workspace root; commit `pyproject.toml` +
    `uv.lock` together.
-3. Add row to NOTICE "Direct runtime dependencies":
+3. Add row to `THIRD-PARTY-NOTICES` "Direct runtime dependencies":
    `foo  <SPDX>  <upstream-URL>`.
 4. Reopen OSRB Bug 6107043, amend §14 with the new row, and ping for
    re-approval.
@@ -490,7 +561,8 @@ weak-copyleft):**
 2. Update `pyproject.toml` floor if API contract requires.
 3. `uv lock`; commit `pyproject.toml` + `uv.lock`.
 4. No OSRB action.
-5. (Optional) Update NOTICE if its row drifts (e.g., URL changed).
+5. (Optional) Update `THIRD-PARTY-NOTICES` if its row drifts
+   (e.g., URL changed).
 
 **Vendor upstream `qux` (BSD-3) into `integrations/foo/qux/`:**
 
@@ -499,9 +571,12 @@ weak-copyleft):**
 3. New `[[annotations]]` block in `REUSE.toml` with
    `precedence = "override"`, BSD-3 SPDX, upstream copyright, path
    `"integrations/foo/qux/**"`.
-4. New block in NOTICE "Source-level redistributions" — path,
+4. New block in `THIRD-PARTY-NOTICES` "Source-level
+   redistributions" — path,
    `License: BSD-3-Clause (see LICENSES/BSD-3-Clause.txt)`,
-   upstream URL, modification paragraph.
+   upstream URL, modification paragraph. Also add a bullet to the
+   `NOTICE` two-subtree list and a pointer in the `LICENSE`
+   preamble.
 5. Extend the `excludes` regex in
    `.github/workflows/reuse-lint.yml`'s inline-SPDX step.
 6. Reopen OSRB Bug 6107043; file a sub-OSRB if `qux` has its own
@@ -529,7 +604,7 @@ weak-copyleft):**
 | Question | File / pointer |
 |---|---|
 | What's the canonical Apache-2.0 text? | `LICENSE` (= `LICENSES/Apache-2.0.txt`) |
-| What deps does FlashDreams ship? | NOTICE "Direct runtime dependencies" + `flashdreams/pyproject.toml` |
+| What deps does FlashDreams ship? | `THIRD-PARTY-NOTICES` "Direct runtime dependencies" + `flashdreams/pyproject.toml` |
 | What does a SPDX header look like? | `CONTRIBUTING.md:215-232` |
 | Where do I declare a config / asset file's license? | `REUSE.toml` |
 | Where do I record vendored upstream source? | NOTICE "Source-level redistributions" + `REUSE.toml` `override` block |
