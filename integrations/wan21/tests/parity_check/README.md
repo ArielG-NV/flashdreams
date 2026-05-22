@@ -1,7 +1,7 @@
 # Wan2.1 official parity check
 
 This test runs the official Wan2.1 repository with the same command-line setup
-from upstream README for `t2v-1.3B`, while forcing the cuDNN SDPA backend.
+from upstream README for `t2v-1.3B`, while forcing the cuDNN SDPA backend and `torch.compile`.
 
 ## What this harness does
 
@@ -22,5 +22,5 @@ The upstream official code path already uses `tqdm` over diffusion timesteps in 
 ## Run
 
 ```bash
-bash integrations/wan21/tests/parity_check_official/run.sh
+bash integrations/wan21/tests/parity_check/run.sh
 ```

@@ -70,6 +70,10 @@ PY
 uv pip install --python "${VENV_PYTHON}" -r "${FILTERED_REQUIREMENTS}"
 rm -f "${FILTERED_REQUIREMENTS}"
 
+# Upstream requirements.txt currently misses einops, but wan/modules/vae.py
+# imports it at module-import time.
+uv pip install --python "${VENV_PYTHON}" "einops"
+
 echo "[setup] installing huggingface_hub CLI"
 uv pip install --python "${VENV_PYTHON}" "huggingface_hub[cli]"
 
@@ -85,8 +89,10 @@ else
     echo "[setup] checkpoint already present at ${CKPT_DIR}, skipping download"
 fi
 
-echo "[run] starting official Wan2.1 parity run with forced cuDNN SDPA"
+echo "[run] starting official Wan2.1 parity run with forced cuDNN SDPA + torch.compile"
 FORCE_CUDNN_ATTN=1 \
+WAN_FORCE_TORCH_COMPILE=1 \
+WAN_TORCH_COMPILE_MODE=default \
 PYTHONPATH="${REPO_DIR}:${PYTHONPATH:-}" \
 "${VENV_PYTHON}" "${REPO_DIR}/generate.py" \
     --task t2v-1.3B \

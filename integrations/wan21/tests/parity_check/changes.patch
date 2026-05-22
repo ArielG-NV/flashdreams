@@ -1,3 +1,64 @@
+diff --git a/generate.py b/generate.py
+index c841c19..df1830f 100644
+--- a/generate.py
++++ b/generate.py
+@@ -263,6 +263,24 @@ def _init_logging(rank):
+         logging.basicConfig(level=logging.ERROR)
+ 
+ 
++def _maybe_force_torch_compile(pipeline, pipeline_name):
++    force_torch_compile = os.getenv("WAN_FORCE_TORCH_COMPILE", "0") == "1"
++    if not force_torch_compile:
++        return
++
++    if not hasattr(torch, "compile"):
++        raise RuntimeError("WAN_FORCE_TORCH_COMPILE=1 but torch.compile is unavailable.")
++
++    if not hasattr(pipeline, "model"):
++        raise RuntimeError(
++            f"WAN_FORCE_TORCH_COMPILE=1 but {pipeline_name} has no 'model' attribute."
++        )
++
++    compile_mode = os.getenv("WAN_TORCH_COMPILE_MODE", "default")
++    logging.info("Compiling %s DiT with torch.compile(mode=%s).", pipeline_name, compile_mode)
++    pipeline.model = torch.compile(pipeline.model, mode=compile_mode)
++
++
+ def generate(args):
+     rank = int(os.getenv("RANK", 0))
+     world_size = int(os.getenv("WORLD_SIZE", 1))
+@@ -367,6 +385,7 @@ def generate(args):
+             use_usp=(args.ulysses_size > 1 or args.ring_size > 1),
+             t5_cpu=args.t5_cpu,
+         )
++        _maybe_force_torch_compile(wan_t2v, "WanT2V")
+ 
+         logging.info(
+             f"Generating {'image' if 't2i' in args.task else 'video'} ...")
+@@ -424,6 +443,7 @@ def generate(args):
+             use_usp=(args.ulysses_size > 1 or args.ring_size > 1),
+             t5_cpu=args.t5_cpu,
+         )
++        _maybe_force_torch_compile(wan_i2v, "WanI2V")
+ 
+         logging.info("Generating video ...")
+         video = wan_i2v.generate(
+@@ -482,6 +502,7 @@ def generate(args):
+             use_usp=(args.ulysses_size > 1 or args.ring_size > 1),
+             t5_cpu=args.t5_cpu,
+         )
++        _maybe_force_torch_compile(wan_flf2v, "WanFLF2V")
+ 
+         logging.info("Generating video ...")
+         video = wan_flf2v.generate(
+@@ -530,6 +551,7 @@ def generate(args):
+             use_usp=(args.ulysses_size > 1 or args.ring_size > 1),
+             t5_cpu=args.t5_cpu,
+         )
++        _maybe_force_torch_compile(wan_vace, "WanVace")
+ 
+         src_video, src_mask, src_ref_images = wan_vace.prepare_source(
+             [args.src_video], [args.src_mask], [
 diff --git a/wan/modules/__init__.py b/wan/modules/__init__.py
 index a8172ca..c9a474c 100644
 --- a/wan/modules/__init__.py
