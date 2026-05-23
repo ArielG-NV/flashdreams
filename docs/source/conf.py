@@ -55,7 +55,7 @@ html_theme = "furo"
 html_title = f"FlashDreams {version}"
 html_show_sphinx = False
 html_static_path = ["_static", "../../assets/logo"]
-html_logo = "../../assets/logo/flashdreams_logo_horizontal.png"
+html_logo = "../../assets/logo/flashdreams-logo-horizontal.png"
 
 html_theme_options = {
     "source_repository": "https://github.com/NVIDIA/flashdreams/",
