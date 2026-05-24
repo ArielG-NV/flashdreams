@@ -21,7 +21,6 @@ Causal-Forcing
    <div class="model-link-row">
      <a class="model-link-button" href="https://github.com/LiRunyi2001/causal-forcing" target="_blank" rel="noopener noreferrer">Project page</a>
      <a class="model-link-button" href="https://github.com/LiRunyi2001/causal-forcing" target="_blank" rel="noopener noreferrer">Official code</a>
-     <a class="model-link-button" href="#" target="_blank" rel="noopener noreferrer">arXiv paper (TODO)</a>
    </div>
 
 Causal-Forcing provides streaming Wan2.1 variants for both text-to-video (T2V)

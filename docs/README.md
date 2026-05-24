@@ -56,12 +56,14 @@ docs/
     ├── conf.py             # Sphinx configuration (theme + extensions)
     ├── index.rst           # overview landing page + top-level toctrees
     ├── getting_started/
+    │   ├── offline_vs_online.rst
     │   ├── installation.rst
     │   ├── first_world_model.rst
     │   └── supported_models.rst
     ├── developer_guides/
     │   ├── new_recipes.rst
     │   ├── system_overview.rst
+    │   ├── usage_patterns.rst
     │   ├── configs.rst
     │   └── interactive_serving.rst
     ├── reference/
@@ -78,6 +80,8 @@ docs/
         ├── causal_forcing.rst
         ├── fastvideo_wan22.rst
         ├── lingbot_world.rst
+        ├── flashvsr.rst
+        ├── cosmos_predict2.rst
         └── wan21.rst
 ```
 

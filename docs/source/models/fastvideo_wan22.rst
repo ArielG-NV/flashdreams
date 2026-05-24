@@ -21,7 +21,6 @@ Causal Wan2.2
    <div class="model-link-row">
      <a class="model-link-button" href="https://github.com/hao-ai-lab/FastVideo" target="_blank" rel="noopener noreferrer">Project page</a>
      <a class="model-link-button" href="https://github.com/hao-ai-lab/FastVideo" target="_blank" rel="noopener noreferrer">Official code</a>
-     <a class="model-link-button" href="#" target="_blank" rel="noopener noreferrer">arXiv paper (TODO)</a>
    </div>
 
 This integration brings FastVideo's Causal Wan2.2 T2V variant into the

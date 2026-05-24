@@ -13,14 +13,13 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-:orphan:
-
 Getting Started
 ===================================
 
-Start here to install FlashDreams, run your first world model, and explore
-supported model families.
+Start here to understand FlashDreams, install it, run your first model, and
+explore supported model families.
 
+- :doc:`What is world model serving? </getting_started/offline_vs_online>`
 - :doc:`Installation </getting_started/installation>`
 - :doc:`Launch your first world model </getting_started/first_world_model>`
 - :doc:`Supported models </getting_started/supported_models>`

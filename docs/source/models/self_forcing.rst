@@ -73,41 +73,9 @@ We provide the following variants:
 For multi-GPU inference, simply use ``uv run torchrun --nproc_per_node=4 --no-python flashdreams-run``
 instead of ``uv run flashdreams-run`` (taking 4 GPUs as an example).
 
-
-.. TODO: update videos
-.. raw:: html
-
-   <div class="model-video-grid">
-     <div class="model-video-card">
-       <div class="model-video-placeholder">Video placeholder</div>
-      <!-- Reference video:
-      <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-        <source src="https://self-forcing.github.io/examples/movie-gen-5s/A%20close-up%20shot%20of%20a%20ceramic%20teacup%20slowly%20pouring%20water%20into%20a%20gla.mp4" type="video/mp4">
-        Your browser does not support the video tag.
-      </video>
-      -->
-       <div class="model-video-overlay">
-         A close-up shot of a ceramic teacup slowly pouring water into a glass mug. The water flows smoothly from the spout of the teacup into the mug, creating gentle ripples as it fills up. Both cups have detailed textures, with the teacup having a matte finish and the glass mug showcasing clear transparency. The background is a blurred kitchen countertop, adding context without distracting from the central action. The pouring motion is fluid and natural, emphasizing the interaction between the two cups.
-       </div>
-     </div>
-     <div class="model-video-card">
-       <div class="model-video-placeholder">Video placeholder</div>
-      <!-- Reference video:
-      <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-        <source src="https://self-forcing.github.io/examples/movie-gen-10s/A%20dramatic%20and%20dynamic%20scene%20in%20the%20style%20of%20a%20disaster%20movie,%20depicting%20a%20powerful%20tsunami%20rushing%20-0.mp4" type="video/mp4">
-        Your browser does not support the video tag.
-      </video>
-      -->
-       <div class="model-video-overlay">
-         A dramatic and dynamic scene in the style of a disaster movie, depicting a powerful tsunami rushing through a narrow alley in Bulgaria. The water is turbulent and chaotic, with waves crashing violently against the walls and buildings on either side. The alley is lined with old, weathered houses, their facades partially submerged and splintered. The camera angle is low, capturing the full force of the tsunami as it surges forward, creating a sense of urgency and danger. People can be seen running frantically, adding to the chaos. The background features a distant horizon, hinting at the larger scale of the tsunami. A dynamic, sweeping shot from a low-angle perspective, emphasizing the movement and intensity of the event.
-       </div>
-     </div>
-   </div>
-
 Performance Comparison
 ----------------------
 
-.. TODO: polish figure
 .. figure:: /_static/perf/self_forcing_total_ms.svg
    :class: benchmark-figure
    :figclass: benchmark-figure-wrap

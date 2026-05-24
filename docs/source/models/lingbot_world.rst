@@ -21,7 +21,6 @@ Lingbot-World
    <div class="model-link-row">
      <a class="model-link-button" href="https://github.com/robbyant/lingbot-world" target="_blank" rel="noopener noreferrer">Project page</a>
      <a class="model-link-button" href="https://github.com/robbyant/lingbot-world" target="_blank" rel="noopener noreferrer">Official code</a>
-     <a class="model-link-button" href="#" target="_blank" rel="noopener noreferrer">arXiv paper (TODO)</a>
    </div>
 
 Lingbot-World is a camera-controllable image-to-video (I2V) model with
@@ -92,14 +91,6 @@ Then open the following URL in your browser:
 - ``http://<server-ip>:8089/healthz`` to check the server status (for debugging)
 
 <server-ip> is the IP address of the server, can be "localhost" if the server is running locally.
-
-.. raw:: html
-
-   <div class="model-video-card" style="width: 100%; margin: 10px auto 0;">
-     <div class="model-video-placeholder">
-       Interactive server demo video placeholder
-     </div>
-   </div>
 
 Profiling.
 ----------

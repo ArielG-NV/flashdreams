@@ -16,14 +16,12 @@
 OmniDreams
 ===================================
 
-.. TODO: update code to github and arXiv link
 .. raw:: html
 
    <div class="model-link-row">
      <a class="model-link-button" href="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/" target="_blank" rel="noopener noreferrer">Blog page</a>
      <a class="model-link-button" href="https://huggingface.co/nvidia/omni-dreams-models/" target="_blank" rel="noopener noreferrer">Model page</a>
      <a class="model-link-button" href="https://gitlab-master.nvidia.com/sil/omni-dreams/" target="_blank" rel="noopener noreferrer">Official code</a>
-     <a class="model-link-button" href="#" target="_blank" rel="noopener noreferrer">arXiv paper (TODO)</a>
    </div>
 
 As introduced in the OmniDreams project page, OmniDreams is an
@@ -75,28 +73,6 @@ We provide the following variants:
    * - ``omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae``
      - Interactive Steering Wheel Demo Checkpoint.
 
-.. TODO: update videos
-.. raw:: html
-
-   <div class="model-video-grid">
-     <div class="model-video-card">
-       <div class="model-video-placeholder">
-         OmniDreams single-view sample (TODO)
-       </div>
-       <div class="model-video-overlay">
-         Prompt1: TODO
-       </div>
-     </div>
-     <div class="model-video-card">
-       <div class="model-video-placeholder">
-         OmniDreams single-view sample (TODO)
-       </div>
-       <div class="model-video-overlay">
-         Prompt2: TODO
-       </div>
-     </div>
-   </div>
-
 Launch the interactive server
 -----------------------------
 
@@ -116,14 +92,6 @@ Then open the following URL in your browser:
 - ``http://<server-ip>:8089/healthz`` to check the server status (for debugging)
 
 <server-ip> is the IP address of the server, can be "localhost" if the server is running locally.
-
-.. raw:: html
-
-   <div class="model-video-card" style="width: 100%; margin: 10px auto 0;">
-     <div class="model-video-placeholder">
-       Interactive server demo video placeholder
-     </div>
-   </div>
 
 Performance table
 -----------------

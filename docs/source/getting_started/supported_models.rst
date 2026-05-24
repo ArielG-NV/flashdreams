@@ -16,22 +16,24 @@
 Supported models
 ===================================
 
-FlashDreams currently supports the following model families.
+This page gives a quick orientation for first-time users. The canonical model
+catalog with per-model commands and links is :doc:`/models/index`.
 
 Autoregressive / streaming models
 ---------------------------------
 
-- `Self-Forcing <https://github.com/liruilong940607/Self-Forcing>`_
-- `Causal-Forcing <https://github.com/LiRunyi2001/causal-forcing>`_
-- `Causal Wan2.2 <https://github.com/hao-ai-lab/FastVideo>`_
-- `Lingbot-World <https://github.com/robbyant/lingbot-world>`_
-- `OmniDreams <https://huggingface.co/nvidia/omni-dreams-models>`_
+- :doc:`Self-Forcing </models/self_forcing>`
+- :doc:`Causal-Forcing </models/causal_forcing>`
+- :doc:`Causal Wan2.2 </models/fastvideo_wan22>`
+- :doc:`Lingbot-World </models/lingbot_world>`
+- :doc:`OmniDreams </models/omnidreams>`
+- :doc:`FlashVSR </models/flashvsr>`
 
 Bidirectional models
 --------------------
 
-- `Wan2.1 <https://github.com/Wan-Video/Wan2.1>`_
-- Cosmos-Predict2
+- :doc:`Wan2.1 </models/wan21>`
+- :doc:`Cosmos-Predict2.5 </models/cosmos_predict2>`
 
 In FlashDreams, bidirectional models are executed through the same pipeline
 interface and are treated as a single-rollout autoregressive run.

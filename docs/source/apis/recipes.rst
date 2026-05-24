@@ -56,6 +56,7 @@ Reference integration folders
 - `wan21 <https://github.com/NVIDIA/flashdreams/tree/main/integrations/wan21>`_
 - `fastvideo_causal_wan22 <https://github.com/NVIDIA/flashdreams/tree/main/integrations/fastvideo_causal_wan22>`_
 - `omnidreams <https://github.com/NVIDIA/flashdreams/tree/main/integrations/omnidreams>`_
+- `flashvsr <https://github.com/NVIDIA/flashdreams/tree/main/integrations/flashvsr>`_
 - `cosmos_predict2 <https://github.com/NVIDIA/flashdreams/tree/main/integrations/cosmos_predict2>`_
 
 OmniDreams
