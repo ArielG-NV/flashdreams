@@ -56,6 +56,14 @@ Image-to-video:
        --prompt "A robot arm welding in a clean industrial lab." \
        --image-path /path/to/first_frame.jpg
 
+To inspect all supported CLI arguments and their default values, run:
+
+.. code-block:: bash
+
+   uv run --project integrations/cosmos_predict2 flashdreams-run \
+       cosmos2-t2v-2b-720p \
+       --help
+
 We provide the following variants:
 
 .. list-table::

@@ -68,3 +68,11 @@ We provide the following variant:
      - Description
    * - ``fastvideo-causal-wan2.2-t2v-14b``
      - FastVideo CausalWan 2.2 14B MoE T2V (Wan VAE decoder, 8-step).
+
+To inspect all supported CLI arguments and their default values, run:
+
+.. code-block:: bash
+
+   uv run --project integrations/fastvideo_causal_wan22 flashdreams-run \
+       fastvideo-causal-wan2.2-t2v-14b \
+       --help

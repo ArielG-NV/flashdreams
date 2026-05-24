@@ -74,6 +74,14 @@ We provide the following variants:
    * - ``lingbot-world-fast-flash``
      - Lingbot World Fast-Flash (LightTAE decoder, tighter streaming window).
 
+To inspect all supported CLI arguments and their default values, run:
+
+.. code-block:: bash
+
+   uv run --project integrations/lingbot flashdreams-run \
+       lingbot-world-fast \
+       --help
+
 Launch the interactive server
 -----------------------------
 
@@ -92,20 +100,47 @@ Then open the following URL in your browser:
 
 <server-ip> is the IP address of the server, can be "localhost" if the server is running locally.
 
-Profiling.
-----------
+Interactive serving and UI showcase
+-----------------------------------
 
-.. figure:: /_static/perf/lingbot_total_ms.svg
-   :class: benchmark-figure
-   :figclass: benchmark-figure-wrap
-   :alt: Lingbot-World total latency bar chart by hardware and method.
+.. raw:: html
 
-   *DiT runtime at 6-th autoregressive rollout on 4x GPUs.*
+   <div class="model-video-grid">
+     <div class="model-video-card">
+       <div class="model-video-placeholder">Recorded interactive serving demo (placeholder)</div>
+     </div>
+     <div class="model-video-card">
+       <div class="model-video-placeholder">Recorded UI walkthrough (placeholder)</div>
+     </div>
+   </div>
 
-Benchmark figure
-----------------
+Profiling Benchmark
+-------------------
 
-.. figure:: /_static/perf/perf-0521-lingbot-world.svg
-   :class: benchmark-figure
-   :figclass: benchmark-figure-wrap
-   :alt: Lingbot-World benchmark chart.
+Here is the profiling benchmark on DiT runtime for FlashDreams Lingbot-World
+compared to the official Lingbot-World implementation and LightX2V under
+matched settings.
+
+.. raw:: html
+
+   <figure class="benchmark-figure-wrap">
+     <div
+       id="lingbot-world-benchmark-chart"
+       class="benchmark-figure"
+       data-benchmark-md-url="/_static/performance/lingbot_world/perf-0521.md"
+       data-benchmark-series="official:Official Impl:#3b82f6;lightx2v:LightX2V:#f59e0b;flashdreams:FlashDreams:#76B900"
+       data-chart-aria-label="Lingbot-World benchmark chart"
+     ></div>
+     <figcaption>
+       <p>
+         This chart shows total DiT runtime (4 diffusion steps) in milliseconds at the 6th autoregressive rollout on 4x GPUs.
+         For an apples-to-apples comparison, all implementations are forced to use cuDNN attention backend under matched runtime settings, 
+         and all runs use Ulysses sequence parallelism for multi-GPU inference.
+         For the official Lingbot-World implementation, see
+         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot/tests/parity_check">this instruction</a>.
+         For the LightX2V baseline, see
+         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot/tests/baseline_lightx2v">this instruction</a>.
+       </p>
+     </figcaption>
+   </figure>
+   <script src="/_static/js/benchmark_chart.js"></script>

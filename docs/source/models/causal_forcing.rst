@@ -73,3 +73,11 @@ We provide the following variants:
      - Causal-Forcing framewise Wan 2.1 1.3B T2V (``len_t=1``).
    * - ``causal-forcing-wan2.1-i2v-1.3b-framewise``
      - Causal-Forcing framewise Wan 2.1 1.3B I2V (``len_t=1``).
+
+To inspect all supported CLI arguments and their default values, run:
+
+.. code-block:: bash
+
+   uv run --project integrations/causal_forcing flashdreams-run \
+       causal-forcing-wan2.1-t2v-1.3b-framewise \
+       --help

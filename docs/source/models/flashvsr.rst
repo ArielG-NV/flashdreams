@@ -72,6 +72,14 @@ We provide the following variants:
    * - ``flashvsr-v1.1-full-attn``
      - Dense full-attention preset with multi-GPU context-parallel support.
 
+To inspect all supported CLI arguments and their default values, run:
+
+.. code-block:: bash
+
+   uv run --project integrations/flashvsr flashdreams-run \
+       flashvsr-v1.1-sparse-ratio-2.0 \
+       --help
+
 What FlashDreams accelerates
 ----------------------------
 

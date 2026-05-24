@@ -168,50 +168,27 @@ Start Here
 
 .. toctree::
    :maxdepth: 1
-   :caption: Concepts
-   :hidden:
-
-   Offline vs online world-model flow <getting_started/offline_vs_online>
-   Runtime system overview <developer_guides/system_overview>
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Features
-   :hidden:
-
-   Interactive serving architecture <developer_guides/interactive_serving>
-   Model family catalog <models/index>
-   Lingbot-World showcase <models/lingbot_world>
-   OmniDreams showcase <models/omnidreams>
-   Self-Forcing performance notes <models/self_forcing>
-   Wan2.1 performance notes <models/wan21>
-   Causal-Forcing <models/causal_forcing>
-   Causal Wan2.2 <models/causal_wan22>
-   FlashVSR <models/flashvsr>
-   Cosmos-Predict2.5 <models/cosmos_predict2>
-
-.. toctree::
-   :maxdepth: 1
    :caption: Tutorials
    :hidden:
 
-   Developer workflow patterns <developer_guides/usage_patterns>
-   Developer guides overview <developer_guides/index>
-   Add a new model integration <developer_guides/new_recipes>
 
 .. toctree::
    :maxdepth: 2
    :caption: API
    :hidden:
 
-   Reference overview <reference/index>
    CLI reference <reference/cli>
-   Python API overview <apis/index>
+   Python API <apis/index>
 
 .. toctree::
    :maxdepth: 1
-   :caption: Cookbook
+   :caption: Developer Guides
    :hidden:
 
-   Pick the right model recipe <getting_started/supported_models>
+   Offline vs online world-model flow <getting_started/offline_vs_online>
+   Runtime system overview <developer_guides/system_overview>
+   Interactive serving architecture <developer_guides/interactive_serving>
+   Developer workflow patterns <developer_guides/usage_patterns>
+   Developer guides overview <developer_guides/index>
+   Add a new model integration <developer_guides/new_recipes>
    Configure runs and overrides <developer_guides/configs>

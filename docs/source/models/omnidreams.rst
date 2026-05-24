@@ -61,6 +61,13 @@ To run OmniDreams, launch one of the registered runner slugs via
 For multi-GPU inference, simply use ``uv run torchrun --nproc_per_node=4 --no-python flashdreams-run``
 instead of ``uv run flashdreams-run`` (taking 4 GPUs as an example).
 
+To inspect all supported CLI arguments and their default values, run:
+
+.. code-block:: bash
+
+   uv run --project integrations/omnidreams flashdreams-run \
+       omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae \
+       --help
 
 We provide the following variants:
 
@@ -92,6 +99,20 @@ Then open the following URL in your browser:
 - ``http://<server-ip>:8089/healthz`` to check the server status (for debugging)
 
 <server-ip> is the IP address of the server, can be "localhost" if the server is running locally.
+
+Interactive serving and UI showcase
+-----------------------------------
+
+.. raw:: html
+
+   <div class="model-video-grid">
+     <div class="model-video-card">
+       <div class="model-video-placeholder">Recorded interactive serving demo (placeholder)</div>
+     </div>
+     <div class="model-video-card">
+       <div class="model-video-placeholder">Recorded UI walkthrough (placeholder)</div>
+     </div>
+   </div>
 
 Performance table
 -----------------
