@@ -61,7 +61,7 @@ To run OmniDreams, launch one of the registered runner slugs via
        --total-blocks 20
 
 Sample example-data UUIDs for the inference script are available in the
-`nvidia/omni-dreams-samples Hugging Face dataset <https://huggingface.co/datasets/nvidia/omni-dreams-samples/>`_.
+`nvidia/omni-dreams-samples Hugging Face dataset <https://huggingface.co/datasets/nvidia/omni-dreams-samples/tree/main/data/single_view>`_.
 
 We provide the following variants:
 
@@ -136,7 +136,7 @@ Spin up the interactive single-view OmniDreams server via WebRTC:
        --scene-uuid "065dcac9-ee67-4434-a835-c6b816c88e48"
 
 Sample scene UUIDs for the interactive server are available in the
-`nvidia/omni-dreams-scenes Hugging Face dataset <https://huggingface.co/datasets/nvidia/omni-dreams-scenes/>`_.
+`nvidia/omni-dreams-scenes Hugging Face dataset <https://huggingface.co/datasets/nvidia/omni-dreams-scenes/tree/main/scenes>`_.
 
 The server may take a few minutes to warm up. When it is ready, it prints
 ``Connect via http://<server-ip>:8089/request_session``.
