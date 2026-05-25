@@ -119,12 +119,11 @@ def build_runtime_config(
     device_override: str | None = None,
     context_parallel_size: int = 1,
 ) -> LingbotRuntimeConfig:
-    assert args.example_idx in EXAMPLE_DATA_AVAILABLE_IDXS, (
+    example_idx = getattr(args, "example_idx", 0)
+    assert example_idx in EXAMPLE_DATA_AVAILABLE_IDXS, (
         f"--example_idx must be one of {EXAMPLE_DATA_AVAILABLE_IDXS}."
     )
-    example_dir = (
-        REPO_ROOT / "assets/example_data/lingbot_world" / f"{args.example_idx:02d}"
-    )
+    example_dir = REPO_ROOT / "assets/example_data/lingbot_world" / f"{example_idx:02d}"
     return LingbotRuntimeConfig(
         config_name=args.config_name,
         compile_network=not args.no_compile,
