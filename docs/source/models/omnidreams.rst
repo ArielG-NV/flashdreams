@@ -156,6 +156,7 @@ When successfully connected, the browser-based UI looks like this:
 
 Performance table
 -----------------
+(TODO: To be updated)
 
 Single-view latency on NVIDIA GB300 at ``704 x 1280`` resolution.
 
