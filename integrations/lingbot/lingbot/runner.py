@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Lingbot-World camera-control I2V runner classes."""
+"""LingBot-World camera-control I2V runner classes."""
 
 from __future__ import annotations
 
@@ -86,7 +86,7 @@ def _ensure_example_data_synced(*, is_rank_zero: bool) -> None:
 
 @dataclass(kw_only=True)
 class LingbotWorldRunnerConfig(RunnerConfig):
-    """Runner config for every shipped Lingbot-World variant."""
+    """Runner config for every shipped LingBot-World variant."""
 
     _target: type = field(default_factory=lambda: LingbotWorldRunner)
 

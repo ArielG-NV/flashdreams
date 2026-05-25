@@ -15,13 +15,13 @@
 
 Causal Wan2.2
 ===================================
+(TODO: To be updated)
 
 .. raw:: html
 
    <div class="model-link-row">
      <a class="model-link-button" href="https://github.com/hao-ai-lab/FastVideo" target="_blank" rel="noopener noreferrer">Project page</a>
      <a class="model-link-button" href="https://github.com/hao-ai-lab/FastVideo" target="_blank" rel="noopener noreferrer">Official code</a>
-     <a class="model-link-button" href="#" target="_blank" rel="noopener noreferrer">arXiv paper (TODO)</a>
    </div>
 
 This integration brings FastVideo's Causal Wan2.2 T2V variant into the
@@ -69,3 +69,11 @@ We provide the following variant:
      - Description
    * - ``fastvideo-causal-wan2.2-t2v-14b``
      - FastVideo CausalWan 2.2 14B MoE T2V (Wan VAE decoder, 8-step).
+
+To inspect all supported CLI arguments and their default values, run:
+
+.. code-block:: bash
+
+   uv run --project integrations/fastvideo_causal_wan22 flashdreams-run \
+       fastvideo-causal-wan2.2-t2v-14b \
+       --help

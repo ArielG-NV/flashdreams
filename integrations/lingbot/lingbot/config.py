@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Configs for the Lingbot-World streaming camera-control I2V model."""
+"""Configs for the LingBot-World streaming camera-control I2V model."""
 
 from __future__ import annotations
 
@@ -126,7 +126,7 @@ PIPELINE_CONFIGS: dict[str, LingbotWorldInferencePipelineConfig] = {
         PIPELINE_LINGBOT_WORLD_FAST_FLASH,
     )
 }
-"""All shipped Lingbot-World pipeline configs, keyed by ``recipe_name``."""
+"""All shipped LingBot-World pipeline configs, keyed by ``recipe_name``."""
 
 RUNNER_CONFIGS: dict[str, RunnerConfig] = {
     cfg.runner_name: cfg

@@ -15,12 +15,17 @@
 
 :orphan:
 
-Getting Started
+Quickstart
 ===================================
 
-Start here to install FlashDreams, run your first world model, and explore
-supported model families.
+Start here for the shortest path to a first successful run.
 
-- :doc:`Installation </getting_started/installation>`
-- :doc:`Launch your first world model </getting_started/first_world_model>`
-- :doc:`Supported models </getting_started/supported_models>`
+- :doc:`Install FlashDreams </quickstart/installation>`
+- :doc:`Launch your first model </quickstart/first_world_model>`
+
+Project and support
+-------------------
+
+- `GitHub repository <https://github.com/NVIDIA/flashdreams>`_
+- `Issues <https://github.com/NVIDIA/flashdreams/issues>`_
+- `Pull requests <https://github.com/NVIDIA/flashdreams/pulls>`_

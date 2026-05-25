@@ -13,27 +13,15 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-:orphan:
+.. :orphan:
 
-Reference
+API reference
 ===================================
 
-Reference pages for CLI usage, API surfaces, and serving interfaces.
+Reference pages for FlashDreams Python APIs.
 
-CLI
----
-
-- :doc:`CLI </reference/cli>`
-
-API
----
-
-- :doc:`API overview </apis/index>`
-- :doc:`Core </apis/core>`
-- :doc:`Infra </apis/infra>`
-- :doc:`Pipelines and runners </apis/recipes>`
-- :doc:`Serving </apis/serving>`
-
-Benchmark charts are published in model-specific pages (for example
-``/models/self_forcing`` and ``/models/lingbot_world``), with data sources
-under ``docs/benchmarks/``.
+- :doc:`CLI reference </api/cli>`
+- :doc:`Core </api/core>`
+- :doc:`Infra </api/infra>`
+- :doc:`Pipelines and runners </api/recipes>`
+- :doc:`Serving </api/serving>`

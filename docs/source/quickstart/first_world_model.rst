@@ -13,18 +13,21 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-Launch your first world model
+Launch your first model
 ===================================
 
 This page provides a minimal path for:
 
-1. long-rollout model inference (Self-Forcing),
-2. interactive world-model serving (Lingbot-World).
+1. offline / batch-like long-rollout model inference with Self-Forcing,
+2. online interactive world-model serving with LingBot-World.
+
+If you are new to the distinction, read
+:doc:`/developer_guides/offline_vs_online` first.
 
 Prerequisites
 -------------
 
-Complete the setup in :doc:`/getting_started/installation` first:
+Complete the setup in :doc:`/quickstart/installation` first:
 
 - :ref:`run-models-directly-in-this-codebase`
 - :ref:`environment-variables`
@@ -49,11 +52,11 @@ Multi GPU (context parallel):
 
    <div class="video-slot">
      <strong>Inference walkthrough</strong><br>
-     Run the commands above, then compare output and runtime knobs in the
-     corresponding page under :doc:`/models/index`.
+     Run the commands above, then use the model catalog for variants,
+     upstream links, and performance notes.
    </div>
 
-Run model serving (Lingbot-World)
+Run model serving (LingBot-World)
 ---------------------------------
 
 Single GPU:
@@ -74,12 +77,14 @@ Multi GPU:
 
    <div class="video-slot">
      <strong>Serving walkthrough</strong><br>
-     For full serving architecture and deployment guidance, see
-     :doc:`/developer_guides/interactive_serving`.
+     Use this quick path to validate serving. The developer guide explains
+     the serving session model and implementation references.
    </div>
 
 Next steps
 ----------
 
-- For complete per-model launch options, see :doc:`/getting_started/supported_models`.
+- For complete per-model launch options, see :doc:`/models/index`.
 - For model-specific details, see :doc:`/models/index`.
+- For the conceptual difference between one-shot inference and persistent
+  serving, see :doc:`/developer_guides/offline_vs_online`.

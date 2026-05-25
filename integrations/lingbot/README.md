@@ -17,7 +17,7 @@ limitations under the License.
 
 # flashdreams-lingbot
 
-Lingbot-World streaming camera-control I2V integration + a minimal WebRTC
+LingBot-World streaming camera-control I2V integration + a minimal WebRTC
 demo server, packaged as a [`flashdreams`](../..) plugin, in a
 standalone repo.
 
