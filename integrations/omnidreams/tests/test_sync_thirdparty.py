@@ -20,6 +20,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -85,7 +86,7 @@ def _write_manifest(
     commit: str,
     patch: Path | None = None,
 ) -> None:
-    source = {
+    source: dict[str, Any] = {
         "name": "demo",
         "repo": str(repo),
         "commit": commit,
@@ -177,5 +178,7 @@ def test_verify_reports_missing_management_stamp(tmp_path: Path) -> None:
     module.sync_sources(sources, dest_root)
     (dest_root / "demo" / ".flashdreams_source.json").unlink()
 
-    with pytest.raises(module.ThirdPartySyncError, match="missing .flashdreams_source.json"):
+    with pytest.raises(
+        module.ThirdPartySyncError, match="missing .flashdreams_source.json"
+    ):
         module.verify_sources(sources, dest_root)

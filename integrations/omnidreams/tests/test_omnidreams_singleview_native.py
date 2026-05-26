@@ -18,19 +18,14 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType
+from typing import Any
 
 import pytest
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from omnidreams.native.acceleration import (
-    NativeAccelerationConfig,
-    NativeAccelerationUnavailable,
-    require_extension_symbols,
-    select_native_extension,
-)
 from omnidreams.native import (
     NativePrepError,
     NativeTensorLayout,
@@ -41,6 +36,19 @@ from omnidreams.native import (
     validate_tensor,
 )
 from omnidreams.native import omnidreams_singleview as native
+from omnidreams.native.acceleration import (
+    NativeAccelerationConfig,
+    NativeAccelerationUnavailable,
+    require_extension_symbols,
+    select_native_extension,
+)
+
+
+def _fake_extension_module(**attrs: object) -> ModuleType:
+    module = ModuleType("test_native_extension")
+    for name, value in attrs.items():
+        setattr(module, name, value)
+    return module
 
 
 def _fake_thirdparty_info(tmp_path: Path) -> dict[str, dict[str, object]]:
@@ -77,7 +85,7 @@ def _fake_thirdparty_info(tmp_path: Path) -> dict[str, dict[str, object]]:
     }
 
 
-def _fake_source_infos(helper: object, tmp_path: Path) -> dict[str, object]:
+def _fake_source_infos(helper: Any, tmp_path: Path) -> dict[str, Any]:
     return {
         name: helper.SourceInfo(
             name=str(info["name"]),
@@ -123,13 +131,13 @@ def test_load_extension_uses_build_root_for_torch_cache(
 
     build_root = tmp_path / "native-build"
     thirdparty_info = _fake_thirdparty_info(tmp_path)
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
 
-    def fake_load_torch_extension(**kwargs: object) -> object:
+    def fake_load_torch_extension(**kwargs: object) -> ModuleType:
         captured.update(kwargs)
         captured["max_jobs_env"] = os.environ.get("MAX_JOBS")
         captured["cuda_arch_list_env"] = os.environ.get("TORCH_CUDA_ARCH_LIST")
-        return SimpleNamespace()
+        return _fake_extension_module()
 
     monkeypatch.setattr(native, "_extension", None)
     monkeypatch.setattr(native, "_extension_load_error", None)
@@ -147,7 +155,7 @@ def test_load_extension_uses_build_root_for_torch_cache(
     )
     assert captured["extra_include_paths"] == [
         str(native._SOURCE_DIR),
-        str(Path(str(thirdparty_info["cutlass"]["path"])) / "include")
+        str(Path(str(thirdparty_info["cutlass"]["path"])) / "include"),
     ]
     sources = [Path(str(source)).name for source in captured["sources"]]
     assert sources == [
@@ -168,11 +176,11 @@ def test_load_extension_uses_build_root_for_torch_cache(
     }.issubset(fingerprint_sources)
     assert "-DOMNIDREAMS_SINGLEVIEW_WITH_CUDA" in captured["extra_cflags"]
     assert (
-        "-DOMNIDREAMS_SINGLEVIEW_CUTLASS_SHA=\\\"cutlass-test-sha\\\""
+        '-DOMNIDREAMS_SINGLEVIEW_CUTLASS_SHA=\\"cutlass-test-sha\\"'
         in captured["extra_cflags"]
     )
     assert (
-        "-DOMNIDREAMS_SINGLEVIEW_CUTLASS_SOURCE_SHA=\\\"cutlass-source-hash\\\""
+        '-DOMNIDREAMS_SINGLEVIEW_CUTLASS_SOURCE_SHA=\\"cutlass-source-hash\\"'
         in captured["extra_cflags"]
     )
     assert any(
@@ -188,16 +196,15 @@ def test_load_extension_uses_build_root_for_torch_cache(
         for flag in captured["extra_cflags"]
     )
     assert (
-        "-DOMNIDREAMS_SINGLEVIEW_SAGE_ATTENTION_SHA=\\\"sage-test-sha\\\""
+        '-DOMNIDREAMS_SINGLEVIEW_SAGE_ATTENTION_SHA=\\"sage-test-sha\\"'
         in captured["extra_cflags"]
     )
     assert (
-        "-DOMNIDREAMS_SINGLEVIEW_SPARGE_ATTN_SHA=\\\"sparge-test-sha\\\""
+        '-DOMNIDREAMS_SINGLEVIEW_SPARGE_ATTN_SHA=\\"sparge-test-sha\\"'
         in captured["extra_cflags"]
     )
     assert (
-        "-DOMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST=\\\"12.0a\\\""
-        in captured["extra_cflags"]
+        '-DOMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST=\\"12.0a\\"' in captured["extra_cflags"]
     )
     assert captured["extra_cuda_cflags"] == [
         "-O3",
@@ -217,16 +224,18 @@ def test_load_extension_respects_existing_max_jobs(
 ) -> None:
     import torch.utils.cpp_extension as cpp_extension
 
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
 
-    def fake_load_torch_extension(**kwargs: object) -> object:
+    def fake_load_torch_extension(**kwargs: object) -> ModuleType:
         captured["max_jobs_env"] = os.environ.get("MAX_JOBS")
         captured["cuda_arch_list_env"] = os.environ.get("TORCH_CUDA_ARCH_LIST")
-        return SimpleNamespace()
+        return _fake_extension_module()
 
     monkeypatch.setattr(native, "_extension", None)
     monkeypatch.setattr(native, "_extension_load_error", None)
-    monkeypatch.setattr(native, "validate_thirdparty", lambda: _fake_thirdparty_info(tmp_path))
+    monkeypatch.setattr(
+        native, "validate_thirdparty", lambda: _fake_thirdparty_info(tmp_path)
+    )
     monkeypatch.setattr(cpp_extension, "load", fake_load_torch_extension)
     monkeypatch.setenv("MAX_JOBS", "3")
     monkeypatch.setenv("TORCH_CUDA_ARCH_LIST", "8.9")
@@ -247,12 +256,12 @@ def test_load_extension_retries_after_failed_build(
 ) -> None:
     attempts = 0
 
-    def fake_load_torch_extension(**_: object) -> object:
+    def fake_load_torch_extension(**_: object) -> ModuleType:
         nonlocal attempts
         attempts += 1
         if attempts == 1:
             raise RuntimeError("first build failed")
-        return SimpleNamespace()
+        return _fake_extension_module()
 
     thirdparty_info = _fake_thirdparty_info(tmp_path)
     monkeypatch.setattr(native, "_extension", None)
@@ -341,7 +350,9 @@ def test_native_acceleration_required_raises_when_extension_is_missing() -> None
 
 @pytest.mark.ci_cpu
 def test_native_acceleration_symbol_check_gates_component_support() -> None:
-    extension = SimpleNamespace(is_available=lambda: True, run_dit_block=object())
+    extension = _fake_extension_module(
+        is_available=lambda: True, run_dit_block=object()
+    )
 
     selection = select_native_extension(
         NativeAccelerationConfig(mode="auto"),
@@ -368,7 +379,7 @@ def test_native_acceleration_symbol_check_gates_component_support() -> None:
 
 @pytest.mark.ci_cpu
 def test_native_acceleration_auto_reports_false_availability() -> None:
-    extension = SimpleNamespace(is_available=lambda: False)
+    extension = _fake_extension_module(is_available=lambda: False)
 
     selection = select_native_extension(
         NativeAccelerationConfig(mode="auto"),
@@ -383,7 +394,7 @@ def test_native_acceleration_auto_reports_false_availability() -> None:
 
 @pytest.mark.ci_cpu
 def test_native_acceleration_auto_reports_check_errors() -> None:
-    extension = SimpleNamespace(is_available=lambda: True)
+    extension = _fake_extension_module(is_available=lambda: True)
 
     def failing_check(_: object) -> bool:
         raise RuntimeError("unsupported tensor layout")
@@ -406,10 +417,13 @@ def test_omnidreams_select_backend_forwards_build_options(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    extension = SimpleNamespace(is_available=lambda: True, run_vae_encoder=object())
-    captured: dict[str, object] = {}
+    extension = _fake_extension_module(
+        is_available=lambda: True,
+        run_vae_encoder=object(),
+    )
+    captured: dict[str, Any] = {}
 
-    def fake_load_extension(**kwargs: object) -> object:
+    def fake_load_extension(**kwargs: object) -> ModuleType:
         captured.update(kwargs)
         return extension
 

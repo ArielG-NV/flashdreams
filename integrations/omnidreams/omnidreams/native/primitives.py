@@ -91,11 +91,7 @@ class NativeTensorSpec:
     axis_divisibility: tuple[tuple[str, int], ...] = ()
 
     def __post_init__(self) -> None:
-        layout = (
-            self.layout
-            if isinstance(self.layout, NativeTensorLayout)
-            else NativeTensorLayout.parse(self.layout)
-        )
+        layout = self.resolved_layout
         object.__setattr__(self, "layout", layout)
         if self.shape and len(self.shape) != layout.ndim:
             raise ValueError(
@@ -108,6 +104,12 @@ class NativeTensorSpec:
                 raise ValueError(
                     f"{self.name}: divisibility factor for axis {axis!r} must be positive"
                 )
+
+    @property
+    def resolved_layout(self) -> NativeTensorLayout:
+        if isinstance(self.layout, NativeTensorLayout):
+            return self.layout
+        return NativeTensorLayout.parse(self.layout)
 
 
 @dataclass(frozen=True)
@@ -229,15 +231,14 @@ def _validate_descriptor(
     *,
     check_contiguous: bool = True,
 ) -> None:
-    if len(descriptor.shape) != spec.layout.ndim:
+    layout = spec.resolved_layout
+    if len(descriptor.shape) != layout.ndim:
         raise NativePrepError(
-            f"{spec.name}: expected layout {spec.layout} with rank {spec.layout.ndim}, "
+            f"{spec.name}: expected layout {layout} with rank {layout.ndim}, "
             f"got shape {descriptor.shape}"
         )
     if spec.shape:
-        for axis, expected, actual in zip(
-            spec.layout.axes, spec.shape, descriptor.shape
-        ):
+        for axis, expected, actual in zip(layout.axes, spec.shape, descriptor.shape):
             if expected is not None and expected != actual:
                 raise NativePrepError(
                     f"{spec.name}: expected axis {axis} to be {expected}, got {actual}"
@@ -255,7 +256,7 @@ def _validate_descriptor(
     if check_contiguous and spec.require_contiguous and not descriptor.is_contiguous:
         raise NativePrepError(f"{spec.name}: expected contiguous tensor")
     for axis, factor in spec.axis_divisibility:
-        size = descriptor.shape[spec.layout.axis_index(axis)]
+        size = descriptor.shape[layout.axis_index(axis)]
         if size % factor != 0:
             raise NativePrepError(
                 f"{spec.name}: axis {axis} size {size} must be divisible by {factor}"

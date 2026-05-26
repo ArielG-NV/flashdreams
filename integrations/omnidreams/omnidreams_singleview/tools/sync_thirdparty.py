@@ -23,9 +23,10 @@ import hashlib
 import json
 import shutil
 import subprocess
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Mapping, Sequence
+from typing import Any, cast
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = ROOT / "thirdparty_sources.json"
@@ -139,7 +140,7 @@ def _resolve_manifest_path(manifest_path: Path, value: str) -> Path:
 def _as_mapping(value: object, *, context: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise ThirdPartySyncError(f"{context} must be an object")
-    return value
+    return cast(Mapping[str, Any], value)
 
 
 def _source_from_mapping(
@@ -151,7 +152,9 @@ def _source_from_mapping(
         repo = str(value["repo"])
         commit = str(value["commit"])
     except KeyError as exc:
-        raise ThirdPartySyncError(f"Missing required source field: {exc.args[0]}") from exc
+        raise ThirdPartySyncError(
+            f"Missing required source field: {exc.args[0]}"
+        ) from exc
 
     directory = str(value.get("directory", name))
     _validate_relative_path(directory, field=f"{name}.directory")
@@ -161,7 +164,7 @@ def _source_from_mapping(
         for item in value.get("delete_paths", ())
     )
 
-    patches = []
+    patches: list[PatchSpec] = []
     for item in value.get("patches", ()):
         patch = _as_mapping(item, context=f"{name}.patch")
         if "path" not in patch:
@@ -173,7 +176,7 @@ def _source_from_mapping(
             )
         )
 
-    overlays = []
+    overlays: list[OverlaySpec] = []
     for item in value.get("overlays", ()):
         overlay = _as_mapping(item, context=f"{name}.overlay")
         if "source" not in overlay or "destination" not in overlay:
@@ -219,7 +222,10 @@ def load_manifest(path: Path = DEFAULT_MANIFEST) -> tuple[SourceSpec, ...]:
     if not isinstance(sources, list):
         raise ThirdPartySyncError(f"{path} sources must be a list")
 
-    parsed = tuple(_source_from_mapping(path, _as_mapping(item, context="source")) for item in sources)
+    parsed = tuple(
+        _source_from_mapping(path, _as_mapping(item, context="source"))
+        for item in sources
+    )
     names = [source.name for source in parsed]
     if len(set(names)) != len(names):
         raise ThirdPartySyncError(f"{path} contains duplicate source names")
@@ -234,7 +240,11 @@ def _source_hash(source: SourceSpec) -> str:
         "directory": source.directory,
         "delete_paths": list(source.delete_paths),
         "patches": [
-            {"path": str(patch.path), "strip": patch.strip, "sha256": _hash_file(patch.path)}
+            {
+                "path": str(patch.path),
+                "strip": patch.strip,
+                "sha256": _hash_file(patch.path),
+            }
             for patch in source.patches
         ],
         "overlays": [
@@ -339,7 +349,9 @@ def _checkout_commit(source: SourceSpec, path: Path) -> None:
     _run_git(path, ["checkout", "--quiet", "--force", source.commit])
     head = _run_git(path, ["rev-parse", "HEAD"])
     if head != source.commit:
-        raise ThirdPartySyncError(f"{path} checked out {head}, expected {source.commit}")
+        raise ThirdPartySyncError(
+            f"{path} checked out {head}, expected {source.commit}"
+        )
     _run_git(path, ["reset", "--hard", "--quiet", source.commit])
     _run_git(path, ["clean", "-ffdx", "--quiet"])
 
@@ -356,7 +368,9 @@ def _delete_paths(source: SourceSpec, path: Path) -> None:
 def _apply_patches(source: SourceSpec, path: Path) -> None:
     for patch in source.patches:
         if not patch.path.is_file():
-            raise ThirdPartySyncError(f"{source.name} patch does not exist: {patch.path}")
+            raise ThirdPartySyncError(
+                f"{source.name} patch does not exist: {patch.path}"
+            )
         for args in (
             ["apply", f"-p{patch.strip}", "--check", str(patch.path)],
             ["apply", f"-p{patch.strip}", str(patch.path)],
@@ -383,7 +397,9 @@ def _copy_overlays(source: SourceSpec, path: Path) -> None:
             shutil.copy2(overlay.source, destination)
 
 
-def sync_source(source: SourceSpec, dest_root: Path, *, force: bool = False) -> SyncResult:
+def sync_source(
+    source: SourceSpec, dest_root: Path, *, force: bool = False
+) -> SyncResult:
     path = dest_root / source.destination_name
     created_or_replaced = _sync_git_checkout(source, path, force=force)
     _checkout_commit(source, path)
@@ -406,7 +422,7 @@ def sync_sources(
     selected: set[str] | None = None,
     force: bool = False,
 ) -> tuple[SyncResult, ...]:
-    results = []
+    results: list[SyncResult] = []
     for source in sources:
         if selected is not None and source.name not in selected:
             continue
@@ -422,7 +438,9 @@ def verify_source(source: SourceSpec, dest_root: Path) -> SyncResult:
         raise ThirdPartySyncError(f"{source.name} is not a Git checkout: {path}")
     head = _run_git(path, ["rev-parse", "HEAD"])
     if head != source.commit:
-        raise ThirdPartySyncError(f"{source.name} is at {head}, expected {source.commit}")
+        raise ThirdPartySyncError(
+            f"{source.name} is at {head}, expected {source.commit}"
+        )
     stamp = _read_stamp(path)
     if stamp is None:
         raise ThirdPartySyncError(
@@ -453,7 +471,7 @@ def verify_sources(
     *,
     selected: set[str] | None = None,
 ) -> tuple[SyncResult, ...]:
-    results = []
+    results: list[SyncResult] = []
     for source in sources:
         if selected is not None and source.name not in selected:
             continue
@@ -461,7 +479,9 @@ def verify_sources(
     return tuple(results)
 
 
-def _selected_sources(names: Sequence[str], sources: Sequence[SourceSpec]) -> set[str] | None:
+def _selected_sources(
+    names: Sequence[str], sources: Sequence[SourceSpec]
+) -> set[str] | None:
     if not names:
         return None
     available = {source.name for source in sources}
@@ -488,8 +508,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--dest-root", type=Path, default=DEFAULT_DEST_ROOT)
-    parser.add_argument("--source", action="append", default=[], help="source name to operate on")
-    parser.add_argument("--force", action="store_true", help="replace conflicting managed checkouts")
+    parser.add_argument(
+        "--source", action="append", default=[], help="source name to operate on"
+    )
+    parser.add_argument(
+        "--force", action="store_true", help="replace conflicting managed checkouts"
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -497,15 +521,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         selected = _selected_sources(args.source, sources)
         if args.command == "list":
             _print_results(
-                SyncResult(source=s, path=args.dest_root / s.destination_name, commit=s.commit, changed=False)
-                for s in sources
-                if selected is None or s.name in selected
+                tuple(
+                    SyncResult(
+                        source=s,
+                        path=args.dest_root / s.destination_name,
+                        commit=s.commit,
+                        changed=False,
+                    )
+                    for s in sources
+                    if selected is None or s.name in selected
+                )
             )
             return 0
         if args.command == "verify":
             _print_results(verify_sources(sources, args.dest_root, selected=selected))
             return 0
-        _print_results(sync_sources(sources, args.dest_root, selected=selected, force=args.force))
+        _print_results(
+            sync_sources(sources, args.dest_root, selected=selected, force=args.force)
+        )
         return 0
     except ThirdPartySyncError as exc:
         parser.exit(2, f"error: {exc}\n")
