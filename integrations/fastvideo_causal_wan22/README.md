@@ -4,7 +4,7 @@ FastVideo CausalWan 2.2 14B MoE distilled streaming T2V inference,
 packaged as a [`flashdreams`](../..) plugin, in a standalone repo.
 
 This is a worked example of the
-[Adding a new model integration](../../docs/source/developer_guides/new_integration.rst)
+[Add a new method](../../docs/source/developer_guides/new_integration.rst)
 developer-guide flow.
 
 ## Shipped slugs

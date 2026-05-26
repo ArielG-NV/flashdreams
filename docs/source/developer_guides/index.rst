@@ -27,7 +27,7 @@ Guides
 
 - :doc:`Inference pipeline overview </developer_guides/inference_pipeline_overview>`
 - :doc:`Config system </developer_guides/config_system>`
-- :doc:`Adding a new model integration </developer_guides/new_integration>`
+- :doc:`Add a new method </developer_guides/new_integration>`
 
 .. Temporarily commented out for internal development:
 .. - :doc:`How to use FlashDreams as a developer </developer_guides/usage_patterns>`
