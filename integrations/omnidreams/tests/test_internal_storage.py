@@ -71,17 +71,17 @@ def test_omni_dreams_hf_org_default(
 def test_omni_dreams_hf_org_override(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv(hf.OMNI_DREAMS_HF_ORG_ENV_VAR, "nvidia-omni-dreams-lha")
+    monkeypatch.setenv(hf.OMNI_DREAMS_HF_ORG_ENV_VAR, "example-omni-dreams-mirror")
 
     assert hf.omni_dreams_hf_repo("omni-dreams-models") == (
-        "nvidia-omni-dreams-lha/omni-dreams-models"
+        "example-omni-dreams-mirror/omni-dreams-models"
     )
     assert hf.omni_dreams_hf_url(
         "omni-dreams-samples",
         "tree/main/data/single_view",
         repo_type="dataset",
     ) == (
-        "https://huggingface.co/datasets/nvidia-omni-dreams-lha/"
+        "https://huggingface.co/datasets/example-omni-dreams-mirror/"
         "omni-dreams-samples/tree/main/data/single_view"
     )
 

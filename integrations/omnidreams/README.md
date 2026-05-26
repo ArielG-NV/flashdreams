@@ -28,13 +28,13 @@ org by default:
 - `nvidia/omni-dreams-samples` for bundled example data.
 - `nvidia/omni-dreams-scenes` for WebRTC scenes.
 
-Set `HF_TOKEN` to a token with access to the selected org. To use the external
-mirror instead, set `OMNI_DREAMS_HF_ORG` before running or importing
-FlashDreams:
+Set `HF_TOKEN` to a token with access to the selected org. If your environment
+uses another authorized Hugging Face org, set `OMNI_DREAMS_HF_ORG` before
+running or importing FlashDreams:
 
 ```bash
 export HF_TOKEN=<YOUR-HF-TOKEN>
-export OMNI_DREAMS_HF_ORG=nvidia-omni-dreams-lha
+export OMNI_DREAMS_HF_ORG=<YOUR-HF-ORG>
 ```
 
 Internal S3-backed runs can still set `FLASHDREAMS_INTERNAL_STORAGE=1`, which
