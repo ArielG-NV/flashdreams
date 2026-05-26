@@ -22,9 +22,7 @@ with a plugin architecture for model backends.
 
 ## Supported Models
 
-First-party integrations: Self-Forcing, OmniDreams, LingBot-World, Wan2.1,
-Causal-Forcing, FastVideo CausalWan 2.2, FlashVSR, and Cosmos-Predict2.5. See
-the project page for runner slugs and per-model launch commands.
+Wan 2.1/2.2, Cosmos Predict2, and more via first-party integration packages.
 
 ## Installation
 

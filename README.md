@@ -27,7 +27,7 @@ environments, and more.
 <p align="center">
   <img src="docs/source/_static/diagrams/compare-offline-online-video-model-v2.jpg"
        alt="Offline one-shot video inference compared with online autoregressive world-model serving."
-       width="720">
+       width="100%">
 </p>
 
 
