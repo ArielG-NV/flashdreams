@@ -35,7 +35,7 @@ environments, and more.
 
 The complete setup is in
 [the installation guide](https://verbose-adventure-7plnn5m.pages.github.io/main/quickstart/installation.html).
-The shortest viable path is:
+Assuming `uv` is [installed](https://docs.astral.sh/uv/getting-started/installation), the shortest viable path is:
 
 ```bash
 git clone https://github.com/NVIDIA/flashdreams.git
