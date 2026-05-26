@@ -3,14 +3,14 @@ SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All 
 SPDX-License-Identifier: Apache-2.0
 -->
 
-<!-- <p align="center">
-  <img src="assets/logo/flashdreams-logo-horizontal.png" alt="FlashDreams" width="600">
-</p> -->
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/flashdreams-logo-horizontal-light.png">
+    <img alt="FlashDreams" src="assets/logo/flashdreams-logo-horizontal.png" width="600">
+  </picture>
+</p>
 
-FlashDreams
------------
-
-<p align="left">
+<p align="center">
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/License-Apache_2.0-blue.svg"></a>
   <a href="https://verbose-adventure-7plnn5m.pages.github.io/main/index.html"><img alt="Documentation" src="https://img.shields.io/badge/docs-latest-blue.svg"></a>
 </p>

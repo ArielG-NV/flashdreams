@@ -63,13 +63,14 @@ html_theme = "furo"
 html_title = f"FlashDreams {version}"
 html_show_sphinx = False
 html_static_path = ["_static", "../../assets/logo"]
-html_logo = "../../assets/logo/flashdreams-logo-horizontal.png"
 
 html_theme_options = {
     "source_repository": "https://github.com/NVIDIA/flashdreams/",
     "source_branch": "main",
     "source_directory": "docs/source/",
     "sidebar_hide_name": True,
+    "light_logo": "flashdreams-logo-horizontal.png",
+    "dark_logo": "flashdreams-logo-horizontal-light.png",
 }
 
 html_context = {
