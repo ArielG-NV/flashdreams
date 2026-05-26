@@ -31,8 +31,8 @@ from .omnidreams_singleview import (
     validate_thirdparty,
 )
 from .primitives import (
-    NativePrepError,
     NativePreparedTensor,
+    NativePrepError,
     NativeTensorDescriptor,
     NativeTensorLayout,
     NativeTensorSpec,

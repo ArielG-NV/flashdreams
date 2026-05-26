@@ -77,7 +77,9 @@ def _sync_tool() -> ModuleType:
         SYNC_THIRDPARTY_PATH,
     )
     if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot import third-party sync helpers from {SYNC_THIRDPARTY_PATH}")
+        raise ImportError(
+            f"Cannot import third-party sync helpers from {SYNC_THIRDPARTY_PATH}"
+        )
 
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -100,9 +102,13 @@ def _read_stamp(path: Path) -> Mapping[str, Any]:
             f"{path} is missing {STAMP_NAME}; run {SYNC_THIRDPARTY_PATH} sync"
         ) from exc
     except json.JSONDecodeError as exc:
-        raise NativeBuildError(f"Invalid native source stamp at {stamp_path}: {exc}") from exc
+        raise NativeBuildError(
+            f"Invalid native source stamp at {stamp_path}: {exc}"
+        ) from exc
     if not isinstance(stamp, Mapping):
-        raise NativeBuildError(f"Invalid native source stamp at {stamp_path}: not an object")
+        raise NativeBuildError(
+            f"Invalid native source stamp at {stamp_path}: not an object"
+        )
     return stamp
 
 
@@ -174,7 +180,9 @@ def _default_build_root() -> Path:
 def resolve_build_root(build_root: Path | str | None = None) -> Path:
     """Return the native build root, honoring the environment override."""
 
-    return Path(build_root).resolve() if build_root is not None else _default_build_root()
+    return (
+        Path(build_root).resolve() if build_root is not None else _default_build_root()
+    )
 
 
 def torch_extension_build_dir(

@@ -65,7 +65,9 @@ def _native_build() -> ModuleType:
             _NATIVE_BUILD_PATH,
         )
         if spec is None or spec.loader is None:
-            raise ImportError(f"Cannot import native build helpers from {_NATIVE_BUILD_PATH}")
+            raise ImportError(
+                f"Cannot import native build helpers from {_NATIVE_BUILD_PATH}"
+            )
 
         module = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = module
@@ -254,23 +256,23 @@ def load_extension(
                         "-O3",
                         "-DOMNIDREAMS_SINGLEVIEW_WITH_CUDA",
                         "-DOMNIDREAMS_SINGLEVIEW_CUTLASS_SHA="
-                        f"\\\"{thirdparty_info['cutlass']['commit']}\\\"",
+                        f'\\"{thirdparty_info["cutlass"]["commit"]}\\"',
                         "-DOMNIDREAMS_SINGLEVIEW_CUTLASS_SOURCE_SHA="
-                        f"\\\"{thirdparty_info['cutlass']['source_sha256']}\\\"",
+                        f'\\"{thirdparty_info["cutlass"]["source_sha256"]}\\"',
                         "-DOMNIDREAMS_SINGLEVIEW_SOURCE_SHA="
-                        f"\\\"{_file_sha256(_EXTENSION_SOURCE)}\\\"",
+                        f'\\"{_file_sha256(_EXTENSION_SOURCE)}\\"',
                         "-DOMNIDREAMS_SINGLEVIEW_SOURCE_FINGERPRINT_SHA="
-                        f"\\\"{_source_fingerprint()}\\\"",
+                        f'\\"{_source_fingerprint()}\\"',
                         "-DOMNIDREAMS_SINGLEVIEW_NATIVE_PRIMITIVES_SOURCE_SHA="
-                        f"\\\"{_file_sha256(_NATIVE_PRIMITIVES_SOURCE)}\\\"",
+                        f'\\"{_file_sha256(_NATIVE_PRIMITIVES_SOURCE)}\\"',
                         "-DOMNIDREAMS_SINGLEVIEW_CUDA_SOURCE_SHA="
-                        f"\\\"{_file_sha256(_NATIVE_PRIMITIVES_CUDA_SOURCE)}\\\"",
+                        f'\\"{_file_sha256(_NATIVE_PRIMITIVES_CUDA_SOURCE)}\\"',
                         "-DOMNIDREAMS_SINGLEVIEW_SAGE_ATTENTION_SHA="
-                        f"\\\"{thirdparty_info['SageAttention']['commit']}\\\"",
+                        f'\\"{thirdparty_info["SageAttention"]["commit"]}\\"',
                         "-DOMNIDREAMS_SINGLEVIEW_SPARGE_ATTN_SHA="
-                        f"\\\"{thirdparty_info['SpargeAttn']['commit']}\\\"",
+                        f'\\"{thirdparty_info["SpargeAttn"]["commit"]}\\"',
                         "-DOMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST="
-                        f"\\\"{_effective_cuda_arch_list()}\\\"",
+                        f'\\"{_effective_cuda_arch_list()}\\"',
                     ],
                     extra_cuda_cflags=[
                         "-O3",
