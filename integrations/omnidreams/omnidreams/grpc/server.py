@@ -922,10 +922,6 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
                 logger.info("HDMap-only mode enabled (skip_video_generation=True)")
             if return_hdmap_frames:
                 logger.info("HDMap frames will be returned with video")
-            if request.debug_options.return_bev_map:
-                logger.warning(
-                    "debug_options.return_bev_map is ignored; BEV rendering path was removed."
-                )
 
         request_seed = int(request.random_seed)
         if request_seed != 0:
@@ -1089,9 +1085,6 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
             rig_poses_flu=rig_poses_flu,
         )
         response = self.render_video_chunk_all_ranks(render_video_chunk_payload)
-
-        # Echo back rig trajectory
-        response.poses_and_timestamps_of_frames.CopyFrom(request.rig_trajectory)
 
         # Schedule KV cache finalization in background thread
         # This allows the gRPC response to be sent immediately while KV cache update
