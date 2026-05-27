@@ -11,7 +11,7 @@ in *what they do* with the cached archive:
 
 * ``omnidreams.interactive_drive`` (desktop demo) keeps the USDZ
   archive intact (its scene loader reads prompts / first-images out of
-  the zip via ``zipfile.ZipFile``). ``interactive-drive-prepare`` / the
+  the zip via ``zipfile.ZipFile``). ``omnidreams-prepare`` / the
   demo's first-launch auto-stage copies the HF-cached archive to
   ``<scenes_cache_root>/clipgt-<uuid>.usdz``.
 * ``omnidreams.webrtc.session`` extracts the USDZ payload into
@@ -205,7 +205,7 @@ def list_available_scene_uuids() -> list[str]:
     exact repo id is resolved via :func:`hf_scenes_repo_id`, so the
     function honours ``OMNI_DREAMS_HF_ORG`` / the ``--hf-org`` CLI flag.
 
-    Imported lazily by callers (e.g. ``interactive-drive-prepare``) so
+    Imported lazily by callers (e.g. ``omnidreams-prepare``) so
     the ``huggingface_hub`` dependency only matters when this function
     is actually used.
     """
@@ -240,7 +240,7 @@ def hf_hub_download_scene(scene_uuid: str) -> Path:
 
     Callers own what to do *after* download:
 
-    * ``interactive_drive.prepare.stage_scene`` copies the cached
+    * ``omnidreams.prepare.stage_scene`` copies the cached
       archive to :func:`local_scene_archive_path` so the demo's
       ``--scene`` path is a stable real file.
     * ``omnidreams.webrtc.session._ensure_hf_webrtc_scene_synced``

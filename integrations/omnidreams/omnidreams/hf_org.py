@@ -7,7 +7,7 @@ Used by both demo paths in this package:
 
   * ``omnidreams.interactive_drive`` (the desktop demo) fetches
     ``<org>/omni-dreams-scenes`` USDZ scenes via
-    ``interactive-drive-prepare`` / first-launch auto-stage.
+    ``omnidreams-prepare`` / first-launch auto-stage.
   * ``omnidreams.webrtc.server`` fetches the same dataset for its
     session-managed scene cache under ``FLASHDREAMS_CACHE_DIR``.
 

@@ -219,7 +219,7 @@ def _ensure_hf_webrtc_scene_synced(
     assert scene_uuid, "scene_uuid must be set."
     # ``scenes_cache_root()`` is the same root the desktop demo writes
     # ``clipgt-<uuid>.usdz`` archives to (via
-    # ``interactive_drive.prepare.stage_scene``); they coexist by name
+    # ``omnidreams.prepare.stage_scene``); they coexist by name
     # because the archive is a file while the webrtc extraction is a
     # per-uuid directory.
     cache_root = scenes_cache_root()

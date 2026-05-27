@@ -591,7 +591,7 @@ def _maybe_autostage_scene(scene: Path) -> Path:
     and non-clipgt filenames are returned unchanged so the demo's
     normal "file not found" error fires for them.
 
-    The explicit ``interactive-drive-prepare`` script remains the way to
+    The explicit ``omnidreams-prepare`` script remains the way to
     pre-stage arbitrary UUIDs and to pre-warm the Cosmos-Reason1 text
     encoder; this helper just covers the "I just ran ``interactive-drive``
     and the default scene isn't there yet" case so first-launch is a
@@ -610,13 +610,13 @@ def _maybe_autostage_scene(scene: Path) -> Path:
         raise SystemExit(
             f"Scene '{scene.name}' is not staged yet and HF_TOKEN is not set.\n"
             "Either export HF_TOKEN to enable auto-staging on launch, or run:\n"
-            f"  uv run --package flashdreams-omnidreams interactive-drive-prepare --scene-uuid {bare_uuid}"
+            f"  uv run --package flashdreams-omnidreams omnidreams-prepare --scene-uuid {bare_uuid}"
         )
     print(
         f"[interactive-drive] Scene '{stem}' not found locally; "
         "auto-staging from Hugging Face (one-time download, ~30 MB)..."
     )
-    from omnidreams.interactive_drive.prepare import stage_scene
+    from omnidreams.prepare import stage_scene
 
     return stage_scene(bare_uuid, force=False)
 

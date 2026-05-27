@@ -76,11 +76,19 @@ dev = [
 ]
 
 [project.scripts]
-# Desktop interactive-drive demo entry points. Both require the
-# ``interactive-drive`` extra to be installed (it adds slangpy); without
-# it the presenter import fails fast with a clear message.
+# ``omnidreams-prepare`` stages resources used by *both* demo paths
+# (desktop ``interactive-drive`` *and* ``omnidreams.webrtc.server``):
+# the scene USDZs from ``nvidia/omni-dreams-scenes`` and the
+# Cosmos-Reason1 text encoder pinned to its runtime revision. Lives at
+# the package level (``omnidreams.prepare``) rather than under
+# ``omnidreams.interactive_drive`` so the name doesn't suggest a single
+# demo.
+omnidreams-prepare = "omnidreams.prepare:main"
+
+# Desktop interactive-drive demo entry point. Requires the
+# ``interactive-drive`` extra (it adds slangpy); without it the
+# presenter import fails fast with a clear message.
 interactive-drive = "omnidreams.interactive_drive.demo:main"
-interactive-drive-prepare = "omnidreams.interactive_drive.prepare:main"
 
 # Each entry registers one ``runner_name`` slug with ``flashdreams-run``.
 # The discovery layer (``flashdreams.plugins.registry.discover_runners``)

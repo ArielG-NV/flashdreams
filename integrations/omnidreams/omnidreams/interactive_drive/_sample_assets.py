@@ -23,7 +23,7 @@ from pathlib import Path
 from omnidreams.scenes import local_scene_archive_path
 
 SAMPLE_SCENE: Path = local_scene_archive_path("0d404ff7-2b66-498c-b047-1ed8cded60d4")
-"""Optional real USDZ scene, staged by ``interactive-drive-prepare``
+"""Optional real USDZ scene, staged by ``omnidreams-prepare``
 into the shared cache (``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/
 clipgt-<uuid>.usdz``).
 

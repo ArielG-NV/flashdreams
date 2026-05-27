@@ -34,7 +34,7 @@ from omnidreams.scenes import local_scene_archive_path
 # omnidreams-scenes/`` (shared with the webrtc server).
 _PACKAGE_ROOT = Path(__file__).resolve().parent
 
-# UUID of the scene staged by ``interactive-drive-prepare`` when no
+# UUID of the scene staged by ``omnidreams-prepare`` when no
 # ``--scene-uuid`` is specified and used as the demo's ``--scene``
 # default.
 DEFAULT_SCENE_UUID = "01d503d4-449b-46fc-8d78-9085e70d3554"

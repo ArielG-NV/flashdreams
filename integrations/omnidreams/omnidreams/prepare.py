@@ -2,15 +2,24 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""One-shot setup helper for the interactive_drive demo.
+"""One-shot setup helper for every ``flashdreams-omnidreams`` demo.
 
-Pulls a sample scene USDZ from the ``nvidia/omni-dreams-scenes``
-Hugging Face dataset and optionally pre-warms the Cosmos-Reason1 text
-encoder used by the flashdreams world-model path.
+Stages the resources both demo paths share:
+
+* ``nvidia/omni-dreams-scenes`` USDZ archives -> consumed sealed by the
+  desktop ``interactive-drive`` demo and unpacked on demand by
+  ``omnidreams.webrtc.server`` (both read from the shared cache at
+  ``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/``; see
+  :mod:`omnidreams.scenes`).
+* The Cosmos-Reason1 text encoder used by the flashdreams world-model
+  pipeline -- pinned to the same commit as
+  :class:`CosmosReason1TextEncoderConfig` so the prewarm files satisfy
+  the runtime ``from_pretrained(revision=...)`` call (otherwise the
+  ~14 GB warm-up downloads HEAD and the runtime re-fetches at launch).
+
 Re-running is safe: any asset already present on disk is skipped.
-
-Scene staging goes through Hugging Face; set ``HF_TOKEN`` with access to
-``nvidia/omni-dreams-scenes`` before running this helper.
+Scene staging goes through Hugging Face; set ``HF_TOKEN`` with access
+to ``nvidia/omni-dreams-scenes`` before running this helper.
 """
 
 from __future__ import annotations

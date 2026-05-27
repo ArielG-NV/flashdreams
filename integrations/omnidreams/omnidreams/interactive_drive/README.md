@@ -39,7 +39,7 @@ beyond cloning `flashdreams` itself.
 
 **Hugging Face token.** Scenes and the Cosmos-Reason1 text encoder are
 downloaded from Hugging Face, so `HF_TOKEN` must be set in any shell where
-you run `interactive-drive-prepare` or `interactive-drive`. Create a token at
+you run `omnidreams-prepare` or `interactive-drive`. Create a token at
 [`huggingface.co/settings/tokens/new`](https://huggingface.co/settings/tokens/new)
 if you don't already have one, and request access to the
 [`nvidia/omni-dreams-scenes`](https://huggingface.co/datasets/nvidia/omni-dreams-scenes)
@@ -53,7 +53,7 @@ On Windows, set the same value as a user or session environment variable
 named `HF_TOKEN` instead of using `export`.
 
 If your environment uses another authorized Hugging Face org, pass
-`--hf-org <YOUR-HF-ORG>` to `interactive-drive-prepare` and `interactive-drive`, or set
+`--hf-org <YOUR-HF-ORG>` to `omnidreams-prepare` and `interactive-drive`, or set
 `OMNI_DREAMS_HF_ORG=<YOUR-HF-ORG>` once in your shell. OmniDreams scene URLs
 read from the world-model manifest are rewritten to the selected org;
 unrelated upstream repos (`lightx2v/Autoencoders`, `nvidia/Cosmos-Reason1-7B`)
@@ -143,13 +143,13 @@ Vulkan-backed local windowing runtime) on top of the base
 
 ```bash
 uv sync --package flashdreams-omnidreams --extra interactive-drive
-uv run --package flashdreams-omnidreams interactive-drive-prepare \
+uv run --package flashdreams-omnidreams omnidreams-prepare \
   --scene-uuid clipgt-01d503d4-449b-46fc-8d78-9085e70d3554
 ```
 
 `uv sync --extra interactive-drive` installs the full demo runtime (slangpy + Ludus
 front end, flashdreams + flashdreams-omnidreams pipeline).
-`interactive-drive-prepare` stages the requested scene USDZ from the
+`omnidreams-prepare` stages the requested scene USDZ from the
 resolved scenes dataset
 (`nvidia/omni-dreams-scenes` by default, or another authorized org when
 `OMNI_DREAMS_HF_ORG` / `--hf-org` points there) and pre-warms the
@@ -157,14 +157,14 @@ Cosmos-Reason1 text encoder used at runtime (~14 GB of Hugging Face cache),
 so the first setup can take a while depending on your network. Flashdreams
 owns video checkpoint selection and cache layout for the selected recipe.
 
-> **Tip:** You can skip the `interactive-drive-prepare` step for the
+> **Tip:** You can skip the `omnidreams-prepare` step for the
 > *default* scene — `interactive-drive` will auto-stage it from
 > `nvidia/omni-dreams-scenes` on first launch as long as `HF_TOKEN` is
-> set. Run `interactive-drive-prepare` explicitly when you want to stage
+> set. Run `omnidreams-prepare` explicitly when you want to stage
 > multiple scenes ahead of time or pre-warm the Cosmos-Reason1 text
 > encoder (~14 GB) so the first launch isn't blocked on it.
 
-Common `interactive-drive-prepare` flags:
+Common `omnidreams-prepare` flags:
 
 - `--scene-uuid <clipgt-...>` — stage only one specific scene instead of
   all of them. Useful on bandwidth-constrained links (and a good first
@@ -177,7 +177,7 @@ Common `interactive-drive-prepare` flags:
 - `--skip-scene` — don't stage any scene (for when you're supplying your
   own USDZ via `interactive-drive --scene`).
 
-If `interactive-drive-prepare` fails with `401`, `403`, or a gated-repo
+If `omnidreams-prepare` fails with `401`, `403`, or a gated-repo
 error, verify `HF_TOKEN` and confirm access to `nvidia/omni-dreams-scenes`.
 
 Once done, you should see this binary asset under the shared scenes cache:
@@ -317,7 +317,7 @@ builds a procedural 2-lane road with a single intersection at startup and
 feeds it to the same loader the regular flow uses:
 
 ```bash
-uv run --package flashdreams-omnidreams interactive-drive-prepare --skip-scene
+uv run --package flashdreams-omnidreams omnidreams-prepare --skip-scene
 uv run --package flashdreams-omnidreams interactive-drive \
   --synthetic-scene \
   --synthetic-initial-rgb path/to/forward_facing_road_photo.jpg

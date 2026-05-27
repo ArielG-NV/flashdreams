@@ -54,7 +54,7 @@ The `interactive-drive` extra adds `slangpy` (the Vulkan-backed local
 windowing runtime); server users running only `omnidreams.webrtc` or
 `omnidreams.grpc` can skip it. The default scene auto-stages from
 `nvidia/omni-dreams-scenes` on first launch when `HF_TOKEN` is set; use
-`interactive-drive-prepare` for explicit staging of arbitrary scene UUIDs
+`omnidreams-prepare` for explicit staging of arbitrary scene UUIDs
 or to pre-warm the ~14 GB Cosmos-Reason1 text encoder.
 
 ## Run WebRTC server
