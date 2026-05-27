@@ -116,7 +116,6 @@ exclude = ["tests"]
 "omnidreams.interactive_drive" = [
     "configs/*.yaml",
     "configs/wheels/*.yaml",
-    "assets/scenes/.gitkeep",
     "assets/README.md",
     "README.md",
     "hdmap.png",

@@ -5,27 +5,43 @@
 
 Both demo paths in this package consume the same source of scene data
 (the ``omni-dreams-scenes`` HF dataset at ``scenes/clipgt-<uuid>.usdz``)
-but differ in what they do with it after download:
+and now also share an on-disk cache layout under
+:data:`FLASHDREAMS_CACHE_DIR`/``omnidreams-scenes/``. They still differ
+in *what they do* with the cached archive:
 
-* ``omnidreams.interactive_drive`` (desktop demo) keeps the USDZ archive
-  intact under ``omnidreams/interactive_drive/assets/scenes/`` and reads
-  prompts / first-images out of it via ``zipfile.ZipFile``.
-* ``omnidreams.webrtc.session`` extracts the USDZ into a per-uuid
-  directory under ``FLASHDREAMS_CACHE_DIR/omnidreams-scenes/`` and reads
+* ``omnidreams.interactive_drive`` (desktop demo) keeps the USDZ
+  archive intact (its scene loader reads prompts / first-images out of
+  the zip via ``zipfile.ZipFile``). ``interactive-drive-prepare`` / the
+  demo's first-launch auto-stage copies the HF-cached archive to
+  ``<scenes_cache_root>/clipgt-<uuid>.usdz``.
+* ``omnidreams.webrtc.session`` extracts the USDZ payload into
+  ``<scenes_cache_root>/<uuid>/clipgt/`` and reads
   ``clipgt/first_image.*`` + ``clipgt/prompt.txt`` directly from disk.
 
-This module owns the pieces that *are* shared -- the dataset name, the
-archive path template, the file-suffix conventions, the variant-suffix
-parser (interactive-drive supports multiple prompt / first_image
-variants via ``prompt_<N>.txt`` etc.; this convention is documented
-here even though webrtc currently only ships single-variant scenes),
-and a ``list_available_scene_uuids`` helper that walks the HF dataset.
-Centralising them here keeps the two demos in lock-step on what a
-"clipgt scene" looks like and what HF repo to fetch from.
+The two layouts coexist in the same root: an archive lives at
+``<root>/clipgt-<uuid>.usdz`` (a file) while the extracted directory
+lives at ``<root>/<uuid>/`` (a directory). No name conflict, and
+neither side downloads twice because both call
+:func:`hf_hub_download_scene` which goes through ``huggingface_hub``'s
+content-addressed HF cache.
+
+This module owns:
+
+* the dataset name and HF org resolver,
+* the archive filename template and bare-UUID convention,
+* the on-disk cache root (env-overridable via ``FLASHDREAMS_CACHE_DIR``),
+* the file-suffix conventions and the variant-suffix parser used by
+  the interactive-drive scene loader,
+* a ``list_available_scene_uuids`` helper that walks the HF dataset.
+
+Centralising these keeps the two demos in lock-step on what a "clipgt
+scene" looks like, where to fetch one from, and where one ends up on
+disk.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Final
 
@@ -49,8 +65,8 @@ SCENE_IMAGE_SUFFIXES: Final[frozenset[str]] = frozenset(
 SCENE_PROMPT_FILENAME: Final[str] = "prompt.txt"
 
 # Conventional subdirectory under which a USDZ archive's payload is
-# unpacked by the webrtc session pipeline (``FLASHDREAMS_CACHE_DIR/
-# omnidreams-scenes/<uuid>/clipgt/...``).
+# unpacked by the webrtc session pipeline (``<scenes_cache_root>/<uuid>/
+# clipgt/``).
 SCENE_CLIPGT_DIRNAME: Final[str] = "clipgt"
 
 # Convenience link to the canonical NVIDIA-hosted dataset browser. The
@@ -73,9 +89,63 @@ def hf_scenes_repo_id(org: str | None = None) -> str:
     return hf_repo(kind="scenes", org=org)
 
 
+def normalise_scene_uuid(scene_uuid: str) -> str:
+    """Coerce either ``clipgt-<uuid>`` stems or bare ``<uuid>`` to the bare form.
+
+    The omni-dreams-scenes dataset stores files as
+    ``scenes/clipgt-<uuid>.usdz``, and the demo's default ``--scene`` path
+    uses the same ``clipgt-<uuid>.usdz`` filename locally. Users (and
+    internal callers using ``Path.stem`` on a local file) sometimes pass
+    the ``clipgt-`` prefix in; others (the webrtc server, the
+    ``--scene-uuid`` flag) pass the bare UUID. The downstream HF + local
+    path helpers below all assume the **bare** UUID form, so this
+    function normalises at the boundary.
+    """
+    return scene_uuid.strip().removeprefix("clipgt-")
+
+
 def scene_archive_filename(scene_uuid: str) -> str:
-    """Path inside the HF dataset for one scene's USDZ archive."""
-    return f"scenes/clipgt-{scene_uuid.strip()}.usdz"
+    """HF-dataset path for one scene's USDZ archive.
+
+    Accepts either a bare UUID or a ``clipgt-<uuid>`` stem (see
+    :func:`normalise_scene_uuid`).
+    """
+    return f"scenes/clipgt-{normalise_scene_uuid(scene_uuid)}.usdz"
+
+
+# ---------------------------------------------------------------------------
+# On-disk cache layout
+# ---------------------------------------------------------------------------
+
+# Root of every flashdreams-managed cache directory. Honours an opt-in
+# ``FLASHDREAMS_CACHE_DIR`` env var so users who keep dot-caches on a
+# separate volume can redirect everything in one place. Defined as a
+# module-level constant rather than a function so monkeypatching it in
+# tests is straightforward; helpers below read it on every call so a
+# late re-assignment still takes effect.
+FLASHDREAMS_CACHE_DIR: Path = Path(
+    os.path.expanduser(os.getenv("FLASHDREAMS_CACHE_DIR", "~/.cache/flashdreams"))
+)
+
+
+def scenes_cache_root() -> Path:
+    """Shared cache root for staged scenes (both archive and extracted forms).
+
+    Resolves to ``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes``. Read on
+    every call so tests that monkeypatch :data:`FLASHDREAMS_CACHE_DIR`
+    immediately see the redirect.
+    """
+    return FLASHDREAMS_CACHE_DIR / "omnidreams-scenes"
+
+
+def local_scene_archive_path(scene_uuid: str) -> Path:
+    """Where the desktop demo expects a staged scene archive to live.
+
+    ``<scenes_cache_root>/clipgt-<uuid>.usdz``. Matches the
+    ``clipgt-<uuid>.usdz`` naming the HF dataset uses so a user staring
+    at the cache dir sees the same filenames as on Hugging Face.
+    """
+    return scenes_cache_root() / f"clipgt-{normalise_scene_uuid(scene_uuid)}.usdz"
 
 
 # ---------------------------------------------------------------------------
@@ -125,11 +195,15 @@ def variant_from_stem(stem: str, prefix: str) -> str | None:
 def list_available_scene_uuids() -> list[str]:
     """Enumerate every ``scenes/clipgt-<uuid>.usdz`` file in the HF dataset.
 
-    Returns a sorted list of ``clipgt-<uuid>`` strings (the stem, i.e.
-    no ``scenes/`` prefix or ``.usdz`` suffix). Requires ``HF_TOKEN`` to
-    be set because the dataset is gated. The exact repo id is resolved
-    via :func:`hf_scenes_repo_id`, so the function honours
-    ``OMNI_DREAMS_HF_ORG`` / the ``--hf-org`` CLI flag.
+    Returns a sorted list of **bare** UUID strings (no ``clipgt-``
+    prefix, no ``scenes/`` path, no ``.usdz`` suffix). The bare form
+    matches what :func:`scene_archive_filename`,
+    :func:`local_scene_archive_path`, and
+    :func:`hf_hub_download_scene` expect as input.
+
+    Requires ``HF_TOKEN`` to be set because the dataset is gated. The
+    exact repo id is resolved via :func:`hf_scenes_repo_id`, so the
+    function honours ``OMNI_DREAMS_HF_ORG`` / the ``--hf-org`` CLI flag.
 
     Imported lazily by callers (e.g. ``interactive-drive-prepare``) so
     the ``huggingface_hub`` dependency only matters when this function
@@ -146,12 +220,12 @@ def list_available_scene_uuids() -> list[str]:
 
     repo_id = hf_scenes_repo_id()
     files = HfApi().list_repo_files(repo_id=repo_id, repo_type="dataset")
-    prefix = "scenes/"
+    path_prefix = "scenes/clipgt-"
     suffix = ".usdz"
     uuids = [
-        path[len(prefix) : -len(suffix)]
+        path[len(path_prefix) : -len(suffix)]
         for path in files
-        if path.startswith(prefix) and path.endswith(suffix)
+        if path.startswith(path_prefix) and path.endswith(suffix)
     ]
     return sorted(uuids)
 
@@ -159,14 +233,21 @@ def list_available_scene_uuids() -> list[str]:
 def hf_hub_download_scene(scene_uuid: str) -> Path:
     """Download one scene's USDZ archive from the resolved HF dataset.
 
-    Returns the local cache path (from ``huggingface_hub``'s default
-    cache, typically ``~/.cache/huggingface/hub/...``). Callers are
-    responsible for copying / extracting that file into wherever they
-    actually consume it from -- ``interactive_drive.prepare`` copies it
-    into the package's ``assets/scenes/`` dir, while
-    ``omnidreams.webrtc.session`` extracts it under
-    ``FLASHDREAMS_CACHE_DIR``. Returning the cached archive lets each
-    caller own its post-download policy.
+    Returns the local path inside ``huggingface_hub``'s content-addressed
+    cache (typically ``~/.cache/huggingface/hub/...``). Both demo paths
+    call this; the second caller for the same UUID gets a cache HIT and
+    no network traffic.
+
+    Callers own what to do *after* download:
+
+    * ``interactive_drive.prepare.stage_scene`` copies the cached
+      archive to :func:`local_scene_archive_path` so the demo's
+      ``--scene`` path is a stable real file.
+    * ``omnidreams.webrtc.session._ensure_hf_webrtc_scene_synced``
+      extracts the archive under :func:`scenes_cache_root` /
+      ``<uuid>/clipgt/`` for filesystem access.
+
+    Accepts either a bare UUID or a ``clipgt-<uuid>`` stem.
     """
     try:
         from huggingface_hub import hf_hub_download

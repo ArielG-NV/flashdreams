@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 import torch
+from omnidreams import scenes
 from omnidreams.webrtc import server as webrtc_server
 from omnidreams.webrtc import session
 from omnidreams.webrtc.session import (
@@ -239,7 +240,7 @@ def test_hf_webrtc_scene_sync_requires_usdz_first_frame(
     )
     (stale_scene_dir / "prompt.txt").write_text("stale prompt", encoding="utf-8")
 
-    monkeypatch.setattr(session, "FLASHDREAMS_CACHE_DIR", cache_dir)
+    monkeypatch.setattr(scenes, "FLASHDREAMS_CACHE_DIR", cache_dir)
     monkeypatch.setattr(
         "huggingface_hub.hf_hub_download",
         _fake_hf_hub_download,
@@ -281,7 +282,7 @@ def test_hf_webrtc_scene_sync_uses_extracted_first_image(
     )
     (stale_scene_dir / "prompt.txt").write_text("stale prompt", encoding="utf-8")
 
-    monkeypatch.setattr(session, "FLASHDREAMS_CACHE_DIR", cache_dir)
+    monkeypatch.setattr(scenes, "FLASHDREAMS_CACHE_DIR", cache_dir)
     monkeypatch.setattr(
         "huggingface_hub.hf_hub_download",
         _fake_hf_hub_download,
@@ -324,7 +325,7 @@ def test_hf_webrtc_scene_sync_requires_usdz_prompt(
         return str(archive_path)
 
     monkeypatch.setattr(
-        session, "FLASHDREAMS_CACHE_DIR", tmp_path / "flashdreams-cache"
+        scenes, "FLASHDREAMS_CACHE_DIR", tmp_path / "flashdreams-cache"
     )
     monkeypatch.setattr(
         "huggingface_hub.hf_hub_download",

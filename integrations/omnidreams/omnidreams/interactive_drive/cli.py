@@ -21,22 +21,30 @@ from omnidreams.hf_org import DEFAULT_HF_ORG, apply_cli_to_env
 from omnidreams.hf_org import ENV_VAR as _HF_ORG_ENV_VAR
 from omnidreams.interactive_drive.synthetic_scene import build_synthetic_scene_to_temp
 from omnidreams.interactive_drive.world_model.manifest import load_world_model_manifest
+from omnidreams.scenes import local_scene_archive_path
 
 # Package root, derived from this file's location so all packaged-asset
 # defaults below resolve correctly regardless of the user's cwd. Layout:
 #   ``omnidreams/interactive_drive/cli.py`` (this file)
-#   ``omnidreams/interactive_drive/assets/scenes/``
 #   ``omnidreams/interactive_drive/configs/{example_world_model.yaml,wheels/}``
 # Users invoke ``uv run --package flashdreams-omnidreams interactive-drive``
-# from the workspace root; the bundled assets are reached relative to the
-# installed package, not the cwd.
+# from the workspace root; the bundled configs are reached relative to
+# the installed package, not the cwd. Scene USDZs no longer live under
+# the package -- they're staged into ``$FLASHDREAMS_CACHE_DIR/
+# omnidreams-scenes/`` (shared with the webrtc server).
 _PACKAGE_ROOT = Path(__file__).resolve().parent
 
-# Default scene staged by ``interactive-drive-prepare`` from
-# ``nvidia/omni-dreams-scenes``.
-DEFAULT_SCENE = (
-    _PACKAGE_ROOT / "assets/scenes/clipgt-01d503d4-449b-46fc-8d78-9085e70d3554.usdz"
-)
+# UUID of the scene staged by ``interactive-drive-prepare`` when no
+# ``--scene-uuid`` is specified and used as the demo's ``--scene``
+# default.
+DEFAULT_SCENE_UUID = "01d503d4-449b-46fc-8d78-9085e70d3554"
+
+# Default scene path: shared cache dir under ``$FLASHDREAMS_CACHE_DIR/
+# omnidreams-scenes/clipgt-<uuid>.usdz``. The desktop demo and the
+# webrtc server both cache under this root, so the HF download is
+# shared via huggingface_hub's content-addressed cache and a
+# pre-existing staged scene from one demo is visible to the other.
+DEFAULT_SCENE = local_scene_archive_path(DEFAULT_SCENE_UUID)
 
 
 def build_parser() -> argparse.ArgumentParser:

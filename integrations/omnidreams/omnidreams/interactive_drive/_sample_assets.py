@@ -20,17 +20,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-# ``_sample_assets.py`` lives at ``omnidreams/interactive_drive/``; the
-# bundled assets are in ``omnidreams/interactive_drive/assets/scenes/``.
-_PACKAGE_ROOT = Path(__file__).resolve().parent
+from omnidreams.scenes import local_scene_archive_path
 
-SAMPLE_SCENE: Path = (
-    _PACKAGE_ROOT
-    / "assets"
-    / "scenes"
-    / "clipgt-0d404ff7-2b66-498c-b047-1ed8cded60d4.usdz"
-)
-"""Optional real USDZ scene, staged by ``interactive-drive-prepare``.
+SAMPLE_SCENE: Path = local_scene_archive_path("0d404ff7-2b66-498c-b047-1ed8cded60d4")
+"""Optional real USDZ scene, staged by ``interactive-drive-prepare``
+into the shared cache (``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/
+clipgt-<uuid>.usdz``).
 
 Tests that use this path must silently skip when the file is absent so
 the suite stays green on machines / CI runners that haven't fetched the

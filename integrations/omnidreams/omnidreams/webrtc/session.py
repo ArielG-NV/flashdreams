@@ -42,6 +42,7 @@ from omnidreams.scenes import (
     SCENE_PROMPT_FILENAME,
     hf_hub_download_scene,
     hf_scenes_repo_id,
+    scenes_cache_root,
 )
 from omnidreams.transformer import CosmosTransformerConfig
 
@@ -71,9 +72,6 @@ DEFAULT_WEBRTC_SCENE_UUID = "065dcac9-ee67-4434-a835-c6b816c88e48"
 # stay valid.
 WEBRTC_SCENES_HF_BROWSER_URL = HF_DATASET_BROWSER_URL
 WEBRTC_SCENE_IMAGE_SUFFIXES = SCENE_IMAGE_SUFFIXES
-FLASHDREAMS_CACHE_DIR = Path(
-    os.path.expanduser(os.getenv("FLASHDREAMS_CACHE_DIR", "~/.cache/flashdreams"))
-)
 
 
 def _choose_existing_asset(
@@ -219,7 +217,12 @@ def _ensure_hf_webrtc_scene_synced(
     """
     scene_uuid = scene_uuid.strip()
     assert scene_uuid, "scene_uuid must be set."
-    cache_root = FLASHDREAMS_CACHE_DIR / "omnidreams-scenes"
+    # ``scenes_cache_root()`` is the same root the desktop demo writes
+    # ``clipgt-<uuid>.usdz`` archives to (via
+    # ``interactive_drive.prepare.stage_scene``); they coexist by name
+    # because the archive is a file while the webrtc extraction is a
+    # per-uuid directory.
+    cache_root = scenes_cache_root()
     scene_dir = cache_root / scene_uuid
     lock_path = cache_root / ".locks" / f"{scene_uuid}.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)

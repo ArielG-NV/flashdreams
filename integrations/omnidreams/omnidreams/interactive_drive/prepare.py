@@ -21,11 +21,12 @@ import shutil
 from pathlib import Path
 
 from omnidreams.hf_org import DEFAULT_HF_ORG, apply_cli_to_env
-from omnidreams.interactive_drive.cli import _PACKAGE_ROOT as _REPO_ROOT
 from omnidreams.scenes import (
     hf_hub_download_scene,
     hf_scenes_repo_id,
     list_available_scene_uuids,
+    local_scene_archive_path,
+    normalise_scene_uuid,
 )
 
 
@@ -113,10 +114,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def repo_root() -> Path:
-    return _REPO_ROOT
-
-
 def info(message: str) -> None:
     print(f"[prepare] {message}")
 
@@ -131,9 +128,14 @@ def human_bytes(value: int) -> str:
     return f"{value} B"
 
 
-def scene_path(root: Path, uuid: str) -> Path:
-    """Absolute path the demo expects the USDZ to live at."""
-    return root / "assets" / "scenes" / f"{uuid}.usdz"
+def scene_path(scene_uuid: str) -> Path:
+    """Absolute path the demo expects a staged USDZ scene to live at.
+
+    Shared cache layout under ``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/``;
+    see :func:`omnidreams.scenes.local_scene_archive_path` for the exact
+    convention. Accepts either a bare UUID or a ``clipgt-<uuid>`` stem.
+    """
+    return local_scene_archive_path(scene_uuid)
 
 
 def prewarm_huggingface_cache(
@@ -181,25 +183,30 @@ def prewarm_huggingface_cache(
         info(f"  \u2192 {local}")
 
 
-def stage_scene(root: Path, uuid: str, *, force: bool) -> Path:
-    """Download the scene USDZ from the HF dataset and materialise it at
-    ``assets/scenes/<uuid>.usdz`` so the ``interactive_drive --scene ...`` argument
-    can find it via its usual relative path.
+def stage_scene(scene_uuid: str, *, force: bool) -> Path:
+    """Download the scene USDZ from the HF dataset and materialise it under
+    ``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/clipgt-<uuid>.usdz`` so the
+    desktop demo's ``--scene`` arg points at a stable on-disk file.
 
-    ``hf_hub_download`` is used internally, so the file is also cached under
-    ``~/.cache/huggingface/hub/datasets--<org>--omni-dreams-scenes`` for the
-    resolved org and any subsequent pulls of the same UUID are no-ops.
+    The HF download itself is content-addressed by ``huggingface_hub``,
+    so subsequent calls with the same UUID -- including the webrtc
+    server's ``_ensure_hf_webrtc_scene_synced`` -- are cache hits.
+
+    Accepts either a bare UUID or a ``clipgt-<uuid>`` stem; both
+    normalise to the bare form for consistent path / URL building.
     """
-    dest = scene_path(root, uuid)
+    bare_uuid = normalise_scene_uuid(scene_uuid)
+    dest = scene_path(bare_uuid)
 
     if dest.exists() and not force:
         info(f"Scene already staged at {dest} ({human_bytes(dest.stat().st_size)}).")
         return dest
 
-    info(f"Downloading scene from {hf_scenes_repo_id()}: {uuid}.usdz")
-    cached = hf_hub_download_scene(uuid)
-    # Copy (not symlink) into assets/scenes/ so the path referenced by the
-    # demo command line is a real file robust to the HF cache moving.
+    info(f"Downloading scene from {hf_scenes_repo_id()}: clipgt-{bare_uuid}.usdz")
+    cached = hf_hub_download_scene(bare_uuid)
+    # Copy (not symlink) into the cache root so the path referenced by
+    # the demo command line is a real file robust to the HF cache moving
+    # (e.g. user sets HF_HOME between runs).
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(cached, dest)
     info(f"Staged scene at {dest} ({human_bytes(dest.stat().st_size)}).")
@@ -208,12 +215,11 @@ def stage_scene(root: Path, uuid: str, *, force: bool) -> Path:
 
 def main() -> int:
     args = parse_args()
-    root = repo_root()
 
     # Stamp the resolved HF org into the env var BEFORE the first call to
-    # ``scenes_repo()`` / ``hf_prewarm_urls()`` -- those are lazy and read
-    # from the env, so this single call routes every fetch below to the
-    # right org without explicit threading.
+    # ``hf_scenes_repo_id()`` / ``hf_prewarm_urls()`` -- those are lazy
+    # and read from the env, so this single call routes every fetch
+    # below to the right org without explicit threading.
     resolved_org = apply_cli_to_env(args.hf_org)
     if resolved_org != DEFAULT_HF_ORG:
         info(f"Using HF org '{resolved_org}' for omni-dreams repos.")
@@ -249,13 +255,13 @@ def main() -> int:
             "the --scene flag to interactive_drive."
         )
     elif args.scene_uuid is not None:
-        stage_scene(root, args.scene_uuid, force=args.force)
+        stage_scene(args.scene_uuid, force=args.force)
     else:
         uuids = list_available_scene_uuids()
         info(f"Staging all {len(uuids)} scene(s) from {hf_scenes_repo_id()}.")
         for i, uuid in enumerate(uuids, start=1):
             info(f"  [{i}/{len(uuids)}] {uuid}")
-            stage_scene(root, uuid, force=args.force)
+            stage_scene(uuid, force=args.force)
 
     info("Workspace assets are ready.")
     return 0

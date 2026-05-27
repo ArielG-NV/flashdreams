@@ -180,13 +180,19 @@ Common `interactive-drive-prepare` flags:
 If `interactive-drive-prepare` fails with `401`, `403`, or a gated-repo
 error, verify `HF_TOKEN` and confirm access to `nvidia/omni-dreams-scenes`.
 
-Once done, you should see this binary asset inside the workspace:
+Once done, you should see this binary asset under the shared scenes cache:
 
-- `assets/scenes/<scene-uuid>.usdz`
+- `~/.cache/flashdreams/omnidreams-scenes/clipgt-<scene-uuid>.usdz`
 
-Scene assets live under `assets/scenes/`; Hugging Face model snapshots live
-in the normal Hugging Face cache. Flashdreams manages its own video
-checkpoint locations.
+That directory (`$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/`) is shared
+with the WebRTC server: the desktop demo keeps the archive there and
+the WebRTC session pipeline extracts each scene's `clipgt/` payload
+under `<uuid>/` next to it. Both demos go through the same
+`huggingface_hub` content-addressed cache for the actual download, so
+the HF round-trip happens at most once per scene UUID regardless of
+which demo you launch first. Hugging Face model snapshots live in the
+normal HF cache; flashdreams manages its own video checkpoint
+locations.
 
 ### First-run behavior
 
@@ -236,10 +242,11 @@ process.
 uv run --package flashdreams-omnidreams interactive-drive
 ```
 
-The default `--scene` and `--manifest` resolve to the bundled
-`assets/scenes/clipgt-01d503d4-449b-46fc-8d78-9085e70d3554.usdz` and
-`configs/example_world_model.yaml`. Pass a different `--scene` or
-`--manifest` to override.
+The default `--scene` resolves to
+`$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/clipgt-01d503d4-449b-46fc-8d78-9085e70d3554.usdz`
+(staged on first launch via the HF auto-stage flow described above);
+`--manifest` resolves to the bundled `configs/example_world_model.yaml`.
+Pass a different `--scene` or `--manifest` to override.
 
 `--cuda-visible-devices` defaults to `auto`, which leaves whatever
 `CUDA_VISIBLE_DEVICES` you already exported alone (or, on hosts without

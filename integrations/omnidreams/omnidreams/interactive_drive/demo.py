@@ -26,6 +26,7 @@ from omnidreams import scenes as _scenes
 from omnidreams.interactive_drive import cli as _cli
 from omnidreams.interactive_drive.app import InteractiveDriveApp
 from omnidreams.interactive_drive.config import BevConfig, RasterConfig
+from omnidreams.scenes import normalise_scene_uuid, scenes_cache_root
 
 EVDEV_EVENT_FORMAT = "llHHi"
 EVDEV_EVENT_SIZE = struct.calcsize(EVDEV_EVENT_FORMAT)
@@ -519,8 +520,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--scene-dir",
         type=Path,
-        default=_cli._PACKAGE_ROOT / "assets/scenes",
-        help="Directory of USDZ scenes shown in the HUD scene selector.",
+        default=scenes_cache_root(),
+        help=(
+            "Directory of USDZ scenes shown in the HUD scene selector. "
+            "Defaults to ``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/``, "
+            "the shared cache root used by both this demo and the "
+            "``omnidreams.webrtc.server`` scene pipeline."
+        ),
     )
     parser.add_argument(
         "--autoload-scene",
@@ -576,14 +582,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _maybe_autostage_scene(scene: Path) -> Path:
-    """Auto-download a bundled scene UUID on first launch.
+    """Auto-download a known scene UUID on first launch.
 
-    Triggers only when ``scene`` lives under the sample's own
-    ``assets/scenes/`` dir, is missing on disk, and the filename matches
-    the ``clipgt-<uuid>.usdz`` convention used by
-    ``nvidia/omni-dreams-scenes``. User-pointed external paths and
-    non-clipgt filenames are returned unchanged so the demo's normal
-    "file not found" error fires for them.
+    Triggers only when ``scene`` lives under the shared scenes cache
+    root (``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/``), is missing on
+    disk, and the filename matches the ``clipgt-<uuid>.usdz`` convention
+    used by ``nvidia/omni-dreams-scenes``. User-pointed external paths
+    and non-clipgt filenames are returned unchanged so the demo's
+    normal "file not found" error fires for them.
 
     The explicit ``interactive-drive-prepare`` script remains the way to
     pre-stage arbitrary UUIDs and to pre-warm the Cosmos-Reason1 text
@@ -593,17 +599,18 @@ def _maybe_autostage_scene(scene: Path) -> Path:
     """
     if scene.exists():
         return scene
-    bundled_dir = (_cli._PACKAGE_ROOT / "assets" / "scenes").resolve()
-    if scene.resolve().parent != bundled_dir:
+    cache_dir = scenes_cache_root().resolve()
+    if scene.resolve().parent != cache_dir:
         return scene
     stem = scene.stem
     if not stem.startswith("clipgt-"):
         return scene
+    bare_uuid = normalise_scene_uuid(stem)
     if not os.environ.get("HF_TOKEN"):
         raise SystemExit(
             f"Scene '{scene.name}' is not staged yet and HF_TOKEN is not set.\n"
             "Either export HF_TOKEN to enable auto-staging on launch, or run:\n"
-            f"  uv run --package flashdreams-omnidreams interactive-drive-prepare --scene-uuid {stem}"
+            f"  uv run --package flashdreams-omnidreams interactive-drive-prepare --scene-uuid {bare_uuid}"
         )
     print(
         f"[interactive-drive] Scene '{stem}' not found locally; "
@@ -611,7 +618,7 @@ def _maybe_autostage_scene(scene: Path) -> Path:
     )
     from omnidreams.interactive_drive.prepare import stage_scene
 
-    return stage_scene(_cli._PACKAGE_ROOT, stem, force=False)
+    return stage_scene(bare_uuid, force=False)
 
 
 def main() -> None:
@@ -818,9 +825,6 @@ def _discover_scene_options(
         paths.update(path.resolve() for path in scene_dir.glob("*.usdz"))
     if selected_scene.parent.is_dir():
         paths.update(path.resolve() for path in selected_scene.parent.glob("*.usdz"))
-    default_scene_dir = PROJECT_ROOT / "assets" / "scenes"
-    if default_scene_dir.is_dir():
-        paths.update(path.resolve() for path in default_scene_dir.glob("*.usdz"))
     options = tuple(
         SceneOption(
             label=_scene_label(path),
