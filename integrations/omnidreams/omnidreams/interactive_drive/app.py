@@ -22,7 +22,6 @@ from omnidreams.interactive_drive.simulation.ego_vehicle_kinematics import (
     build_ground_snapper,
     state_from_initial_pose,
 )
-from omnidreams.interactive_drive.streaming_presenter import MJPEGStreamingPresenter
 from omnidreams.interactive_drive.types import PresentedFrame
 from omnidreams.interactive_drive.video_model.chunk_pipeline import ChunkPipeline
 from omnidreams.interactive_drive.video_model.local import LocalVideoModelAdapter
@@ -45,10 +44,11 @@ class InteractiveDriveApp:
         presenter (e.g. :class:`SlangPyHudPresenter`) that needs
         constructor arguments outside :class:`AppConfig`'s vocabulary
         (scene-selector options, wheel device, control assets). When
-        ``None``, :func:`_build_presenter` picks between
-        :class:`SlangPyPresenter` and :class:`MJPEGStreamingPresenter`
-        based on ``config.stream_mjpeg_bind``, preserving ``--no-hud``
-        and ``--stream-mjpeg`` exactly.
+        ``None``, :func:`_build_presenter` returns the default
+        :class:`SlangPyPresenter` -- a local Vulkan window. Browser /
+        remote streaming use cases are served by
+        ``omnidreams.webrtc.server`` instead of an in-process HTTP
+        stream on the demo.
         """
         self._config = config
         self._backend = backend
@@ -68,8 +68,8 @@ class InteractiveDriveApp:
         # loop) owns the presenter's lifecycle: it constructs one
         # presenter at startup, reuses it across many ``app.run()``
         # calls, and only closes it when the user actually closes the
-        # window. Default ``True`` keeps the legacy behaviour for
-        # ``--no-hud`` / ``--stream-mjpeg``.
+        # window. Default ``True`` matches the bare ``--no-hud`` path
+        # where each ``app.run()`` owns one presenter end-to-end.
         self._close_presenter_on_exit = bool(close_presenter_on_exit)
 
     def run(self) -> None:
@@ -125,48 +125,12 @@ class InteractiveDriveApp:
                 self._presenter.close()
 
 
-def _build_presenter(
-    config: AppConfig, keyboard: KeyboardState
-) -> SlangPyPresenter | MJPEGStreamingPresenter:
-    """Choose between the Vulkan window presenter and the HTTP MJPEG
-    presenter based on ``config.stream_mjpeg_bind``.
+def _build_presenter(config: AppConfig, keyboard: KeyboardState) -> SlangPyPresenter:
+    """Default presenter factory: a local Vulkan window via slangpy.
 
-    ``SlangPyPresenter`` requires a graphics-capable GPU (can't run on a
-    compute-only SKU like GB300). ``MJPEGStreamingPresenter`` is the
-    fallback: it renders no window and has no GPU dependency, instead
-    serving frames over HTTP so a remote browser can view them.
+    Browser / remote streaming use cases are served by
+    ``omnidreams.webrtc.server`` (a separate entry point), not by an
+    in-process HTTP stream on the desktop demo. Hosts without a
+    graphics-capable GPU should run the webrtc server instead.
     """
-    if config.stream_mjpeg_bind is not None:
-        host, port = _parse_bind(config.stream_mjpeg_bind)
-        return MJPEGStreamingPresenter(
-            raster=config.raster,
-            keyboard=keyboard,
-            bind_host=host,
-            bind_port=port,
-        )
     return SlangPyPresenter(raster=config.raster, keyboard=keyboard)
-
-
-def _parse_bind(value: str) -> tuple[str, int]:
-    """Accept ``HOST:PORT`` or bare ``:PORT`` (bind-all-interfaces).
-
-    The bare-port form is convenient for running over SSH tunnels where
-    the user only wants to listen on localhost but the tunnel handles
-    the external routing.
-    """
-    if ":" not in value:
-        raise ValueError(
-            f"--stream-mjpeg expected HOST:PORT (e.g. 0.0.0.0:8080), got {value!r}"
-        )
-    host, port_str = value.rsplit(":", 1)
-    if not host:
-        host = "0.0.0.0"
-    try:
-        port = int(port_str)
-    except ValueError as exc:
-        raise ValueError(
-            f"--stream-mjpeg port must be an integer, got {port_str!r}"
-        ) from exc
-    if not 1 <= port <= 65535:
-        raise ValueError(f"--stream-mjpeg port out of range: {port}")
-    return host, port

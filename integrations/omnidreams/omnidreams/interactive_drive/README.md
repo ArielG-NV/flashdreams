@@ -113,9 +113,8 @@ Additional prerequisites:
    ```
 
 3. **Install EGL inside the container.** The world-model backend renders
-   frames via EGL on every run path — local Vulkan window, HUD, and the
-   `--stream-mjpeg` HTTP stream — so this step is required regardless of
-   how you plan to view the output:
+   frames via EGL on both run paths (HUD and `--no-hud` bare Vulkan
+   window), so this step is required regardless of which one you use:
 
    ```bash
    apt-get update && apt-get install -y --no-install-recommends \
@@ -212,14 +211,18 @@ this subpackage (via `__file__`), so you don't have to pass long
 `integrations/omnidreams/omnidreams/interactive_drive/...` paths unless
 you want to override them.
 
-There is one entry point — `interactive-drive` — and three modes selected by
+There is one entry point — `interactive-drive` — and two modes selected by
 flags:
 
 | Mode | When to use | How |
 |---|---|---|
 | **HUD (default)** | You have a graphical desktop session and want the full demo: scene/variant selector, steering wheel + pedals overlay, BEV minimap, keyboard *and* wheel input. | `interactive-drive ...` |
-| **Bare backend, local window** | You want the original lightweight setup: a single Vulkan window showing the world-model output, no HUD chrome. | `interactive-drive --no-hud ...` |
-| **Bare backend, browser** | The demo machine has no local display, or you want to view from a laptop browser while the model runs elsewhere. Implies `--no-hud`. | `interactive-drive --stream-mjpeg HOST:PORT ...` |
+| **Bare backend, local window** | You want the lightweight setup: a single Vulkan window showing the world-model output, no HUD chrome. | `interactive-drive --no-hud ...` |
+
+For browser / remote streaming, use the separate
+`omnidreams.webrtc.server` entry point (see [`integrations/omnidreams/README.md`](../../README.md))
+— it ships a WebRTC viewer with a polished frontend and lower latency
+than an in-process HTTP stream would offer.
 
 The HUD itself uses pygame/SDL2 for rendering, which keeps the demo responsive
 in fullscreen at high display resolutions (press `F11` to toggle). It supervises
@@ -274,30 +277,7 @@ You should initially see the generated driving view. Press `2` to switch to the
 HD map view (conditioning input) and `1` to switch back to the photorealistic
 output.
 
-### `--stream-mjpeg`: bare backend served over HTTP
-
-Use this when the demo machine has no local display, when you're connecting
-over the network, or when you want to demo from a laptop browser while the
-model runs elsewhere. Implies `--no-hud` because the user is then viewing
-through a browser, not a local pygame window.
-
-```bash
-uv run --package flashdreams-omnidreams interactive-drive --stream-mjpeg :8080
-```
-
-Open `http://<host-ip>:8080/` in a browser on the same network; keyboard
-events posted from the page are forwarded to the demo over the same socket.
-
-On cloud GPU instances, the demo port may not be reachable directly from your
-laptop. Forward the port and open the local forwarded URL instead. For Brev:
-
-```bash
-brev port-forward <instance> -p 8080:8080
-```
-
-Then open `http://localhost:8080/`.
-
-Controls (apply in all three modes):
+Controls (apply in both modes):
 
 - `W` throttle
 - `S` brake / reverse drag

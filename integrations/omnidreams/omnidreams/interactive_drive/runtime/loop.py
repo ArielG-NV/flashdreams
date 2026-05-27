@@ -31,9 +31,8 @@ class PresenterBackend(Protocol):
     def present_frame(self, frame: PresentedFrame, view_mode: str) -> None: ...
 
     # ``close`` is part of every concrete presenter
-    # (:class:`SlangPyPresenter`, :class:`MJPEGStreamingPresenter`,
-    # :class:`SlangPyHudPresenter`) and is invoked from
-    # :meth:`InteractiveDriveApp.run`'s teardown path.
+    # (:class:`SlangPyPresenter`, :class:`SlangPyHudPresenter`) and is
+    # invoked from :meth:`InteractiveDriveApp.run`'s teardown path.
     def close(self) -> None: ...
 
 

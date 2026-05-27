@@ -164,18 +164,6 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--stream-mjpeg",
-        default=None,
-        metavar="HOST:PORT",
-        help=(
-            "Instead of opening a Vulkan window, serve frames as an MJPEG "
-            "HTTP stream on this bind address (e.g. 0.0.0.0:8080 or :8080). "
-            "The user opens http://HOST:PORT/ in a browser to view the demo "
-            "and send keyboard input. Required on compute-only boxes (e.g. "
-            "GB300-only DGX Station) where no Vulkan-capable GPU exists."
-        ),
-    )
-    parser.add_argument(
         "--bev",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -320,7 +308,6 @@ def prepare_config_and_backend(
         ),
         world_model_offload_text_encoder=bool(args.offload_text_encoder),
         bev=bev_config,
-        stream_mjpeg_bind=args.stream_mjpeg,
     )
 
     backend: RenderBackend
@@ -352,11 +339,10 @@ def run(
 ) -> None:
     """Execute the interactive-drive backend with the given parsed args.
 
-    Convenience wrapper used by ``--no-hud`` and ``--stream-mjpeg``
-    callers that don't need to switch scenes mid-run. The slangpy HUD
-    path drives :func:`prepare_config_and_backend` directly so it can
-    rebuild the backend per scene click without recreating the
-    presenter.
+    Convenience wrapper used by the ``--no-hud`` path that doesn't need
+    to switch scenes mid-run. The slangpy HUD path drives
+    :func:`prepare_config_and_backend` directly so it can rebuild the
+    backend per scene click without recreating the presenter.
     """
     config, backend = prepare_config_and_backend(args)
     app = InteractiveDriveApp(
