@@ -4,7 +4,6 @@
 import math
 
 import numpy as np
-
 from omnidreams.interactive_drive.config import ChunkConfig, VehicleConfig
 from omnidreams.interactive_drive.math3d import rig_pose_from_state
 from omnidreams.interactive_drive.simulation.ground_snap import GroundSnapper

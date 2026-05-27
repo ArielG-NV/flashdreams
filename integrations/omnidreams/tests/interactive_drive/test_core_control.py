@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import pytest
-
 from omnidreams.interactive_drive.config import ChunkConfig, VehicleConfig
 from omnidreams.interactive_drive.control import (
     command_from_snapshot,

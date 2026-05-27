@@ -13,11 +13,10 @@ from pathlib import Path
 from typing import IO
 
 import pytest
-from pyvirtualdisplay.display import Display
-
 from omnidreams.interactive_drive import _sample_assets
 from omnidreams.interactive_drive._sample_assets import SAMPLE_SCENE
 from omnidreams.interactive_drive.scene_fixture import build_synthetic_scene_usdz
+from pyvirtualdisplay.display import Display
 
 _WARMUP_SENTINEL = "[chunk-pipeline] warmup done"
 _WARMUP_TIMEOUT_S = 90.0

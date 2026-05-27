@@ -15,7 +15,6 @@ runtime API.
 from pathlib import Path
 
 import numpy as np
-
 from omnidreams.interactive_drive.types import (
     CameraCalibration,
     FrameChunk,

@@ -38,10 +38,9 @@ from ludus_renderer.clipgt import ClipgtGpuScene
 from ludus_renderer.render_utils import SceneAdapter
 from ludus_renderer.torch import LudusCudaTimestampedContext
 from ludus_renderer.torch.ops import CAMERA_TYPE_BEV, CAMERA_TYPE_REGULAR
-from torch import Tensor
-
 from omnidreams.interactive_drive.config import BevConfig, RasterConfig
 from omnidreams.interactive_drive.types import PresentedFrame, RasterChunk, SceneBundle
+from torch import Tensor
 
 _BEV_CAMERA_NAME = "interactive_drive_bev"
 

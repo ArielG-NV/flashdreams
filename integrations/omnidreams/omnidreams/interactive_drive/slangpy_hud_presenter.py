@@ -51,11 +51,10 @@ from collections import OrderedDict
 from typing import Any
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
-
 from omnidreams.interactive_drive.config import RasterConfig
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
+from PIL import Image, ImageDraw, ImageFont
 
 # Colour palette mirrors :mod:`omnidreams.interactive_drive.demo` and the
 # pygame HUD it replaces, so the visual identity stays the same.

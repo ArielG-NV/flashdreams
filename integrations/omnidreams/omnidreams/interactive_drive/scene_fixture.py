@@ -13,10 +13,9 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 import yaml
-from PIL import Image
-
 from omnidreams.interactive_drive.math3d import rig_pose_from_state
 from omnidreams.interactive_drive.ply_io import save_mesh_vf
+from PIL import Image
 
 _SCENE_ID = "synthetic-test-scene"
 _CAMERA_CLIPGT_NAME = "camera:front:wide:120fov"

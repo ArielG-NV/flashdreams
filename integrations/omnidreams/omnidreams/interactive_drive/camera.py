@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import numpy.typing as npt
-
 from omnidreams.interactive_drive.math3d import invert_transform, transform_points
 from omnidreams.interactive_drive.types import CameraCalibration
 

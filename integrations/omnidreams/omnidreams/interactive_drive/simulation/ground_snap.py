@@ -16,7 +16,6 @@ import math
 
 import numpy as np
 import numpy.typing as npt
-
 from omnidreams.interactive_drive.config import VehicleConfig
 from omnidreams.interactive_drive.types import VehicleState
 

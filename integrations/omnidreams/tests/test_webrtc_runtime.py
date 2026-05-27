@@ -324,9 +324,7 @@ def test_hf_webrtc_scene_sync_requires_usdz_prompt(
         assert filename == archive_repo_path
         return str(archive_path)
 
-    monkeypatch.setattr(
-        scenes, "FLASHDREAMS_CACHE_DIR", tmp_path / "flashdreams-cache"
-    )
+    monkeypatch.setattr(scenes, "FLASHDREAMS_CACHE_DIR", tmp_path / "flashdreams-cache")
     monkeypatch.setattr(
         "huggingface_hub.hf_hub_download",
         _fake_hf_hub_download,

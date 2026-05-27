@@ -14,7 +14,6 @@ from __future__ import annotations
 import sys
 
 import pytest
-
 from omnidreams.interactive_drive import _sample_assets
 
 _CI_TIER_MARKERS = {"ci_cpu", "ci_gpu", "manual"}

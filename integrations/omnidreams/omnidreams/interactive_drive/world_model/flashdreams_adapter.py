@@ -11,7 +11,6 @@ from typing import Any
 
 import numpy as np
 import torch
-
 from omnidreams.interactive_drive.config import WorldModelProfileConfig
 from omnidreams.interactive_drive.world_model.manifest import WorldModelManifest
 
@@ -66,9 +65,10 @@ def _build_pipeline_config(
     manifest: WorldModelManifest, profile: WorldModelProfileConfig
 ) -> Any:
     try:
+        from omnidreams.config import OMNIDREAMS_CONFIGS
+
         from flashdreams.infra.config import derive_config
         from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
-        from omnidreams.config import OMNIDREAMS_CONFIGS
     except ModuleNotFoundError as exc:
         raise RuntimeError(
             "The flashdreams and flashdreams-omnidreams packages are required "

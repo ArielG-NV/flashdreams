@@ -20,13 +20,12 @@ from typing import Any
 
 import numpy as np
 import yaml
-from PIL import Image
-
 from omnidreams import scenes as _scenes
 from omnidreams.interactive_drive import cli as _cli
 from omnidreams.interactive_drive.app import InteractiveDriveApp
 from omnidreams.interactive_drive.config import BevConfig, RasterConfig
 from omnidreams.scenes import normalise_scene_uuid, scenes_cache_root
+from PIL import Image
 
 EVDEV_EVENT_FORMAT = "llHHi"
 EVDEV_EVENT_SIZE = struct.calcsize(EVDEV_EVENT_FORMAT)

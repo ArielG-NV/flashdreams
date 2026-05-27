@@ -7,7 +7,6 @@ from dataclasses import replace
 
 import numpy as np
 import torch
-
 from omnidreams.interactive_drive.world_model.flashdreams_adapter import (
     FlashdreamsWorldModelSession,
     _select_config_name,

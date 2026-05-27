@@ -8,7 +8,6 @@ from omnidreams.interactive_drive._pipeline_fakes import (
     make_trajectory,
     minimal_scene,
 )
-
 from omnidreams.interactive_drive.runtime.timing import ChunkPrediction, ChunkTimes
 from omnidreams.interactive_drive.video_model.chunk_pipeline import (
     ChunkPipeline,

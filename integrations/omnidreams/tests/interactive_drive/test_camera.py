@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import numpy as np
-
 from omnidreams.interactive_drive.camera import FThetaCameraModel
 from omnidreams.interactive_drive.types import CameraCalibration
 

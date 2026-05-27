@@ -8,8 +8,6 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
-
 from omnidreams.interactive_drive.backends.base import RenderBackend
 from omnidreams.interactive_drive.config import (
     BevConfig,
@@ -28,6 +26,7 @@ from omnidreams.interactive_drive.world_model.flashdreams_adapter import (
     FlashdreamsWorldModelSession,
 )
 from omnidreams.interactive_drive.world_model.manifest import WorldModelManifest
+from PIL import Image
 
 _FIRST_STEADY_STATE_WARMUP_MESSAGE = "Optimizing world model..."
 

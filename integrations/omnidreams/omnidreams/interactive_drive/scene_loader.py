@@ -13,10 +13,6 @@ from typing import Any
 import numpy as np
 import pyarrow.parquet as pq
 import yaml
-from PIL import Image
-
-from omnidreams.scenes import variant_from_stem
-
 from omnidreams.interactive_drive.camera import FThetaCameraModel
 from omnidreams.interactive_drive.colors import (
     BBOX_V3_COLORS,
@@ -49,6 +45,8 @@ from omnidreams.interactive_drive.types import (
     WorldTriangleList,
     WorldVehicleBBoxTrack,
 )
+from omnidreams.scenes import variant_from_stem
+from PIL import Image
 
 _GROUND_MESH_NAME = "mesh_ground.ply"
 

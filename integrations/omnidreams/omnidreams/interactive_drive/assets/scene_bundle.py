@@ -5,9 +5,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from omnidreams.interactive_drive.scene_loader import (
+    load_scene_bundle as load_scene_bundle,
+)
 from omnidreams.scenes import variant_from_stem
-
-from omnidreams.interactive_drive.scene_loader import load_scene_bundle as load_scene_bundle
 
 
 def canonicalize_camera_name(name: str) -> str:

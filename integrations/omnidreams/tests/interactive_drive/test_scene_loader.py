@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import pytest
 from omnidreams.interactive_drive._sample_assets import SAMPLE_SCENE
-
 from omnidreams.interactive_drive.colors import BBOX_V3_COLORS
 from omnidreams.interactive_drive.config import RasterConfig
 from omnidreams.interactive_drive.scene_loader import load_scene_bundle

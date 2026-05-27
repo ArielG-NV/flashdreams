@@ -8,8 +8,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from PIL import Image
-
 from omnidreams.interactive_drive.config import RasterConfig
 from omnidreams.interactive_drive.scene_fixture import build_synthetic_scene_usdz
 from omnidreams.interactive_drive.scene_loader import load_scene_bundle
@@ -17,6 +15,7 @@ from omnidreams.interactive_drive.synthetic_scene import (
     build_default_synthetic_scene,
     build_synthetic_scene_to_temp,
 )
+from PIL import Image
 
 
 def _make_solid_rgb(tmp_path: Path, color: tuple[int, int, int]) -> Path:

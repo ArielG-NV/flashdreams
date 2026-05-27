@@ -39,14 +39,13 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 from omnidreams.interactive_drive._sample_assets import SAMPLE_SCENE
-from PIL import Image
-
 from omnidreams.interactive_drive.backends.raster import RasterRenderBackend
 from omnidreams.interactive_drive.config import AppConfig
 from omnidreams.interactive_drive.control import iterate_frame_chunks
 from omnidreams.interactive_drive.scene_fixture import build_synthetic_scene_usdz
 from omnidreams.interactive_drive.scene_loader import load_scene_bundle
 from omnidreams.interactive_drive.types import DriverCommand
+from PIL import Image
 
 _TESTS_DIR = Path(__file__).resolve().parent
 _ARTIFACTS_DIR = _TESTS_DIR / "artifacts"

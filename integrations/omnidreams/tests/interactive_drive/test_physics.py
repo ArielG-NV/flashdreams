@@ -14,7 +14,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from omnidreams.interactive_drive.config import ChunkConfig, VehicleConfig
 from omnidreams.interactive_drive.control import sample_chunk_trajectory
 from omnidreams.interactive_drive.physics import GroundSnapper

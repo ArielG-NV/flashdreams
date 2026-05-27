@@ -28,9 +28,8 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
-
 from omnidreams.interactive_drive.scene_fixture import build_synthetic_scene_usdz
+from PIL import Image
 
 # Internal frame-rate of the underlying scene_fixture trajectory and the
 # nominal driving speed it bakes in. ``length_km`` is converted to
