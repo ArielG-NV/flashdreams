@@ -136,8 +136,8 @@ Additional prerequisites:
 ### 3. Sync and stage assets
 
 Run everything from the **flashdreams workspace root** — the standard
-flashdreams convention. The `desktop` extra pulls in `slangpy` (the
-Vulkan-backed local windowing runtime) on top of the base
+flashdreams convention. The `interactive-drive` extra pulls in `slangpy`
+(the Vulkan-backed local windowing runtime) on top of the base
 `flashdreams-omnidreams` deps; server-only users (`omnidreams.webrtc` /
 `omnidreams.grpc`) skip it.
 
