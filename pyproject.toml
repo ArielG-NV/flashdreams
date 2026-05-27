@@ -172,7 +172,7 @@ docs-ci = [
     "numpy>=1.24",
     "safetensors>=0.4",
     "torch>=2.11",
-    "torchvision>=0.22",
+    "torchvision>=0.26",
     "tqdm>=4.60",
     "transformers>=5.0,<6",
 ]
