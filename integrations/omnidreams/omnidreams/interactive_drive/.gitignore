@@ -1,0 +1,4 @@
+# Staged scene USDZs (downloaded at runtime by ``interactive-drive-prepare``
+# or auto-staged on first ``interactive-drive`` launch). The ``.gitkeep``
+# keeps the directory itself in git.
+assets/scenes/*.usdz
