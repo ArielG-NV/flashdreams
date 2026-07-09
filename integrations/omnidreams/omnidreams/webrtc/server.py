@@ -31,8 +31,6 @@ from flashdreams.serving.webrtc.bootstrap import (
 from flashdreams.serving.webrtc.server import WebRTCSessionManager, create_webrtc_app
 
 WEB_DIR_RESOURCE = files("omnidreams.webrtc").joinpath("web")
-# Wheel-installed deployments skip this optional mount when the repo root is absent.
-REPO_ASSETS_DIR = Path(__file__).resolve().parents[4] / "assets"
 
 
 def parse_args() -> argparse.Namespace:
@@ -132,8 +130,6 @@ def create_app(
             preload_name="Omnidreams",
             request_session_url=request_session_url,
         )
-        if REPO_ASSETS_DIR.is_dir():
-            app.router.add_static("/assets/", REPO_ASSETS_DIR, show_index=False)
         app["package_resource_stack"] = resource_stack
         app.on_cleanup.append(_close_package_resources)
     except Exception:
