@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import importlib
+import importlib.util
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -316,12 +318,17 @@ def _threshold_failures(
 def _compute_flip_scores(
     reference: RGBVideo, candidate: RGBVideo, indices: tuple[int, ...]
 ) -> tuple[float, ...]:
-    try:
-        import flip_evaluator  # noqa: PLC0415
-    except ImportError as exc:  # pragma: no cover - import-time gate
+    if importlib.util.find_spec("flip_evaluator") is None:
         raise ImportError(
             "FLIP clip comparison requires flip-evaluator. Install the "
             "omnidreams dev extra or set max_mean_flip/max_frame_flip to None."
+        )
+    try:
+        flip_evaluator = importlib.import_module("flip_evaluator")
+    except ImportError as exc:
+        raise ImportError(
+            "FLIP clip comparison requires a working flip-evaluator install. "
+            "Install the omnidreams dev extra or set max_mean_flip/max_frame_flip to None."
         ) from exc
 
     scores = []
