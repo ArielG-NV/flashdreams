@@ -66,6 +66,15 @@ class VehicleConfig:
     max_accel_mps2: float = 3.5
     max_brake_mps2: float = 6.0
     drag_mps2: float = 0.7
+    mass_kg: float = 1550.0
+    reference_mass_kg: float = 1550.0
+    drive_force_n: float | None = None
+    brake_force_n: float | None = None
+    rolling_resistance_mps2: float = 0.08
+    aero_drag_mps2_at_max_speed: float = 0.45
+    lateral_grip: float = 1.0
+    collision_restitution: float = 0.05
+    obstacle_collision_mass_kg: float = 1800.0
     # Ego AABB used by :class:`omnidreams.interactive_drive.simulation.ground_snap.GroundSnapper` to decide
     # which area of the ground mesh to query when snapping z + pitch + roll.
     # Defaults match a typical sedan; the alpasim test data uses

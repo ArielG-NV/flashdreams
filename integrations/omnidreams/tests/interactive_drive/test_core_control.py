@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 from omnidreams.interactive_drive.config import ChunkConfig, VehicleConfig
 from omnidreams.interactive_drive.input.keyboard import command_from_snapshot
+from omnidreams.interactive_drive.simulation.collision import CollisionWorld
 from omnidreams.interactive_drive.simulation.ego_vehicle_kinematics import (
     integrate_vehicle,
     sample_chunk_trajectory,
@@ -14,6 +16,7 @@ from omnidreams.interactive_drive.types import (
     ControlSnapshot,
     DriverCommand,
     VehicleState,
+    WorldVehicleBBoxTrack,
 )
 
 
@@ -80,6 +83,63 @@ def test_manual_throttle_only_still_accelerates() -> None:
 
     advanced = integrate_vehicle(state, throttle, dt_s=0.1, vehicle=vehicle)
     assert advanced.speed_mps > state.speed_mps
+
+
+def test_vehicle_mass_changes_acceleration_response() -> None:
+    sedan = VehicleConfig(mass_kg=1500.0)
+    truck = VehicleConfig(mass_kg=6000.0)
+    state = VehicleState(
+        x_m=0.0, y_m=0.0, z_m=0.0, yaw_rad=0.0, speed_mps=0.0, steer_rad=0.0
+    )
+    command = DriverCommand(throttle=1.0)
+
+    sedan_next = integrate_vehicle(state, command, dt_s=1.0, vehicle=sedan)
+    truck_next = integrate_vehicle(state, command, dt_s=1.0, vehicle=truck)
+
+    assert sedan_next.speed_mps > truck_next.speed_mps
+
+
+def test_passive_drag_slows_vehicle_without_input() -> None:
+    vehicle = VehicleConfig(drag_mps2=0.7, rolling_resistance_mps2=0.2)
+    state = VehicleState(
+        x_m=0.0, y_m=0.0, z_m=0.0, yaw_rad=0.0, speed_mps=8.0, steer_rad=0.0
+    )
+
+    slowed = integrate_vehicle(state, DriverCommand(), dt_s=1.0, vehicle=vehicle)
+
+    assert 0.0 < slowed.speed_mps < state.speed_mps
+
+
+def test_collision_with_obstacle_separates_and_reduces_speed() -> None:
+    track = WorldVehicleBBoxTrack(
+        track_id="parked-car",
+        object_type="Car",
+        timestamps_us=np.array([0, 100_000], dtype=np.int64),
+        centers_world=np.array([[3.0, 0.0, 0.0], [3.0, 0.0, 0.0]], dtype=np.float32),
+        dimensions_lwh=np.array([[4.0, 2.0, 1.6], [4.0, 2.0, 1.6]], dtype=np.float32),
+        orientations_xyzw=np.array(
+            [[0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0]], dtype=np.float32
+        ),
+        max_extrapolation_us=0.0,
+    )
+    start = VehicleState(
+        x_m=0.0, y_m=0.0, z_m=0.0, yaw_rad=0.0, speed_mps=5.0, steer_rad=0.0
+    )
+
+    chunk = sample_chunk_trajectory(
+        start_state=start,
+        start_timestamp_us=0,
+        command=DriverCommand(),
+        chunk_size=1,
+        chunk_config=ChunkConfig(fps=10),
+        vehicle_config=VehicleConfig(),
+        ground_snapper=None,
+        collision_world=CollisionWorld.from_tracks((track,)),
+    )
+
+    final = chunk.boundary_state_after_chunk
+    assert final.x_m < 0.0
+    assert final.speed_mps < start.speed_mps
 
 
 def test_integrate_vehicle_accumulates_steering_gradually() -> None:

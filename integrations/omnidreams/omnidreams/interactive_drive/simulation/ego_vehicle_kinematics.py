@@ -7,6 +7,7 @@ import numpy as np
 from loguru import logger
 from omnidreams.interactive_drive.config import ChunkConfig, VehicleConfig
 from omnidreams.interactive_drive.math3d import rig_pose_from_state
+from omnidreams.interactive_drive.simulation.collision import CollisionWorld
 from omnidreams.interactive_drive.simulation.ground_snap import GroundSnapper
 from omnidreams.interactive_drive.simulation.map_bounds import MapBounds
 from omnidreams.interactive_drive.types import (
@@ -21,6 +22,38 @@ def _move_towards(current: float, target: float, max_delta: float) -> float:
     if current < target:
         return min(current + max_delta, target)
     return max(current - max_delta, target)
+
+
+def _force_limited_accel(vehicle: VehicleConfig) -> float:
+    drive_force = vehicle.drive_force_n
+    if drive_force is None:
+        drive_force = vehicle.max_accel_mps2 * vehicle.reference_mass_kg
+    return max(0.0, drive_force / max(vehicle.mass_kg, 1.0))
+
+
+def _force_limited_brake(vehicle: VehicleConfig) -> float:
+    brake_force = vehicle.brake_force_n
+    if brake_force is None:
+        brake_force = vehicle.max_brake_mps2 * vehicle.reference_mass_kg
+    return max(0.0, brake_force / max(vehicle.mass_kg, 1.0))
+
+
+def _drag_accel(speed_mps: float, vehicle: VehicleConfig) -> float:
+    speed = abs(speed_mps)
+    if speed <= 1e-5:
+        return 0.0
+    max_speed = max(vehicle.max_speed_mps, 1e-6)
+    aero = vehicle.aero_drag_mps2_at_max_speed * min(4.0, (speed / max_speed) ** 2)
+    return vehicle.rolling_resistance_mps2 + vehicle.drag_mps2 + aero
+
+
+def _apply_passive_drag(speed_mps: float, dt_s: float, vehicle: VehicleConfig) -> float:
+    decel = _drag_accel(speed_mps, vehicle) * dt_s
+    if speed_mps > 0.0:
+        return max(0.0, speed_mps - decel)
+    if speed_mps < 0.0:
+        return min(0.0, speed_mps + decel)
+    return 0.0
 
 
 def integrate_vehicle(
@@ -49,14 +82,14 @@ def integrate_vehicle(
         # Brake wins over throttle: holding both pedals bleeds speed toward a
         # stop, matching real cars and the demo.py target-speed integrators.
         if command.brake > 0.01:
-            decel = 12.0 * command.brake * dt_s
+            decel = _force_limited_brake(vehicle) * 2.0 * command.brake * dt_s
             if speed > 0:
                 speed = max(0.0, speed - decel)
             elif speed < 0:
                 speed = min(0.0, speed + decel)
         elif command.throttle > 0.01:
             max_speed = vehicle.max_speed_mps
-            accel = 2.0 * command.throttle * dt_s
+            accel = _force_limited_accel(vehicle) * command.throttle * dt_s
             if speed * intended_direction < 0:
                 engine_brake_multiplier = 1.5
                 if speed > 0:
@@ -74,6 +107,7 @@ def integrate_vehicle(
                     )
                     taper = max(0.05, 0.5 * (1.0 - excess) ** 3)
                 speed += intended_direction * accel * taper
+                speed = _apply_passive_drag(speed, dt_s, vehicle)
         else:
             creep_target = (
                 4.47  # 10 mph, matching the HUD and AlpaSim manual-driver crawl.
@@ -89,19 +123,21 @@ def integrate_vehicle(
             np.clip(speed, -vehicle.max_reverse_speed_mps, vehicle.max_speed_mps)
         )
     else:
-        accel = command.throttle * vehicle.max_accel_mps2
-        brake = command.brake * vehicle.max_brake_mps2
+        accel = command.throttle * _force_limited_accel(vehicle)
+        brake = command.brake * _force_limited_brake(vehicle)
         speed = speed + (accel - brake) * dt_s
         if abs(command.throttle) < 1e-3 and abs(command.brake) < 1e-3:
-            if speed > 0.0:
-                speed = max(0.0, speed - vehicle.drag_mps2 * dt_s)
-            else:
-                speed = min(0.0, speed + vehicle.drag_mps2 * dt_s)
+            speed = _apply_passive_drag(speed, dt_s, vehicle)
         speed = float(np.clip(speed, 0.0, vehicle.max_speed_mps))
 
     yaw_rate = 0.0
     if abs(steer_rad) > 1e-5 and abs(speed) > 1e-5:
-        yaw_rate = speed / vehicle.wheel_base_m * math.tan(steer_rad)
+        speed_ratio = abs(speed) / max(vehicle.max_speed_mps, 1e-6)
+        grip_speed = max(0.0, 1.0 - speed_ratio**2)
+        grip = max(
+            0.15, min(1.0, vehicle.lateral_grip * (0.45 + 0.55 * grip_speed))
+        )
+        yaw_rate = speed / vehicle.wheel_base_m * math.tan(steer_rad) * grip
 
     yaw = state.yaw_rad + yaw_rate * dt_s
     x_m = state.x_m + math.cos(yaw) * speed * dt_s
@@ -127,6 +163,7 @@ def sample_chunk_trajectory(
     chunk_config: ChunkConfig,
     vehicle_config: VehicleConfig,
     ground_snapper: GroundSnapper | None,
+    collision_world: CollisionWorld | None = None,
 ) -> TrajectoryChunk:
     timestamps = np.array(
         [
@@ -144,6 +181,10 @@ def sample_chunk_trajectory(
         )
         if ground_snapper is not None:
             state = ground_snapper.snap(state, vehicle_config)
+        if collision_world is not None:
+            state, _ = collision_world.resolve(
+                state, vehicle_config, int(timestamps[frame_idx])
+            )
         poses[frame_idx] = rig_pose_from_state(
             x_m=state.x_m,
             y_m=state.y_m,
@@ -219,6 +260,7 @@ class EgoVehicleKinematics:
         ground_snapper: GroundSnapper | None,
         initial_timestamp_us: int,
         map_bounds: MapBounds | None = None,
+        collision_world: CollisionWorld | None = None,
         oob_margin_m: float = 50.0,
         oob_warning_zone_m: float = 100.0,
     ) -> None:
@@ -227,6 +269,7 @@ class EgoVehicleKinematics:
         self._ground_snapper = ground_snapper
         self._next_timestamp_us = initial_timestamp_us
         self._map_bounds = map_bounds
+        self._collision_world = collision_world
         self._oob_margin_m = float(oob_margin_m)
         self._oob_warning_zone_m = float(oob_warning_zone_m)
 
@@ -276,6 +319,7 @@ class EgoVehicleKinematics:
             chunk_config=chunk_config,
             vehicle_config=self._vehicle_config,
             ground_snapper=self._ground_snapper,
+            collision_world=self._collision_world,
         )
         self._state = trajectory.boundary_state_after_chunk
         self._next_timestamp_us = int(

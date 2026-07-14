@@ -5,6 +5,7 @@ from collections.abc import Callable, Iterator
 
 from omnidreams.interactive_drive.backends.base import RenderBackend
 from omnidreams.interactive_drive.config import ChunkConfig, VehicleConfig
+from omnidreams.interactive_drive.simulation.collision import CollisionWorld
 from omnidreams.interactive_drive.simulation.ego_vehicle_kinematics import (
     build_ground_snapper,
     sample_chunk_trajectory,
@@ -39,6 +40,7 @@ def iterate_frame_chunks(
         initial_speed_mps=scene.initial_speed_mps,
     )
     ground_snapper = build_ground_snapper(scene)
+    collision_world = CollisionWorld.from_tracks(scene.vehicle_bbox_tracks)
     next_timestamp_us = scene.initial_timestamp_us
     is_first_chunk = True
     while True:
@@ -53,6 +55,7 @@ def iterate_frame_chunks(
             chunk_config=chunk_config,
             vehicle_config=vehicle_config,
             ground_snapper=ground_snapper,
+            collision_world=collision_world,
         )
         yield (
             backend.render_first_chunk(trajectory)

@@ -26,6 +26,7 @@ from omnidreams.interactive_drive.scene_loader import (
     load_scene_bundle,
     reseed_scene_bundle,
 )
+from omnidreams.interactive_drive.simulation.collision import CollisionWorld
 from omnidreams.interactive_drive.simulation.ego_vehicle_kinematics import (
     EgoVehicleKinematics,
     build_ground_snapper,
@@ -115,6 +116,7 @@ class InteractiveDriveApp:
         self._pipeline = ChunkPipeline(self._adapter, trace_context=self._trace_context)
         self._scene: SceneBundle | None = None
         self._map_bounds: MapBounds | None = None
+        self._collision_world: CollisionWorld | None = None
         # Ground snapper for the current scene. Built once per scene (its
         # spatial grid is invariant across rollouts) and reused, so a reset
         # doesn't rebuild it -- that pure-Python grid build can take seconds
@@ -191,6 +193,9 @@ class InteractiveDriveApp:
         cached = self._cached_scene(scene_path, variant, prompt_override)
         if cached is not None:
             self._scene, self._map_bounds, self._ground_snapper = cached
+            self._collision_world = CollisionWorld.from_tracks(
+                self._scene.vehicle_bbox_tracks
+            )
             self._pipeline.request_scene(self._scene)
             return True
 
@@ -229,6 +234,9 @@ class InteractiveDriveApp:
             loaded[0],
             loaded[1],
             loaded[2],
+        )
+        self._collision_world = CollisionWorld.from_tracks(
+            self._scene.vehicle_bbox_tracks
         )
         self._store_scene(
             scene_path,
@@ -458,6 +466,7 @@ class InteractiveDriveApp:
                 ground_snapper=self._ground_snapper,
                 initial_timestamp_us=self._scene.initial_timestamp_us,
                 map_bounds=self._map_bounds,
+                collision_world=self._collision_world,
                 oob_margin_m=self._config.oob_margin_m,
                 oob_warning_zone_m=self._config.oob_warning_zone_m,
             )
