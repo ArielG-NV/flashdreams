@@ -20,6 +20,34 @@ from omnidreams.interactive_drive.types import (
 )
 
 
+
+def _bbox_track(
+    track_id: str, object_type: str, x_m: float = 3.0
+) -> WorldVehicleBBoxTrack:
+    return WorldVehicleBBoxTrack(
+        track_id=track_id,
+        object_type=object_type,
+        timestamps_us=np.array([0, 100_000, 1_000_000], dtype=np.int64),
+        centers_world=np.array(
+            [[x_m, 0.0, 0.0], [x_m, 0.0, 0.0], [x_m, 0.0, 0.0]],
+            dtype=np.float32,
+        ),
+        dimensions_lwh=np.array(
+            [[4.0, 2.0, 1.6], [4.0, 2.0, 1.6], [4.0, 2.0, 1.6]],
+            dtype=np.float32,
+        ),
+        orientations_xyzw=np.array(
+            [
+                [0.0, 0.0, 0.0, 1.0],
+                [0.0, 0.0, 0.0, 1.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+            dtype=np.float32,
+        ),
+        max_extrapolation_us=0.0,
+    )
+
+
 def test_command_from_snapshot_maps_keyboard_state() -> None:
     snapshot = ControlSnapshot(pressed={"w", "a"})
     command = command_from_snapshot(snapshot)
@@ -111,17 +139,7 @@ def test_passive_drag_slows_vehicle_without_input() -> None:
 
 
 def test_collision_with_obstacle_separates_and_reduces_speed() -> None:
-    track = WorldVehicleBBoxTrack(
-        track_id="parked-car",
-        object_type="Car",
-        timestamps_us=np.array([0, 100_000], dtype=np.int64),
-        centers_world=np.array([[3.0, 0.0, 0.0], [3.0, 0.0, 0.0]], dtype=np.float32),
-        dimensions_lwh=np.array([[4.0, 2.0, 1.6], [4.0, 2.0, 1.6]], dtype=np.float32),
-        orientations_xyzw=np.array(
-            [[0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0]], dtype=np.float32
-        ),
-        max_extrapolation_us=0.0,
-    )
+    track = _bbox_track("parked-car", "Car")
     start = VehicleState(
         x_m=0.0, y_m=0.0, z_m=0.0, yaw_rad=0.0, speed_mps=5.0, steer_rad=0.0
     )
@@ -140,6 +158,45 @@ def test_collision_with_obstacle_separates_and_reduces_speed() -> None:
     final = chunk.boundary_state_after_chunk
     assert final.x_m < 0.0
     assert final.speed_mps < start.speed_mps
+
+
+def test_collision_moves_movable_obstacle_trajectory() -> None:
+    track = _bbox_track("parked-car", "Car")
+    collision_world = CollisionWorld.from_tracks((track,))
+    assert collision_world is not None
+    start = VehicleState(
+        x_m=0.5, y_m=0.0, z_m=0.0, yaw_rad=0.0, speed_mps=8.0, steer_rad=0.0
+    )
+
+    _, hit = collision_world.resolve(start, VehicleConfig(), timestamp_us=0)
+    shifted_now = collision_world.sample_track_center("parked-car", 0)
+    shifted_later = collision_world.sample_track_center("parked-car", 100_000)
+
+    assert hit is not None
+    assert hit.movable
+    assert shifted_now is not None
+    assert shifted_later is not None
+    assert shifted_now[0] > 3.0
+    assert shifted_later[0] > shifted_now[0]
+
+
+def test_collision_moves_truck_less_than_car() -> None:
+    start = VehicleState(
+        x_m=0.5, y_m=0.0, z_m=0.0, yaw_rad=0.0, speed_mps=8.0, steer_rad=0.0
+    )
+    car_world = CollisionWorld.from_tracks((_bbox_track("car", "Car"),))
+    truck_world = CollisionWorld.from_tracks((_bbox_track("truck", "Truck"),))
+    assert car_world is not None
+    assert truck_world is not None
+
+    car_world.resolve(start, VehicleConfig(), timestamp_us=0)
+    truck_world.resolve(start, VehicleConfig(), timestamp_us=0)
+    car_center = car_world.sample_track_center("car", 100_000)
+    truck_center = truck_world.sample_track_center("truck", 100_000)
+
+    assert car_center is not None
+    assert truck_center is not None
+    assert car_center[0] - 3.0 > truck_center[0] - 3.0
 
 
 def test_integrate_vehicle_accumulates_steering_gradually() -> None:

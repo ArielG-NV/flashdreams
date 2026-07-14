@@ -18,6 +18,15 @@ class CollisionHit:
     normal_xy: tuple[float, float]
     penetration_m: float
     obstacle_mass_kg: float
+    movable: bool
+
+
+@dataclass
+class _DynamicObstacleState:
+    offset_xy: np.ndarray
+    velocity_xy: np.ndarray
+    last_update_us: int | None = None
+    last_impact_us: int | None = None
 
 
 @dataclass(frozen=True)
@@ -96,15 +105,74 @@ def _obstacle_mass_kg(object_type: str, fallback_kg: float) -> float:
     return fallback_kg
 
 
+def _is_movable_object(object_type: str) -> bool:
+    normalized = object_type.lower()
+    return any(kind in normalized for kind in ("car", "truck", "bus", "vehicle"))
+
+
 class CollisionWorld:
     def __init__(self, tracks: tuple[WorldVehicleBBoxTrack, ...]) -> None:
         self._tracks = tracks
+        self._dynamic: dict[str, _DynamicObstacleState] = {
+            track.track_id: _DynamicObstacleState(
+                offset_xy=np.zeros(2, dtype=np.float64),
+                velocity_xy=np.zeros(2, dtype=np.float64),
+            )
+            for track in tracks
+            if _is_movable_object(track.object_type)
+        }
 
     @classmethod
     def from_tracks(
         cls, tracks: tuple[WorldVehicleBBoxTrack, ...]
     ) -> CollisionWorld | None:
         return cls(tracks) if tracks else None
+
+    def _advance_dynamic_state(
+        self, track_id: str, timestamp_us: int
+    ) -> _DynamicObstacleState | None:
+        dynamic = self._dynamic.get(track_id)
+        if dynamic is None:
+            return None
+        if dynamic.last_update_us is None:
+            dynamic.last_update_us = timestamp_us
+            return dynamic
+
+        dt_s = max(0.0, float(timestamp_us - dynamic.last_update_us) / 1_000_000.0)
+        if dt_s > 0.0:
+            dynamic.offset_xy += dynamic.velocity_xy * dt_s
+            speed = float(np.linalg.norm(dynamic.velocity_xy))
+            if speed > 0.0:
+                decel = min(speed, 1.2 * dt_s)
+                dynamic.velocity_xy *= max(0.0, (speed - decel) / speed)
+            dynamic.last_update_us = timestamp_us
+        return dynamic
+
+    def _sample_track(
+        self, track: WorldVehicleBBoxTrack, timestamp_us: int
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+        sample = track.interpolate_at_timestamp(timestamp_us)
+        if sample is None:
+            return None
+        center, dims_lwh, orientation = sample
+        dynamic = self._advance_dynamic_state(track.track_id, timestamp_us)
+        if dynamic is not None:
+            center = center.copy()
+            center[:2] += dynamic.offset_xy.astype(np.float32)
+        return center, dims_lwh, orientation
+
+    def sample_track_center(
+        self, track_id: str, timestamp_us: int
+    ) -> tuple[float, float] | None:
+        for track in self._tracks:
+            if track.track_id != track_id:
+                continue
+            sample = self._sample_track(track, timestamp_us)
+            if sample is None:
+                return None
+            center, _, _ = sample
+            return float(center[0]), float(center[1])
+        return None
 
     def resolve(
         self, state: VehicleState, vehicle: VehicleConfig, timestamp_us: int
@@ -114,7 +182,7 @@ class CollisionWorld:
         best_penetration = 0.0
 
         for track in self._tracks:
-            sample = track.interpolate_at_timestamp(timestamp_us)
+            sample = self._sample_track(track, timestamp_us)
             if sample is None:
                 continue
             center, dims_lwh, orientation = sample
@@ -136,6 +204,7 @@ class CollisionWorld:
                     obstacle_mass_kg=_obstacle_mass_kg(
                         track.object_type, vehicle.obstacle_collision_mass_kg
                     ),
+                    movable=track.track_id in self._dynamic,
                 )
 
         if best_hit is None:
@@ -150,18 +219,30 @@ class CollisionWorld:
         closing_speed = -float(np.dot(velocity, normal))
         total_mass = max(vehicle.mass_kg + best_hit.obstacle_mass_kg, 1.0)
         obstacle_share = best_hit.obstacle_mass_kg / total_mass
+        ego_share = vehicle.mass_kg / total_mass
         speed_after = signed_speed
+        dynamic = self._dynamic.get(best_hit.track_id) if best_hit.movable else None
         if closing_speed > 0.0:
             alignment = min(1.0, closing_speed / max(abs(signed_speed), 1e-6))
             loss = (1.0 + vehicle.collision_restitution) * obstacle_share * alignment
             speed_after = signed_speed * max(0.0, 1.0 - loss)
+            if dynamic is not None and dynamic.last_impact_us != timestamp_us:
+                hit_direction = -normal
+                impulse_speed = (
+                    (1.0 + vehicle.collision_restitution) * closing_speed * ego_share
+                )
+                dynamic.velocity_xy += hit_direction * impulse_speed
+                dynamic.last_impact_us = timestamp_us
 
         slop_m = 0.03
         push = max(0.0, best_hit.penetration_m + slop_m)
+        ego_push = push * (obstacle_share if dynamic is not None else 1.0)
+        if dynamic is not None:
+            dynamic.offset_xy += -normal * push * ego_share
         return (
             VehicleState(
-                x_m=state.x_m + float(normal[0]) * push,
-                y_m=state.y_m + float(normal[1]) * push,
+                x_m=state.x_m + float(normal[0]) * ego_push,
+                y_m=state.y_m + float(normal[1]) * ego_push,
                 z_m=state.z_m,
                 yaw_rad=state.yaw_rad,
                 speed_mps=speed_after,
