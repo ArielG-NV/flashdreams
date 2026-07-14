@@ -16,8 +16,8 @@
 save the outputs side-by-side for visual comparison.
 
 ``--scene`` accepts either a clipgt scene directory or a clipgt ``.usdz``
-archive (e.g. ``~/.cache/flashdreams/omnidreams-scenes/clipgt-<uuid>.usdz``),
-whose ``clipgt/*.parquet`` payload is extracted on demand. When ``--scene`` is
+archive (e.g. ``~/.cache/flashdreams/omnidreams-scenes/clipgt-<uuid>.usdz``).
+When ``--scene`` is
 left at the default and the bundled sample is absent, a cached USDZ scene under
 ``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes`` is used automatically; only if none
 is found does it fall back to a small synthetic scene (also forced via
@@ -44,18 +44,17 @@ import argparse
 import math
 import os
 import sys
-import zipfile
 from pathlib import Path
-
-import numpy as np
-import torch
-from PIL import Image
 
 # Ensure we import the local ``ludus_renderer`` (this project) even when an
 # editable install of a sibling project is on sys.path.
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
+
+import numpy as np
+import torch
+from PIL import Image
 
 DEFAULT_SCENE_PATH = str(_PROJECT_ROOT / "example_data" / "test_hdmap")
 DEFAULT_CAMERA = "camera:front:wide:120fov"
@@ -71,67 +70,26 @@ DEFAULT_SCENE_CACHE = (
 
 
 # ---------------------------------------------------------------------------
-# Scene resolution: clipgt directory or USDZ archive
+# Scene resolution: ClipGT directory or archive
 # ---------------------------------------------------------------------------
 
 
-def extract_clipgt_from_usdz(usdz_path: Path) -> Path:
-    """Extract the ``clipgt/*.parquet`` HDMap payload from a USDZ archive.
-
-    A clipgt USDZ is a plain zip; ``load_clipgt_scene`` only needs the parquet
-    files (not the bundled meshes/checkpoint). They are extracted (flattened)
-    into a sibling ``<stem>.clipgt`` directory and reused on later runs.
-    """
-    usdz_path = Path(usdz_path)
-    dest = usdz_path.parent / f"{usdz_path.stem}.clipgt"
-    with zipfile.ZipFile(usdz_path) as zf:
-        members = [
-            m
-            for m in zf.namelist()
-            if m.startswith("clipgt/") and m.endswith(".parquet")
-        ]
-        if not members:
-            raise SystemExit(
-                f"{usdz_path} contains no clipgt/*.parquet payload; "
-                "is this a clipgt scene archive?"
-            )
-        already = len(list(dest.glob("*.parquet"))) if dest.is_dir() else 0
-        if already < len(members):
-            dest.mkdir(parents=True, exist_ok=True)
-            print(
-                f"Extracting {len(members)} clipgt parquet files from "
-                f"{usdz_path.name} -> {dest}"
-            )
-            for m in members:
-                (dest / Path(m).name).write_bytes(zf.read(m))
-    return dest
-
-
 def discover_cached_usdz() -> Path | None:
-    """Return a cached clipgt USDZ to render by default, preferring the base
-    (non-weather) variant, or ``None`` when the scenes cache is empty."""
+    """Return a cached ClipGT USDZ, preferring the base variant if present."""
     if not DEFAULT_SCENE_CACHE.is_dir():
         return None
     candidates = sorted(DEFAULT_SCENE_CACHE.glob("clipgt-*.usdz"))
     if not candidates:
         return None
-    # The base archive (``clipgt-<uuid>.usdz``) has no ``-rain``/``-snow``
-    # suffix, so it is the shortest filename.
     return min(candidates, key=lambda p: len(p.name))
 
 
-def resolve_clipgt_dir(scene_arg: str) -> Path | None:
-    """Resolve ``--scene`` to a clipgt parquet directory.
+def resolve_clipgt_scene(scene_arg: str) -> Path | None:
+    """Resolve ``--scene`` to a ClipGT directory or archive path."""
+    from ludus_renderer import is_clipgt
 
-    Accepts a clipgt directory or a ``.usdz`` archive (extracted on demand);
-    returns ``None`` when no usable scene data is present.
-    """
     scene_path = Path(scene_arg)
-    if scene_path.suffix == ".usdz" and scene_path.is_file():
-        return extract_clipgt_from_usdz(scene_path)
-    if scene_path.is_dir():
-        return scene_path
-    return None
+    return scene_path if is_clipgt(scene_path) else None
 
 
 # ---------------------------------------------------------------------------
@@ -376,22 +334,22 @@ def main() -> int:
         print(f"Vulkan backend unavailable: {exc}", file=sys.stderr)
         return 1
 
-    # Resolve a real scene: explicit clipgt dir / USDZ, else auto-discover a
+    # Resolve a real scene: explicit ClipGT dir/archive, else auto-discover a
     # cached USDZ, else fall back to the synthetic scene.
-    scene_dir = None
+    scene_path = None
     if not args.synthetic:
-        scene_dir = resolve_clipgt_dir(args.scene)
-        if scene_dir is None and args.scene == DEFAULT_SCENE_PATH:
+        scene_path = resolve_clipgt_scene(args.scene)
+        if scene_path is None and args.scene == DEFAULT_SCENE_PATH:
             usdz = discover_cached_usdz()
             if usdz is not None:
                 print(
                     f"default scene {args.scene!r} not found; using cached "
                     f"USDZ scene {usdz.name}"
                 )
-                scene_dir = extract_clipgt_from_usdz(usdz)
+                scene_path = usdz
 
-    use_synthetic = args.synthetic or scene_dir is None
-    if not args.synthetic and scene_dir is None:
+    use_synthetic = args.synthetic or scene_path is None
+    if not args.synthetic and scene_path is None:
         print(
             f"no clipgt scene found for {args.scene!r} (and none cached under "
             f"{DEFAULT_SCENE_CACHE}); falling back to synthetic"
@@ -408,11 +366,11 @@ def main() -> int:
         print(f"  Vulkan lit pixels: {int((vk_img[..., :3].sum(-1) > 0).sum())}")
     else:
         label = f"hdmap frame {args.frame} ({args.camera})"
-        print(f"Rendering {label} from {scene_dir} at {args.width}x{args.height}...")
+        print(f"Rendering {label} from {scene_path} at {args.width}x{args.height}...")
         print("  CUDA backend...")
         cuda_img = render_hdmap(
             LudusCudaTimestampedContext,
-            str(scene_dir),
+            str(scene_path),
             args.frame,
             args.width,
             args.height,
@@ -423,7 +381,7 @@ def main() -> int:
         print("  Vulkan backend...")
         vk_img = render_hdmap(
             LudusTimestampedContext,
-            str(scene_dir),
+            str(scene_path),
             args.frame,
             args.width,
             args.height,

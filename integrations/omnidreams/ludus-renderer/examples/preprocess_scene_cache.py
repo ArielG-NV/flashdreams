@@ -46,12 +46,12 @@ def _load_and_serialize(args_tuple):
     """Worker: load scene from tar, return (key, serialized_bytes, elapsed)."""
     (tar_path,) = args_tuple
 
-    from ludus_renderer.clipgt import load_av2_scene
+    from ludus_renderer import load_scene
     from ludus_renderer.scene_cache import _serialize_to_bytes, scene_key
 
     key = scene_key(tar_path)
     t0 = time.perf_counter()
-    scene = load_av2_scene(tar_path, device="cpu")
+    scene = load_scene(tar_path, device="cpu")
     data = _serialize_to_bytes(scene)
     elapsed = time.perf_counter() - t0
     return key, data, elapsed
@@ -61,7 +61,7 @@ def _load_and_save_file(args_tuple):
     """Worker: load scene and save as per-file .pt (fallback mode)."""
     tar_path, cache_dir, skip_existing = args_tuple
 
-    from ludus_renderer.clipgt import load_av2_scene
+    from ludus_renderer import load_scene
     from ludus_renderer.scene_cache import (
         _cache_path,
         _resolve_cache_dir,
@@ -82,7 +82,7 @@ def _load_and_save_file(args_tuple):
             pass
 
     t0 = time.perf_counter()
-    scene = load_av2_scene(tar_path, device="cpu")
+    scene = load_scene(tar_path, device="cpu")
     save_scene_to_disk(scene, out_path)
     elapsed = time.perf_counter() - t0
 
@@ -126,9 +126,7 @@ def main():
     args = parser.parse_args()
 
     all_paths = [
-        line.strip()
-        for line in Path(args.scene_list).read_text().splitlines()
-        if line.strip()
+        l.strip() for l in Path(args.scene_list).read_text().splitlines() if l.strip()
     ]
     if args.limit:
         all_paths = all_paths[: args.limit]
@@ -136,11 +134,11 @@ def main():
     workers = args.workers or os.cpu_count()
     cache_dir = args.cache_dir
 
-    from importlib.util import find_spec
+    try:
+        import lmdb as _lmdb  # ty:ignore[unresolved-import]
 
-    if find_spec("lmdb") is not None:
         use_lmdb = not args.no_lmdb
-    else:
+    except ImportError:
         use_lmdb = False
 
     mode = "LMDB" if use_lmdb else "per-file .pt"
@@ -186,7 +184,7 @@ def _preprocess_lmdb(all_paths, cache_dir, workers, skip_existing):
         futures = {executor.submit(_load_and_serialize, t): t[0] for t in to_process}
 
         for fut in as_completed(futures):
-            _ = futures[fut]
+            path = futures[fut]
             done += 1
             try:
                 key, data, elapsed = fut.result()
@@ -231,7 +229,7 @@ def _preprocess_files(all_paths, cache_dir, workers, skip_existing):
         futures = {executor.submit(_load_and_save_file, t): t[0] for t in tasks}
 
         for fut in as_completed(futures):
-            _ = futures[fut]
+            path = futures[fut]
             done += 1
             try:
                 key, elapsed, result = fut.result()

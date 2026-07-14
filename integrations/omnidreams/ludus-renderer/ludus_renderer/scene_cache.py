@@ -52,11 +52,12 @@ import hashlib
 import io
 import os
 import threading
+import time
 from collections import OrderedDict
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Set, cast
+from typing import Dict, List, Optional, Set, Tuple, cast
 
 import numpy as np
 import torch
@@ -75,7 +76,7 @@ from ._ops.primitives import (
     TimestampedPolylinePool,
     TimestampedScene,
 )
-from .clipgt import ClipgtGpuScene, EgoTrackData, load_av2_scene
+from .clipgt import ClipgtGpuScene, EgoTrackData, load_scene
 
 CACHE_VERSION = 2
 
@@ -1173,7 +1174,7 @@ class SceneDatabase:
         tar_path = self._path_map.get(key)
         if tar_path is None:
             raise KeyError(f"No tar path registered for key {key}")
-        return load_av2_scene(tar_path, device="cpu")
+        return load_scene(tar_path, device="cpu")
 
     # -- Single scene load (L3 → L2) ----------------------------------
 

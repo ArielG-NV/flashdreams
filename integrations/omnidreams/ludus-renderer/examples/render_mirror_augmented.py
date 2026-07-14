@@ -31,7 +31,7 @@ import os
 import time
 
 import torch
-from ludus_renderer import load_clipgt_scene
+from ludus_renderer import load_scene
 from ludus_renderer.augmentation import mirror_augment_scene
 from ludus_renderer.render_utils import (
     SceneAdapter,
@@ -39,6 +39,7 @@ from ludus_renderer.render_utils import (
     create_camera,
 )
 from ludus_renderer.torch import LudusCudaTimestampedContext
+from ludus_renderer.torch.ops import CAMERA_TYPE_BEV
 from ludus_renderer.util import resample_timestamps
 
 DEFAULT_SCENE = os.path.join(os.path.dirname(__file__), "../example_data/test_hdmap")
@@ -70,7 +71,7 @@ def main():
 
     # Load and augment
     print(f"Loading scene: {args.scene}")
-    raw_scene = load_clipgt_scene(
+    raw_scene = load_scene(
         args.scene,
         device=device,
         include_ego_trajectory=True,
@@ -125,7 +126,7 @@ def main():
     import PyNvVideoCodec as nvc  # ty:ignore[unresolved-import]
 
     output_path = os.path.join(
-        os.path.dirname(__file__), "../_images/mirror_augmented_bev.mp4"
+        os.path.dirname(__file__), f"../_images/mirror_augmented_bev.mp4"
     )
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 

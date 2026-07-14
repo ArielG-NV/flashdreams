@@ -25,7 +25,6 @@ This module provides reusable utilities for:
 """
 
 import math
-import os
 import time
 from typing import Dict, List, Optional, Tuple
 
@@ -223,21 +222,17 @@ class SceneAdapter:
 
 
 def is_clipgt_directory(scene_path: str) -> bool:
-    """Check if scene_path is a clipgt directory (has parquet files)."""
-    if not os.path.isdir(scene_path):
-        return False
-    if os.path.isfile(os.path.join(scene_path, "road_boundary.parquet")):
-        return True
-    from pathlib import Path
+    """Check if ``scene_path`` is a ClipGT directory or archive."""
+    from ludus_renderer import is_clipgt
 
-    scene_dir = Path(scene_path)
-    ego_files = list(scene_dir.glob("*.egomotion_estimate.parquet"))
-    return len(ego_files) > 0
+    return is_clipgt(scene_path)
 
 
 def is_av2_scene(scene_path: str) -> bool:
-    """Check if a scene path is an AV2 tar (vs a clipgt directory)."""
-    return scene_path.endswith(".tar")
+    """Check if a scene path should use AV2 loading."""
+    from ludus_renderer import is_clipgt
+
+    return not is_clipgt(scene_path)
 
 
 def load_scene_adapted(
@@ -248,25 +243,15 @@ def load_scene_adapted(
     use_gpu_decoder: Optional[bool] = None,
 ):
     """Load a scene (clipgt or AV2) and wrap with SceneAdapter for legacy interface."""
-    if is_av2_scene(scene_path):
-        from ludus_renderer import load_av2_scene
+    from ludus_renderer import load_scene
 
-        raw_scene = load_av2_scene(
-            scene_path,
-            device=device,
-            include_ego_trajectory=include_ego_trajectory,
-            include_ego_obstacle=include_ego_obstacle,
-            use_gpu_decoder=use_gpu_decoder,
-        )
-    else:
-        from ludus_renderer import load_clipgt_scene
-
-        raw_scene = load_clipgt_scene(
-            scene_path,
-            device=device,
-            include_ego_trajectory=include_ego_trajectory,
-            include_ego_obstacle=include_ego_obstacle,
-        )
+    raw_scene = load_scene(
+        scene_path,
+        device=device,
+        include_ego_trajectory=include_ego_trajectory,
+        include_ego_obstacle=include_ego_obstacle,
+        use_gpu_decoder=use_gpu_decoder,
+    )
     return SceneAdapter(raw_scene)
 
 
