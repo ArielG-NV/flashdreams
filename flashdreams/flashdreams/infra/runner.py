@@ -33,6 +33,12 @@ from flashdreams.infra.pipeline import (
     StreamInferencePipeline,
     StreamInferencePipelineConfig,
 )
+from flashdreams.infra.postprocess import (
+    VideoPostprocessChainConfig,
+    VideoPostprocessStream,
+    VideoTensorLayout,
+    create_runner_postprocess_stream,
+)
 
 
 def _is_torchrun_env() -> bool:
@@ -58,6 +64,17 @@ class RunnerConfig(InstantiateConfig):
 
     pipeline: StreamInferencePipelineConfig
     """Wrapped pipeline config; the runner instantiates and drives it."""
+
+    postprocess: VideoPostprocessChainConfig = field(
+        default_factory=VideoPostprocessChainConfig
+    )
+    """Optional video post-processing chain for decoded output chunks."""
+
+    postprocess_output_layout: VideoTensorLayout | None = None
+    """Decoded output layout; required when :attr:`postprocess` is enabled."""
+
+    postprocess_per_view: bool = False
+    """Attach one post-processing session per view for multi-view outputs."""
 
     output_dir: Path = Path("outputs")
     """Directory the runner writes outputs into. Created on demand."""
@@ -95,7 +112,9 @@ class Runner(ABC, Generic[RunnerConfigT, PipelineT]):
         isn't already) before pipeline construction so context-parallel
         transformers shard tokens across ``WORLD``. Subclasses gate
         per-rollout I/O on :attr:`is_rank_zero`; compute (``generate`` /
-        ``finalize``) runs on every rank.
+        ``finalize``) runs on every rank. Runner-level post-processing operates
+        on decoded output chunks, and context-parallel processors execute on
+        every rank before rank-zero persistence.
     """
 
     config: RunnerConfigT
@@ -145,6 +164,35 @@ class Runner(ABC, Generic[RunnerConfigT, PipelineT]):
 
         pipeline = self.config.pipeline.setup()
         self.pipeline = pipeline.to(device=device).eval()
+
+    def create_postprocess_stream(
+        self,
+        *,
+        fps: float | None = None,
+        move_to_cpu: bool = True,
+    ) -> VideoPostprocessStream:
+        """Create one stateful post-processing stream for a rollout."""
+        stream = create_runner_postprocess_stream(
+            self.config,
+            world_size=self.world_size,
+            is_rank_zero=self.is_rank_zero,
+            fps=fps,
+        )
+        if stream is not None:
+            stream.collect_output = self.is_rank_zero
+            stream.move_to_cpu = move_to_cpu
+            return stream
+
+        layout = self.config.postprocess_output_layout
+        if layout is None:
+            raise ValueError("Runner output collection requires an output layout.")
+        return VideoPostprocessStream(
+            postprocess=VideoPostprocessChainConfig(),
+            output_layout=layout,
+            fps=fps,
+            collect_output=self.is_rank_zero,
+            move_to_cpu=move_to_cpu,
+        )
 
     @abstractmethod
     def run(self) -> None:

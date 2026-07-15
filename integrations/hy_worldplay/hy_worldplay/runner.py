@@ -29,6 +29,7 @@ from torch import Tensor
 
 from flashdreams.core.io.disk import default_flashdreams_cache_dir
 from flashdreams.core.io.download import download_to_cache
+from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.recipes.wan.pipeline import WanInferencePipeline
 
@@ -208,6 +209,9 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
     fps: int = 16
     """Output video frame rate."""
 
+    postprocess_output_layout: VideoTensorLayout | None = "btchw"
+    """Pipeline output layout for streaming post-processing."""
+
     context_window_length: int = 16
     """Frame-count threshold below which the FOV-overlap memory selector
     is bypassed (AR steps with fewer accumulated frames emit
@@ -372,29 +376,36 @@ class HyWorldPlayWanI2VRunner(
             device=device, dtype=first_param.dtype
         )
 
-        chunks: list[Tensor] = []
+        postprocess_stream = self.create_postprocess_stream(
+            fps=cfg.fps, move_to_cpu=False
+        )
         # Each ``finalize`` returns the per-stage ms dict for that AR
         # step; collect into ``stats_history`` and dump as JSON.
-        stats_history: list[dict[str, float]] = []
+        stats_history: list[dict[str, object]] = []
         if torch.cuda.is_available():
             torch.cuda.reset_peak_memory_stats()
         start_time = time.time()
         with vendor_noise_ctx:
             for ar_idx in range(cfg.num_chunk):
                 chunk = self.pipeline.generate(ar_idx, cache)
-                chunks.append(chunk)
                 # ``finalize`` records the chunk's CUDA events and
                 # advances the KV cache; called on every chunk
                 # (including the last) for consistent stats.
                 stats = self.pipeline.finalize(ar_idx, cache)
-                if stats is not None:
-                    stats_history.append({"autoregressive_index": ar_idx, **stats})
+                postprocess_stream.process(chunk, autoregressive_index=ar_idx)
+                if postprocess_stream.collect_output and stats is not None:
+                    stats_history.append(
+                        {
+                            "autoregressive_index": ar_idx,
+                            **postprocess_stream.add_process_stats(stats),
+                        }
+                    )
+            video = postprocess_stream.finish()
         elapsed = time.time() - start_time
 
-        if not self.is_rank_zero:
+        if video is None:
             return
 
-        video = torch.cat(chunks, dim=-4)  # cat along T axis: [..., T, C, H, W]
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
         out_path = cfg.output_dir / f"{cfg.runner_name}.mp4"
         _write_mp4(video, out_path, fps=cfg.fps)

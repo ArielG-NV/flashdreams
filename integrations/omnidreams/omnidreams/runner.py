@@ -41,6 +41,7 @@ from omnidreams.pipeline import (
 )
 from omnidreams.transformer import CosmosTransformerConfig
 
+from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
 
 DEFAULT_VIDEO_HEIGHT = 704
@@ -183,6 +184,12 @@ class OmnidreamsRunnerConfig(RunnerConfig):
 
     output_fps: int = 30
     """Output video frame rate. Omnidreams was trained at 30fps."""
+
+    postprocess_output_layout: VideoTensorLayout | None = "bvtchw"
+    """Pipeline output layout for streaming post-processing."""
+
+    postprocess_per_view: bool = True
+    """Process each generated camera view with its own post-processing session."""
 
     save_embeddings_path: Path | None = None
     """When set, run only the one-shot encoders, ``torch.save`` text +
@@ -379,8 +386,8 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
         if torch.distributed.is_initialized():
             torch.distributed.barrier()
 
-        chunks: list[torch.Tensor] = []
-        stats_history: list[dict[str, float]] = []
+        postprocess_stream = self.create_postprocess_stream(fps=cfg.output_fps)
+        stats_history: list[dict[str, object]] = []
         start = 0
         for i in range(cfg.total_blocks):
             num_frames = self.pipeline.get_num_frames(i)
@@ -398,28 +405,39 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
                 hdmap=hdmap_videos_t[:, :, start:end],
             )
             stats = self.pipeline.finalize(autoregressive_index=i, cache=cache)
-            if stats is not None:
-                stats_history.append({"autoregressive_index": i, **stats})
-            chunks.append(video_chunk.cpu())
+            video_chunk = postprocess_stream.process(
+                video_chunk, autoregressive_index=i
+            )
+            if postprocess_stream.collect_output and stats is not None:
+                stats_history.append(
+                    {
+                        "autoregressive_index": i,
+                        **postprocess_stream.add_process_stats(stats),
+                    }
+                )
             start = end
 
-        video = torch.cat(chunks, dim=2)  # [B, V, T, C, H, W]
-        generated_num_frames = video.shape[2]
-        if not self.is_rank_zero:
+        video = postprocess_stream.finish()
+        if video is None:
             return
+        generated_num_frames = video.shape[2]
 
-        # HDMap + generated stacked vertically per camera, cameras laid
-        # out horizontally: ``[T, 2*H, V*W, C]``.
+        if cfg.postprocess.is_enabled():
+            canvas = rearrange(video, "1 v t c h w -> t h (v w) c")
+            output_description = "postprocessed RGB video"
+        else:
+            condition = hdmap_videos_t[:, :, :generated_num_frames].cpu()
+            canvas, output_description = self._prepare_canvas_for_write(
+                condition=condition,
+                video=video,
+            )
+
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
-        condition = hdmap_videos_t[:, :, :generated_num_frames].cpu()
-        canvas = rearrange(
-            torch.cat([condition, video], dim=-2),
-            "1 v t c h w -> t h (v w) c",
-        )
         video_path = cfg.output_dir / f"{cfg.runner_name}.mp4"
         _write_video(canvas, video_path, fps=cfg.output_fps)
         logger.info(
-            f"[{cfg.runner_name}] wrote video {tuple(video.shape)} "
+            f"[{cfg.runner_name}] wrote {output_description} {tuple(canvas.shape)} "
+            f"from generated={tuple(video.shape)}; wrote video {tuple(video.shape)} "
             f"-> {video_path.resolve()}"
         )
 
@@ -443,6 +461,24 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
         transformer_cfg = self.config.pipeline.diffusion_model.transformer
         assert isinstance(transformer_cfg, CosmosTransformerConfig)
         return transformer_cfg.num_views * self.pipeline.V_size
+
+    def _prepare_canvas_for_write(
+        self,
+        *,
+        condition: torch.Tensor | None,
+        video: torch.Tensor,
+    ) -> tuple[torch.Tensor, str]:
+        """Return the tensor written to MP4 plus a short log description."""
+        # HDMap + generated stacked vertically per camera, cameras laid
+        # out horizontally: ``[T, 2*H, V*W, C]``.
+        assert condition is not None
+        return (
+            rearrange(
+                torch.cat([condition, video], dim=-2),
+                "1 v t c h w -> t h (v w) c",
+            ),
+            "HDMap/RGB canvas",
+        )
 
     def _load_first_frames(
         self,

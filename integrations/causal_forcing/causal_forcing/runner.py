@@ -30,6 +30,7 @@ from loguru import logger
 
 from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.decoder import StreamingVideoDecoder
+from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.recipes.wan import (
     WanInferencePipeline,
@@ -113,6 +114,9 @@ class CausalForcingT2VRunnerConfig(RunnerConfig):
     fps: int = 16
     """Output video frame rate."""
 
+    postprocess_output_layout: VideoTensorLayout | None = "tchw"
+    """Pipeline output layout for streaming post-processing."""
+
 
 @dataclass(kw_only=True)
 class CausalForcingI2VRunnerConfig(CausalForcingT2VRunnerConfig):
@@ -183,19 +187,24 @@ class CausalForcingT2VRunner(
         cache = self._initialize_cache()
 
         # Generate the autoregressive chunks.
-        chunks: list[torch.Tensor] = []
-        stats_history: list[dict[str, float]] = []
+        postprocess_stream = self.create_postprocess_stream(fps=config.fps)
+        stats_history: list[dict[str, object]] = []
         for i in range(config.total_blocks):
             video_chunk = self.pipeline.generate(autoregressive_index=i, cache=cache)
             stats = self.pipeline.finalize(autoregressive_index=i, cache=cache)
-            if stats is not None:
-                stats_history.append({"autoregressive_index": i, **stats})
-            chunks.append(video_chunk.cpu())
+            video_chunk = postprocess_stream.process(
+                video_chunk, autoregressive_index=i
+            )
+            if postprocess_stream.collect_output and stats is not None:
+                stats_history.append(
+                    {
+                        "autoregressive_index": i,
+                        **postprocess_stream.add_process_stats(stats),
+                    }
+                )
 
-        # Concatenate the autoregressive chunks along the time axis.
-        # The result is a tensor of shape [T, C, H, W], value in [-1, 1].
-        generated = torch.cat(chunks, dim=0)
-        if not self.is_rank_zero:
+        generated = postprocess_stream.finish()
+        if generated is None:
             return
 
         # Write the video.

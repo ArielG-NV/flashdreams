@@ -32,6 +32,7 @@ from loguru import logger
 from flashdreams.core.distributed import init as init_distributed
 from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.config import derive_config
+from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig, _is_torchrun_env
 from flashvsr.encoder import FlashVSREncoder
 from flashvsr.pipeline import (
@@ -213,6 +214,9 @@ class FlashVSRRunnerConfig(RunnerConfig):
 
     output_fps: float | None = None
     """Output frame rate; ``None`` uses the input fps, falling back to ``30.0``."""
+
+    postprocess_output_layout: VideoTensorLayout | None = "bcthw"
+    """Pipeline output layout for streaming post-processing."""
 
     crop_region: Literal["none", "bottom_half", "top_half"] = "none"
     """Input crop before upsampling. ``bottom_half`` keeps RGB
@@ -429,8 +433,8 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
 
         cache = self._initialize_cache()
 
-        chunks_out: list[torch.Tensor] = []
-        stats_history: list[dict[str, float]] = []
+        postprocess_stream = self.create_postprocess_stream(fps=fps)
+        stats_history: list[dict[str, object]] = []
         for chunk_idx, (start, size) in enumerate(chunks):
             clip = video_t[:, :, start : start + size]
             video_chunk = self.pipeline.generate(
@@ -438,32 +442,35 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
                 cache=cache,
                 input=clip,
             )
+            pipeline_frames = int(video_chunk.shape[2])
             stats = self.pipeline.finalize(autoregressive_index=chunk_idx, cache=cache)
-            if stats is not None:
-                # Report throughput against the visible output frames for this
-                # chunk. ``fps`` is reserved for the output video's frame rate.
-                chunk_frames = int(video_chunk.shape[2])
+            postprocess_stream.process(
+                video_chunk,
+                autoregressive_index=chunk_idx,
+            )
+            if postprocess_stream.collect_output and stats is not None:
+                # Pipeline throughput is based on this AR step's direct output.
+                # Postprocess emission/buffering is reported separately.
                 chunk_total_ms = stats["total_ms"]
                 chunk_fps = (
-                    chunk_frames / chunk_total_ms * 1000.0
+                    pipeline_frames / chunk_total_ms * 1000.0
                     if chunk_total_ms > 0
                     else 0.0
                 )
                 stats_history.append(
                     {
                         "autoregressive_index": chunk_idx,
-                        **stats,
-                        "frames": chunk_frames,
+                        **postprocess_stream.add_process_stats(stats),
+                        "frames": pipeline_frames,
                         "fps": chunk_fps,
                     }
                 )
-            chunks_out.append(video_chunk.cpu())
 
-        # [1, 3, T_out, target_H, target_W] in [-1, 1] -> [T_out, H, W, 3].
-        generated = torch.cat(chunks_out, dim=2)
-        if not self.is_rank_zero:
+        generated = postprocess_stream.finish()
+        if generated is None:
             return
 
+        # [1, 3, T_out, target_H, target_W] in [-1, 1] -> [T_out, H, W, 3].
         config.output_dir.mkdir(parents=True, exist_ok=True)
         video_path = config.output_dir / f"{config.runner_name}.mp4"
         canvas = rearrange(generated, "1 c t h w -> t h w c")

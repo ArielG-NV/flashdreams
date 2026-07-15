@@ -27,6 +27,7 @@ Usage::
     flashdreams-run wan21-t2v-1.3b-480p --prompt "A cat surfing."
     flashdreams-run wan21-i2v-14b-480p --prompt "..." --image-path frame.png
     flashdreams-run --no-instantiate template-offline # resolve config only
+    flashdreams-run wan21-t2v-1.3b-480p --postprocess.preset flashvsr-v1.1-sparse-2.0
 
     # Multi-GPU via context-parallelism (integration transformers auto-detect
     # CP size from the launcher's WORLD group). ``--no-python`` tells
@@ -46,11 +47,15 @@ from typing import Annotated
 import tyro
 
 from flashdreams.configs.runner_configs import _annotated_base_runner_union
+from flashdreams.core.distributed import shutdown as shutdown_distributed
 from flashdreams.core.io.disk import disk_space_error_from_exception
 from flashdreams.infra.runner import RunnerConfig
 
 
-def main(config: RunnerConfig, no_instantiate: bool = False) -> None:
+def main(
+    config: RunnerConfig,
+    no_instantiate: bool = False,
+) -> None:
     """Print the resolved config and (by default) run the runner.
 
     Under ``torchrun`` only local-rank 0 prints; every rank holds the
@@ -62,7 +67,17 @@ def main(config: RunnerConfig, no_instantiate: bool = False) -> None:
     if no_instantiate:
         return
     runner = config.setup()
-    runner.run()
+    completed = False
+    try:
+        runner.run()
+        completed = True
+    finally:
+        # Successful ranks rendezvous before bounded NCCL process exit.
+        # A failed rank skips the barrier to avoid creating a cleanup deadlock.
+        shutdown_distributed(
+            synchronize=completed,
+            terminate_process=completed,
+        )
 
 
 def _is_rank_zero() -> bool:

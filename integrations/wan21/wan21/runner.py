@@ -30,6 +30,7 @@ from loguru import logger
 
 from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.decoder import StreamingVideoDecoder
+from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.recipes.wan import (
     WanInferencePipeline,
@@ -108,6 +109,9 @@ class Wan21T2VRunnerConfig(RunnerConfig):
 
     fps: int = 16
     """Output video frame rate."""
+
+    postprocess_output_layout: VideoTensorLayout | None = "tchw"
+    """Pipeline output layout for streaming post-processing."""
 
 
 @dataclass(kw_only=True)
@@ -188,11 +192,13 @@ class Wan21T2VRunner(Runner[Wan21T2VRunnerConfig, WanInferencePipeline]):
         cache = self._initialize_cache()
 
         # Generate the output in one AR step.
+        postprocess_stream = self.create_postprocess_stream(fps=config.fps)
         generated = self.pipeline.generate(autoregressive_index=0, cache=cache)
         stats = self.pipeline.finalize(autoregressive_index=0, cache=cache)
-        if not self.is_rank_zero:
+        postprocess_stream.process(generated, autoregressive_index=0)
+        generated = postprocess_stream.finish()
+        if generated is None:
             return
-        generated = generated.cpu()
 
         # Write the video.
         config.output_dir.mkdir(parents=True, exist_ok=True)

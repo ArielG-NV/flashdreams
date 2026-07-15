@@ -29,6 +29,7 @@ from loguru import logger
 
 from flashdreams.core.io.disk import default_flashdreams_cache_dir
 from flashdreams.core.io.download import download_to_cache
+from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
 from lingbot.encoder.camctrl import CamCtrlInput
 from lingbot.encoder.utils import (
@@ -240,6 +241,9 @@ class LingbotWorldRunnerConfig(RunnerConfig):
     fps: int = 16
     """Output video frame rate. Lingbot was trained at 16fps."""
 
+    postprocess_output_layout: VideoTensorLayout | None = "tchw"
+    """Pipeline output layout for streaming post-processing."""
+
     example_data: bool = False
     """When ``True``, lazy-download bundled GitHub example assets into
     a version-specific cache and fill ``image_path`` / ``pose_path`` /
@@ -363,8 +367,8 @@ class LingbotWorldRunner(
         if torch.distributed.is_initialized():
             torch.distributed.barrier()
 
-        chunks: list[torch.Tensor] = []
-        stats_history: list[dict[str, float]] = []
+        postprocess_stream = self.create_postprocess_stream(fps=cfg.fps)
+        stats_history: list[dict[str, object]] = []
         start = 0
         for i in range(cfg.total_blocks):
             num_frames = self.pipeline.get_num_output_frames(i)
@@ -387,13 +391,20 @@ class LingbotWorldRunner(
                 input=camctrl_input,
             )
             stats = self.pipeline.finalize(autoregressive_index=i, cache=cache)
-            if stats is not None:
-                stats_history.append({"autoregressive_index": i, **stats})
-            chunks.append(video_chunk.cpu())
+            video_chunk = postprocess_stream.process(
+                video_chunk, autoregressive_index=i
+            )
+            if postprocess_stream.collect_output and stats is not None:
+                stats_history.append(
+                    {
+                        "autoregressive_index": i,
+                        **postprocess_stream.add_process_stats(stats),
+                    }
+                )
             start = end
 
-        video = torch.cat(chunks, dim=0)  # [T, C, H, W]
-        if not self.is_rank_zero:
+        video = postprocess_stream.finish()
+        if video is None:
             return
 
         cfg.output_dir.mkdir(parents=True, exist_ok=True)

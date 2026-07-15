@@ -37,10 +37,16 @@ class EventProfiler:
         # {"encode": 12.3, "diffuse": 102.4, "decode": 45.6}
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, synchronize_distributed: bool = False) -> None:
+        """Start a CUDA-event profile.
+
+        Distributed synchronization is opt-in. Implicit barriers in profiling
+        code can interleave with model collectives and turn ordinary rank skew
+        (notably first-use compilation) into a distributed hang.
+        """
         if torch.cuda.is_available():
             torch.cuda.synchronize()
-        if torch.distributed.is_initialized():
+        if synchronize_distributed and torch.distributed.is_initialized():
             torch.distributed.barrier()
         self._start = torch.cuda.Event(enable_timing=True)
         self._ends: dict[str, torch.cuda.Event] = {}
