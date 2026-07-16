@@ -9,6 +9,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import replace
 from typing import Any
 
+import nvtx
 import numpy as np
 import torch
 from loguru import logger
@@ -574,6 +575,7 @@ class FlashdreamsWorldModelSession:
             torch.cuda.synchronize(device)
             torch.cuda.empty_cache()
 
+    @nvtx.annotate(domain="interactive_drive")
     def start(
         self,
         initial_rgb: object,
@@ -603,6 +605,7 @@ class FlashdreamsWorldModelSession:
         logger.info(f"[flashdreams-session] start total_ms={elapsed_ms:.1f}")
         return model_frames
 
+    @nvtx.annotate(domain="interactive_drive")
     def continue_generation(self, condition_frames: list[object]) -> list[object]:
         if self._cache is None:
             raise RuntimeError("start() must be called before continue_generation()")
@@ -635,6 +638,7 @@ class FlashdreamsWorldModelSession:
             )
         return model_frames
 
+    @nvtx.annotate(domain="interactive_drive")
     def reset(self, *, clear_precomputed_embeddings: bool = False) -> None:
         self._cache = None
         self._pending_finalization_index = None
@@ -646,6 +650,7 @@ class FlashdreamsWorldModelSession:
                 "will rerun text/image encoders for the next scene",
             )
 
+    @nvtx.annotate(domain="interactive_drive")
     def close(self) -> None:
         if self._cache is not None and self._pending_finalization_index is not None:
             self.pipeline.finalize(self._pending_finalization_index, self._cache)
@@ -653,6 +658,7 @@ class FlashdreamsWorldModelSession:
         self._cache = None
         self._pipeline = None
 
+    @nvtx.annotate(domain="interactive_drive")
     def _initialize_cache(self, initial_rgb: object, prompt: str) -> Any:
         if self.manifest.synthetic_model:
             return self._initialize_synthetic_cache()
@@ -678,6 +684,7 @@ class FlashdreamsWorldModelSession:
             view_names=_VIEW_NAMES,
         )
 
+    @nvtx.annotate(domain="interactive_drive")
     def _initialize_synthetic_cache(self) -> Any:
         initialize_cache_from_embeddings = getattr(
             self.pipeline, "initialize_cache_from_embeddings", None
@@ -697,6 +704,7 @@ class FlashdreamsWorldModelSession:
             view_names=_VIEW_NAMES,
         )
 
+    @nvtx.annotate(domain="interactive_drive")
     def _ensure_precomputed_embeddings(
         self, initial_rgb: object, prompt: str
     ) -> dict[str, torch.Tensor | None]:
@@ -730,9 +738,11 @@ class FlashdreamsWorldModelSession:
             logger.info("[flashdreams-session] release_oneshot_encoders done")
         return self._precomputed_embeddings
 
+    @nvtx.annotate(domain="interactive_drive")
     def _initial_rgb_tensor(self, initial_rgb: object) -> torch.Tensor:
         return _initial_rgb_tensor(initial_rgb, device=self.pipeline.device)
 
+    @nvtx.annotate(domain="interactive_drive")
     def _condition_tensor(self, condition_frames: Sequence[object]) -> torch.Tensor:
         cuda_video = _condition_cuda_video(condition_frames)
         if cuda_video is not None:
@@ -743,6 +753,7 @@ class FlashdreamsWorldModelSession:
         tensor = tensor.permute(0, 3, 1, 2).unsqueeze(0).unsqueeze(0)
         return self._to_model_range(tensor)
 
+    @nvtx.annotate(domain="interactive_drive")
     def _to_model_range(self, tensor: torch.Tensor) -> torch.Tensor:
         return _to_model_range(tensor, device=self.pipeline.device)
 

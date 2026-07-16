@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import nvtx
+
 from omnidreams.interactive_drive.backends.base import RenderBackend
 from omnidreams.interactive_drive.config import BevConfig, ChunkConfig, RasterConfig
 from omnidreams.interactive_drive.rasterizer import LudusConditionRasterizer
@@ -34,6 +36,7 @@ class RasterRenderBackend(RenderBackend):
     def render_next_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
         return self._render_chunk(trajectory)
 
+    @nvtx.annotate(domain="interactive_drive")
     def _render_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
         raster_chunk = self._rasterizer.render_chunk(
             rig_poses_world=trajectory.rig_poses_world,

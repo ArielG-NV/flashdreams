@@ -3,9 +3,12 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+import concurrent.futures
 from types import SimpleNamespace
 
 import numpy as np
+import omnidreams.interactive_drive.rasterizer as rasterizer_module
 import torch
 from omnidreams.interactive_drive.rasterizer import (
     _LoadedSceneData,
@@ -72,3 +75,89 @@ def test_raster_chunk_can_disable_cuda_backed_frames() -> None:
     assert isinstance(first, np.ndarray)
     assert not callable(getattr(first, "to_cuda_tensor", None))
     assert np.array_equal(first, np.arange(18, dtype=np.uint8).reshape(2, 3, 3))
+
+
+def test_raster_chunk_annotates_hdmap_and_bev_rendering(monkeypatch) -> None:
+    events: list[tuple[str, str]] = []
+
+    @contextmanager
+    def annotate(message: str, *, domain: str):
+        assert domain == "interactive_drive"
+        events.append(("enter", message))
+        yield
+        events.append(("exit", message))
+
+    monkeypatch.setattr(rasterizer_module.nvtx, "annotate", annotate)
+    impl = _impl_for_render_chunk(use_cuda_frames=True)
+    impl._bev = SimpleNamespace(enabled=True, height=2, width=3)
+    impl._bev_camera_id = 1
+    impl._bev_sensor_to_rig = torch.eye(4)
+
+    impl.render_chunk(
+        np.repeat(np.eye(4, dtype=np.float32)[None, :, :], 1, axis=0),
+        np.array([1], dtype=np.int64),
+    )
+
+    assert events == [
+        ("enter", "rasterizer_render_chunk"),
+        ("enter", "render_hdmap"),
+        ("exit", "render_hdmap"),
+        ("enter", "render_bev"),
+        ("exit", "render_bev"),
+        ("exit", "rasterizer_render_chunk"),
+    ]
+
+
+def test_raster_chunk_defers_bev_future_until_frame_access() -> None:
+    impl = _impl_for_render_chunk(use_cuda_frames=True)
+    impl._bev = SimpleNamespace(enabled=True, height=2, width=3)
+    impl._bev_camera_id = 1
+    impl._bev_sensor_to_rig = torch.eye(4)
+    future: concurrent.futures.Future[_RenderedCameraFrames] = (
+        concurrent.futures.Future()
+    )
+
+    class _DeferredExecutor:
+        def submit(self, *args, **kwargs):
+            del args, kwargs
+            return future
+
+    impl._render_executor = _DeferredExecutor()
+    chunk = impl.render_chunk(
+        np.repeat(np.eye(4, dtype=np.float32)[None, :, :], 1, axis=0),
+        np.array([1], dtype=np.int64),
+    )
+
+    bev_frame = chunk.frames[0].bev_host_uint8
+    assert bev_frame is not None
+    assert not future.done()
+
+    expected = torch.zeros((1, 2, 3, 3), dtype=torch.float8_e4m3fn)
+    future.set_result(
+        _RenderedCameraFrames(frames_hwc_uint8=expected, ready_event=None)
+    )
+    assert bev_frame.to_cuda_tensor().dtype == torch.float8_e4m3fn
+
+
+def test_bev_render_requests_fp8_frames() -> None:
+    impl = _impl_for_render_chunk(use_cuda_frames=True)
+    captured: dict[str, object] = {}
+
+    def fake_render_one_camera(**kwargs):
+        captured.update(kwargs)
+        return _RenderedCameraFrames(
+            frames_hwc_uint8=torch.zeros((1, 2, 3, 3), dtype=torch.uint8),
+            ready_event=None,
+        )
+
+    impl._render_one_camera = fake_render_one_camera
+    impl._render_bev(
+        rig_poses=torch.eye(4).unsqueeze(0),
+        timestamps_batch=torch.tensor([1], dtype=torch.int64),
+        scene_id=7,
+        camera_id=1,
+        sensor_to_rig=torch.eye(4),
+        resolution=(2, 3),
+    )
+
+    assert captured["output_dtype"] == torch.float8_e4m3fn

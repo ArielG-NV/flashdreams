@@ -17,6 +17,7 @@
 
 from typing import List, Optional, Tuple
 
+import nvtx
 import torch
 
 from ._plugin import _get_plugin
@@ -374,6 +375,7 @@ class LudusCudaTimestampedContext:
         self._scenes.clear()
 
     # ------------------------------------------------------------------
+    @nvtx.annotate(domain="interactive_drive")
     def render_batch(
         self,
         queries: List[Tuple[int, int, int, int]],
@@ -395,7 +397,9 @@ class LudusCudaTimestampedContext:
             scene_ids[i] = int(q[0])
             camera_ids[i] = int(q[1])
             ts = q[2]
-            timestamps_us[i] = int(ts.item() if isinstance(ts, torch.Tensor) else ts)
+            timestamps_us[i] = int(
+                ts.item() if isinstance(ts, torch.Tensor) else ts
+            )
             camera_type_ids[i] = int(q[3]) if len(q) > 3 else 0
         return self.render(
             scene_ids,
@@ -407,6 +411,7 @@ class LudusCudaTimestampedContext:
         )
 
     # ------------------------------------------------------------------
+    @nvtx.annotate(domain="interactive_drive")
     def render(
         self,
         scene_ids: torch.Tensor,

@@ -10,6 +10,7 @@ graphics GPU; prefer ``omnidreams.webrtc.server`` for a richer viewer.
 
 from __future__ import annotations
 
+import nvtx
 import io
 import json
 import shutil
@@ -715,11 +716,13 @@ class MJPEGStreamingPresenter:
             _KeyboardDriveSink(keyboard)
         )
 
+    @nvtx.annotate(domain="interactive_drive")
     def process_events(self) -> None:
         # Per-tick integrator update so auto-crawl smoothing advances at sim
         # cadence regardless of how often the browser posts /control events.
         self._keyboard_drive.update()
 
+    @nvtx.annotate(domain="interactive_drive")
     def present_frame(self, frame: PresentedFrame, view_mode: str) -> None:
         # Mirror SlangPyPresenter.present_frame's view-mode branching so
         # the user's `1`/`2` toggles behave identically.
@@ -746,18 +749,20 @@ class MJPEGStreamingPresenter:
             self._server_thread.join(timeout=1.0)
 
     # -- Internals --------------------------------------------------
-
+    @nvtx.annotate(domain="interactive_drive")
     def _publish(self, rgb_host_uint8: object) -> None:
         buf = io.BytesIO()
-        Image.fromarray(_as_rgb_host_uint8(rgb_host_uint8)).save(
-            buf, format="JPEG", quality=self._jpeg_quality
-        )
+        with nvtx.annotate("Image.fromarray", domain="interactive_drive"):
+            Image.fromarray(_as_rgb_host_uint8(rgb_host_uint8)).save(
+                buf, format="JPEG", quality=self._jpeg_quality
+            )
         jpeg = buf.getvalue()
         with self._frame_cond:
             self._latest_jpeg = jpeg
             self._frame_count += 1
             self._frame_cond.notify_all()
 
+    @nvtx.annotate(domain="interactive_drive")
     def _publish_bev(self, bev_rgb_host_uint8: object) -> None:
         """Encode the BEV minimap (quality 95, not 85) and stash it for ``/bev_stream``.
 
@@ -765,15 +770,17 @@ class MJPEGStreamingPresenter:
         otherwise surface as grey halos around lane / vehicle edges.
         """
         buf = io.BytesIO()
-        Image.fromarray(_as_rgb_host_uint8(bev_rgb_host_uint8)).save(
-            buf, format="JPEG", quality=95
-        )
+        with nvtx.annotate("Image.fromarray", domain="interactive_drive"):
+            Image.fromarray(_as_rgb_host_uint8(bev_rgb_host_uint8)).save(
+                buf, format="JPEG", quality=95
+            )
         jpeg = buf.getvalue()
         with self._frame_cond:
             self._latest_bev_jpeg = jpeg
             self._bev_frame_count += 1
             self._frame_cond.notify_all()
 
+    @nvtx.annotate(domain="interactive_drive")
     def _wait_for_new_frame(self, last_seen_count: int) -> tuple[bytes, int] | None:
         """Block until a frame newer than ``last_seen_count`` is ready or
         the server is shutting down. Returns ``(jpeg_bytes, frame_count)``
@@ -786,6 +793,7 @@ class MJPEGStreamingPresenter:
                 self._frame_cond.wait(timeout=1.0)
             return self._latest_jpeg, self._frame_count
 
+    @nvtx.annotate(domain="interactive_drive")
     def _wait_for_new_bev_frame(self, last_seen_count: int) -> tuple[bytes, int] | None:
         """Same as :meth:`_wait_for_new_frame` but for the BEV stream.
 
@@ -1065,7 +1073,7 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
 
     return Handler
 
-
+@nvtx.annotate(domain="interactive_drive")
 def _as_rgb_host_uint8(frame: object) -> np.ndarray:
     """Materialize a frame to ``(H, W, 3)`` uint8.
 
@@ -1078,7 +1086,7 @@ def _as_rgb_host_uint8(frame: object) -> np.ndarray:
         frame = to_numpy()
     return np.ascontiguousarray(np.asarray(frame, dtype=np.uint8)[..., :3])
 
-
+@nvtx.annotate(domain="interactive_drive")
 def _with_status_overlay(rgb_host_uint8: object, message: str | None) -> np.ndarray:
     rgb_host_uint8 = _as_rgb_host_uint8(rgb_host_uint8)
     if message is None:

@@ -503,6 +503,31 @@ printed for debugging. Set
 `INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT_INTERVAL_S` to adjust the report
 period; the default is `2`.
 
+### Nsight Systems timeline
+
+On CUDA hosts, the demo emits NVTX ranges automatically. Profile with Nsight
+Systems to correlate the CPU pipeline with CUDA work:
+
+```bash
+integrations/omnidreams/scripts/profile_interactive_drive.sh --capture-main-loop --native-ui
+# Press Ctrl-C once, then let Nsight Systems finish building the report. It can take a few minutes and is silent while it runs.
+```
+
+If CPU profiling is not available, check if perf counters are restricted:
+```
+# non 0 implies restricted
+cat /proc/sys/kernel/perf_event_paranoid
+
+# remove all restrictions on perf counters
+sudo sysctl kernel.perf_event_paranoid=0
+```
+
+The script writes a timestamped ``.nsys-rep`` under ``profiles/`` (or
+``$NSYS_OUTPUT_DIR``). It captures CUDA, NVTX, OS runtime, Python GIL, Python
+sampling, CUDA Python backtraces, CUDA allocation activity, and curated Python
+function ranges from ``scripts/interactive_drive_annotations.json``. Set
+``INTERACTIVE_DRIVE_PROFILE_CHUNKS`` or pass extra ``interactive-drive`` options.
+
 ### Rollout drift and resets
 
 OmniDreams generates video autoregressively, so long rollouts can accumulate

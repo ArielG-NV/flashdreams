@@ -37,6 +37,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
+import nvtx
 import torch
 
 from ._plugin_vk import _get_vk_plugin
@@ -667,6 +668,7 @@ class LudusTimestampedContext:
         buf_i32_view[:, 4] = ints[:, 4]  # camera_type_id
         return buf.to(self._device).contiguous()
 
+    @nvtx.annotate(domain="interactive_drive")
     def render(
         self,
         scene_ids: torch.Tensor,
@@ -695,6 +697,7 @@ class LudusTimestampedContext:
             self.cpp_wrapper, queries, poses, resolution
         )
 
+    @nvtx.annotate(domain="interactive_drive")
     def render_batch(
         self,
         queries: List[Tuple[int, int, int, int]],

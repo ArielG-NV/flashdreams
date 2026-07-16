@@ -8,6 +8,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
+import nvtx
+
 from loguru import logger
 from omnidreams.interactive_drive.runtime.timing import (
     ChunkTimes,
@@ -318,7 +320,8 @@ class ChunkPipeline:
         try:
             warmup_start = time.perf_counter()
             logger.info("[chunk-pipeline] warmup start")
-            self._backend.warmup_model()
+            with nvtx.annotate("worker_warmup", domain="interactive_drive"):
+                self._backend.warmup_model()
             warmup_end = time.perf_counter()
             if self._trace_context is not None:
                 self._trace_context.add_range(

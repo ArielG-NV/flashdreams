@@ -9,12 +9,91 @@ created at request time is the same one that records present time (direct
 correlation, no copying or re-association).
 """
 
+import os
 from collections import deque
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from threading import Lock
-from typing import Protocol
+from typing import Callable, Protocol
+
+import nvtx
 
 TraceComponentValue = str | int | float | bool | None
+
+_NSIGHT_CAPTURE_MAIN_LOOP_ENV = "INTERACTIVE_DRIVE_NSIGHT_CAPTURE_MAIN_LOOP"
+"""Enables CUDA Profiler API capture around ``run_main_loop`` when set."""
+
+_CudaProfilerHooks = tuple[Callable[[], object], Callable[[], object]]
+_cuda_profiler_hooks: _CudaProfilerHooks | None = None
+"""Cached CUDA Profiler API hooks; ``None`` when the active torch build lacks them."""
+
+_cuda_profiler_hooks_checked = False
+"""Whether this process has resolved CUDA Profiler API support."""
+
+_cuda_profiler_hooks_lock = Lock()
+"""Serializes lazy CUDA Profiler API-hook initialization and disabling."""
+
+
+def _capture_main_loop_enabled() -> bool:
+    raw = os.environ.get(_NSIGHT_CAPTURE_MAIN_LOOP_ENV, "")
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _get_cuda_profiler_hooks() -> _CudaProfilerHooks | None:
+    global _cuda_profiler_hooks_checked
+    global _cuda_profiler_hooks
+
+    with _cuda_profiler_hooks_lock:
+        if _cuda_profiler_hooks_checked:
+            return _cuda_profiler_hooks
+        _cuda_profiler_hooks_checked = True
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                cudart = torch.cuda.cudart()
+                _cuda_profiler_hooks = (
+                    cudart.cudaProfilerStart,
+                    cudart.cudaProfilerStop,
+                )
+        except Exception:
+            _cuda_profiler_hooks = None
+        return _cuda_profiler_hooks
+
+
+def _disable_cuda_profiler_hooks() -> None:
+    global _cuda_profiler_hooks
+    with _cuda_profiler_hooks_lock:
+        _cuda_profiler_hooks = None
+
+
+@contextmanager
+def nsight_run_scene_capture() -> Iterator[None]:
+    """Capture only the renderer main loop when Nsight capture is enabled."""
+    if not _capture_main_loop_enabled():
+        yield
+        return
+
+    hooks = _get_cuda_profiler_hooks()
+    if hooks is None:
+        yield
+        return
+
+    start, stop = hooks
+    try:
+        start()
+    except Exception:
+        _disable_cuda_profiler_hooks()
+        yield
+        return
+    try:
+        yield
+    finally:
+        try:
+            stop()
+        except Exception:
+            _disable_cuda_profiler_hooks()
 
 
 def trace_time_ns(seconds: float) -> int:

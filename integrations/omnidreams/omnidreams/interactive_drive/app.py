@@ -6,6 +6,9 @@ import time
 from collections.abc import Callable, Iterable
 from dataclasses import replace
 from pathlib import Path
+from omnidreams.interactive_drive.runtime.timing import (
+    nsight_run_scene_capture,
+)
 
 import numpy as np
 from loguru import logger
@@ -417,6 +420,7 @@ class InteractiveDriveApp:
             self._loading_base_rgb = np.zeros((height, width, 3), dtype=np.uint8)
         return self._loading_base_rgb
 
+    @nsight_run_scene_capture()
     def run_scene(self) -> None:
         """Drive the current scene until the presenter closes or switches.
 

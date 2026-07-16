@@ -12,6 +12,7 @@ handled by the demo's outer loop over this same long-lived window.
 
 from __future__ import annotations
 
+import nvtx
 import contextlib
 import math as _math
 import time
@@ -460,6 +461,7 @@ class SlangPyHudPresenter:
         if frame.bev_host_uint8 is not None:
             _prefetch_to_numpy(frame.bev_host_uint8)
 
+    @nvtx.annotate(domain="interactive_drive")
     def present_frame(self, frame: PresentedFrame, view_mode: str) -> None:
         # Apply any pending resize before touching the display texture
         # this frame. Done here (not inside on_resize) so Vulkan
@@ -558,6 +560,7 @@ class SlangPyHudPresenter:
             return frame.model_rgb_host_uint8
         return frame.rgb_host_uint8
 
+    @nvtx.annotate(domain="interactive_drive")
     def _update_camera_pil(self, rgb: object) -> None:
         rgb = _as_rgb_host_uint8(rgb)
         # ``Image.fromarray`` over a contiguous numpy buffer is zero-copy
@@ -585,6 +588,7 @@ class SlangPyHudPresenter:
         self._camera_resize_cache = None
         self._has_camera_frame = True
 
+    @nvtx.annotate(domain="interactive_drive")
     def _update_bev_pil(self, bev_rgb: object) -> None:
         bev_rgb = _as_rgb_host_uint8(bev_rgb)
         # Wrap the raw BEV; the GoogleMaps recolour runs in
@@ -2475,7 +2479,7 @@ def _prefetch_to_numpy(frame: object) -> None:
 def _has_cuda_tensor(frame: object) -> bool:
     return callable(getattr(frame, "to_cuda_tensor", None))
 
-
+@nvtx.annotate(domain="interactive_drive")
 def _as_rgb_host_uint8(frame: object) -> np.ndarray:
     to_numpy = getattr(frame, "to_numpy", None)
     if callable(to_numpy):

@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import numpy.typing as npt
+import nvtx
 import torch
 from loguru import logger
 from ludus_renderer import (
@@ -53,28 +54,47 @@ class _RenderedCameraFrames:
 
 
 class _LazyRasterFrame:
-    """Expose a rendered HDMap frame as CUDA first, NumPy only on fallback."""
+    """Expose a rendered frame as CUDA first, resolving deferred renders on demand."""
 
     def __init__(
         self,
-        frames_hwc_uint8: Tensor,
+        frames_hwc_uint8: Tensor | None,
         frame_index: int,
         *,
         source_event: object | None = None,
+        rendered_frames_future: concurrent.futures.Future[_RenderedCameraFrames]
+        | None = None,
     ) -> None:
+        if (frames_hwc_uint8 is None) == (rendered_frames_future is None):
+            raise ValueError(
+                "Provide exactly one frame tensor or rendered-frame future."
+            )
         self._frames_hwc_uint8: Tensor | None = frames_hwc_uint8
         self._frame_index = int(frame_index)
         self._source_event = source_event
+        self._rendered_frames_future = rendered_frames_future
         self._host: np.ndarray | None = None
         self._prefetch: CudaHostPrefetch | None = None
+
+    def _resolve_rendered_frames(self) -> None:
+        """Resolve a deferred render before accessing its frame tensor."""
+        future = self._rendered_frames_future
+        if future is None:
+            return
+        rendered = future.result()
+        self._frames_hwc_uint8 = rendered.frames_hwc_uint8
+        self._source_event = rendered.ready_event
+        self._rendered_frames_future = None
 
     def prefetch_to_numpy(self) -> None:
         if (
             self._host is not None
             or self._prefetch is not None
-            or self._frames_hwc_uint8 is None
         ):
             return
+        self._resolve_rendered_frames()
+        if self._frames_hwc_uint8 is None:
+            raise RuntimeError("Lazy raster frame lost its source tensor before prefetch.")
         frame = self._frames_hwc_uint8[self._frame_index].detach()
         prefetch = CudaHostPrefetch(frame, source_event=self._source_event)
         if prefetch.start():
@@ -87,6 +107,7 @@ class _LazyRasterFrame:
                 self._prefetch = None
                 self._frames_hwc_uint8 = None
                 return self._host
+            self._resolve_rendered_frames()
             if self._frames_hwc_uint8 is None:
                 raise RuntimeError(
                     "Lazy raster frame lost its source tensor before materialization."
@@ -100,6 +121,7 @@ class _LazyRasterFrame:
         return self._host
 
     def to_cuda_tensor(self) -> Tensor:
+        self._resolve_rendered_frames()
         if self._frames_hwc_uint8 is None:
             raise RuntimeError(
                 "Lazy raster frame was already materialized on the host."
@@ -107,6 +129,7 @@ class _LazyRasterFrame:
         return self._frames_hwc_uint8[self._frame_index]
 
     def to_cuda_event(self) -> object | None:
+        self._resolve_rendered_frames()
         if self._frames_hwc_uint8 is None:
             return None
         return self._source_event
@@ -131,7 +154,12 @@ class _LudusConditionRasterizerImpl:
     (see :class:`LudusConditionRasterizer` for the EGL rationale).
     """
 
-    def __init__(self, raster: RasterConfig, bev: BevConfig | None = None) -> None:
+    def __init__(
+        self,
+        raster: RasterConfig,
+        bev: BevConfig | None = None,
+        render_executor: concurrent.futures.ThreadPoolExecutor | None = None,
+    ) -> None:
         """Initialize the rasterizer.
 
         Args:
@@ -146,6 +174,7 @@ class _LudusConditionRasterizerImpl:
 
         self._raster = raster
         self._bev = bev
+        self._render_executor = render_executor
         self._device = torch.device("cuda:0")
         self._use_cuda_frames = not env_truthy(DISABLE_CUDA_INTEROP_ENV)
         if self._use_cuda_frames:
@@ -193,6 +222,7 @@ class _LudusConditionRasterizerImpl:
         """Convert sensor-to-world camera poses to Ludus' world-to-sensor format."""
         return torch.linalg.inv(camera_poses)
 
+    @nvtx.annotate(domain="interactive_drive")
     def load_scene(self, scene: SceneBundle) -> None:
         """Load a scene from the USDZ bundle.
 
@@ -243,7 +273,18 @@ class _LudusConditionRasterizerImpl:
         # Single scene upload shared by the main camera and the BEV minimap.
         self._scene_id = self.ctx.upload_scene(clipgt_scene.timestamped_scene)
 
+    @nvtx.annotate(domain="interactive_drive")
     def render_chunk(
+        self,
+        rig_poses_world: npt.NDArray[np.float32],
+        timestamps_us: npt.NDArray[np.int64],
+    ) -> RasterChunk:
+        """Render one chunk with an NVTX range spanning the deferred BEV handoff."""
+        return self._render_chunk(
+            rig_poses_world=rig_poses_world, timestamps_us=timestamps_us
+        )
+
+    def _render_chunk(
         self,
         rig_poses_world: npt.NDArray[np.float32],
         timestamps_us: npt.NDArray[np.int64],
@@ -282,30 +323,30 @@ class _LudusConditionRasterizerImpl:
             np.ascontiguousarray(timestamps_us, dtype=np.int64)
         ).to(device=self._device)
 
-        rgb_frames = self._render_one_camera(
-            rig_poses=rig_poses_torch,
-            timestamps_batch=timestamps_batch,
-            scene_id=self._scene_id,
-            camera_id=self._all_camera_map[camera_name],
-            sensor_to_rig=self._sensor_to_rig[camera_name],
-            camera_type=CAMERA_TYPE_REGULAR,
-            resolution=(self._raster.height, self._raster.width),
-        )
+        with nvtx.annotate("render_hdmap", domain="interactive_drive"):
+            rgb_frames = self._render_one_camera(
+                rig_poses=rig_poses_torch,
+                timestamps_batch=timestamps_batch,
+                scene_id=self._scene_id,
+                camera_id=self._all_camera_map[camera_name],
+                sensor_to_rig=self._sensor_to_rig[camera_name],
+                camera_type=CAMERA_TYPE_REGULAR,
+                resolution=(self._raster.height, self._raster.width),
+            )
 
-        bev_frames: _RenderedCameraFrames | None = None
+        bev_frames_future: concurrent.futures.Future[_RenderedCameraFrames] | None = None
         if (
             self._bev is not None
             and self._bev.enabled
             and self._bev_camera_id is not None
             and self._bev_sensor_to_rig is not None
         ):
-            bev_frames = self._render_one_camera(
+            bev_frames_future = self._submit_bev_render(
                 rig_poses=rig_poses_torch,
                 timestamps_batch=timestamps_batch,
                 scene_id=self._scene_id,
                 camera_id=self._bev_camera_id,
                 sensor_to_rig=self._bev_sensor_to_rig,
-                camera_type=CAMERA_TYPE_BEV,
                 resolution=(self._bev.height, self._bev.width),
             )
 
@@ -321,11 +362,11 @@ class _LudusConditionRasterizerImpl:
                     depth_host_f32=None,
                     bev_host_uint8=(
                         _LazyRasterFrame(
-                            bev_frames.frames_hwc_uint8,
+                            None,
                             idx,
-                            source_event=bev_frames.ready_event,
+                            rendered_frames_future=bev_frames_future,
                         )
-                        if bev_frames is not None
+                        if bev_frames_future is not None
                         else None
                     ),
                 )
@@ -334,22 +375,90 @@ class _LudusConditionRasterizerImpl:
             return RasterChunk(frames=tuple(frames))
 
         rgb_host_frames = _rendered_frames_to_numpy(rgb_frames)
-        bev_host_frames = (
-            _rendered_frames_to_numpy(bev_frames) if bev_frames is not None else None
-        )
         frames = [
             PresentedFrame(
                 timestamp_us=int(timestamps_us[idx]),
                 rgb_host_uint8=rgb_host_frames[idx],
                 depth_host_f32=None,
                 bev_host_uint8=(
-                    bev_host_frames[idx] if bev_host_frames is not None else None
+                    _LazyRasterFrame(
+                        None,
+                        idx,
+                        rendered_frames_future=bev_frames_future,
+                    )
+                    if bev_frames_future is not None
+                    else None
                 ),
             )
             for idx in range(len(timestamps_us))
         ]
         return RasterChunk(frames=tuple(frames))
 
+    def _submit_bev_render(
+        self,
+        *,
+        rig_poses: Tensor,
+        timestamps_batch: Tensor,
+        scene_id: int,
+        camera_id: int,
+        sensor_to_rig: Tensor,
+        resolution: tuple[int, int],
+    ) -> concurrent.futures.Future[_RenderedCameraFrames]:
+        """Queue the BEV render on the context-owning worker."""
+        executor = getattr(self, "_render_executor", None)
+        if executor is not None:
+            return executor.submit(
+                self._render_bev,
+                rig_poses=rig_poses,
+                timestamps_batch=timestamps_batch,
+                scene_id=scene_id,
+                camera_id=camera_id,
+                sensor_to_rig=sensor_to_rig,
+                resolution=resolution,
+            )
+
+        future: concurrent.futures.Future[_RenderedCameraFrames] = (
+            concurrent.futures.Future()
+        )
+        try:
+            future.set_result(
+                self._render_bev(
+                    rig_poses=rig_poses,
+                    timestamps_batch=timestamps_batch,
+                    scene_id=scene_id,
+                    camera_id=camera_id,
+                    sensor_to_rig=sensor_to_rig,
+                    resolution=resolution,
+                )
+            )
+        except BaseException as exc:
+            future.set_exception(exc)
+        return future
+
+    @nvtx.annotate(domain="interactive_drive")
+    def _render_bev(
+        self,
+        *,
+        rig_poses: Tensor,
+        timestamps_batch: Tensor,
+        scene_id: int,
+        camera_id: int,
+        sensor_to_rig: Tensor,
+        resolution: tuple[int, int],
+    ) -> _RenderedCameraFrames:
+        """Render a BEV frame batch in FP8 after the main chunk returns."""
+        return self._render_one_camera(
+            rig_poses=rig_poses,
+            timestamps_batch=timestamps_batch,
+            scene_id=scene_id,
+            camera_id=camera_id,
+            sensor_to_rig=sensor_to_rig,
+            camera_type=CAMERA_TYPE_BEV,
+            resolution=resolution,
+            output_dtype=torch.uint8,
+        )
+
+    @nvtx.annotate(domain="interactive_drive")
     def _render_one_camera(
         self,
         *,
@@ -360,26 +469,31 @@ class _LudusConditionRasterizerImpl:
         sensor_to_rig: Tensor,
         camera_type: int,
         resolution: tuple[int, int],
+        output_dtype: torch.dtype = torch.uint8,
     ) -> _RenderedCameraFrames:
         """Single-camera rasterizer dispatch shared by the main view and BEV.
 
         Frames stay CUDA-backed so the world model consumes HDMap conditioning
         without a GPU->CPU->GPU round trip (presenters materialize NumPy lazily).
         """
-        n_frames = timestamps_batch.shape[0]
-        camera_poses_world = torch.einsum(
-            "nij,jk->nik", rig_poses, sensor_to_rig.to(self._device)
-        )
-        camera_poses_ludus = self._to_ludus_camera_pose(camera_poses_world)
-        scene_id_batch = torch.full(
-            (n_frames,), scene_id, dtype=torch.int32, device=self._device
-        )
-        camera_id_batch = torch.full(
-            (n_frames,), camera_id, dtype=torch.int32, device=self._device
-        )
-        camera_type_id_batch = torch.full(
-            (n_frames,), camera_type, dtype=torch.int32, device=self._device
-        )
+        with nvtx.annotate("torch.einsum", domain="interactive_drive"):
+            n_frames = timestamps_batch.shape[0]
+            camera_poses_world = torch.einsum(
+                "nij,jk->nik", rig_poses, sensor_to_rig.to(self._device)
+            )
+        with nvtx.annotate("torch._to_ludus_camera_pose", domain="interactive_drive"):
+            camera_poses_ludus = self._to_ludus_camera_pose(camera_poses_world)
+            scene_id_batch = torch.full(
+                (n_frames,), scene_id, dtype=torch.int32, device=self._device
+            )
+        with nvtx.annotate("camera_id_batch torch.full", domain="interactive_drive"):
+            camera_id_batch = torch.full(
+                (n_frames,), camera_id, dtype=torch.int32, device=self._device
+            )
+        with nvtx.annotate("camera_type_id_batch torch.full", domain="interactive_drive"):
+            camera_type_id_batch = torch.full(
+                (n_frames,), camera_type, dtype=torch.int32, device=self._device
+            )
 
         height, width = resolution
         images = self.ctx.render(
@@ -394,8 +508,12 @@ class _LudusConditionRasterizerImpl:
         rgb = images[:, :, :, :3]
         if self.ctx.needs_vflip:
             rgb = rgb.flip(1)
-        if rgb.dtype != torch.uint8:
+        if output_dtype == torch.uint8 and rgb.dtype != torch.uint8:
             rgb = (rgb.clamp(0.0, 1.0) * 255.0 + 0.5).to(torch.uint8)
+        elif output_dtype != torch.uint8:
+            if rgb.dtype == torch.uint8:
+                rgb = rgb.to(torch.float32).div_(255.0)
+            rgb = rgb.to(output_dtype)
         rgb = rgb.detach().contiguous()
         ready_event = None
         if rgb.is_cuda:
@@ -431,20 +549,24 @@ class LudusConditionRasterizer:
             max_workers=1, thread_name_prefix="ludus-render"
         )
         self._impl: _LudusConditionRasterizerImpl | None = self._exec.submit(
-            _LudusConditionRasterizerImpl, raster, bev
+            _LudusConditionRasterizerImpl, raster, bev, self._exec
         ).result()
 
+    @nvtx.annotate(domain="interactive_drive")
     def load_scene(self, scene: SceneBundle) -> None:
         exec_, impl = self._require_alive()
         return exec_.submit(impl.load_scene, scene).result()
 
+    @nvtx.annotate(domain="interactive_drive")
     def render_chunk(
         self,
         rig_poses_world: npt.NDArray[np.float32],
         timestamps_us: npt.NDArray[np.int64],
     ) -> "RasterChunk":
         exec_, impl = self._require_alive()
-        return exec_.submit(impl.render_chunk, rig_poses_world, timestamps_us).result()
+        return exec_.submit(
+            impl.render_chunk, rig_poses_world, timestamps_us
+        ).result()
 
     def _require_alive(
         self,

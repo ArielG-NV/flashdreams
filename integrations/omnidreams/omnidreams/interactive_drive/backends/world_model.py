@@ -8,6 +8,7 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
+import nvtx
 import numpy as np
 from loguru import logger
 from omnidreams.interactive_drive.backends.base import RenderBackend
@@ -115,6 +116,7 @@ class WorldModelRenderBackend(RenderBackend):
             f"total_ms={(prepare_end - load_start) * 1000.0:.1f}",
         )
 
+    @nvtx.annotate(domain="interactive_drive")
     def render_first_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
         scene = self._require_scene()
         chunk_start = time.perf_counter()
@@ -160,7 +162,7 @@ class WorldModelRenderBackend(RenderBackend):
             annotate_first_transition=True,
         )
         merge_end = time.perf_counter()
-        logger.info(
+        logger.debug(
             "[world-model] first_chunk "
             f"frames={len(trajectory.timestamps_us)} "
             f"raster_ms={(raster_end - chunk_start) * 1000.0:.1f} "
@@ -182,6 +184,7 @@ class WorldModelRenderBackend(RenderBackend):
             ),
         )
 
+    @nvtx.annotate(domain="interactive_drive")
     def render_next_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
         self._require_scene()
         chunk_start = time.perf_counter()
@@ -265,6 +268,7 @@ class WorldModelRenderBackend(RenderBackend):
                 frames.append(np.array(rgb, dtype=np.uint8))
         return tuple(frames)
 
+    @nvtx.annotate(domain="interactive_drive")
     def _merge_frames(
         self,
         raster_frames: Sequence[PresentedFrame],

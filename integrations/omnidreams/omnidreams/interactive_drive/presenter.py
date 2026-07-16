@@ -4,6 +4,7 @@
 import time
 from typing import Any
 
+import nvtx
 import numpy as np
 from loguru import logger
 from omnidreams.interactive_drive.config import RasterConfig
@@ -86,6 +87,7 @@ class SlangPyPresenter:
         if view_mode != "model_rgb":
             _prefetch_to_numpy(frame.rgb_host_uint8)
 
+    @nvtx.annotate(domain="interactive_drive")
     def present_frame(self, frame: PresentedFrame, view_mode: str) -> None:
         if view_mode == "model_rgb" and frame.model_rgb_host_uint8 is not None:
             if self._present_cuda_rgb(
@@ -711,14 +713,14 @@ def _prefetch_to_numpy(frame: object) -> None:
     if callable(prefetch):
         prefetch()
 
-
+@nvtx.annotate(domain="interactive_drive")
 def _with_status_overlay(rgb_host_uint8: object, message: str | None) -> np.ndarray:
     rgb_host_uint8 = _as_rgb_host_uint8(rgb_host_uint8)
     if message is None:
         return rgb_host_uint8
     return render_loading_overlay(rgb_host_uint8, message=message)
 
-
+@nvtx.annotate(domain="interactive_drive")
 def _as_rgb_host_uint8(frame: object) -> np.ndarray:
     to_numpy = getattr(frame, "to_numpy", None)
     if callable(to_numpy):

@@ -9,6 +9,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Protocol
 
+import nvtx
+
 from loguru import logger
 from omnidreams.interactive_drive.input.backend import InputBackend
 from omnidreams.interactive_drive.runtime.runtime_controls import RuntimeControls
@@ -193,7 +195,7 @@ OOB_RESPAWN_MESSAGE = "Respawning..."
 def should_request_chunk(state: MainLoopState) -> bool:
     return state.chunks_outstanding < 1
 
-
+@nvtx.annotate(domain="interactive_drive")
 def make_chunk_request(
     state: MainLoopState,
     simulation: SimulationBackend,
@@ -214,12 +216,13 @@ def make_chunk_request(
     )
     chunk_index = state.next_chunk_index
     chunk_size = config.initial_chunk_size if chunk_index == 0 else config.chunk_size
-    trajectory = simulation.pose_chunk(
-        command=command,
-        chunk_size=chunk_size,
-        frame_interval_s=config.frame_interval_s,
-        extrapolation_offset_s=0.0,
-    )
+    with nvtx.annotate("simulation_step", domain="interactive_drive"):
+        trajectory = simulation.pose_chunk(
+            command=command,
+            chunk_size=chunk_size,
+            frame_interval_s=config.frame_interval_s,
+            extrapolation_offset_s=0.0,
+        )
     request_poses_ready_time = time.perf_counter()
     simulation_event = _trace_main_range(
         trace_context,
@@ -451,7 +454,6 @@ def _drain_pipeline_frames(
         _prepare_queued_frame(queued_frame, presenter, view_mode)
         ready_frames.append(queued_frame)
 
-
 def run_main_loop(
     presenter: PresenterBackend,
     runtime_controls: RuntimeControls,
@@ -476,6 +478,8 @@ def run_main_loop(
     fired (caller rebuilds the simulation and re-runs), ``False`` when the
     presenter requested close.
     """
+    nvtx.mark(message="run_main_loop started", color="red")
+    logger.info("run_main_loop started")
     state = MainLoopState()
     last_presented_frame: PresentedFrame = initial_presented_frame
     ready_frames: deque[QueuedFrame] = deque()
@@ -485,7 +489,15 @@ def run_main_loop(
     if _profile_input_to_present_enabled():
         reset_input_to_present_profile_window()
 
+    lastFrame = state.frame_count
+    currentNVTXFrame = None
     while not presenter.should_close:
+        if(currentNVTXFrame is not None and lastFrame != state.frame_count):
+            nvtx.end_range(currentNVTXFrame)
+            currentNVTXFrame = None
+        if(currentNVTXFrame is None):
+            currentNVTXFrame = nvtx.start_range("new_frame", domain="interactive_drive")
+        lastFrame = state.frame_count
         presenter.process_events()
         if presenter.should_close:
             break
@@ -495,7 +507,8 @@ def run_main_loop(
             trace_context if state.last_consumed_chunk_index is not None else None
         )
         input_sample_begin = time.perf_counter()
-        sampled = input_backend.sample()
+        with nvtx.annotate("input_sample", domain="interactive_drive"):
+            sampled = input_backend.sample()
         input_sample_end = time.perf_counter()
         last_input_sample_event = _trace_main_range(
             active_trace,
@@ -538,9 +551,10 @@ def run_main_loop(
         now = time.perf_counter()
         if now < state.next_present_time:
             wait_begin = now
-            time.sleep(
-                min(config.poll_timeout_s, max(0.0, state.next_present_time - now))
-            )
+            with nvtx.annotate("present_sleep", domain="interactive_drive"):
+                time.sleep(
+                    min(config.poll_timeout_s, max(0.0, state.next_present_time - now))
+                )
             wait_end = time.perf_counter()
             last_present_wait_event = _trace_main_range(
                 active_trace,
@@ -573,6 +587,7 @@ def run_main_loop(
                     last_present_wait_event,
                 ),
             )
+            nvtx.mark(message="presented new_frame", color="green", domain="interactive_drive")
             last_present_wait_event = None
             last_presented_frame = queued_frame.frame
             state.frame_count += 1

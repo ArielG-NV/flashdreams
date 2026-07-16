@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
+import nvtx
 from omnidreams.interactive_drive.backends.base import RenderBackend
 from omnidreams.interactive_drive.types import FrameChunk, SceneBundle, TrajectoryChunk
 
@@ -36,6 +37,7 @@ class LocalVideoModelAdapter:
         # from the new scene's initial frame and prompt.
         self._is_first_chunk = True
 
+    @nvtx.annotate(domain="interactive_drive")
     def render_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
         if self._is_first_chunk:
             self._is_first_chunk = False

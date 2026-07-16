@@ -30,6 +30,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Iterator
 
+from loguru import logger
+
 from omnidreams.native.acceleration import (
     NativeAccelerationConfig,
     NativeAvailabilityCheck,
@@ -62,6 +64,10 @@ _extension_load_error: Exception | None = None
 _state_lock = threading.RLock()
 _dll_directory_handles: list[object] = []
 _dll_directory_paths: set[str] = set()
+
+
+class NativeExtensionBuildLockedError(RuntimeError):
+    """Raised when a prior PyTorch extension build left its lock behind."""
 
 
 def _native_build() -> ModuleType:
@@ -534,6 +540,7 @@ def load_extension(
 
             from torch.utils.cpp_extension import load as load_torch_extension
 
+            logger.info("[native] validating third-party sources")
             thirdparty_info = validate_thirdparty()
             extension_name = _extension_name(thirdparty_info)
             cutlass_dir = Path(thirdparty_info["cutlass"]["path"])
@@ -551,8 +558,23 @@ def load_extension(
                 build_root=build_root,
             )
             extension_build_dir.mkdir(parents=True, exist_ok=True)
+            lock_path = extension_build_dir / "lock"
+            if lock_path.exists():
+                raise NativeExtensionBuildLockedError(
+                    "Native extension build lock exists at "
+                    f"{lock_path}; refusing PyTorch's unbounded lock wait. "
+                    "Another build may be active. If no native build process is "
+                    "running, remove this stale lock and retry."
+                )
             _add_windows_cuda_dll_directories(cudnn_package_dir)
 
+            logger.info(
+                "[native] building/loading extension name={} build_dir={} "
+                "verbose_build={}",
+                extension_name,
+                extension_build_dir,
+                verbose,
+            )
             with _scoped_torch_max_jobs(max_jobs), _scoped_cuda_arch_list():
                 _extension = load_torch_extension(
                     name=extension_name,
@@ -653,9 +675,13 @@ def load_extension(
                     with_cuda=True,
                     verbose=verbose,
                 )
+        except NativeExtensionBuildLockedError:
+            raise
         except Exception as exc:  # pragma: no cover - environment-specific build path
             _extension_load_error = exc
+            logger.warning("[native] extension build/load failed: {}", exc)
             return None
+        logger.info("[native] extension loaded name={}", extension_name)
         return _extension
 
 
