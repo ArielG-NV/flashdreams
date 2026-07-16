@@ -12,6 +12,7 @@ each :class:`PresentedFrame`.
 import concurrent.futures
 import contextlib
 import math
+from collections import deque
 from dataclasses import dataclass
 
 import numpy as np
@@ -53,28 +54,44 @@ class _RenderedCameraFrames:
 
 
 class _LazyRasterFrame:
-    """Expose a rendered HDMap frame as CUDA first, NumPy only on fallback."""
+    """Expose a rendered frame as CUDA first, resolving deferred renders on demand."""
 
     def __init__(
         self,
-        frames_hwc_uint8: Tensor,
+        frames_hwc_uint8: Tensor | None,
         frame_index: int,
         *,
         source_event: object | None = None,
+        rendered_frames_future: concurrent.futures.Future[_RenderedCameraFrames]
+        | None = None,
     ) -> None:
+        if (frames_hwc_uint8 is None) == (rendered_frames_future is None):
+            raise ValueError(
+                "Provide exactly one frame tensor or rendered-frame future."
+            )
         self._frames_hwc_uint8: Tensor | None = frames_hwc_uint8
         self._frame_index = int(frame_index)
         self._source_event = source_event
+        self._rendered_frames_future = rendered_frames_future
         self._host: np.ndarray | None = None
         self._prefetch: CudaHostPrefetch | None = None
 
-    def prefetch_to_numpy(self) -> None:
-        if (
-            self._host is not None
-            or self._prefetch is not None
-            or self._frames_hwc_uint8 is None
-        ):
+    def _resolve_rendered_frames(self) -> None:
+        """Resolve a deferred render before accessing its frame tensor."""
+        future = self._rendered_frames_future
+        if future is None:
             return
+        rendered = future.result()
+        self._frames_hwc_uint8 = rendered.frames_hwc_uint8
+        self._source_event = rendered.ready_event
+        self._rendered_frames_future = None
+
+    def prefetch_to_numpy(self) -> None:
+        if self._host is not None or self._prefetch is not None:
+            return
+        self._resolve_rendered_frames()
+        if self._frames_hwc_uint8 is None:
+            raise RuntimeError("Lazy raster frame lost its source before prefetch.")
         frame = self._frames_hwc_uint8[self._frame_index].detach()
         prefetch = CudaHostPrefetch(frame, source_event=self._source_event)
         if prefetch.start():
@@ -87,6 +104,7 @@ class _LazyRasterFrame:
                 self._prefetch = None
                 self._frames_hwc_uint8 = None
                 return self._host
+            self._resolve_rendered_frames()
             if self._frames_hwc_uint8 is None:
                 raise RuntimeError(
                     "Lazy raster frame lost its source tensor before materialization."
@@ -100,6 +118,7 @@ class _LazyRasterFrame:
         return self._host
 
     def to_cuda_tensor(self) -> Tensor:
+        self._resolve_rendered_frames()
         if self._frames_hwc_uint8 is None:
             raise RuntimeError(
                 "Lazy raster frame was already materialized on the host."
@@ -107,6 +126,7 @@ class _LazyRasterFrame:
         return self._frames_hwc_uint8[self._frame_index]
 
     def to_cuda_event(self) -> object | None:
+        self._resolve_rendered_frames()
         if self._frames_hwc_uint8 is None:
             return None
         return self._source_event
@@ -131,7 +151,13 @@ class _LudusConditionRasterizerImpl:
     (see :class:`LudusConditionRasterizer` for the EGL rationale).
     """
 
-    def __init__(self, raster: RasterConfig, bev: BevConfig | None = None) -> None:
+    def __init__(
+        self,
+        raster: RasterConfig,
+        bev: BevConfig | None = None,
+        render_executor: concurrent.futures.ThreadPoolExecutor | None = None,
+        bev_buffer_frames: int = 0,
+    ) -> None:
         """Initialize the rasterizer.
 
         Args:
@@ -140,13 +166,28 @@ class _LudusConditionRasterizerImpl:
                 appends a synthetic top-down camera to the scene's camera list
                 on :meth:`load_scene` and ``render_chunk`` populates
                 :attr:`PresentedFrame.bev_host_uint8`.
+            render_executor: Context-owning executor used to defer BEV rendering.
+            bev_buffer_frames: Number of rendered frames by which BEV publication
+                trails the main view.
         """
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA is required for LudusConditionRasterizer.")
+        if bev_buffer_frames < 0:
+            raise ValueError("bev_buffer_frames must be non-negative.")
 
         self._raster = raster
         self._bev = bev
+        self._render_executor = render_executor
+        self._bev_buffer_frames = int(bev_buffer_frames)
+        self._bev_frame_buffer: deque[
+            tuple[concurrent.futures.Future[_RenderedCameraFrames], int]
+        ] = deque()
         self._device = torch.device("cuda:0")
+        self._bev_stream = (
+            torch.cuda.Stream(device=self._device)
+            if bev is not None and bev.enabled
+            else None
+        )
         self._use_cuda_frames = not env_truthy(DISABLE_CUDA_INTEROP_ENV)
         if self._use_cuda_frames:
             logger.info(
@@ -242,6 +283,7 @@ class _LudusConditionRasterizerImpl:
 
         # Single scene upload shared by the main camera and the BEV minimap.
         self._scene_id = self.ctx.upload_scene(clipgt_scene.timestamped_scene)
+        self.reset_bev_buffer()
 
     def render_chunk(
         self,
@@ -278,9 +320,11 @@ class _LudusConditionRasterizerImpl:
         rig_poses_torch = torch.from_numpy(
             np.ascontiguousarray(rig_poses_world, dtype=np.float32)
         ).to(device=self._device)
+        # Ludus consumes query metadata as Python scalars. Keep it on the host
+        # so each ``item()`` does not force the CUDA stream to synchronize.
         timestamps_batch = torch.from_numpy(
             np.ascontiguousarray(timestamps_us, dtype=np.int64)
-        ).to(device=self._device)
+        )
 
         rgb_frames = self._render_one_camera(
             rig_poses=rig_poses_torch,
@@ -292,21 +336,26 @@ class _LudusConditionRasterizerImpl:
             resolution=(self._raster.height, self._raster.width),
         )
 
-        bev_frames: _RenderedCameraFrames | None = None
+        bev_frame_refs: (
+            tuple[tuple[concurrent.futures.Future[_RenderedCameraFrames], int], ...]
+            | None
+        ) = None
         if (
             self._bev is not None
             and self._bev.enabled
             and self._bev_camera_id is not None
             and self._bev_sensor_to_rig is not None
         ):
-            bev_frames = self._render_one_camera(
+            bev_frames_future = self._submit_bev_render(
                 rig_poses=rig_poses_torch,
                 timestamps_batch=timestamps_batch,
                 scene_id=self._scene_id,
                 camera_id=self._bev_camera_id,
                 sensor_to_rig=self._bev_sensor_to_rig,
-                camera_type=CAMERA_TYPE_BEV,
                 resolution=(self._bev.height, self._bev.width),
+            )
+            bev_frame_refs = self._buffer_bev_frames(
+                bev_frames_future, len(timestamps_us)
             )
 
         if self._use_cuda_frames:
@@ -321,11 +370,11 @@ class _LudusConditionRasterizerImpl:
                     depth_host_f32=None,
                     bev_host_uint8=(
                         _LazyRasterFrame(
-                            bev_frames.frames_hwc_uint8,
-                            idx,
-                            source_event=bev_frames.ready_event,
+                            None,
+                            bev_frame_refs[idx][1],
+                            rendered_frames_future=bev_frame_refs[idx][0],
                         )
-                        if bev_frames is not None
+                        if bev_frame_refs is not None
                         else None
                     ),
                 )
@@ -334,21 +383,145 @@ class _LudusConditionRasterizerImpl:
             return RasterChunk(frames=tuple(frames))
 
         rgb_host_frames = _rendered_frames_to_numpy(rgb_frames)
-        bev_host_frames = (
-            _rendered_frames_to_numpy(bev_frames) if bev_frames is not None else None
-        )
         frames = [
             PresentedFrame(
                 timestamp_us=int(timestamps_us[idx]),
                 rgb_host_uint8=rgb_host_frames[idx],
                 depth_host_f32=None,
                 bev_host_uint8=(
-                    bev_host_frames[idx] if bev_host_frames is not None else None
+                    _LazyRasterFrame(
+                        None,
+                        bev_frame_refs[idx][1],
+                        rendered_frames_future=bev_frame_refs[idx][0],
+                    )
+                    if bev_frame_refs is not None
+                    else None
                 ),
             )
             for idx in range(len(timestamps_us))
         ]
         return RasterChunk(frames=tuple(frames))
+
+    def _submit_bev_render(
+        self,
+        *,
+        rig_poses: Tensor,
+        timestamps_batch: Tensor,
+        scene_id: int,
+        camera_id: int,
+        sensor_to_rig: Tensor,
+        resolution: tuple[int, int],
+    ) -> concurrent.futures.Future[_RenderedCameraFrames]:
+        """Queue a BEV render on the context-owning worker."""
+        input_ready_event = self._record_bev_input_event()
+        executor = self._render_executor
+        if executor is not None:
+            return executor.submit(
+                self._render_bev,
+                rig_poses=rig_poses,
+                timestamps_batch=timestamps_batch,
+                scene_id=scene_id,
+                camera_id=camera_id,
+                sensor_to_rig=sensor_to_rig,
+                resolution=resolution,
+                input_ready_event=input_ready_event,
+            )
+
+        future: concurrent.futures.Future[_RenderedCameraFrames] = (
+            concurrent.futures.Future()
+        )
+        try:
+            future.set_result(
+                self._render_bev(
+                    rig_poses=rig_poses,
+                    timestamps_batch=timestamps_batch,
+                    scene_id=scene_id,
+                    camera_id=camera_id,
+                    sensor_to_rig=sensor_to_rig,
+                    resolution=resolution,
+                    input_ready_event=input_ready_event,
+                )
+            )
+        except BaseException as exc:
+            future.set_exception(exc)
+        return future
+
+    def _render_bev(
+        self,
+        *,
+        rig_poses: Tensor,
+        timestamps_batch: Tensor,
+        scene_id: int,
+        camera_id: int,
+        sensor_to_rig: Tensor,
+        resolution: tuple[int, int],
+        input_ready_event: object | None,
+    ) -> _RenderedCameraFrames:
+        """Render a deferred BEV frame batch on its dedicated CUDA stream."""
+        bev_stream = self._bev_stream
+        if bev_stream is None:
+            return self._render_one_camera(
+                rig_poses=rig_poses,
+                timestamps_batch=timestamps_batch,
+                scene_id=scene_id,
+                camera_id=camera_id,
+                sensor_to_rig=sensor_to_rig,
+                camera_type=CAMERA_TYPE_BEV,
+                resolution=resolution,
+            )
+
+        with torch.cuda.device(self._device):
+            if input_ready_event is not None:
+                bev_stream.wait_event(input_ready_event)
+            with torch.cuda.stream(bev_stream):
+                return self._render_one_camera(
+                    rig_poses=rig_poses,
+                    timestamps_batch=timestamps_batch,
+                    scene_id=scene_id,
+                    camera_id=camera_id,
+                    sensor_to_rig=sensor_to_rig,
+                    camera_type=CAMERA_TYPE_BEV,
+                    resolution=resolution,
+                )
+
+    def _record_bev_input_event(self) -> object | None:
+        """Record when default-stream inputs are safe for deferred BEV use."""
+        if self._bev_stream is None:
+            return None
+        with torch.cuda.device(self._device):
+            event = torch.cuda.Event()
+            event.record(torch.cuda.current_stream(self._device))
+        return event
+
+    def _buffer_bev_frames(
+        self,
+        rendered_frames_future: concurrent.futures.Future[_RenderedCameraFrames],
+        frame_count: int,
+    ) -> tuple[tuple[concurrent.futures.Future[_RenderedCameraFrames], int], ...]:
+        """Return BEV references delayed by the configured frame count."""
+        self._bev_frame_buffer.extend(
+            (rendered_frames_future, frame_index) for frame_index in range(frame_count)
+        )
+        return tuple(self._bev_frame_buffer.popleft() for _ in range(frame_count))
+
+    def reset_bev_buffer(self) -> None:
+        """Replace buffered BEV references with completed blank frames."""
+        self._bev_frame_buffer.clear()
+        if self._bev is None or not self._bev.enabled or self._bev_buffer_frames == 0:
+            return
+        empty_frames = torch.zeros(
+            (1, self._bev.height, self._bev.width, 3),
+            dtype=torch.uint8,
+        )
+        empty_future: concurrent.futures.Future[_RenderedCameraFrames] = (
+            concurrent.futures.Future()
+        )
+        empty_future.set_result(
+            _RenderedCameraFrames(frames_hwc_uint8=empty_frames, ready_event=None)
+        )
+        self._bev_frame_buffer.extend(
+            (empty_future, 0) for _ in range(self._bev_buffer_frames)
+        )
 
     def _render_one_camera(
         self,
@@ -371,15 +544,11 @@ class _LudusConditionRasterizerImpl:
             "nij,jk->nik", rig_poses, sensor_to_rig.to(self._device)
         )
         camera_poses_ludus = self._to_ludus_camera_pose(camera_poses_world)
-        scene_id_batch = torch.full(
-            (n_frames,), scene_id, dtype=torch.int32, device=self._device
-        )
-        camera_id_batch = torch.full(
-            (n_frames,), camera_id, dtype=torch.int32, device=self._device
-        )
-        camera_type_id_batch = torch.full(
-            (n_frames,), camera_type, dtype=torch.int32, device=self._device
-        )
+        # These lookup tensors are read with ``item()`` by the renderer; only
+        # poses and rendered pixels belong on CUDA.
+        scene_id_batch = torch.full((n_frames,), scene_id, dtype=torch.int32)
+        camera_id_batch = torch.full((n_frames,), camera_id, dtype=torch.int32)
+        camera_type_id_batch = torch.full((n_frames,), camera_type, dtype=torch.int32)
 
         height, width = resolution
         images = self.ctx.render(
@@ -426,12 +595,22 @@ class LudusConditionRasterizer:
     exactly like the underlying implementation.
     """
 
-    def __init__(self, raster: RasterConfig, bev: BevConfig | None = None) -> None:
+    def __init__(
+        self,
+        raster: RasterConfig,
+        bev: BevConfig | None = None,
+        *,
+        bev_buffer_frames: int = 0,
+    ) -> None:
         self._exec = concurrent.futures.ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="ludus-render"
         )
         self._impl: _LudusConditionRasterizerImpl | None = self._exec.submit(
-            _LudusConditionRasterizerImpl, raster, bev
+            _LudusConditionRasterizerImpl,
+            raster,
+            bev,
+            self._exec,
+            bev_buffer_frames,
         ).result()
 
     def load_scene(self, scene: SceneBundle) -> None:
@@ -445,6 +624,11 @@ class LudusConditionRasterizer:
     ) -> "RasterChunk":
         exec_, impl = self._require_alive()
         return exec_.submit(impl.render_chunk, rig_poses_world, timestamps_us).result()
+
+    def reset_bev_buffer(self) -> None:
+        """Reset the delayed BEV stream to blank frames."""
+        exec_, impl = self._require_alive()
+        exec_.submit(impl.reset_bev_buffer).result()
 
     def _require_alive(
         self,

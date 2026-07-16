@@ -17,7 +17,11 @@ class RasterRenderBackend(RenderBackend):
         bev: BevConfig | None = None,
     ) -> None:
         super().__init__(chunk=chunk, raster=raster)
-        self._rasterizer = LudusConditionRasterizer(raster, bev=bev)
+        self._rasterizer = LudusConditionRasterizer(
+            raster,
+            bev=bev,
+            bev_buffer_frames=chunk.chunk_frames,
+        )
         self._scene: SceneBundle | None = None
 
     def warmup_model(self) -> None:
@@ -33,6 +37,9 @@ class RasterRenderBackend(RenderBackend):
 
     def render_next_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
         return self._render_chunk(trajectory)
+
+    def reset(self) -> None:
+        self._rasterizer.reset_bev_buffer()
 
     def _render_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
         raster_chunk = self._rasterizer.render_chunk(

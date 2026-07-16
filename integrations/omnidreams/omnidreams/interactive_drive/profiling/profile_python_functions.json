@@ -1,0 +1,184 @@
+[
+  {
+    "domain": "OmniDreams App",
+    "color": "0xEF4444",
+    "module": "omnidreams.interactive_drive.app",
+    "functions": [
+      "InteractiveDriveApp.load_scene",
+      "InteractiveDriveApp.preload_scenes",
+      "InteractiveDriveApp._preload_worker",
+      "InteractiveDriveApp._resolve_scene_assets",
+      "InteractiveDriveApp._pump_presenter_until",
+      "InteractiveDriveApp.run_scene",
+      "InteractiveDriveApp._present_loading_once",
+      "InteractiveDriveApp.run",
+      "InteractiveDriveApp.shutdown"
+    ]
+  },
+  {
+    "domain": "OmniDreams Chunk Pipeline",
+    "color": "0x8B5CF6",
+    "module": "omnidreams.interactive_drive.video_model.chunk_pipeline",
+    "functions": [
+      "ChunkPipeline._bump_generation",
+      "ChunkPipeline._clear_frame_queue",
+      "ChunkPipeline.request_scene",
+      "ChunkPipeline.request_pose_chunk",
+      "ChunkPipeline.reset",
+      "ChunkPipeline.shutdown",
+      "ChunkPipeline._worker",
+      "ChunkPipeline._raise_worker_error_if_any"
+    ]
+  },
+  {
+    "domain": "OmniDreams Raster Backend",
+    "color": "0x06B6D4",
+    "module": "omnidreams.interactive_drive.backends.raster",
+    "functions": [
+      "RasterRenderBackend.load_scene",
+      "RasterRenderBackend.render_first_chunk",
+      "RasterRenderBackend.render_next_chunk",
+      "RasterRenderBackend.reset",
+      "RasterRenderBackend._render_chunk",
+      "RasterRenderBackend.close"
+    ]
+  },
+  {
+    "domain": "OmniDreams HD BEV Raster",
+    "color": "0x3B82F6",
+    "module": "omnidreams.interactive_drive.rasterizer",
+    "functions": [
+      "LudusConditionRasterizer.load_scene",
+      "LudusConditionRasterizer.render_chunk",
+      "LudusConditionRasterizer.reset_bev_buffer",
+      "LudusConditionRasterizer.cleanup",
+      "_LudusConditionRasterizerImpl.load_scene",
+      "_LudusConditionRasterizerImpl.render_chunk",
+      "_LudusConditionRasterizerImpl._submit_bev_render",
+      "_LudusConditionRasterizerImpl._render_bev",
+      "_LudusConditionRasterizerImpl._record_bev_input_event",
+      "_LudusConditionRasterizerImpl._buffer_bev_frames",
+      "_LudusConditionRasterizerImpl.reset_bev_buffer",
+      "_LudusConditionRasterizerImpl._render_one_camera",
+      "_LudusConditionRasterizerImpl.cleanup",
+      "_LazyRasterFrame._resolve_rendered_frames",
+      "_LazyRasterFrame.prefetch_to_numpy",
+      "_LazyRasterFrame.to_numpy",
+      "_LazyRasterFrame.to_cuda_tensor",
+      "_LazyRasterFrame.to_cuda_event",
+      "_rendered_frames_to_numpy"
+    ]
+  },
+  {
+    "domain": "OmniDreams World Model",
+    "color": "0x10B981",
+    "module": "omnidreams.interactive_drive.backends.world_model",
+    "functions": [
+      "WorldModelRenderBackend.warmup_model",
+      "WorldModelRenderBackend.load_scene",
+      "WorldModelRenderBackend.render_first_chunk",
+      "WorldModelRenderBackend.render_next_chunk",
+      "WorldModelRenderBackend.reset",
+      "WorldModelRenderBackend.reset_scene_conditioning",
+      "WorldModelRenderBackend.close",
+      "WorldModelRenderBackend._load_debug_condition_frames",
+      "WorldModelRenderBackend._merge_frames"
+    ]
+  },
+  {
+    "domain": "FlashDreams Session",
+    "color": "0xF59E0B",
+    "module": "omnidreams.interactive_drive.world_model.flashdreams_adapter",
+    "functions": [
+      "FlashdreamsWorldModelSession.warmup_model",
+      "FlashdreamsWorldModelSession.prepare_for_scene",
+      "FlashdreamsWorldModelSession.start",
+      "FlashdreamsWorldModelSession.continue_generation",
+      "FlashdreamsWorldModelSession.reset",
+      "FlashdreamsWorldModelSession.close",
+      "FlashdreamsWorldModelSession._initialize_cache",
+      "FlashdreamsWorldModelSession._ensure_precomputed_embeddings",
+      "FlashdreamsWorldModelSession._initial_rgb_tensor",
+      "FlashdreamsWorldModelSession._condition_tensor",
+      "FlashdreamsWorldModelSession._to_model_range",
+      "_LazyRGBFrame.prefetch_to_numpy",
+      "_LazyRGBFrame.to_numpy",
+      "_LazyRGBFrame.to_cuda_tensor",
+      "_LazyRGBFrame.to_cuda_event",
+      "_condition_cuda_video",
+      "_synchronize_cuda_frame_event"
+    ]
+  },
+  {
+    "domain": "OmniDreams CUDA Presenter",
+    "color": "0xEC4899",
+    "module": "omnidreams.interactive_drive.presenter",
+    "functions": [
+      "SlangPyPresenter.process_events",
+      "SlangPyPresenter.prepare_frame",
+      "SlangPyPresenter.present_frame",
+      "SlangPyPresenter._present_cuda_rgb",
+      "SlangPyPresenter._submit_ready_cuda_rgb",
+      "SlangPyPresenter._present_array",
+      "_CudaRGBInterop.as_cuda_rgb_frame",
+      "_CudaRGBInterop.as_cuda_rgb_source",
+      "_CudaRGBInterop.enqueue_rgb_to_shared_rgba",
+      "_CudaRGBInterop.enqueue_camera_to_shared_rgba",
+      "_CudaRGBInterop.ready_rgba_buffer",
+      "_CudaRGBInterop.mark_submitted",
+      "_CudaRGBInterop._acquire_buffer",
+      "_CudaRGBInterop._resize_rgb_tensor",
+      "_CudaRGBInterop._alpha_composite_rgba",
+      "_cuda_event_ready",
+      "_prefetch_to_numpy",
+      "_as_rgb_host_uint8"
+    ]
+  },
+  {
+    "domain": "OmniDreams HUD Present",
+    "color": "0xA855F7",
+    "module": "omnidreams.interactive_drive.slangpy_hud_presenter",
+    "functions": [
+      "SlangPyHudPresenter.process_events",
+      "SlangPyHudPresenter.prepare_frame",
+      "SlangPyHudPresenter.present_frame",
+      "SlangPyHudPresenter.present_world_model_loading",
+      "SlangPyHudPresenter._present_cuda_hud_frame",
+      "SlangPyHudPresenter._update_camera_pil",
+      "SlangPyHudPresenter._update_bev_pil",
+      "SlangPyHudPresenter._submit_ready_cuda_hud",
+      "SlangPyHudPresenter._present_canvas",
+      "SlangPyHudPresenter._composite_camera_gpu",
+      "SlangPyHudPresenter._ensure_camera_texture_uploaded",
+      "SlangPyHudPresenter._render_canvas",
+      "SlangPyHudPresenter._draw_camera",
+      "SlangPyHudPresenter._draw_panel",
+      "SlangPyHudPresenter._draw_bev",
+      "SlangPyHudPresenter._get_bev_panel_image",
+      "_prefetch_to_numpy"
+    ]
+  },
+  {
+    "domain": "OmniDreams Main Loop",
+    "color": "0x14B8A6",
+    "module": "omnidreams.interactive_drive.runtime.loop",
+    "functions": [
+      "make_chunk_request",
+      "present_queued_frame",
+      "_record_input_to_present_for_profile",
+      "_prepare_queued_frame",
+      "_drain_pipeline_frames",
+      "run_main_loop"
+    ]
+  },
+  {
+    "domain": "OmniDreams Host Prefetch",
+    "color": "0xF97316",
+    "module": "omnidreams.interactive_drive.cuda_host_prefetch",
+    "functions": [
+      "CudaHostPrefetch.start",
+      "CudaHostPrefetch.to_numpy",
+      "_host_copy_stream"
+    ]
+  }
+]

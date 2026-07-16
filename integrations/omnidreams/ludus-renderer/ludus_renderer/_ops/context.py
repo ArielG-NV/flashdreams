@@ -105,6 +105,7 @@ class LudusCudaTimestampedContext:
         polyline_pool_headers: List[torch.Tensor] = []
         polygon_pool_headers: List[torch.Tensor] = []
         cube_pool_headers: List[torch.Tensor] = []
+        cube_pool_counts: List[int] = []
 
         ts_offset = 0
         int32_offset = 0
@@ -220,6 +221,7 @@ class LudusCudaTimestampedContext:
         for pool in scene.cube_pools or []:
             n_global_ts = pool.timestamps_us.shape[0]
             n_cubes = pool.scales.shape[0]
+            cube_pool_counts.append(n_cubes)
             n_track_poses = pool.translations.shape[0]
 
             header = torch.zeros(16, dtype=torch.int32, device=device)
@@ -302,6 +304,7 @@ class LudusCudaTimestampedContext:
                 "polyline_pools": all_pl_pools,
                 "polygon_pools": all_pg_pools,
                 "cube_pools": all_cb_pools,
+                "cube_pool_counts": cube_pool_counts,
                 "max_varrays_per_ts_polyline": max_varrays_per_ts_polyline,
                 "max_varrays_per_ts_polygon": max_varrays_per_ts_polygon,
             }
@@ -385,12 +388,13 @@ class LudusCudaTimestampedContext:
         Each query is ``(scene_id, camera_id, timestamp_us[, camera_type_id])``.
         Delegates to :meth:`render`.
         """
-        device = camera_poses.device
         n = len(queries)
-        scene_ids = torch.empty(n, dtype=torch.int32, device=device)
-        camera_ids = torch.empty(n, dtype=torch.int32, device=device)
-        timestamps_us = torch.empty(n, dtype=torch.int64, device=device)
-        camera_type_ids = torch.empty(n, dtype=torch.int32, device=device)
+        # Query metadata is consumed by Python via ``item()`` in ``render``.
+        # Keeping it on the host avoids a CUDA synchronization per scalar.
+        scene_ids = torch.empty(n, dtype=torch.int32)
+        camera_ids = torch.empty(n, dtype=torch.int32)
+        timestamps_us = torch.empty(n, dtype=torch.int64)
+        camera_type_ids = torch.empty(n, dtype=torch.int32)
         for i, q in enumerate(queries):
             scene_ids[i] = int(q[0])
             camera_ids[i] = int(q[1])
@@ -449,6 +453,7 @@ class LudusCudaTimestampedContext:
                 sd["polyline_pools"],
                 sd["polygon_pools"],
                 sd["cube_pools"],
+                sd["cube_pool_counts"],
                 ts_val,
                 self._max_extrapolation_us,
                 sd["max_varrays_per_ts_polyline"],

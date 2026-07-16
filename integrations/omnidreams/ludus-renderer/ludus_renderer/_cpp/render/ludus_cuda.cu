@@ -2269,6 +2269,7 @@ void ludusCudaRenderTimestamped(
     const TsPolylinePoolHeader* polylinePools, int numPolylinePools,
     const TsPolygonPoolHeader* polygonPools, int numPolygonPools,
     const TsCubePoolHeader* cubePools, int numCubePools,
+    const int* cubePoolCounts,
     int64_t queryTimestampUs, int maxExtrapolationUs,
     int maxVarraysPerTsPolyline, int maxVarraysPerTsPolygon,
     const CudaRenderParams& params,
@@ -2278,13 +2279,6 @@ void ludusCudaRenderTimestamped(
 {
     if (numCameras == 0 || width == 0 || height == 0) return;
 
-    // Pool headers live in device memory — copy to host for CPU-side logic
-    std::vector<TsCubePoolHeader> cbPoolsHost(numCubePools);
-    if (numCubePools > 0)
-        CUDA_CHECK(cudaMemcpy(cbPoolsHost.data(), cubePools,
-                              numCubePools * sizeof(TsCubePoolHeader),
-                              cudaMemcpyDeviceToHost));
-
     bool hasTess = params.tessellationThreshold > 0.0f;
     int tessPolyMul = hasTess ? 16 : 1;
     int tessLineMul = hasTess ? 8  : 1;
@@ -2293,7 +2287,7 @@ void ludusCudaRenderTimestamped(
     // Compute geometry budget per camera using actual per-timestamp max varrays
     int totalCubes = 0;
     for (int p = 0; p < numCubePools; p++)
-        totalCubes += (int)cbPoolsHost[p].num_cubes;
+        totalCubes += cubePoolCounts[p];
 
     // Use per-timestamp max (computed from prefix sums on Python side)
     int mvPl = maxVarraysPerTsPolyline;
@@ -2360,7 +2354,7 @@ void ludusCudaRenderTimestamped(
 
         // Cube pools (flat-buffer variant)
         for (int p = 0; p < numCubePools; p++) {
-            int nc = (int)cbPoolsHost[p].num_cubes;
+            int nc = cubePoolCounts[p];
             if (nc <= 0) continue;
             int nCubeBlocks = (nc + CUBES_PER_BLOCK - 1) / CUBES_PER_BLOCK;
             cubePoolFlatKernel<<<dim3(nCubeBlocks, 1), CUBE_POOL_BLOCK_SIZE, 0, stream>>>(

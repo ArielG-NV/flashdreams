@@ -23,7 +23,7 @@
 
 torch::Tensor ludus_render_fwd_cuda(LudusCudaStateWrapper& stateWrapper, torch::Tensor polyline_headers, torch::Tensor polygon_headers, torch::Tensor cubes, torch::Tensor vertices, torch::Tensor triangles, torch::Tensor camera_intrinsics, torch::Tensor camera_poses, std::tuple<int, int> resolution, float tessellation_threshold);
 torch::Tensor ludus_render_fwd_cuda_ts(LudusCudaStateWrapper& stateWrapper, torch::Tensor polyline_headers, torch::Tensor polygon_headers, torch::Tensor cubes, torch::Tensor vertices, torch::Tensor triangles, torch::Tensor camera_intrinsics, torch::Tensor camera_poses, std::tuple<int, int> resolution, float tessellation_threshold, std::vector<std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, int64_t, int, int>> cube_pool_list, std::vector<std::tuple<torch::Tensor, float, int64_t>> dot_list);
-torch::Tensor ludus_render_fwd_cuda_timestamped(LudusCudaStateWrapper& stateWrapper, torch::Tensor timestamps, torch::Tensor int32_data, torch::Tensor vertices, torch::Tensor triangles, torch::Tensor float_data, torch::Tensor polyline_pools, torch::Tensor polygon_pools, torch::Tensor cube_pools, int64_t query_timestamp_us, int max_extrapolation_us, int max_varrays_per_ts_polyline, int max_varrays_per_ts_polygon, int camera_type_id, torch::Tensor camera_intrinsics, torch::Tensor camera_poses, std::tuple<int, int> resolution, float tessellation_threshold);
+torch::Tensor ludus_render_fwd_cuda_timestamped(LudusCudaStateWrapper& stateWrapper, torch::Tensor timestamps, torch::Tensor int32_data, torch::Tensor vertices, torch::Tensor triangles, torch::Tensor float_data, torch::Tensor polyline_pools, torch::Tensor polygon_pools, torch::Tensor cube_pools, std::vector<int> cube_pool_counts, int64_t query_timestamp_us, int max_extrapolation_us, int max_varrays_per_ts_polyline, int max_varrays_per_ts_polygon, int camera_type_id, torch::Tensor camera_intrinsics, torch::Tensor camera_poses, std::tuple<int, int> resolution, float tessellation_threshold);
 
 //------------------------------------------------------------------------
 
@@ -64,7 +64,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     // CUDA rendering ops
     m.def("ludus_render_fwd_cuda", &ludus_render_fwd_cuda, "ludus f-theta CUDA rendering");
     m.def("ludus_render_fwd_cuda_ts", &ludus_render_fwd_cuda_ts, "ludus f-theta CUDA rendering with timestamped cube pools");
-    m.def("ludus_render_fwd_cuda_timestamped", &ludus_render_fwd_cuda_timestamped, "ludus f-theta CUDA timestamped rendering from flat buffers");
+    m.def(
+        "ludus_render_fwd_cuda_timestamped",
+        &ludus_render_fwd_cuda_timestamped,
+        "ludus f-theta CUDA timestamped rendering from flat buffers",
+        pybind11::call_guard<pybind11::gil_scoped_release>());
 }
 
 //------------------------------------------------------------------------

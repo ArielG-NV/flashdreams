@@ -46,7 +46,11 @@ class WorldModelRenderBackend(RenderBackend):
     ) -> None:
         super().__init__(chunk=chunk, raster=raster)
         self._manifest = manifest
-        self._rasterizer = LudusConditionRasterizer(raster, bev=bev)
+        self._rasterizer = LudusConditionRasterizer(
+            raster,
+            bev=bev,
+            bev_buffer_frames=chunk.chunk_frames,
+        )
         self._session = FlashdreamsWorldModelSession(
             manifest,
             profile=profile,
@@ -226,10 +230,12 @@ class WorldModelRenderBackend(RenderBackend):
         )
 
     def reset(self) -> None:
+        self._rasterizer.reset_bev_buffer()
         self._session.reset()
         self._next_chunk_count = 0
 
     def reset_scene_conditioning(self) -> None:
+        self._rasterizer.reset_bev_buffer()
         self._session.reset(clear_precomputed_embeddings=True)
         self._next_chunk_count = 0
 
