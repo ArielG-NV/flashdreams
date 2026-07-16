@@ -179,6 +179,9 @@ VkContext createVkContext(int cudaDeviceIdx)
         VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME,
         VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,
         VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME,
+        VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
+        VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME,
+        VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,
         VK_EXT_PCI_BUS_INFO_EXTENSION_NAME,
         VK_KHR_MULTIVIEW_EXTENSION_NAME,
     };
@@ -196,9 +199,13 @@ VkContext createVkContext(int cudaDeviceIdx)
     maint4.maintenance4 = VK_TRUE;
     meshFeatures.pNext = &maint4;
 
+    VkPhysicalDeviceTimelineSemaphoreFeatures timelineFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};
+    timelineFeatures.timelineSemaphore = VK_TRUE;
+
     VkPhysicalDeviceMultiviewFeatures mvFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES};
     mvFeatures.multiview = VK_TRUE;
-    maint4.pNext = &mvFeatures;
+    maint4.pNext = &timelineFeatures;
+    timelineFeatures.pNext = &mvFeatures;
 
     VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR barycentricFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR};
     barycentricFeatures.fragmentShaderBarycentric = VK_TRUE;
@@ -239,6 +246,35 @@ VkContext createVkContext(int cudaDeviceIdx)
     VkFenceCreateInfo fenceCI = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
     fenceCI.flags = VK_FENCE_CREATE_SIGNALED_BIT;
     VK_CHECK(vkCreateFence(ctx.device, &fenceCI, nullptr, &ctx.fence));
+    VkExportSemaphoreCreateInfo exportSemaphore = {VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO};
+    exportSemaphore.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
+    VkSemaphoreTypeCreateInfo timelineCI = {VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
+    timelineCI.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+    timelineCI.initialValue = 0;
+    timelineCI.pNext = &exportSemaphore;
+    VkSemaphoreCreateInfo semaphoreCI = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+    semaphoreCI.pNext = &timelineCI;
+    VK_CHECK(vkCreateSemaphore(ctx.device, &semaphoreCI, nullptr, &ctx.interopTimeline));
+
+    auto vkGetSemaphoreFdKHR = (PFN_vkGetSemaphoreFdKHR)
+        vkGetDeviceProcAddr(ctx.device, "vkGetSemaphoreFdKHR");
+    TORCH_CHECK(vkGetSemaphoreFdKHR, "vkGetSemaphoreFdKHR not available");
+    int semaphoreFd = -1;
+    VkSemaphoreGetFdInfoKHR semaphoreFdInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR};
+    semaphoreFdInfo.semaphore = ctx.interopTimeline;
+    semaphoreFdInfo.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
+    VK_CHECK(vkGetSemaphoreFdKHR(ctx.device, &semaphoreFdInfo, &semaphoreFd));
+
+
+    cudaExternalSemaphoreHandleDesc cudaSemaphoreDesc = {};
+    cudaSemaphoreDesc.type = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd;
+    cudaSemaphoreDesc.handle.fd = semaphoreFd;
+    cudaError_t cudaSemaphoreStatus = cudaImportExternalSemaphore(
+        &ctx.cudaInteropTimeline, &cudaSemaphoreDesc);
+    TORCH_CHECK(cudaSemaphoreStatus == cudaSuccess,
+        "cudaImportExternalSemaphore failed: ", (int)cudaSemaphoreStatus);
+    ctx.hasInteropTimeline = true;
+    ctx.interopValue = 0;
 
     VK_DBG("[Vulkan] Context ready (mesh_shader=EXT, barycentric=%s)\n",
         ctx.hasFragmentShaderBarycentric ? "KHR" : "off");
@@ -251,11 +287,57 @@ void destroyVkContext(VkContext& ctx)
     if (ctx.device) {
         vkDeviceWaitIdle(ctx.device);
         if (ctx.fence) vkDestroyFence(ctx.device, ctx.fence, nullptr);
+        if (ctx.cudaInteropTimeline) cudaDestroyExternalSemaphore(ctx.cudaInteropTimeline);
+        if (ctx.interopTimeline) vkDestroySemaphore(ctx.device, ctx.interopTimeline, nullptr);
         if (ctx.commandPool) vkDestroyCommandPool(ctx.device, ctx.commandPool, nullptr);
         vkDestroyDevice(ctx.device, nullptr);
     }
     if (ctx.instance) vkDestroyInstance(ctx.instance, nullptr);
+
     memset(&ctx, 0, sizeof(VkContext));
+}
+
+uint64_t signalCudaTimeline(VkContext& ctx, cudaStream_t stream)
+{
+    TORCH_CHECK(ctx.hasInteropTimeline, "CUDA/Vulkan timeline semaphore is unavailable");
+    const uint64_t value = ++ctx.interopValue;
+    cudaExternalSemaphoreSignalParams params = {};
+    params.params.fence.value = value;
+    cudaError_t status = cudaSignalExternalSemaphoresAsync(
+        &ctx.cudaInteropTimeline, &params, 1, stream);
+    TORCH_CHECK(status == cudaSuccess, "cudaSignalExternalSemaphoresAsync failed: ", (int)status);
+    return value;
+}
+
+void waitCudaTimeline(VkContext& ctx, uint64_t value, cudaStream_t stream)
+{
+    if (value == 0) return;
+    cudaExternalSemaphoreWaitParams params = {};
+    params.params.fence.value = value;
+    cudaError_t status = cudaWaitExternalSemaphoresAsync(
+        &ctx.cudaInteropTimeline, &params, 1, stream);
+    TORCH_CHECK(status == cudaSuccess, "cudaWaitExternalSemaphoresAsync failed: ", (int)status);
+}
+
+void submitTimelineCommand(VkContext& ctx, VkCommandBuffer cmd, VkFence fence,
+    uint64_t waitValue, uint64_t signalValue)
+{
+    VkTimelineSemaphoreSubmitInfo timelineInfo = {VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
+    timelineInfo.waitSemaphoreValueCount = 1;
+    timelineInfo.pWaitSemaphoreValues = &waitValue;
+    timelineInfo.signalSemaphoreValueCount = 1;
+    timelineInfo.pSignalSemaphoreValues = &signalValue;
+    const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+    VkSubmitInfo submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    submitInfo.pNext = &timelineInfo;
+    submitInfo.waitSemaphoreCount = 1;
+    submitInfo.pWaitSemaphores = &ctx.interopTimeline;
+    submitInfo.pWaitDstStageMask = &waitStage;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &cmd;
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = &ctx.interopTimeline;
+    VK_CHECK(vkQueueSubmit(ctx.graphicsQueue, 1, &submitInfo, fence));
 }
 
 // ---------------------------------------------------------------------------
@@ -571,5 +653,5 @@ void transitionImageLayout(
     vkCmdPipelineBarrier(cmd, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 }
 
-// CUDA<->Vulkan handoff is fence-only (cudaStreamSynchronize -> vkQueueSubmit
-// -> vkWaitForFences); no external-semaphore path is used.
+// CUDA and Vulkan synchronize shared memory through an exported timeline
+// semaphore. The renderer's optional host roundtrip remains a driver fallback.

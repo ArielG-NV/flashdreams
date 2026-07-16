@@ -40,6 +40,8 @@ extern "C" void launchRgbaToRgbFlip(
 
 struct LudusTimestampedVkState
 {
+    static constexpr int     kRenderSlots = 3;
+
     // ---------- Framebuffer ----------
     int                     width;
     int                     height;
@@ -76,19 +78,25 @@ struct LudusTimestampedVkState
 
     // ---------- Vulkan context ----------
     VkContext               vkctx;
+    VkCommandBuffer         renderCommands[kRenderSlots];
+    VkFence                 renderFences[kRenderSlots];
+    uint64_t                renderTimelineValues[kRenderSlots];
+    uint64_t                releaseTimelineValues[kRenderSlots];
+    int                     nextRenderCommand;
+    int                     activeRenderSlot;
 
     // ---------- Framebuffer images ----------
-    VkExternalImage         colorImage;
-    VkExternalImage         depthStencilImage;
+    VkExternalImage         colorImages[kRenderSlots];
+    VkExternalImage         depthStencilImages[kRenderSlots];
 
     // ---------- MSAA ----------
     int                     msaaSamples;
-    VkExternalImage         colorImageMSAA;
-    VkExternalImage         depthStencilImageMSAA;
+    VkExternalImage         colorImagesMSAA[kRenderSlots];
+    VkExternalImage         depthStencilImagesMSAA[kRenderSlots];
 
     // ---------- Render pass and framebuffer ----------
     VkRenderPass            renderPass;
-    VkFramebuffer           framebuffer;
+    VkFramebuffer           framebuffers[kRenderSlots];
     // Sample count the renderPass + pipelines were last built with (1 = no
     // MSAA). The render pass attachment layout and the pipelines bake in the
     // sample count, so both must be rebuilt when msaaSamples changes.
@@ -107,8 +115,8 @@ struct LudusTimestampedVkState
     VkExternalBuffer        obstaclePoolBuffer;     // binding 9:  ObstaclePool[]
     VkExternalBuffer        colorPaletteBuffer;     // binding 10: vec4[]
     VkExternalBuffer        cameraIntrinsicsBuffer; // binding 11: FThetaCamera[]
-    VkExternalBuffer        cameraPoseBuffer;       // binding 12: CameraPose[] per-query
-    VkExternalBuffer        queryBuffer;            // binding 13: RenderQuery[]
+    VkExternalBuffer        cameraPoseBuffers[kRenderSlots]; // binding 12: CameraPose[] per-query
+    VkExternalBuffer        queryBuffers[kRenderSlots];      // binding 13: RenderQuery[]
 
     int                     colorPaletteSize;
 
@@ -119,7 +127,7 @@ struct LudusTimestampedVkState
     // ---------- Descriptor set ----------
     VkDescriptorSetLayout   descriptorSetLayout;
     VkDescriptorPool        descriptorPool;
-    VkDescriptorSet         descriptorSet;
+    VkDescriptorSet         descriptorSets[kRenderSlots];
 
     // ---------- Pipeline layout (shared across all 3 pipelines) ----------
     VkPipelineLayout        pipelineLayout;
@@ -165,6 +173,9 @@ struct LudusTimestampedVkState
     int                     pinnedValid[2];
     int                     pinnedWidth[2], pinnedHeight[2], pinnedNumQueries[2];
     cudaEvent_t             pinnedReadyEvent[2];
+
+    // Recorded when a wrapper returns this state to the reusable pool.
+    cudaEvent_t             poolReadyEvent;
 
     // ---------- NVJPEG (GPU JPEG encoding) ----------
     nvjpegHandle_t          nvjpegHandle;

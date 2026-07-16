@@ -292,7 +292,8 @@ static VkPipeline createMeshPipeline(
 // Descriptor Set Update
 //=============================================================================
 
-static void updateDescriptorSet(VkDevice device, VkDescriptorSet& ds, LudusTimestampedVkState& s)
+static void updateDescriptorSet(
+    VkDevice device, VkDescriptorSet ds, LudusTimestampedVkState& s, int slot)
 {
     struct BufInfo { uint32_t binding; VkBuffer buffer; VkDeviceSize size; };
     BufInfo bufs[] = {
@@ -308,8 +309,8 @@ static void updateDescriptorSet(VkDevice device, VkDescriptorSet& ds, LudusTimes
         { 9, s.obstaclePoolBuffer.buffer,     s.obstaclePoolBuffer.size},
         {10, s.colorPaletteBuffer.buffer,     s.colorPaletteBuffer.size},
         {11, s.cameraIntrinsicsBuffer.buffer, s.cameraIntrinsicsBuffer.size},
-        {12, s.cameraPoseBuffer.buffer,       s.cameraPoseBuffer.size},
-        {13, s.queryBuffer.buffer,            s.queryBuffer.size},
+        {12, s.cameraPoseBuffers[slot].buffer, s.cameraPoseBuffers[slot].size},
+        {13, s.queryBuffers[slot].buffer,      s.queryBuffers[slot].size},
     };
 
     std::vector<VkWriteDescriptorSet> writes;
@@ -332,19 +333,14 @@ static void updateDescriptorSet(VkDevice device, VkDescriptorSet& ds, LudusTimes
         writes.push_back(w);
     }
 
-    if (!writes.empty()) {
-        // Reset and re-allocate to avoid stale-handle cache when a buffer was
-        // resized and the underlying VkBuffer is reused at a new GPU address.
-        vkResetDescriptorPool(device, s.descriptorPool, 0);
-        VkDescriptorSetAllocateInfo realloc = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-        realloc.descriptorPool = s.descriptorPool;
-        realloc.descriptorSetCount = 1;
-        realloc.pSetLayouts = &s.descriptorSetLayout;
-        vkAllocateDescriptorSets(device, &realloc, &ds);
-        for (auto& w : writes)
-            w.dstSet = ds;
+    if (!writes.empty())
         vkUpdateDescriptorSets(device, (uint32_t)writes.size(), writes.data(), 0, nullptr);
-    }
+}
+
+static void updateDescriptorSets(LudusTimestampedVkState& s)
+{
+    for (int slot = 0; slot < LudusTimestampedVkState::kRenderSlots; ++slot)
+        updateDescriptorSet(s.vkctx.device, s.descriptorSets[slot], s, slot);
 }
 
 //=============================================================================
@@ -365,6 +361,19 @@ void ludusTimestampedInitVk(NVDR_CTX_ARGS, LudusTimestampedVkState& s, int cudaD
     s.vkctx = createVkContext(cudaDeviceIdx);
     s.hasMeshShader = s.vkctx.hasMeshShader ? 1 : 0;
 
+    s.renderCommands[0] = s.vkctx.commandBuffer;
+    s.renderFences[0] = s.vkctx.fence;
+    VkCommandBufferAllocateInfo renderCommandAlloc = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+    renderCommandAlloc.commandPool = s.vkctx.commandPool;
+    renderCommandAlloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    renderCommandAlloc.commandBufferCount = 1;
+    VkFenceCreateInfo renderFenceCI = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+    renderFenceCI.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+    for (int i = 1; i < LudusTimestampedVkState::kRenderSlots; ++i) {
+        VK_CHECK(vkAllocateCommandBuffers(s.vkctx.device, &renderCommandAlloc, &s.renderCommands[i]));
+        VK_CHECK(vkCreateFence(s.vkctx.device, &renderFenceCI, nullptr, &s.renderFences[i]));
+    }
+
     s.msaaSamples = 0;
     s.tessellationThreshold = 1.0f;
     s.maxTessellationLevelPolyline = 4;
@@ -384,19 +393,21 @@ void ludusTimestampedInitVk(NVDR_CTX_ARGS, LudusTimestampedVkState& s, int cudaD
 
     VkDescriptorPoolSize poolSize = {};
     poolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    poolSize.descriptorCount = 14;
+    poolSize.descriptorCount = 14 * LudusTimestampedVkState::kRenderSlots;
 
     VkDescriptorPoolCreateInfo poolCI = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    poolCI.maxSets = 1;
+    poolCI.maxSets = LudusTimestampedVkState::kRenderSlots;
     poolCI.poolSizeCount = 1;
     poolCI.pPoolSizes = &poolSize;
     VK_CHECK(vkCreateDescriptorPool(s.vkctx.device, &poolCI, nullptr, &s.descriptorPool));
 
     VkDescriptorSetAllocateInfo dsAllocCI = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
     dsAllocCI.descriptorPool = s.descriptorPool;
-    dsAllocCI.descriptorSetCount = 1;
-    dsAllocCI.pSetLayouts = &s.descriptorSetLayout;
-    VK_CHECK(vkAllocateDescriptorSets(s.vkctx.device, &dsAllocCI, &s.descriptorSet));
+    VkDescriptorSetLayout slotLayouts[LudusTimestampedVkState::kRenderSlots];
+    std::fill_n(slotLayouts, LudusTimestampedVkState::kRenderSlots, s.descriptorSetLayout);
+    dsAllocCI.descriptorSetCount = LudusTimestampedVkState::kRenderSlots;
+    dsAllocCI.pSetLayouts = slotLayouts;
+    VK_CHECK(vkAllocateDescriptorSets(s.vkctx.device, &dsAllocCI, s.descriptorSets));
 
     // Embedded SPIR-V (generated from shaders/*.spv at build time).
     struct ShaderBin { const uint32_t* code; size_t bytes; };
@@ -446,15 +457,18 @@ void ludusTimestampedInitVk(NVDR_CTX_ARGS, LudusTimestampedVkState& s, int cudaD
     makeDummy(s.obstaclePoolBuffer, true);
     makeDummy(s.colorPaletteBuffer);
     makeDummy(s.cameraIntrinsicsBuffer);
-    makeDummy(s.cameraPoseBuffer);
-    makeDummy(s.queryBuffer);
-    updateDescriptorSet(s.vkctx.device, s.descriptorSet, s);
+    for (int slot = 0; slot < LudusTimestampedVkState::kRenderSlots; ++slot) {
+        makeDummy(s.cameraPoseBuffers[slot]);
+        makeDummy(s.queryBuffers[slot]);
+    }
+    updateDescriptorSets(s);
 
     cudaStreamCreate(&s.copyStream);
     for (int i = 0; i < 2; i++) {
         cudaEventCreateWithFlags(&s.stagingReadyEvent[i], cudaEventDisableTiming);
         cudaEventCreateWithFlags(&s.pinnedReadyEvent[i], cudaEventDisableTiming);
     }
+    cudaEventCreateWithFlags(&s.poolReadyEvent, cudaEventDisableTiming);
 
     VK_DBG("[Vulkan] Timestamped renderer initialized\n");
 }
@@ -495,8 +509,10 @@ static void ensureBuffers(LudusTimestampedVkState& s, bool& changed)
     resize(s.polygonPoolBuffer,      s.polygonPoolCapacity,   sizeof(TimestampedPolygonPool));
     resize(s.obstaclePoolBuffer,     s.obstaclePoolCapacity,  sizeof(ObstaclePool));
     resize(s.cameraIntrinsicsBuffer, s.cameraCapacity,        sizeof(FThetaCamera));
-    resize(s.cameraPoseBuffer,       s.queryCapacity,         sizeof(CameraPose));
-    resize(s.queryBuffer,            s.queryCapacity,         sizeof(RenderQuery));
+    for (int slot = 0; slot < LudusTimestampedVkState::kRenderSlots; ++slot) {
+        resize(s.cameraPoseBuffers[slot], s.queryCapacity, sizeof(CameraPose));
+        resize(s.queryBuffers[slot], s.queryCapacity, sizeof(RenderQuery));
+    }
 }
 
 // Rebuild the render pass + pipelines for a new sample count (their attachment
@@ -528,57 +544,61 @@ static void ensureFramebuffer(LudusTimestampedVkState& s, int width, int height,
 
     vkDeviceWaitIdle(s.vkctx.device);
 
-    // Rebuild the render pass/pipelines if the sample count changed so they
-    // match the framebuffer created below.
     int desiredSamplesInt = (s.msaaSamples > 1) ? s.msaaSamples : 1;
     if (s.renderPassSamples != desiredSamplesInt) {
+        for (int slot = 0; slot < LudusTimestampedVkState::kRenderSlots; ++slot) {
+            if (s.framebuffers[slot]) {
+                vkDestroyFramebuffer(s.vkctx.device, s.framebuffers[slot], nullptr);
+                s.framebuffers[slot] = VK_NULL_HANDLE;
+            }
+        }
         rebuildRenderPassAndPipelines(s, (VkSampleCountFlagBits)desiredSamplesInt);
-    }
-
-    if (s.framebuffer) { vkDestroyFramebuffer(s.vkctx.device, s.framebuffer, nullptr); s.framebuffer = VK_NULL_HANDLE; }
-    destroyExternalImage(s.vkctx, s.colorImage);
-    destroyExternalImage(s.vkctx, s.depthStencilImage);
-    if (s.msaaSamples > 1) {
-        destroyExternalImage(s.vkctx, s.colorImageMSAA);
-        destroyExternalImage(s.vkctx, s.depthStencilImageMSAA);
     }
 
     s.width = width;
     s.height = height;
     s.maxLayers = layers;
+    for (int slot = 0; slot < LudusTimestampedVkState::kRenderSlots; ++slot) {
+        if (s.framebuffers[slot])
+            vkDestroyFramebuffer(s.vkctx.device, s.framebuffers[slot], nullptr);
+        destroyExternalImage(s.vkctx, s.colorImages[slot]);
+        destroyExternalImage(s.vkctx, s.depthStencilImages[slot]);
+        destroyExternalImage(s.vkctx, s.colorImagesMSAA[slot]);
+        destroyExternalImage(s.vkctx, s.depthStencilImagesMSAA[slot]);
 
-    s.colorImage = createExternalImage(s.vkctx, width, height, layers,
-        VK_FORMAT_R8G8B8A8_UNORM,
-        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-        VK_SAMPLE_COUNT_1_BIT, true);
+        s.colorImages[slot] = createExternalImage(s.vkctx, width, height, layers,
+            VK_FORMAT_R8G8B8A8_UNORM,
+            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+            VK_SAMPLE_COUNT_1_BIT, true);
+        s.depthStencilImages[slot] = createExternalImage(s.vkctx, width, height, layers,
+            VK_FORMAT_D24_UNORM_S8_UINT,
+            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+            VK_SAMPLE_COUNT_1_BIT, false);
 
-    s.depthStencilImage = createExternalImage(s.vkctx, width, height, layers,
-        VK_FORMAT_D24_UNORM_S8_UINT,
-        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-        VK_SAMPLE_COUNT_1_BIT, false);
+        std::vector<VkImageView> attachments;
+        if (s.msaaSamples > 1) {
+            VkSampleCountFlagBits samples = (VkSampleCountFlagBits)s.msaaSamples;
+            s.colorImagesMSAA[slot] = createExternalImage(s.vkctx, width, height, layers,
+                VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, samples, false);
+            s.depthStencilImagesMSAA[slot] = createExternalImage(s.vkctx, width, height, layers,
+                VK_FORMAT_D24_UNORM_S8_UINT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, samples, false);
+            attachments = {s.colorImagesMSAA[slot].imageView, s.colorImages[slot].imageView,
+                           s.depthStencilImagesMSAA[slot].imageView};
+        } else {
+            attachments = {s.colorImages[slot].imageView, s.depthStencilImages[slot].imageView};
+        }
 
-    std::vector<VkImageView> fbAttachments;
-    if (s.msaaSamples > 1) {
-        VkSampleCountFlagBits samples = (VkSampleCountFlagBits)s.msaaSamples;
-        s.colorImageMSAA = createExternalImage(s.vkctx, width, height, layers,
-            VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-            samples, false);
-        s.depthStencilImageMSAA = createExternalImage(s.vkctx, width, height, layers,
-            VK_FORMAT_D24_UNORM_S8_UINT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-            samples, false);
-        fbAttachments = {s.colorImageMSAA.imageView, s.colorImage.imageView, s.depthStencilImageMSAA.imageView};
-    } else {
-        fbAttachments = {s.colorImage.imageView, s.depthStencilImage.imageView};
+        VkFramebufferCreateInfo fbCI = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+        fbCI.renderPass = s.renderPass;
+        fbCI.attachmentCount = (uint32_t)attachments.size();
+        fbCI.pAttachments = attachments.data();
+        fbCI.width = width;
+        fbCI.height = height;
+        fbCI.layers = layers;
+        VK_CHECK(vkCreateFramebuffer(s.vkctx.device, &fbCI, nullptr, &s.framebuffers[slot]));
+        s.renderTimelineValues[slot] = 0;
+        s.releaseTimelineValues[slot] = 0;
     }
-
-    VkFramebufferCreateInfo fbCI = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-    fbCI.renderPass = s.renderPass;
-    fbCI.attachmentCount = (uint32_t)fbAttachments.size();
-    fbCI.pAttachments = fbAttachments.data();
-    fbCI.width = width;
-    fbCI.height = height;
-    fbCI.layers = layers;
-    VK_CHECK(vkCreateFramebuffer(s.vkctx.device, &fbCI, nullptr, &s.framebuffer));
 
     size_t frameSize = (size_t)width * height * 4 * layers;
     if (frameSize > s.stagingBufferSize) {
@@ -611,7 +631,7 @@ void ludusUploadCamerasVk(
         numCameras * sizeof(FThetaCamera), cudaMemcpyDeviceToDevice, stream);
     s.sceneBuffersDirty = 1;
 
-    updateDescriptorSet(s.vkctx.device, s.descriptorSet, s);
+    updateDescriptorSets(s);
 }
 
 void ludusUploadColorPaletteVk(
@@ -625,9 +645,8 @@ void ludusUploadColorPaletteVk(
         cudaMemcpyDeviceToDevice, stream);
     s.colorPaletteSize = numColors;
     s.sceneBuffersDirty = 1;
-    updateDescriptorSet(s.vkctx.device, s.descriptorSet, s);
+    updateDescriptorSets(s);
 }
-
 int ludusUploadSceneVk(
     NVDR_CTX_ARGS, LudusTimestampedVkState& s, cudaStream_t stream,
     const TimestampedScene* sceneDesc,
@@ -710,10 +729,9 @@ int ludusUploadSceneVk(
         "upload_scene: cudaMemcpyAsync (scene desc) failed: ", (int)e_scene);
 
     s.sceneBuffersDirty = 1;
-    updateDescriptorSet(s.vkctx.device, s.descriptorSet, s);
+    updateDescriptorSets(s);
     return sceneId;
 }
-
 void ludusRemoveSceneVk(NVDR_CTX_ARGS, LudusTimestampedVkState& s, int sceneId, cudaStream_t stream)
 {
     (void)nvdr_ctx;
@@ -742,45 +760,50 @@ void ludusRenderBatchVk(
 
     VK_DBG("[Vulkan] renderBatch: nq=%d size=%dx%d\n", numQueries, width, height);
 
-    ensureFramebuffer(s, width, height, numQueries);
+    const int commandSlot = s.nextRenderCommand;
+    s.nextRenderCommand = (s.nextRenderCommand + 1) % LudusTimestampedVkState::kRenderSlots;
+    VkFence renderFence = s.renderFences[commandSlot];
+    if (s.renderTimelineValues[commandSlot] != 0)
+        VK_CHECK(vkWaitForFences(s.vkctx.device, 1, &renderFence, VK_TRUE, UINT64_MAX));
 
-    if (numQueries > s.queryCapacity) {
+    // The previous CUDA read of this slot must finish before Vulkan reuses its image.
+    waitCudaTimeline(s.vkctx, s.releaseTimelineValues[commandSlot], stream);
+    const bool resizeFramebuffer =
+        s.width != width || s.height != height || s.maxLayers < numQueries;
+    const bool resizeQueryBuffers = numQueries > s.queryCapacity;
+    if (resizeFramebuffer || resizeQueryBuffers)
+        cudaStreamSynchronize(stream);
+
+    ensureFramebuffer(s, width, height, numQueries);
+    if (resizeQueryBuffers) {
         s.queryCapacity = numQueries;
-        resizeExternalBuffer(s.vkctx, s.queryBuffer,
-            numQueries * sizeof(RenderQuery), SSBO_USAGE, true);
-        resizeExternalBuffer(s.vkctx, s.cameraPoseBuffer,
-            numQueries * sizeof(CameraPose), SSBO_USAGE, true);
-        updateDescriptorSet(s.vkctx.device, s.descriptorSet, s);
+        for (int slot = 0; slot < LudusTimestampedVkState::kRenderSlots; ++slot) {
+            resizeExternalBuffer(s.vkctx, s.queryBuffers[slot],
+                numQueries * sizeof(RenderQuery), SSBO_USAGE, true);
+            resizeExternalBuffer(s.vkctx, s.cameraPoseBuffers[slot],
+                numQueries * sizeof(CameraPose), SSBO_USAGE, true);
+        }
+        updateDescriptorSets(s);
     }
 
-    cudaError_t e1 = cudaMemcpyAsync((void*)s.queryBuffer.cuDevPtr, queries,
+    cudaError_t e1 = cudaMemcpyAsync((void*)s.queryBuffers[commandSlot].cuDevPtr, queries,
         numQueries * sizeof(RenderQuery), cudaMemcpyDeviceToDevice, stream);
-    cudaError_t e2 = cudaMemcpyAsync((void*)s.cameraPoseBuffer.cuDevPtr, cameraPoses,
+    cudaError_t e2 = cudaMemcpyAsync((void*)s.cameraPoseBuffers[commandSlot].cuDevPtr, cameraPoses,
         numQueries * sizeof(CameraPose), cudaMemcpyDeviceToDevice, stream);
     TORCH_CHECK(e1 == cudaSuccess, "renderBatch: cudaMemcpyAsync (queries) failed: ", (int)e1);
     TORCH_CHECK(e2 == cudaSuccess, "renderBatch: cudaMemcpyAsync (poses) failed: ", (int)e2);
 
-    // Ensure all CUDA writes are visible before Vulkan reads. Simple
-    // synchronous handoff: cudaStreamSynchronize -> vkQueueSubmit(fence) ->
-    // vkWaitForFences. Future optimization: replace with timeline semaphore.
-    cudaStreamSynchronize(stream);
-
-    vkResetFences(s.vkctx.device, 1, &s.vkctx.fence);
-
-    VkCommandBuffer cmd = s.vkctx.commandBuffer;
+    VK_CHECK(vkResetFences(s.vkctx.device, 1, &renderFence));
+    VkCommandBuffer cmd = s.renderCommands[commandSlot];
+    VK_CHECK(vkResetCommandBuffer(cmd, 0));
     VkCommandBufferBeginInfo beginCI = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     beginCI.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VK_CHECK(vkBeginCommandBuffer(cmd, &beginCI));
 
-    // CUDA->Vulkan coherence workaround for drivers where CUDA writes to
-    // VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD memory are not made fully
-    // visible to subsequent Vulkan shader reads even after a queue-family
-    // ownership transfer. Reads each CUDA-imported buffer back to a host
-    // staging copy and writes it back through vkCmdUpdateBuffer (which
-    // goes through Vulkan's own coherent transfer path). Opt out via
-    // LUDUS_VK_DIRECT_IMPORT=1 if the driver doesn't need this hack.
-    // Not static: re-read each call so the env var isn't latched at first render.
-    const bool kHostRoundtrip = (getenv("LUDUS_VK_DIRECT_IMPORT") == nullptr);
+    // CUDA/Vulkan visibility is ordered by the exported timeline semaphore.
+    // Drivers with broken external-memory visibility can explicitly request the
+    // legacy host roundtrip with LUDUS_VK_HOST_ROUNDTRIP=1.
+    const bool kHostRoundtrip = (getenv("LUDUS_VK_HOST_ROUNDTRIP") != nullptr);
     if (kHostRoundtrip) {
         auto copyToVk = [&](VkExternalBuffer& buf) {
             if (buf.buffer == VK_NULL_HANDLE || buf.size == 0 || buf.cuDevPtr == 0) return;
@@ -794,8 +817,8 @@ void ludusRenderBatchVk(
             }
         };
         // Per-query buffers are rewritten by CUDA every render -> always push.
-        copyToVk(s.cameraPoseBuffer);
-        copyToVk(s.queryBuffer);
+        copyToVk(s.cameraPoseBuffers[commandSlot]);
+        copyToVk(s.queryBuffers[commandSlot]);
         // Scene/camera/palette buffers only change on upload/remove/clear, so
         // push them once after such an op instead of every frame.
         if (s.sceneBuffersDirty) {
@@ -811,7 +834,6 @@ void ludusRenderBatchVk(
             copyToVk(s.obstaclePoolBuffer);
             copyToVk(s.colorPaletteBuffer);
             copyToVk(s.cameraIntrinsicsBuffer);
-            s.sceneBuffersDirty = 0;
         }
 
         VkMemoryBarrier mb = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
@@ -842,20 +864,22 @@ void ludusRenderBatchVk(
             b.size = VK_WHOLE_SIZE;
             bufBarriers.push_back(b);
         };
-        addBarrier(s.timestampsBuffer);
-        addBarrier(s.int32Buffer);
-        addBarrier(s.vertexBuffer);
-        addBarrier(s.triangleBuffer);
-        addBarrier(s.poseBuffer);
-        addBarrier(s.floatBuffer);
-        addBarrier(s.sceneBuffer);
-        addBarrier(s.polylinePoolBuffer);
-        addBarrier(s.polygonPoolBuffer);
-        addBarrier(s.obstaclePoolBuffer);
-        addBarrier(s.colorPaletteBuffer);
-        addBarrier(s.cameraIntrinsicsBuffer);
-        addBarrier(s.cameraPoseBuffer);
-        addBarrier(s.queryBuffer);
+        if (s.sceneBuffersDirty) {
+            addBarrier(s.timestampsBuffer);
+            addBarrier(s.int32Buffer);
+            addBarrier(s.vertexBuffer);
+            addBarrier(s.triangleBuffer);
+            addBarrier(s.poseBuffer);
+            addBarrier(s.floatBuffer);
+            addBarrier(s.sceneBuffer);
+            addBarrier(s.polylinePoolBuffer);
+            addBarrier(s.polygonPoolBuffer);
+            addBarrier(s.obstaclePoolBuffer);
+            addBarrier(s.colorPaletteBuffer);
+            addBarrier(s.cameraIntrinsicsBuffer);
+        }
+        addBarrier(s.cameraPoseBuffers[commandSlot]);
+        addBarrier(s.queryBuffers[commandSlot]);
 
         if (!bufBarriers.empty()) {
             vkCmdPipelineBarrier(cmd,
@@ -867,6 +891,7 @@ void ludusRenderBatchVk(
                 (uint32_t)bufBarriers.size(), bufBarriers.data(),
                 0, nullptr);
         }
+        s.sceneBuffersDirty = 0;
     }
 
     // Clear values must match attachment order from createTimestampedRenderPass.
@@ -889,13 +914,10 @@ void ludusRenderBatchVk(
 
     VkRenderPassBeginInfo rpBegin = {VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
     rpBegin.renderPass = s.renderPass;
-    rpBegin.framebuffer = s.framebuffer;
+    rpBegin.framebuffer = s.framebuffers[commandSlot];
     rpBegin.renderArea = {{0, 0}, {(uint32_t)width, (uint32_t)height}};
     rpBegin.clearValueCount = (s.msaaSamples > 1) ? 3 : 2;
     rpBegin.pClearValues = clearValues;
-    // Refresh descriptors before the render pass: updateDescriptorSet may
-    // reset/realloc the descriptor pool, which is illegal inside a render pass.
-    updateDescriptorSet(s.vkctx.device, s.descriptorSet, s);
 
     vkCmdBeginRenderPass(cmd, &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
 
@@ -907,7 +929,7 @@ void ludusRenderBatchVk(
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-        s.pipelineLayout, 0, 1, &s.descriptorSet, 0, nullptr);
+        s.pipelineLayout, 0, 1, &s.descriptorSets[commandSlot], 0, nullptr);
 
     LudusPushConstants pc = {};
     pc.u_width_polyline_regular    = s.widthPolylineRegular > 0 ? s.widthPolylineRegular : 7.0f;
@@ -974,74 +996,33 @@ void ludusRenderBatchVk(
     vkCmdEndRenderPass(cmd);
     VK_CHECK(vkEndCommandBuffer(cmd));
 
-    VkSubmitInfo submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &cmd;
-    VK_CHECK(vkQueueSubmit(s.vkctx.graphicsQueue, 1, &submitInfo, s.vkctx.fence));
-    VK_CHECK(vkWaitForFences(s.vkctx.device, 1, &s.vkctx.fence, VK_TRUE, UINT64_MAX));
+    const uint64_t cudaReadyValue = signalCudaTimeline(s.vkctx, stream);
+    const uint64_t renderDoneValue = ++s.vkctx.interopValue;
+    s.renderTimelineValues[commandSlot] = renderDoneValue;
+    s.activeRenderSlot = commandSlot;
+    submitTimelineCommand(s.vkctx, cmd, renderFence, cudaReadyValue, renderDoneValue);
 }
-
-//=============================================================================
-// Copy Results
-//=============================================================================
 
 void ludusCopyBatchResultsVk(
     NVDR_CTX_ARGS, LudusTimestampedVkState& s, cudaStream_t stream,
     uint8_t* outputPtr, int width, int height, int numQueries)
 {
     (void)nvdr_ctx;
-    size_t totalSize = (size_t)width * height * 4 * numQueries;
+    const int slot = s.activeRenderSlot;
+    TORCH_CHECK(s.colorImages[slot].cuArray != 0,
+        "render output image is not CUDA-importable");
 
-    // Pull rendered color image through a CUDA-importable readback buffer
-    // owned by this state. Grow on demand.
-    if (s.readbackBuffer.buffer == VK_NULL_HANDLE || s.readbackBuffer.size < totalSize) {
-        if (s.readbackBuffer.buffer != VK_NULL_HANDLE)
-            destroyExternalBuffer(s.vkctx, s.readbackBuffer);
-        s.readbackBuffer = createExternalBuffer(s.vkctx, totalSize,
-            VK_BUFFER_USAGE_TRANSFER_DST_BIT, true);
-    }
-    VkExternalBuffer& readbackBuf = s.readbackBuffer;
-
-    VkCommandBuffer copyCmd = beginSingleTimeCommands(s.vkctx);
-
-    VkMemoryBarrier fullBarrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-    fullBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    fullBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    vkCmdPipelineBarrier(copyCmd,
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        0, 1, &fullBarrier, 0, nullptr, 0, nullptr);
-
-    transitionImageLayout(copyCmd, s.colorImage.image,
-        VK_IMAGE_LAYOUT_GENERAL,
-        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        numQueries, VK_IMAGE_ASPECT_COLOR_BIT);
-
-    std::vector<VkBufferImageCopy> regions(numQueries);
-    for (int i = 0; i < numQueries; i++) {
-        regions[i] = {};
-        regions[i].bufferOffset = (VkDeviceSize)i * width * height * 4;
-        regions[i].bufferRowLength = 0;
-        regions[i].bufferImageHeight = 0;
-        regions[i].imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        regions[i].imageSubresource.mipLevel = 0;
-        regions[i].imageSubresource.baseArrayLayer = i;
-        regions[i].imageSubresource.layerCount = 1;
-        regions[i].imageOffset = {0, 0, 0};
-        regions[i].imageExtent = {(uint32_t)width, (uint32_t)height, 1};
-    }
-    vkCmdCopyImageToBuffer(copyCmd, s.colorImage.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        readbackBuf.buffer, (uint32_t)regions.size(), regions.data());
-
-    transitionImageLayout(copyCmd, s.colorImage.image,
-        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        VK_IMAGE_LAYOUT_GENERAL,
-        numQueries, VK_IMAGE_ASPECT_COLOR_BIT);
-
-    endSingleTimeCommands(s.vkctx, copyCmd);
-
-    cudaMemcpyAsync(outputPtr, (void*)readbackBuf.cuDevPtr, totalSize,
-        cudaMemcpyDeviceToDevice, stream);
+    // Vulkan signals this value after the render pass; CUDA then copies the
+    // imported layered image directly into the caller's tensor.
+    waitCudaTimeline(s.vkctx, s.renderTimelineValues[slot], stream);
+    cudaMemcpy3DParms copy = {};
+    copy.srcArray = reinterpret_cast<cudaArray_t>(s.colorImages[slot].cuArray);
+    copy.dstPtr = make_cudaPitchedPtr(outputPtr, (size_t)width * 4, width, height);
+    copy.extent = make_cudaExtent((size_t)width, (size_t)height, (size_t)numQueries);
+    copy.kind = cudaMemcpyDeviceToDevice;
+    cudaError_t status = cudaMemcpy3DAsync(&copy, stream);
+    TORCH_CHECK(status == cudaSuccess, "cudaMemcpy3DAsync (render output) failed: ", (int)status);
+    s.releaseTimelineValues[slot] = signalCudaTimeline(s.vkctx, stream);
 }
 
 int ludusCopyBatchResultsToStagingVk(
@@ -1212,6 +1193,8 @@ void ludusTimestampedReleaseVk(NVDR_CTX_ARGS, LudusTimestampedVkState& s)
     (void)nvdr_ctx;
     if (s.vkctx.device) vkDeviceWaitIdle(s.vkctx.device);
 
+    for (int i = 1; i < LudusTimestampedVkState::kRenderSlots; ++i)
+        if (s.renderFences[i]) vkDestroyFence(s.vkctx.device, s.renderFences[i], nullptr);
     for (int i = 0; i < 2; i++) {
         if (s.stagingBuffer[i]) cudaFree(s.stagingBuffer[i]);
         if (s.pinnedHostBuffer[i]) cudaFreeHost(s.pinnedHostBuffer[i]);
@@ -1219,6 +1202,7 @@ void ludusTimestampedReleaseVk(NVDR_CTX_ARGS, LudusTimestampedVkState& s)
         if (s.pinnedReadyEvent[i]) cudaEventDestroy(s.pinnedReadyEvent[i]);
     }
     if (s.copyStream) cudaStreamDestroy(s.copyStream);
+    if (s.poolReadyEvent) cudaEventDestroy(s.poolReadyEvent);
     if (s.jpegOutputBuffer) cudaFreeHost(s.jpegOutputBuffer);
     if (s.jpegFlipBuffer) cudaFree(s.jpegFlipBuffer);
     if (s.nvjpegInitialized) {
@@ -1237,13 +1221,15 @@ void ludusTimestampedReleaseVk(NVDR_CTX_ARGS, LudusTimestampedVkState& s)
     if (s.descriptorPool)   vkDestroyDescriptorPool(s.vkctx.device, s.descriptorPool, nullptr);
     if (s.descriptorSetLayout) vkDestroyDescriptorSetLayout(s.vkctx.device, s.descriptorSetLayout, nullptr);
 
-    if (s.framebuffer) vkDestroyFramebuffer(s.vkctx.device, s.framebuffer, nullptr);
-    if (s.renderPass)  vkDestroyRenderPass(s.vkctx.device, s.renderPass, nullptr);
-
-    destroyExternalImage(s.vkctx, s.colorImage);
-    destroyExternalImage(s.vkctx, s.depthStencilImage);
-    destroyExternalImage(s.vkctx, s.colorImageMSAA);
-    destroyExternalImage(s.vkctx, s.depthStencilImageMSAA);
+    for (int slot = 0; slot < LudusTimestampedVkState::kRenderSlots; ++slot) {
+        if (s.framebuffers[slot])
+            vkDestroyFramebuffer(s.vkctx.device, s.framebuffers[slot], nullptr);
+        destroyExternalImage(s.vkctx, s.colorImages[slot]);
+        destroyExternalImage(s.vkctx, s.depthStencilImages[slot]);
+        destroyExternalImage(s.vkctx, s.colorImagesMSAA[slot]);
+        destroyExternalImage(s.vkctx, s.depthStencilImagesMSAA[slot]);
+    }
+    if (s.renderPass) vkDestroyRenderPass(s.vkctx.device, s.renderPass, nullptr);
 
     destroyExternalBuffer(s.vkctx, s.timestampsBuffer);
     destroyExternalBuffer(s.vkctx, s.int32Buffer);
@@ -1257,8 +1243,10 @@ void ludusTimestampedReleaseVk(NVDR_CTX_ARGS, LudusTimestampedVkState& s)
     destroyExternalBuffer(s.vkctx, s.obstaclePoolBuffer);
     destroyExternalBuffer(s.vkctx, s.colorPaletteBuffer);
     destroyExternalBuffer(s.vkctx, s.cameraIntrinsicsBuffer);
-    destroyExternalBuffer(s.vkctx, s.cameraPoseBuffer);
-    destroyExternalBuffer(s.vkctx, s.queryBuffer);
+    for (int slot = 0; slot < LudusTimestampedVkState::kRenderSlots; ++slot) {
+        destroyExternalBuffer(s.vkctx, s.cameraPoseBuffers[slot]);
+        destroyExternalBuffer(s.vkctx, s.queryBuffers[slot]);
+    }
     destroyExternalBuffer(s.vkctx, s.readbackBuffer);
 
     destroyVkContext(s.vkctx);

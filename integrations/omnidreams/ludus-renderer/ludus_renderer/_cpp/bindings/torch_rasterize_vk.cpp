@@ -21,6 +21,9 @@
 #include "../common/common.h"
 #include "../render/ludus_vk.h"
 #include <tuple>
+#include <memory>
+#include <mutex>
+#include <vector>
 
 //------------------------------------------------------------------------
 // FLU (front-left-up) to RDF (right-down-front) basis conversion.
@@ -41,6 +44,72 @@ static torch::Tensor flu_to_rdf(const torch::Tensor& camera_poses)
 }
 
 //------------------------------------------------------------------------
+
+namespace {
+struct PooledVkState {
+    std::unique_ptr<LudusTimestampedVkState> state;
+    int cudaDeviceIdx;
+    bool inUse;
+};
+
+static std::mutex& vkStatePoolMutex()
+{
+    static auto* mutex = new std::mutex();
+    return *mutex;
+}
+
+static std::vector<PooledVkState>& vkStatePool()
+{
+    static auto* pool = new std::vector<PooledVkState>();
+    return *pool;
+}
+
+static LudusTimestampedVkState* acquireVkState(int cudaDeviceIdx)
+{
+    std::lock_guard<std::mutex> lock(vkStatePoolMutex());
+    cudaSetDevice(cudaDeviceIdx);
+    for (auto& entry : vkStatePool()) {
+        if (entry.inUse || entry.cudaDeviceIdx != cudaDeviceIdx)
+            continue;
+
+        cudaError_t ready = cudaEventQuery(entry.state->poolReadyEvent);
+        if (ready == cudaErrorNotReady)
+            continue;
+        TORCH_CHECK(ready == cudaSuccess,
+            "cudaEventQuery for pooled Vulkan state failed: ", (int)ready);
+
+        ludusClearScenesVk(NVDR_CTX_PARAMS, *entry.state);
+        entry.inUse = true;
+        return entry.state.get();
+    }
+
+    auto state = std::make_unique<LudusTimestampedVkState>();
+    memset(state.get(), 0, sizeof(LudusTimestampedVkState));
+    state->cullRadiusScale = 1.5f;
+    ludusTimestampedInitVk(NVDR_CTX_PARAMS, *state, cudaDeviceIdx);
+    LudusTimestampedVkState* result = state.get();
+    vkStatePool().push_back({std::move(state), cudaDeviceIdx, true});
+    return result;
+}
+
+static void releaseVkState(LudusTimestampedVkState* state)
+{
+    cudaSetDevice(state->vkctx.cudaDeviceIdx);
+    cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+    // waitCudaTimeline(state->vkctx, state->lastReleaseTimelineValue, stream);
+    cudaError_t recorded = cudaEventRecord(state->poolReadyEvent, stream);
+    TORCH_CHECK(recorded == cudaSuccess,
+        "cudaEventRecord for pooled Vulkan state failed: ", (int)recorded);
+
+    std::lock_guard<std::mutex> lock(vkStatePoolMutex());
+    for (auto& entry : vkStatePool()) {
+        if (entry.state.get() == state) {
+            entry.inUse = false;
+            return;
+        }
+    }
+}
+} // namespace
 // Python-facing wrapper for the Vulkan timestamped renderer.
 //------------------------------------------------------------------------
 
@@ -52,17 +121,13 @@ public:
 
     LudusTimestampedVkStateWrapper(int cudaDeviceIdx_)
     {
-        pState = new LudusTimestampedVkState();
         cudaDeviceIdx = cudaDeviceIdx_;
-        memset(pState, 0, sizeof(LudusTimestampedVkState));
-        pState->cullRadiusScale = 1.5f;
-        ludusTimestampedInitVk(NVDR_CTX_PARAMS, *pState, cudaDeviceIdx_);
+        pState = acquireVkState(cudaDeviceIdx_);
     }
 
     ~LudusTimestampedVkStateWrapper()
     {
-        ludusTimestampedReleaseVk(NVDR_CTX_PARAMS, *pState);
-        delete pState;
+        releaseVkState(pState);
     }
 
     int uploadScene(

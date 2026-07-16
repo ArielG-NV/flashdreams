@@ -63,6 +63,10 @@ struct VkContext
     VkCommandPool               commandPool;
     VkCommandBuffer             commandBuffer;
     VkFence                     fence;
+    VkSemaphore                 interopTimeline;
+    cudaExternalSemaphore_t     cudaInteropTimeline;
+    uint64_t                    interopValue;
+    bool                        hasInteropTimeline;
     VkPhysicalDeviceMemoryProperties memProperties;
     int                         cudaDeviceIdx;
 
@@ -147,6 +151,11 @@ uint32_t findMemoryType(
 // Single-use command buffer helpers.
 VkCommandBuffer beginSingleTimeCommands(VkContext& ctx);
 void endSingleTimeCommands(VkContext& ctx, VkCommandBuffer cmd);
+uint64_t signalCudaTimeline(VkContext& ctx, cudaStream_t stream);
+void waitCudaTimeline(VkContext& ctx, uint64_t value, cudaStream_t stream);
+void submitTimelineCommand(VkContext& ctx, VkCommandBuffer cmd, VkFence fence,
+    uint64_t waitValue, uint64_t signalValue);
+
 
 // Image layout transitions.
 void transitionImageLayout(
