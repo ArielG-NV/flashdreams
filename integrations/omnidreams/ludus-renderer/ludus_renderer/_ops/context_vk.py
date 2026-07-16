@@ -647,25 +647,16 @@ class LudusTimestampedContext:
         #   u32 camera_type_id  offset 16..20
         #   u32 pad[3]          offset 20..32
         #
-        # We assemble the 32-byte record from two CPU int32/int64 columns to
-        # avoid relying on `torch.uint32` / view-dtype machinery (which has
-        # historically been finicky across torch versions). The final
-        # tensor is then copied to the target device in one go.
-        ints = torch.zeros((n, 5), dtype=torch.int32)
-        ints[:, 0] = scene_ids.to("cpu", dtype=torch.int32)
-        ints[:, 1] = camera_ids.to("cpu", dtype=torch.int32)
-        # Skip slots 2..3 (int64 timestamp - filled separately).
-        ints[:, 4] = camera_type_ids.to("cpu", dtype=torch.int32)
-        ts = timestamps_us.to("cpu", dtype=torch.int64)
-
-        buf = torch.zeros(n, 32, dtype=torch.uint8)
+        # Keep tensor callers on CUDA: packing with int32/int64 views avoids a
+        # device-to-host synchronization before the one Vulkan submission.
+        buf = torch.zeros((n, 32), dtype=torch.uint8, device=self._device)
         buf_i32_view = buf.view(torch.int32).reshape(n, 8)
         buf_i64_view = buf.view(torch.int64).reshape(n, 4)
-        buf_i32_view[:, 0] = ints[:, 0]  # scene_id
-        buf_i32_view[:, 1] = ints[:, 1]  # camera_id
-        buf_i64_view[:, 1] = ts  # timestamp_us
-        buf_i32_view[:, 4] = ints[:, 4]  # camera_type_id
-        return buf.to(self._device).contiguous()
+        buf_i32_view[:, 0] = scene_ids.to(self._device, dtype=torch.int32)
+        buf_i32_view[:, 1] = camera_ids.to(self._device, dtype=torch.int32)
+        buf_i64_view[:, 1] = timestamps_us.to(self._device, dtype=torch.int64)
+        buf_i32_view[:, 4] = camera_type_ids.to(self._device, dtype=torch.int32)
+        return buf.contiguous()
 
     def render(
         self,

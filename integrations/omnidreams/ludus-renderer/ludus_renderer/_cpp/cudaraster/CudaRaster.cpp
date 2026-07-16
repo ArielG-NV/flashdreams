@@ -33,6 +33,9 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <memory>
+#include <mutex>
+#include <vector>
 
 using namespace CR;
 using namespace FW;
@@ -51,6 +54,160 @@ void crLaunchSetup(int numTris, cudaStream_t stream);
 void crLaunchBin(cudaStream_t stream);
 void crLaunchCoarse(int numSMs, cudaStream_t stream);
 void crLaunchFine(int numSMs, int numFineWarps, cudaStream_t stream);
+
+//------------------------------------------------------------------------
+
+namespace
+{
+
+struct RasterBufferSet
+{
+    int                     device = -1;
+    int                     width = 0;
+    int                     height = 0;
+    int                     numImages = 0;
+    uint32_t*               colorBufferRaw = NULL;
+    uint32_t*               depthBufferRaw = NULL;
+    uint32_t*               peelBufferRaw = NULL;
+    int32_t*                triIdxBufferRaw = NULL;
+    int                     triIdxStride = 0;
+    cudaArray_t             colorArray = NULL;
+    cudaArray_t             depthArray = NULL;
+    cudaArray_t             peelArray = NULL;
+    cudaSurfaceObject_t     colorSurfaceObj = 0;
+    cudaSurfaceObject_t     depthSurfaceObj = 0;
+    cudaEvent_t             completionEvent = NULL;
+    const CudaRaster*       owner = NULL;
+    bool                    inUse = false;
+
+    ~RasterBufferSet(void)
+    {
+        if (colorSurfaceObj) cudaDestroySurfaceObject(colorSurfaceObj);
+        if (depthSurfaceObj) cudaDestroySurfaceObject(depthSurfaceObj);
+        if (colorArray) cudaFreeArray(colorArray);
+        if (depthArray) cudaFreeArray(depthArray);
+        if (peelArray) cudaFreeArray(peelArray);
+        if (colorBufferRaw) cudaFree(colorBufferRaw);
+        if (depthBufferRaw) cudaFree(depthBufferRaw);
+        if (peelBufferRaw) cudaFree(peelBufferRaw);
+        if (triIdxBufferRaw) cudaFree(triIdxBufferRaw);
+        if (completionEvent) cudaEventDestroy(completionEvent);
+    }
+};
+
+std::vector<std::unique_ptr<RasterBufferSet>> g_bufferPool;
+std::mutex g_bufferPoolMutex;
+int g_liveRasterCount = 0;
+
+RasterBufferSet* acquireBufferSet(const CudaRaster* owner, int width, int height, int numImages)
+{
+    std::lock_guard<std::mutex> lock(g_bufferPoolMutex);
+    int device = -1;
+    cudaGetDevice(&device);
+
+    // Reuse only sets whose previous stream work has completed. A size match
+    // is required because linear readback buffers have no pitch metadata.
+    for (const auto& candidate : g_bufferPool)
+    {
+        RasterBufferSet* bufferSet = candidate.get();
+        if (bufferSet->owner || bufferSet->device != device ||
+            bufferSet->width != width || bufferSet->height != height ||
+            bufferSet->numImages != numImages)
+            continue;
+
+        if (bufferSet->inUse)
+        {
+            cudaError_t status = cudaEventQuery(bufferSet->completionEvent);
+            if (status == cudaErrorNotReady)
+                continue;
+            if (status != cudaSuccess)
+                continue;
+            bufferSet->inUse = false;
+        }
+
+        bufferSet->owner = owner;
+        return bufferSet;
+    }
+
+    auto bufferSet = std::make_unique<RasterBufferSet>();
+    bufferSet->device = device;
+    bufferSet->owner = owner;
+    bufferSet->width = width;
+    bufferSet->height = height;
+    bufferSet->numImages = numImages;
+
+    size_t count = (size_t)width * (size_t)height * (size_t)numImages;
+    size_t bytes = count * sizeof(uint32_t);
+    cudaMalloc(&bufferSet->colorBufferRaw, bytes);
+    cudaMalloc(&bufferSet->depthBufferRaw, bytes);
+    cudaMalloc(&bufferSet->peelBufferRaw, bytes);
+    cudaMemset(bufferSet->colorBufferRaw, 0, bytes);
+    cudaMemset(bufferSet->depthBufferRaw, 0, bytes);
+    cudaMemset(bufferSet->peelBufferRaw, 0, bytes);
+
+    // The deterministic-tiebreaker buffer is written with tile-aligned
+    // coordinates, so retain its tile-rounded allocation with the set.
+    int alignedW = (width + CR_TILE_SIZE - 1) & ~(CR_TILE_SIZE - 1);
+    int alignedH = (height + CR_TILE_SIZE - 1) & ~(CR_TILE_SIZE - 1);
+    size_t maxRow = (size_t)(numImages - 1) * (size_t)height + (size_t)alignedH;
+    size_t triIdxBytes = (size_t)alignedW * maxRow * sizeof(int32_t);
+    cudaMalloc(&bufferSet->triIdxBufferRaw, triIdxBytes);
+    cudaMemset(bufferSet->triIdxBufferRaw, 0xFF, triIdxBytes);
+    bufferSet->triIdxStride = alignedW;
+
+    cudaChannelFormatDesc desc = cudaCreateChannelDesc<uint32_t>();
+    cudaMallocArray(&bufferSet->colorArray, &desc, width, height * numImages, cudaArraySurfaceLoadStore);
+    cudaMallocArray(&bufferSet->depthArray, &desc, width, height * numImages, cudaArraySurfaceLoadStore);
+    cudaMallocArray(&bufferSet->peelArray, &desc, width, height * numImages, cudaArraySurfaceLoadStore);
+
+    cudaResourceDesc resDesc;
+    memset(&resDesc, 0, sizeof(resDesc));
+    resDesc.resType = cudaResourceTypeArray;
+
+    resDesc.res.array.array = bufferSet->colorArray;
+    cudaCreateSurfaceObject(&bufferSet->colorSurfaceObj, &resDesc);
+    resDesc.res.array.array = bufferSet->depthArray;
+    cudaCreateSurfaceObject(&bufferSet->depthSurfaceObj, &resDesc);
+
+    cudaEventCreateWithFlags(&bufferSet->completionEvent, cudaEventDisableTiming);
+    RasterBufferSet* result = bufferSet.get();
+    g_bufferPool.push_back(std::move(bufferSet));
+    return result;
+}
+
+void releaseBufferSet(const CudaRaster* owner, uint32_t* colorBufferRaw)
+{
+    if (!colorBufferRaw)
+        return;
+
+    std::lock_guard<std::mutex> lock(g_bufferPoolMutex);
+    for (const auto& candidate : g_bufferPool)
+    {
+        RasterBufferSet* bufferSet = candidate.get();
+        if (bufferSet->colorBufferRaw == colorBufferRaw && bufferSet->owner == owner)
+        {
+            bufferSet->owner = NULL;
+            return;
+        }
+    }
+}
+
+void markBufferSetInUse(uint32_t* colorBufferRaw, cudaStream_t stream)
+{
+    std::lock_guard<std::mutex> lock(g_bufferPoolMutex);
+    for (const auto& candidate : g_bufferPool)
+    {
+        RasterBufferSet* bufferSet = candidate.get();
+        if (bufferSet->colorBufferRaw != colorBufferRaw)
+            continue;
+
+        cudaEventRecord(bufferSet->completionEvent, stream);
+        bufferSet->inUse = true;
+        return;
+    }
+}
+
+} // namespace
 
 //------------------------------------------------------------------------
 
@@ -101,6 +258,11 @@ CudaRaster::CudaRaster(void)
     m_maxBinSegs    (1),
     m_maxTileSegs   (1)
 {
+    {
+        std::lock_guard<std::mutex> lock(g_bufferPoolMutex);
+        ++g_liveRasterCount;
+    }
+
     // Query device properties for SM count
     int device;
     cudaGetDevice(&device);
@@ -128,81 +290,50 @@ CudaRaster::CudaRaster(void)
 
 CudaRaster::~CudaRaster(void)
 {
-    if (m_colorSurfaceObj) cudaDestroySurfaceObject(m_colorSurfaceObj);
-    if (m_depthSurfaceObj) cudaDestroySurfaceObject(m_depthSurfaceObj);
-    if (m_colorArray) cudaFreeArray(m_colorArray);
-    if (m_depthArray) cudaFreeArray(m_depthArray);
-    if (m_peelArray) cudaFreeArray(m_peelArray);
-    if (m_colorBufferRaw) cudaFree(m_colorBufferRaw);
-    if (m_depthBufferRaw) cudaFree(m_depthBufferRaw);
-    if (m_peelBufferRaw) cudaFree(m_peelBufferRaw);
-    if (m_triIdxBufferRaw) cudaFree(m_triIdxBufferRaw);
+    releaseBufferSet(this, m_colorBufferRaw);
+
+    // Releasing the final renderer is the application's explicit shutdown
+    // signal. Until then, every allocation remains available for reuse.
+    std::lock_guard<std::mutex> lock(g_bufferPoolMutex);
+    if (--g_liveRasterCount == 0)
+        g_bufferPool.clear();
 }
 
 //------------------------------------------------------------------------
 
 void CudaRaster::setBufferSize(int width, int height, int numImages)
 {
+    releaseBufferSet(this, m_colorBufferRaw);
     m_width = max(width, 0);
     m_height = max(height, 0);
     m_numImages = max(numImages, 0);
 
-    // Free existing resources
-    if (m_colorSurfaceObj) { cudaDestroySurfaceObject(m_colorSurfaceObj); m_colorSurfaceObj = 0; }
-    if (m_depthSurfaceObj) { cudaDestroySurfaceObject(m_depthSurfaceObj); m_depthSurfaceObj = 0; }
-    if (m_colorArray) { cudaFreeArray(m_colorArray); m_colorArray = NULL; }
-    if (m_depthArray) { cudaFreeArray(m_depthArray); m_depthArray = NULL; }
-    if (m_peelArray) { cudaFreeArray(m_peelArray); m_peelArray = NULL; }
-    if (m_colorBufferRaw) { cudaFree(m_colorBufferRaw); m_colorBufferRaw = NULL; }
-    if (m_depthBufferRaw) { cudaFree(m_depthBufferRaw); m_depthBufferRaw = NULL; }
-    if (m_peelBufferRaw) { cudaFree(m_peelBufferRaw); m_peelBufferRaw = NULL; }
-    if (m_triIdxBufferRaw) { cudaFree(m_triIdxBufferRaw); m_triIdxBufferRaw = NULL; }
-    m_triIdxStride = 0;
-
     if (m_width == 0 || m_height == 0 || m_numImages == 0)
+    {
+        m_colorBufferRaw = NULL;
+        m_depthBufferRaw = NULL;
+        m_peelBufferRaw = NULL;
+        m_triIdxBufferRaw = NULL;
+        m_triIdxStride = 0;
+        m_colorArray = NULL;
+        m_depthArray = NULL;
+        m_peelArray = NULL;
+        m_colorSurfaceObj = 0;
+        m_depthSurfaceObj = 0;
         return;
+    }
 
-    // Allocate linear readback buffers
-    size_t count = (size_t)m_width * (size_t)m_height * (size_t)m_numImages;
-    size_t bytes = count * sizeof(uint32_t);
-    cudaMalloc(&m_colorBufferRaw, bytes);
-    cudaMalloc(&m_depthBufferRaw, bytes);
-    cudaMalloc(&m_peelBufferRaw, bytes);
-    cudaMemset(m_colorBufferRaw, 0, bytes);
-    cudaMemset(m_depthBufferRaw, 0, bytes);
-    cudaMemset(m_peelBufferRaw, 0, bytes);
-
-    // Allocate the per-pixel deterministic-tiebreaker triangle-index buffer.
-    // The kernel writes through tile-aligned coordinates, so the row stride must
-    // be tile-aligned and the buffer must extend past the last image far enough
-    // to cover the tile-rounded tail (the existing color/depth surfaces hide
-    // the same overshoot via surf2Dwrite's silent OOB drop, but a linear buffer
-    // would actually corrupt memory).
-    int alignedW = (m_width + CR_TILE_SIZE - 1) & ~(CR_TILE_SIZE - 1);
-    int alignedH = (m_height + CR_TILE_SIZE - 1) & ~(CR_TILE_SIZE - 1);
-    size_t maxRow = (size_t)(m_numImages - 1) * (size_t)m_height + (size_t)alignedH;
-    size_t triIdxBytes = (size_t)alignedW * maxRow * sizeof(int32_t);
-    cudaMalloc(&m_triIdxBufferRaw, triIdxBytes);
-    // 0xFF bytes => -1 as int32_t, marking every cell as having no resident fragment.
-    cudaMemset(m_triIdxBufferRaw, 0xFF, triIdxBytes);
-    m_triIdxStride = alignedW;
-
-    // Allocate 2D cudaArrays for surface access (required by surf2D in fine raster)
-    cudaChannelFormatDesc desc = cudaCreateChannelDesc<uint32_t>();
-    cudaMallocArray(&m_colorArray, &desc, m_width, m_height * m_numImages, cudaArraySurfaceLoadStore);
-    cudaMallocArray(&m_depthArray, &desc, m_width, m_height * m_numImages, cudaArraySurfaceLoadStore);
-    cudaMallocArray(&m_peelArray, &desc, m_width, m_height * m_numImages, cudaArraySurfaceLoadStore);
-
-    // Create surface objects
-    cudaResourceDesc resDesc;
-    memset(&resDesc, 0, sizeof(resDesc));
-    resDesc.resType = cudaResourceTypeArray;
-
-    resDesc.res.array.array = m_colorArray;
-    cudaCreateSurfaceObject(&m_colorSurfaceObj, &resDesc);
-
-    resDesc.res.array.array = m_depthArray;
-    cudaCreateSurfaceObject(&m_depthSurfaceObj, &resDesc);
+    const RasterBufferSet& bufferSet = *acquireBufferSet(this, m_width, m_height, m_numImages);
+    m_colorBufferRaw = bufferSet.colorBufferRaw;
+    m_depthBufferRaw = bufferSet.depthBufferRaw;
+    m_peelBufferRaw = bufferSet.peelBufferRaw;
+    m_triIdxBufferRaw = bufferSet.triIdxBufferRaw;
+    m_triIdxStride = bufferSet.triIdxStride;
+    m_colorArray = bufferSet.colorArray;
+    m_depthArray = bufferSet.depthArray;
+    m_peelArray = bufferSet.peelArray;
+    m_colorSurfaceObj = bufferSet.colorSurfaceObj;
+    m_depthSurfaceObj = bufferSet.depthSurfaceObj;
 }
 
 //------------------------------------------------------------------------
@@ -549,6 +680,7 @@ bool CudaRaster::drawTriangles(const int32_t* ranges, bool peel, cudaStream_t st
         crCopyFromArray(m_depthBufferRaw, m_depthArray, m_width, m_height * m_numImages, stream);
     }
 
+    markBufferSetInUse(m_colorBufferRaw, stream);
     return true;
 }
 
