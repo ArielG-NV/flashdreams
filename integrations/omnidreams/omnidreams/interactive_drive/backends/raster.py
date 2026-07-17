@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from omnidreams.interactive_drive.backends.base import RenderBackend
 from omnidreams.interactive_drive.config import BevConfig, ChunkConfig, RasterConfig
+import nvtx
 from omnidreams.interactive_drive.rasterizer import LudusConditionRasterizer
 from omnidreams.interactive_drive.types import FrameChunk, SceneBundle, TrajectoryChunk
 
@@ -24,16 +25,20 @@ class RasterRenderBackend(RenderBackend):
         # No model to load; per-scene work happens in load_scene.
         return
 
+    @nvtx.annotate()
     def load_scene(self, scene: SceneBundle) -> None:
         self._scene = scene
         self._rasterizer.load_scene(scene)
 
+    @nvtx.annotate()
     def render_first_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
         return self._render_chunk(trajectory)
 
+    @nvtx.annotate()
     def render_next_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
         return self._render_chunk(trajectory)
 
+    @nvtx.annotate()
     def _render_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
         raster_chunk = self._rasterizer.render_chunk(
             rig_poses_world=trajectory.rig_poses_world,

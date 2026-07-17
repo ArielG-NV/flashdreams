@@ -805,6 +805,7 @@ class OmnidreamsInferenceRuntime:
             torch.cuda.synchronize(device=self._device)
             torch.cuda.empty_cache()
 
+    @nvtx.annotate()
     def _generate_one_chunk_sync(
         self,
         *,

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from loguru import logger
+import nvtx
 from omnidreams.interactive_drive.runtime.timing import (
     ChunkTimes,
     TraceContext,
@@ -150,6 +151,7 @@ class ChunkPipeline:
         self._raise_worker_error_if_any()
         return self._frame_queue
 
+    @nvtx.annotate()
     def request_scene(self, scene: SceneBundle) -> None:
         """Bind ``scene`` on the worker thread. Non-blocking.
 
@@ -173,6 +175,7 @@ class ChunkPipeline:
                 f"frames={cleared} generation={submit_generation}",
             )
 
+        @nvtx.annotate()
         def load_scene_command(backend: VideoModelBackend) -> bool:
             if submit_generation != self.current_generation:
                 logger.info(
@@ -187,6 +190,7 @@ class ChunkPipeline:
 
         self._command_queue.put(load_scene_command)
 
+    @nvtx.annotate()
     def request_pose_chunk(self, request: ChunkRequest) -> None:
         self._raise_worker_error_if_any()
 
@@ -195,6 +199,7 @@ class ChunkPipeline:
         trace_dependency_event = request.trace_dependency_event
         submit_generation = self.current_generation
 
+        @nvtx.annotate()
         def render_command(backend: VideoModelBackend) -> bool:
             trace_context = (
                 self._trace_context if chunk_times.chunk_index >= 1 else None
@@ -271,22 +276,25 @@ class ChunkPipeline:
             # the first frame while first_chunk_produced() still reads False.
             if frame_chunk.frames:
                 self._first_chunk_produced.set()
-            for frame_index, frame in enumerate(frame_chunk.frames):
-                frame_times = chunk_times.frames[frame_index]
-                frame_times.image_ready_time = time.perf_counter()
-                self._frame_queue.put(
-                    QueuedFrame(
-                        frame=frame,
-                        chunk_times=chunk_times,
-                        frame_index=frame_index,
-                        generation=submit_generation,
-                        worker_ready_event_id=worker_ready_event_id,
-                    )
-                )
+            with nvtx.annotate("pipeline.enqueue_frames", color="yellow"):
+                for frame_index, frame in enumerate(frame_chunk.frames):
+                    frame_times = chunk_times.frames[frame_index]
+                    frame_times.image_ready_time = time.perf_counter()
+                    with nvtx.annotate("pipeline.enqueue_frame", color="yellow"):
+                        self._frame_queue.put(
+                            QueuedFrame(
+                                frame=frame,
+                                chunk_times=chunk_times,
+                                frame_index=frame_index,
+                                generation=submit_generation,
+                                worker_ready_event_id=worker_ready_event_id,
+                            )
+                        )
             return True
 
         self._command_queue.put(render_command)
 
+    @nvtx.annotate()
     def reset(self) -> None:
         """Signal the worker to start a new rollout. Non-blocking.
 
@@ -303,6 +311,7 @@ class ChunkPipeline:
                 f"frames={cleared} generation={generation}",
             )
 
+        @nvtx.annotate()
         def reset_command(backend: VideoModelBackend) -> bool:
             backend.reset()
             return True
@@ -314,6 +323,7 @@ class ChunkPipeline:
         self._thread.join()
         self._raise_worker_error_if_any()
 
+    @nvtx.annotate()
     def _worker(self) -> None:
         try:
             warmup_start = time.perf_counter()
@@ -333,7 +343,8 @@ class ChunkPipeline:
             )
             self._model_ready.set()
             while True:
-                command = self._command_queue.get()
+                with nvtx.annotate("pipeline.worker.get_command", color="gray"):
+                    command = self._command_queue.get()
                 if not command(self._backend):
                     return
         except BaseException as exc:

@@ -17,6 +17,7 @@ from omnidreams.interactive_drive.config import (
     RasterConfig,
     WorldModelProfileConfig,
 )
+import nvtx
 from omnidreams.interactive_drive.rasterizer import LudusConditionRasterizer
 from omnidreams.interactive_drive.types import (
     FrameChunk,
@@ -66,6 +67,7 @@ class WorldModelRenderBackend(RenderBackend):
         # which can take minutes on the first launch.
         return True
 
+    @nvtx.annotate()
     def warmup_model(self) -> None:
         if self._manifest.resolution_wh != self._raster.resolution_wh:
             raise ValueError(
@@ -91,6 +93,7 @@ class WorldModelRenderBackend(RenderBackend):
             f"[world-model] model warmup session_ms={(time.perf_counter() - start) * 1000.0:.1f}",
         )
 
+    @nvtx.annotate()
     def load_scene(self, scene: SceneBundle) -> None:
         self._scene = scene
         self._next_chunk_count = 0
@@ -115,6 +118,7 @@ class WorldModelRenderBackend(RenderBackend):
             f"total_ms={(prepare_end - load_start) * 1000.0:.1f}",
         )
 
+    @nvtx.annotate()
     def render_first_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
         scene = self._require_scene()
         chunk_start = time.perf_counter()
@@ -128,23 +132,24 @@ class WorldModelRenderBackend(RenderBackend):
             display_frames = raster_chunk.frames
         else:
             raster_end = time.perf_counter()
-            condition_frames = [
-                frame.copy() for frame in self._debug_first_chunk_condition_frames
-            ]
-            display_frames = tuple(
-                PresentedFrame(
-                    timestamp_us=int(timestamp_us),
-                    rgb_host_uint8=frame.copy(),
-                    depth_host_f32=None,
-                    rgb_native=None,
-                    depth_native=None,
+            with nvtx.annotate("backend.world_model.debug_condition_frames", color="yellow"):
+                condition_frames = [
+                    frame.copy() for frame in self._debug_first_chunk_condition_frames
+                ]
+                display_frames = tuple(
+                    PresentedFrame(
+                        timestamp_us=int(timestamp_us),
+                        rgb_host_uint8=frame.copy(),
+                        depth_host_f32=None,
+                        rgb_native=None,
+                        depth_native=None,
+                    )
+                    for timestamp_us, frame in zip(
+                        trajectory.timestamps_us,
+                        self._debug_first_chunk_condition_frames,
+                        strict=True,
+                    )
                 )
-                for timestamp_us, frame in zip(
-                    trajectory.timestamps_us,
-                    self._debug_first_chunk_condition_frames,
-                    strict=True,
-                )
-            )
             logger.info(
                 "[world-model] first_chunk using official hdmap override "
                 f"dir={self._manifest.debug_condition_frame_dir}",
@@ -182,6 +187,7 @@ class WorldModelRenderBackend(RenderBackend):
             ),
         )
 
+    @nvtx.annotate()
     def render_next_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
         self._require_scene()
         chunk_start = time.perf_counter()
@@ -225,10 +231,12 @@ class WorldModelRenderBackend(RenderBackend):
             ),
         )
 
+    @nvtx.annotate()
     def reset(self) -> None:
         self._session.reset()
         self._next_chunk_count = 0
 
+    @nvtx.annotate()
     def reset_scene_conditioning(self) -> None:
         self._session.reset(clear_precomputed_embeddings=True)
         self._next_chunk_count = 0
@@ -265,6 +273,7 @@ class WorldModelRenderBackend(RenderBackend):
                 frames.append(np.array(rgb, dtype=np.uint8))
         return tuple(frames)
 
+    @nvtx.annotate()
     def _merge_frames(
         self,
         raster_frames: Sequence[PresentedFrame],

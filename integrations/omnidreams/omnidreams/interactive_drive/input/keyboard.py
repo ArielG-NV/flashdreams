@@ -5,6 +5,7 @@ import threading
 import time
 
 from omnidreams.interactive_drive.input.backend import InputBackend, SampledInput
+import nvtx
 from omnidreams.interactive_drive.types import (
     ControlSnapshot,
     DriverCommand,
@@ -149,6 +150,7 @@ class KeyboardInputBackend(InputBackend):
     def __init__(self, keyboard: KeyboardState) -> None:
         self._keyboard = keyboard
 
+    @nvtx.annotate()
     def sample(self) -> SampledInput:
         sample_time = time.perf_counter()
         return SampledInput(command=self._keyboard.command(), sample_time=sample_time)

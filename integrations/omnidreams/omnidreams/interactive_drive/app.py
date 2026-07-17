@@ -16,6 +16,7 @@ from omnidreams.interactive_drive.input.keyboard import (
     KeyboardState,
 )
 from omnidreams.interactive_drive.presenter import SlangPyPresenter
+import nvtx
 from omnidreams.interactive_drive.runtime.loop import (
     LoopConfig,
     PresenterBackend,
@@ -167,6 +168,7 @@ class InteractiveDriveApp:
         """``True`` once the model has produced its first generated chunk."""
         return self._pipeline.first_chunk_produced.is_set()
 
+    @nvtx.annotate()
     def load_scene(
         self, scene_path: object, variant: str, prompt_override: str | None
     ) -> bool:
@@ -303,6 +305,7 @@ class InteractiveDriveApp:
                 f"{Path(str(scene_path)).name} variant={variant!r}",
             )
 
+    @nvtx.annotate()
     def _resolve_scene_assets(
         self, scene_path: object, variant: str, prompt_override: str | None
     ) -> tuple[SceneBundle, MapBounds | None, GroundSnapper | None]:
@@ -417,6 +420,7 @@ class InteractiveDriveApp:
             self._loading_base_rgb = np.zeros((height, width, 3), dtype=np.uint8)
         return self._loading_base_rgb
 
+    @nvtx.annotate()
     def run_scene(self) -> None:
         """Drive the current scene until the presenter closes or switches.
 
@@ -502,6 +506,7 @@ class InteractiveDriveApp:
             # rather than after the rebuild completes.
             self._present_loading_once(loading_status)
 
+    @nvtx.annotate()
     def _present_loading_once(self, loading_status: Callable[[], str]) -> None:
         """Render a single loading-overlay frame immediately (used on reset)."""
         if self._scene is None:
@@ -535,6 +540,7 @@ class InteractiveDriveApp:
         """Phase text shown while a reset / respawn re-primes the rollout."""
         return "Resetting..."
 
+    @nvtx.annotate()
     def run(self) -> None:
         """Single-scene convenience: load the configured scene, run, tear down.
 

@@ -11,6 +11,7 @@ from typing import Protocol
 
 from loguru import logger
 from omnidreams.interactive_drive.input.backend import InputBackend
+import nvtx
 from omnidreams.interactive_drive.runtime.runtime_controls import RuntimeControls
 from omnidreams.interactive_drive.runtime.timing import (
     ChunkHistory,
@@ -194,6 +195,7 @@ def should_request_chunk(state: MainLoopState) -> bool:
     return state.chunks_outstanding < 1
 
 
+@nvtx.annotate()
 def make_chunk_request(
     state: MainLoopState,
     simulation: SimulationBackend,
@@ -254,6 +256,7 @@ def make_chunk_request(
     )
 
 
+@nvtx.annotate()
 def present_queued_frame(
     queued_frame: QueuedFrame,
     presenter: PresenterBackend,
@@ -272,6 +275,7 @@ def present_queued_frame(
     re-presents that intersperse the warmup window with an OOB warning.
     """
     frame_times = queued_frame.chunk_times.frames[queued_frame.frame_index]
+    nvtx.mark("loop.present_queued_frame")
     frame_times.sample_display_pose_time = time.perf_counter()
     display_frame = _frame_with_overlay(queued_frame.frame, oob_message)
     present_call_begin_time = time.perf_counter()
@@ -431,6 +435,7 @@ def _prepare_queued_frame(
         prepare_frame(queued_frame.frame, view_mode=view_mode)
 
 
+@nvtx.annotate()
 def _drain_pipeline_frames(
     *,
     pipeline: ChunkPipeline,
@@ -452,6 +457,7 @@ def _drain_pipeline_frames(
         ready_frames.append(queued_frame)
 
 
+@nvtx.annotate()
 def run_main_loop(
     presenter: PresenterBackend,
     runtime_controls: RuntimeControls,
@@ -538,9 +544,13 @@ def run_main_loop(
         now = time.perf_counter()
         if now < state.next_present_time:
             wait_begin = now
-            time.sleep(
-                min(config.poll_timeout_s, max(0.0, state.next_present_time - now))
-            )
+            with nvtx.annotate("loop.present_wait", color="gray"):
+                time.sleep(
+                    min(
+                        config.poll_timeout_s,
+                        max(0.0, state.next_present_time - now),
+                    )
+                )
             wait_end = time.perf_counter()
             last_present_wait_event = _trace_main_range(
                 active_trace,

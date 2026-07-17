@@ -7,6 +7,7 @@ import threading
 from typing import Any
 
 import numpy as np
+import nvtx
 
 _STREAMS_LOCK = threading.Lock()
 _HOST_COPY_STREAMS: dict[int, Any] = {}
@@ -22,6 +23,7 @@ class CudaHostPrefetch:
         self._done_event: Any | None = None
         self._started = False
 
+    @nvtx.annotate()
     def start(self) -> bool:
         if self._started:
             return self._host_tensor is not None
@@ -48,10 +50,11 @@ class CudaHostPrefetch:
                 if self._source_event is not None:
                     copy_stream.wait_event(self._source_event)
                 with torch.cuda.stream(copy_stream):
-                    host_tensor.copy_(tensor, non_blocking=True)
-                    tensor.record_stream(copy_stream)
-                    done_event = torch.cuda.Event()
-                    done_event.record(copy_stream)
+                    with nvtx.annotate("cuda_host_prefetch.copy_to_host", color="yellow"):
+                        host_tensor.copy_(tensor, non_blocking=True)
+                        tensor.record_stream(copy_stream)
+                        done_event = torch.cuda.Event()
+                        done_event.record(copy_stream)
         except Exception:
             self._host_tensor = None
             self._done_event = None
@@ -61,6 +64,7 @@ class CudaHostPrefetch:
         self._done_event = done_event
         return True
 
+    @nvtx.annotate()
     def to_numpy(self) -> np.ndarray:
         host_tensor = self._host_tensor
         if host_tensor is None:

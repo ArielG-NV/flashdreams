@@ -14,6 +14,7 @@ import torch
 from loguru import logger
 from omnidreams.interactive_drive.config import WorldModelProfileConfig
 from omnidreams.interactive_drive.cuda_host_prefetch import CudaHostPrefetch
+import nvtx
 from omnidreams.interactive_drive.world_model.manifest import WorldModelManifest
 from omnidreams.interactive_drive.world_model.synthetic_fixture import (
     build_synthetic_world_model_assets,
@@ -103,6 +104,7 @@ def _pipeline_config_log_line(
     )
 
 
+@nvtx.annotate()
 def _build_pipeline_config(
     manifest: WorldModelManifest, profile: WorldModelProfileConfig
 ) -> Any:
@@ -284,6 +286,7 @@ def _transformer_overrides(manifest: WorldModelManifest) -> dict[str, object]:
     }
 
 
+@nvtx.annotate()
 def _setup_pipeline_from_config(config: Any, manifest: WorldModelManifest) -> Any:
     pipeline = config.setup().to(device=torch.device(manifest.device))
     if manifest.seed_for_every_rollout is None:
@@ -292,6 +295,7 @@ def _setup_pipeline_from_config(config: Any, manifest: WorldModelManifest) -> An
     return pipeline
 
 
+@nvtx.annotate()
 def _precompute_embeddings_from_config(
     config: Any,
     manifest: WorldModelManifest,
@@ -379,6 +383,7 @@ def _default_pipeline_factory(
     return _setup_pipeline_from_config(config, manifest)
 
 
+@nvtx.annotate()
 def _initial_rgb_tensor(frame: object, *, device: torch.device) -> torch.Tensor:
     tensor = torch.from_numpy(_rgb_hwc_uint8(frame))
     tensor = tensor.permute(2, 0, 1).unsqueeze(0).unsqueeze(0).unsqueeze(2)
@@ -492,6 +497,7 @@ class FlashdreamsWorldModelSession:
             or not self._offload_text_encoder
         )
 
+    @nvtx.annotate()
     def warmup_model(self) -> None:
         """Build the scene-independent diffusion pipeline (weights + compile).
 
@@ -514,6 +520,7 @@ class FlashdreamsWorldModelSession:
             f"[flashdreams-session] model warmup runtime_ms={elapsed_ms:.1f}",
         )
 
+    @nvtx.annotate()
     def prepare_for_scene(
         self, *, initial_rgb: object | None = None, prompt: str | None = None
     ) -> None:
@@ -564,6 +571,7 @@ class FlashdreamsWorldModelSession:
                 f"{steady_chunk_frames} vs {self.manifest.num_frames_per_block}"
             )
 
+    @nvtx.annotate()
     def _release_pipeline(self) -> None:
         if self._pipeline is None:
             return
@@ -574,6 +582,7 @@ class FlashdreamsWorldModelSession:
             torch.cuda.synchronize(device)
             torch.cuda.empty_cache()
 
+    @nvtx.annotate()
     def start(
         self,
         initial_rgb: object,
@@ -590,11 +599,13 @@ class FlashdreamsWorldModelSession:
         start = time.perf_counter()
         with torch.no_grad():
             self._cache = self._initialize_cache(initial_rgb, prompt)
-            video = self.pipeline.generate(
-                autoregressive_index=0,
-                cache=self._cache,
-                hdmap=self._condition_tensor(condition_frames),
-            )
+            hdmap = self._condition_tensor(condition_frames)
+            with nvtx.annotate("flashdreams_session.pipeline_generate", color="red"):
+                video = self.pipeline.generate(
+                    autoregressive_index=0,
+                    cache=self._cache,
+                    hdmap=hdmap,
+                )
             model_frames = self._video_tensor_to_frames(video)
             _synchronize_cuda_frame_event(model_frames)
         self._pending_finalization_index = 0
@@ -603,6 +614,7 @@ class FlashdreamsWorldModelSession:
         logger.info(f"[flashdreams-session] start total_ms={elapsed_ms:.1f}")
         return model_frames
 
+    @nvtx.annotate()
     def continue_generation(self, condition_frames: list[object]) -> list[object]:
         if self._cache is None:
             raise RuntimeError("start() must be called before continue_generation()")
@@ -616,13 +628,21 @@ class FlashdreamsWorldModelSession:
         start = time.perf_counter()
         with torch.no_grad():
             if self._pending_finalization_index is not None:
-                self.pipeline.finalize(self._pending_finalization_index, self._cache)
+                with nvtx.annotate("flashdreams_session.pipeline_finalize", color="red"):
+                    self.pipeline.finalize(
+                        self._pending_finalization_index, self._cache
+                    )
                 self._pending_finalization_index = None
-            video = self.pipeline.generate(
-                autoregressive_index=self._next_block_index,
-                cache=self._cache,
-                hdmap=self._condition_tensor(condition_frames),
-            )
+            hdmap = self._condition_tensor(condition_frames)
+            with nvtx.annotate(
+                "flashdreams_session.continuing_generation.pipeline_generate",
+                color="red",
+            ):
+                video = self.pipeline.generate(
+                    autoregressive_index=self._next_block_index,
+                    cache=self._cache,
+                    hdmap=hdmap,
+                )
             model_frames = self._video_tensor_to_frames(video)
             _synchronize_cuda_frame_event(model_frames)
         block_index = self._next_block_index
@@ -635,6 +655,7 @@ class FlashdreamsWorldModelSession:
             )
         return model_frames
 
+    @nvtx.annotate()
     def reset(self, *, clear_precomputed_embeddings: bool = False) -> None:
         self._cache = None
         self._pending_finalization_index = None
@@ -646,13 +667,16 @@ class FlashdreamsWorldModelSession:
                 "will rerun text/image encoders for the next scene",
             )
 
+    @nvtx.annotate()
     def close(self) -> None:
         if self._cache is not None and self._pending_finalization_index is not None:
-            self.pipeline.finalize(self._pending_finalization_index, self._cache)
+            with nvtx.annotate("flashdreams_session.pipeline_finalize", color="red"):
+                self.pipeline.finalize(self._pending_finalization_index, self._cache)
             self._pending_finalization_index = None
         self._cache = None
         self._pipeline = None
 
+    @nvtx.annotate()
     def _initialize_cache(self, initial_rgb: object, prompt: str) -> Any:
         if self.manifest.synthetic_model:
             return self._initialize_synthetic_cache()
@@ -697,6 +721,7 @@ class FlashdreamsWorldModelSession:
             view_names=_VIEW_NAMES,
         )
 
+    @nvtx.annotate()
     def _ensure_precomputed_embeddings(
         self, initial_rgb: object, prompt: str
     ) -> dict[str, torch.Tensor | None]:
@@ -709,10 +734,11 @@ class FlashdreamsWorldModelSession:
                 "offload_text_encoder requires flashdreams precompute_embeddings()."
             )
 
-        embeddings = precompute_embeddings(
-            text=[[prompt]],
-            image=self._initial_rgb_tensor(initial_rgb),
-        )
+        with nvtx.annotate("flashdreams_session.precompute_embeddings_call", color="purple"):
+            embeddings = precompute_embeddings(
+                text=[[prompt]],
+                image=self._initial_rgb_tensor(initial_rgb),
+            )
         self._precomputed_embeddings = {
             "text_embeddings": embeddings["text_embeddings"].cpu(),
             "image_embeddings": embeddings["image_embeddings"].cpu(),
@@ -730,9 +756,11 @@ class FlashdreamsWorldModelSession:
             logger.info("[flashdreams-session] release_oneshot_encoders done")
         return self._precomputed_embeddings
 
+    @nvtx.annotate()
     def _initial_rgb_tensor(self, initial_rgb: object) -> torch.Tensor:
         return _initial_rgb_tensor(initial_rgb, device=self.pipeline.device)
 
+    @nvtx.annotate()
     def _condition_tensor(self, condition_frames: Sequence[object]) -> torch.Tensor:
         cuda_video = _condition_cuda_video(condition_frames)
         if cuda_video is not None:
@@ -747,6 +775,7 @@ class FlashdreamsWorldModelSession:
         return _to_model_range(tensor, device=self.pipeline.device)
 
     @staticmethod
+    @nvtx.annotate()
     def _video_tensor_to_frames(video: torch.Tensor) -> list[object]:
         if video.ndim != 6:
             raise ValueError(
@@ -783,6 +812,7 @@ class _LazyRGBFrame:
         self._host: np.ndarray | None = None
         self._prefetch: CudaHostPrefetch | None = None
 
+    @nvtx.annotate()
     def prefetch_to_numpy(self) -> None:
         if (
             self._host is not None
@@ -795,6 +825,7 @@ class _LazyRGBFrame:
         if prefetch.start():
             self._prefetch = prefetch
 
+    @nvtx.annotate()
     def to_numpy(self) -> np.ndarray:
         if self._host is None:
             if self._prefetch is not None:
@@ -811,6 +842,7 @@ class _LazyRGBFrame:
             self._frames_hwc_uint8 = None
         return self._host
 
+    @nvtx.annotate()
     def to_cuda_tensor(self) -> torch.Tensor:
         if self._frames_hwc_uint8 is None:
             raise RuntimeError("Lazy RGB frame was already materialized on the host.")
@@ -876,6 +908,7 @@ def _condition_cuda_video(condition_frames: Sequence[object]) -> torch.Tensor | 
     return torch.stack(tensors, dim=0)
 
 
+@nvtx.annotate()
 def _synchronize_cuda_frame_event(frames: Sequence[object]) -> None:
     for frame in frames:
         to_cuda_event = getattr(frame, "to_cuda_event", None)

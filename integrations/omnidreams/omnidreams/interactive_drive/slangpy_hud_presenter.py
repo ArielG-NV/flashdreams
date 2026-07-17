@@ -28,6 +28,7 @@ from omnidreams.interactive_drive.presenter import (
     _CudaRGBInterop,
     _env_truthy,
 )
+import nvtx
 from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
 from PIL import Image, ImageDraw, ImageFont
 
@@ -443,6 +444,7 @@ class SlangPyHudPresenter:
     def should_close(self) -> bool:
         return self._should_close_flag or self._window.should_close()
 
+    @nvtx.annotate()
     def process_events(self) -> None:
         self._window.process_events()
         # A wheel/controller's bound exit button posts its request onto the
@@ -453,6 +455,7 @@ class SlangPyHudPresenter:
         if self._keyboard.consume_exit_scene_request():
             self.exit_scene()
 
+    @nvtx.annotate()
     def prepare_frame(self, frame: PresentedFrame, view_mode: str) -> None:
         rgb = self._select_view_rgb(frame, view_mode)
         if self._cuda_hud_interop is None or not _has_cuda_tensor(rgb):
@@ -460,6 +463,7 @@ class SlangPyHudPresenter:
         if frame.bev_host_uint8 is not None:
             _prefetch_to_numpy(frame.bev_host_uint8)
 
+    @nvtx.annotate()
     def present_frame(self, frame: PresentedFrame, view_mode: str) -> None:
         # Apply any pending resize before touching the display texture
         # this frame. Done here (not inside on_resize) so Vulkan
@@ -490,6 +494,7 @@ class SlangPyHudPresenter:
         self._render_canvas(frame.status_message)
         self._present_canvas(use_gpu_camera=frame.status_message is None)
 
+    @nvtx.annotate()
     def present_world_model_loading(self, *, process_events: bool = True) -> None:
         """Paint the HUD's world-model loading state during blocking setup work."""
         if process_events:
@@ -498,6 +503,7 @@ class SlangPyHudPresenter:
         self._render_canvas("Loading World Model")
         self._present_canvas(use_gpu_camera=False)
 
+    @nvtx.annotate()
     def _present_cuda_hud_frame(self, frame: PresentedFrame, rgb: object) -> bool:
         if self._cuda_hud_interop is None:
             return False
@@ -514,7 +520,8 @@ class SlangPyHudPresenter:
             self._update_bev_pil(frame.bev_host_uint8)
         self._has_camera_frame = True
         self._render_canvas(frame.status_message, camera_transparent=True)
-        overlay = np.array(self._canvas, dtype=np.uint8)
+        with nvtx.annotate("hud_presenter.cuda_hud.overlay_to_numpy", color="yellow"):
+            overlay = np.array(self._canvas, dtype=np.uint8)
         camera_area, _panel_rect = self._layout_regions()
 
         submitted = self._submit_ready_cuda_hud()
@@ -558,6 +565,7 @@ class SlangPyHudPresenter:
             return frame.model_rgb_host_uint8
         return frame.rgb_host_uint8
 
+    @nvtx.annotate()
     def _update_camera_pil(self, rgb: object) -> None:
         rgb = _as_rgb_host_uint8(rgb)
         # ``Image.fromarray`` over a contiguous numpy buffer is zero-copy
@@ -585,6 +593,7 @@ class SlangPyHudPresenter:
         self._camera_resize_cache = None
         self._has_camera_frame = True
 
+    @nvtx.annotate()
     def _update_bev_pil(self, bev_rgb: object) -> None:
         bev_rgb = _as_rgb_host_uint8(bev_rgb)
         # Wrap the raw BEV; the GoogleMaps recolour runs in
@@ -779,6 +788,7 @@ class SlangPyHudPresenter:
         # race with whatever frame is in flight.
         self._pending_resize = self._normalise_present_size(width, height)
 
+    @nvtx.annotate()
     def _submit_ready_cuda_hud(self) -> bool:
         interop = self._cuda_hud_interop
         if interop is None:
@@ -834,6 +844,7 @@ class SlangPyHudPresenter:
             return False
         return True
 
+    @nvtx.annotate()
     def _present_canvas(self, use_gpu_camera: bool = False) -> None:
         # Sync to the window's CURRENT size before every present.
         # SDL3 doesn't always fire on_resize for compositor-side rezies
@@ -881,6 +892,7 @@ class SlangPyHudPresenter:
 
     # -- GPU camera composite --------------------------------------
 
+    @nvtx.annotate()
     def _composite_camera_gpu(self, encoder: Any) -> None:
         """Stamp the camera frame into the display texture on the GPU.
 
@@ -940,6 +952,7 @@ class SlangPyHudPresenter:
         offset_y = (cam_h - fit_h) // 2
         return (fit_w, fit_h, offset_x, offset_y)
 
+    @nvtx.annotate()
     def _ensure_camera_texture_uploaded(self) -> bool:
         """Upload the latest world-model frame to the GPU camera texture.
 
@@ -986,6 +999,7 @@ class SlangPyHudPresenter:
         self._camera_texture.copy_from_numpy(self._latest_camera_rgba)
         return True
 
+    @nvtx.annotate()
     def _ensure_camera_fit_texture(self, fit_w: int, fit_h: int) -> None:
         """Lazily (re)allocate the fit-sized GPU camera texture."""
         if self._camera_fit_texture is not None and self._camera_fit_size == (
@@ -1047,6 +1061,7 @@ class SlangPyHudPresenter:
 
     # -- Render ------------------------------------------------------
 
+    @nvtx.annotate()
     def _layout_regions(
         self,
     ) -> tuple[tuple[int, int, int, int], tuple[int, int, int, int]]:
@@ -1058,6 +1073,7 @@ class SlangPyHudPresenter:
         panel_rect = (camera_area[2], 0, screen_w, screen_h)
         return camera_area, panel_rect
 
+    @nvtx.annotate()
     def _render_canvas(
         self,
         status_message: str | None,
@@ -1748,6 +1764,7 @@ class SlangPyHudPresenter:
 
     # -- BEV minimap -------------------------------------------------
 
+    @nvtx.annotate()
     def _draw_bev(
         self,
         canvas: Image.Image,
@@ -1790,6 +1807,7 @@ class SlangPyHudPresenter:
         marker_size = max(10, min(inner_w, inner_h) // 14)
         self._draw_bev_marker(draw, marker_cx, marker_cy, marker_size)
 
+    @nvtx.annotate()
     def _get_bev_panel_image(self, target_size: tuple[int, int]) -> Image.Image | None:
         if self._latest_bev_pil is None:
             return None

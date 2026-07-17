@@ -27,6 +27,7 @@ from loguru import logger
 from omnidreams.interactive_drive.config import RasterConfig
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.loading_overlay import render_loading_overlay
+import nvtx
 from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
 from PIL import Image
 
@@ -715,22 +716,24 @@ class MJPEGStreamingPresenter:
             _KeyboardDriveSink(keyboard)
         )
 
+    @nvtx.annotate()
     def process_events(self) -> None:
         # Per-tick integrator update so auto-crawl smoothing advances at sim
         # cadence regardless of how often the browser posts /control events.
         self._keyboard_drive.update()
 
+    @nvtx.annotate()
     def present_frame(self, frame: PresentedFrame, view_mode: str) -> None:
         # Mirror SlangPyPresenter.present_frame's view-mode branching so
         # the user's `1`/`2` toggles behave identically.
-        if view_mode == "model_rgb" and frame.model_rgb_host_uint8 is not None:
-            self._publish(
-                _with_status_overlay(frame.model_rgb_host_uint8, frame.status_message)
-            )
-        else:
-            self._publish(
-                _with_status_overlay(frame.rgb_host_uint8, frame.status_message)
-            )
+        with nvtx.annotate("streaming_presenter.select_view_rgb", color="yellow"):
+            if view_mode == "model_rgb" and frame.model_rgb_host_uint8 is not None:
+                rgb = _with_status_overlay(
+                    frame.model_rgb_host_uint8, frame.status_message
+                )
+            else:
+                rgb = _with_status_overlay(frame.rgb_host_uint8, frame.status_message)
+        self._publish(rgb)
         if frame.bev_host_uint8 is not None:
             self._publish_bev(frame.bev_host_uint8)
 
@@ -747,17 +750,21 @@ class MJPEGStreamingPresenter:
 
     # -- Internals --------------------------------------------------
 
+    @nvtx.annotate()
     def _publish(self, rgb_host_uint8: object) -> None:
         buf = io.BytesIO()
-        Image.fromarray(_as_rgb_host_uint8(rgb_host_uint8)).save(
-            buf, format="JPEG", quality=self._jpeg_quality
-        )
-        jpeg = buf.getvalue()
-        with self._frame_cond:
-            self._latest_jpeg = jpeg
-            self._frame_count += 1
-            self._frame_cond.notify_all()
+        with nvtx.annotate("streaming_presenter.publish_jpeg.materialize_rgb", color="yellow"):
+            image = Image.fromarray(_as_rgb_host_uint8(rgb_host_uint8))
+        with nvtx.annotate("streaming_presenter.publish_jpeg.encode", color="green"):
+            image.save(buf, format="JPEG", quality=self._jpeg_quality)
+            jpeg = buf.getvalue()
+        with nvtx.annotate("streaming_presenter.publish_jpeg.store", color="green"):
+            with self._frame_cond:
+                self._latest_jpeg = jpeg
+                self._frame_count += 1
+                self._frame_cond.notify_all()
 
+    @nvtx.annotate()
     def _publish_bev(self, bev_rgb_host_uint8: object) -> None:
         """Encode the BEV minimap (quality 95, not 85) and stash it for ``/bev_stream``.
 
@@ -765,14 +772,16 @@ class MJPEGStreamingPresenter:
         otherwise surface as grey halos around lane / vehicle edges.
         """
         buf = io.BytesIO()
-        Image.fromarray(_as_rgb_host_uint8(bev_rgb_host_uint8)).save(
-            buf, format="JPEG", quality=95
-        )
-        jpeg = buf.getvalue()
-        with self._frame_cond:
-            self._latest_bev_jpeg = jpeg
-            self._bev_frame_count += 1
-            self._frame_cond.notify_all()
+        with nvtx.annotate("streaming_presenter.publish_bev.materialize_rgb", color="yellow"):
+            image = Image.fromarray(_as_rgb_host_uint8(bev_rgb_host_uint8))
+        with nvtx.annotate("streaming_presenter.publish_bev.encode", color="yellow"):
+            image.save(buf, format="JPEG", quality=95)
+            jpeg = buf.getvalue()
+        with nvtx.annotate("streaming_presenter.publish_bev.store", color="yellow"):
+            with self._frame_cond:
+                self._latest_bev_jpeg = jpeg
+                self._bev_frame_count += 1
+                self._frame_cond.notify_all()
 
     def _wait_for_new_frame(self, last_seen_count: int) -> tuple[bytes, int] | None:
         """Block until a frame newer than ``last_seen_count`` is ready or
@@ -1078,7 +1087,7 @@ def _as_rgb_host_uint8(frame: object) -> np.ndarray:
         frame = to_numpy()
     return np.ascontiguousarray(np.asarray(frame, dtype=np.uint8)[..., :3])
 
-
+@nvtx.annotate()
 def _with_status_overlay(rgb_host_uint8: object, message: str | None) -> np.ndarray:
     rgb_host_uint8 = _as_rgb_host_uint8(rgb_host_uint8)
     if message is None:

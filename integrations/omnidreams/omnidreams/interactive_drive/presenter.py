@@ -13,6 +13,7 @@ from omnidreams.interactive_drive.cuda_env import (
 )
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.loading_overlay import render_loading_overlay
+import nvtx
 from omnidreams.interactive_drive.types import PresentedFrame
 
 
@@ -72,9 +73,11 @@ class SlangPyPresenter:
             self._cuda_rgb_interop = None
         self._window.close()
 
+    @nvtx.annotate()
     def process_events(self) -> None:
         self._window.process_events()
 
+    @nvtx.annotate()
     def prepare_frame(self, frame: PresentedFrame, view_mode: str) -> None:
         if (
             view_mode == "model_rgb"
@@ -86,8 +89,13 @@ class SlangPyPresenter:
         if view_mode != "model_rgb":
             _prefetch_to_numpy(frame.rgb_host_uint8)
 
+    @nvtx.annotate()
     def present_frame(self, frame: PresentedFrame, view_mode: str) -> None:
-        if view_mode == "model_rgb" and frame.model_rgb_host_uint8 is not None:
+        with nvtx.annotate("presenter.select_view_rgb", color="yellow"):
+            use_model_rgb = (
+                view_mode == "model_rgb" and frame.model_rgb_host_uint8 is not None
+            )
+        if use_model_rgb:
             if self._present_cuda_rgb(
                 frame.model_rgb_host_uint8,
                 status_message=frame.status_message,
@@ -96,9 +104,8 @@ class SlangPyPresenter:
             rgb = _with_status_overlay(frame.model_rgb_host_uint8, frame.status_message)
             self._present_array(rgb)
             return
-        self._present_array(
-            _with_status_overlay(frame.rgb_host_uint8, frame.status_message)
-        )
+        rgb = _with_status_overlay(frame.rgb_host_uint8, frame.status_message)
+        self._present_array(rgb)
 
     def _create_device(self):
         existing_device_handles = self._cuda_existing_device_handles()
@@ -181,6 +188,7 @@ class SlangPyPresenter:
         logger.info("[presenter] cuda_interop=enabled")
         return interop
 
+    @nvtx.annotate()
     def _present_cuda_rgb(
         self, rgb_frame: object, *, status_message: str | None
     ) -> bool:
@@ -207,6 +215,7 @@ class SlangPyPresenter:
             submitted = self._submit_ready_cuda_rgb()
         return True
 
+    @nvtx.annotate()
     def _submit_ready_cuda_rgb(self) -> bool:
         if self._cuda_rgb_interop is None:
             return False
@@ -221,28 +230,32 @@ class SlangPyPresenter:
             time.sleep(0.001)
             return False
 
-        command_encoder = self._device.create_command_encoder()
-        command_encoder.copy_buffer_to_texture(
-            self._display_texture,
-            0,
-            0,
-            [0, 0, 0],
-            rgba_buffer.buffer,
-            0,
-            rgba_buffer.size_bytes,
-            rgba_buffer.row_pitch,
-            [self._raster.width, self._raster.height, 1],
-        )
-        command_encoder.blit(surface_texture, self._display_texture)
-        submit_id = self._device.submit_command_buffer(
-            command_encoder.finish(),
-            cuda_stream=cuda_stream,
-        )
+        with nvtx.annotate("presenter.submit_ready_cuda_rgb.encode_commands", color="green"):
+            command_encoder = self._device.create_command_encoder()
+            command_encoder.copy_buffer_to_texture(
+                self._display_texture,
+                0,
+                0,
+                [0, 0, 0],
+                rgba_buffer.buffer,
+                0,
+                rgba_buffer.size_bytes,
+                rgba_buffer.row_pitch,
+                [self._raster.width, self._raster.height, 1],
+            )
+            command_encoder.blit(surface_texture, self._display_texture)
+        with nvtx.annotate("presenter.submit_ready_cuda_rgb.submit", color="green"):
+            submit_id = self._device.submit_command_buffer(
+                command_encoder.finish(),
+                cuda_stream=cuda_stream,
+            )
         self._cuda_rgb_interop.mark_submitted(rgba_buffer, submit_id)
         del surface_texture
-        self._surface.present()
+        with nvtx.annotate("presenter.submit_ready_cuda_rgb.surface_present", color="green"):
+            self._surface.present()
         return True
 
+    @nvtx.annotate()
     def _present_array(self, rgb_host_uint8: np.ndarray) -> None:
         if not self._surface.config:
             return
@@ -252,13 +265,16 @@ class SlangPyPresenter:
             return
 
         upload = self._pack_surface_pixels(rgb_host_uint8)
-        self._display_texture.copy_from_numpy(upload)
+        with nvtx.annotate("presenter.present_array.upload_texture", color="green"):
+            self._display_texture.copy_from_numpy(upload)
 
-        command_encoder = self._device.create_command_encoder()
-        command_encoder.blit(surface_texture, self._display_texture)
-        self._device.submit_command_buffer(command_encoder.finish())
+        with nvtx.annotate("presenter.present_array.submit", color="green"):
+            command_encoder = self._device.create_command_encoder()
+            command_encoder.blit(surface_texture, self._display_texture)
+            self._device.submit_command_buffer(command_encoder.finish())
         del surface_texture
-        self._surface.present()
+        with nvtx.annotate("presenter.present_array.surface_present", color="green"):
+            self._surface.present()
 
     def _choose_surface_format(self):
         linear_pairs = {
@@ -285,6 +301,7 @@ class SlangPyPresenter:
             f"Presenter requires a linear swapchain, but the surface only supports: {supported}"
         )
 
+    @nvtx.annotate()
     def _pack_surface_pixels(self, rgb_host_uint8: np.ndarray) -> np.ndarray:
         upload = np.zeros((self._raster.height, self._raster.width, 4), dtype=np.uint8)
         upload[..., :3] = rgb_host_uint8
@@ -432,6 +449,7 @@ class _CudaRGBInterop:
             ready=_cuda_event_ready(source_event),
         )
 
+    @nvtx.annotate()
     def enqueue_rgb_to_shared_rgba(self, rgb_frame: "_CudaRGBFrame") -> bool:
         shared_buffer = self._acquire_buffer()
         if shared_buffer is None:
@@ -454,6 +472,7 @@ class _CudaRGBInterop:
         shared_buffer.copy_done_event = copy_done_event
         return True
 
+    @nvtx.annotate()
     def enqueue_camera_to_shared_rgba(
         self,
         rgb_frame: "_CudaRGBFrame",
@@ -712,6 +731,7 @@ def _prefetch_to_numpy(frame: object) -> None:
         prefetch()
 
 
+@nvtx.annotate()
 def _with_status_overlay(rgb_host_uint8: object, message: str | None) -> np.ndarray:
     rgb_host_uint8 = _as_rgb_host_uint8(rgb_host_uint8)
     if message is None:

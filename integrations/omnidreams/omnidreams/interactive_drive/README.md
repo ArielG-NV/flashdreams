@@ -624,3 +624,44 @@ tests run with no checkpoint downloads.
 
 The hook does not auto-fix. Use `./scripts/check.sh --fix` to clean up lint and
 format issues explicitly.
+
+### To Profile
+
+```bash
+sudo sh -c 'echo 0 > /proc/sys/kernel/perf_event_paranoid'
+
+# unsafe, adds unpriv access to GPU perf counters
+cat > tmp.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+# Unsafe: allows unprivileged access to NVIDIA GPU perf/profiling counters.
+# Run only on a trusted profiling machine.
+for cap in profiler-device profiler-context trace-device; do
+    minor="$(awk -v c="$cap" '$1 == c { print $2 }' /proc/driver/nvidia-caps/sys-minors)"
+    if [[ -z "${minor}" ]]; then
+        echo "Could not find sys-minor for ${cap}" >&2
+        exit 1
+    fi
+    sudo nvidia-modprobe -f "/proc/driver/nvidia/capabilities/${cap}"
+    sudo chmod a+r "/dev/nvidia-caps/nvidia-cap${minor}"
+    echo "DeviceFileModify: 0" | sudo tee "/proc/driver/nvidia/capabilities/${cap}" >/dev/null
+    echo "Enabled ${cap} via /dev/nvidia-caps/nvidia-cap${minor}"
+done
+EOF
+chmod +x tmp.sh
+./tmp.sh
+rm ./tmp.sh
+
+nsys profile --output=/tmp/flashdreams-nsys \
+ --force-overwrite=true \
+ --trace=cuda,nvtx,vulkan,python-gil \
+ --sample=process-tree --backtrace=dwarf --samples-per-backtrace=1 \
+ --python-sampling=true \
+ --python-sampling-frequency=1000 \
+ --python-backtrace=cuda \
+ --cudabacktrace=all \
+ --gpu-metrics-devices=all \
+ --gpu-metrics-frequency=10000 \
+ --stop-on-exit=true \
+ uv run --package flashdreams-omnidreams interactive-drive --manifest example_world_model_perf.yaml --auto-start --stop-after-chunks 48
+```

@@ -455,6 +455,7 @@ class OmnidreamsConditioningWrapper(nn.Module):
             finalization_state={"autoregressive_index": 0},
         )
 
+    @nvtx.annotate()
     def continue_generation(
         self,
         state: OmnidreamsConditioningState,
