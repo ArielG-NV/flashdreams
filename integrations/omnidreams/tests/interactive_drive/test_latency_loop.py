@@ -360,6 +360,10 @@ def test_input_to_present_profile_prints_window_summary(
     output = "\n".join(messages)
     assert "[profile] e2e" in output
     assert "wall_present_fps=" in output
+    assert "present_interval_p50_ms=300.00" in output
+    assert "present_interval_p95_ms=300.00" in output
+    assert "present_interval_p99_ms=300.00" in output
+    assert "present_interval_max_ms=300.00" in output
     assert "avg_adj_control_to_present_ms=" in output
     assert "avg_raw_control_to_present_ms=" in output
     assert "samples=2" in output

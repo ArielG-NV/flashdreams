@@ -10,6 +10,8 @@ graphics GPU; prefer ``omnidreams.webrtc.server`` for a richer viewer.
 
 from __future__ import annotations
 
+import concurrent.futures
+import contextlib
 import io
 import json
 import shutil
@@ -554,6 +556,11 @@ class MJPEGStreamingPresenter:
         # to either waiter are always safe.
         self._latest_bev_jpeg: bytes | None = None
         self._bev_frame_count = 0
+        self._bev_publish_exec = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="interactive_drive-bev-publish",
+        )
+        self._bev_publish_future: concurrent.futures.Future[None] | None = None
         # Scene options surfaced to the browser dropdown via /scenes.
         # Each entry is a dict with ``label``, ``path``, ``variants``;
         # the demo wrapper builds these from its scene-discovery layer
@@ -723,6 +730,15 @@ class MJPEGStreamingPresenter:
         self._keyboard_drive.update()
 
     @nvtx.annotate()
+    def prepare_frame(self, frame: PresentedFrame, view_mode: str) -> None:
+        if view_mode == "model_rgb" and frame.model_rgb_host_uint8 is not None:
+            _prefetch_to_numpy(frame.model_rgb_host_uint8)
+        else:
+            _prefetch_to_numpy(frame.rgb_host_uint8)
+        if frame.bev_host_uint8 is not None:
+            _prefetch_to_numpy(frame.bev_host_uint8)
+
+    @nvtx.annotate()
     def present_frame(self, frame: PresentedFrame, view_mode: str) -> None:
         # Mirror SlangPyPresenter.present_frame's view-mode branching so
         # the user's `1`/`2` toggles behave identically.
@@ -735,10 +751,15 @@ class MJPEGStreamingPresenter:
                 rgb = _with_status_overlay(frame.rgb_host_uint8, frame.status_message)
         self._publish(rgb)
         if frame.bev_host_uint8 is not None:
-            self._publish_bev(frame.bev_host_uint8)
+            self._submit_bev_publish(frame.bev_host_uint8)
 
     def close(self) -> None:
         self._stop_event.set()
+        future = self._bev_publish_future
+        if future is not None:
+            with contextlib.suppress(Exception):
+                future.result(timeout=1.0)
+        self._bev_publish_exec.shutdown(wait=True, cancel_futures=True)
         # Wake any /stream handlers blocked in ``_frame_cond.wait`` so
         # they observe ``should_close`` and exit their per-connection loop.
         with self._frame_cond:
@@ -763,6 +784,19 @@ class MJPEGStreamingPresenter:
                 self._latest_jpeg = jpeg
                 self._frame_count += 1
                 self._frame_cond.notify_all()
+
+    @nvtx.annotate()
+    def _submit_bev_publish(self, bev_rgb_host_uint8: object) -> None:
+        future = self._bev_publish_future
+        if future is not None:
+            if not future.done():
+                return
+            with contextlib.suppress(Exception):
+                future.result()
+        self._bev_publish_future = self._bev_publish_exec.submit(
+            self._publish_bev,
+            bev_rgb_host_uint8,
+        )
 
     @nvtx.annotate()
     def _publish_bev(self, bev_rgb_host_uint8: object) -> None:
@@ -1086,6 +1120,13 @@ def _as_rgb_host_uint8(frame: object) -> np.ndarray:
     if callable(to_numpy):
         frame = to_numpy()
     return np.ascontiguousarray(np.asarray(frame, dtype=np.uint8)[..., :3])
+
+
+def _prefetch_to_numpy(frame: object) -> None:
+    prefetch = getattr(frame, "prefetch_to_numpy", None)
+    if callable(prefetch):
+        prefetch()
+
 
 @nvtx.annotate()
 def _with_status_overlay(rgb_host_uint8: object, message: str | None) -> np.ndarray:

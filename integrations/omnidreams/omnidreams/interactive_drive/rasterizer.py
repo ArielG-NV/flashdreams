@@ -5,8 +5,8 @@
 
 When :class:`BevConfig` is enabled it also renders a top-down BEV via a
 synthetic ``FThetaCamera`` above the rig (pinhole projection + a fixed
-straight-down sensor-to-rig matrix); the BEV rides alongside the main RGB on
-each :class:`PresentedFrame`.
+straight-down sensor-to-rig matrix). The public facade pipelines BEV one chunk
+behind RGB so presentation never waits for a current-chunk BEV.
 """
 
 import concurrent.futures
@@ -302,24 +302,110 @@ class _LudusConditionRasterizerImpl:
                 resolution=(self._raster.height, self._raster.width),
             )
 
-        bev_frames: _RenderedCameraFrames | None = None
+        bev_frames = self.render_bev_frames(
+            rig_poses_torch=rig_poses_torch,
+            timestamps_batch=timestamps_batch,
+        )
+        return self.build_chunk(
+            timestamps_us=timestamps_us,
+            rgb_frames=rgb_frames,
+            bev_frames=bev_frames,
+        )
+
+    @nvtx.annotate()
+    def render_rgb_frames(
+        self,
+        rig_poses_world: npt.NDArray[np.float32],
+        timestamps_us: npt.NDArray[np.int64],
+    ) -> tuple[npt.NDArray[np.int64], Tensor, Tensor, _RenderedCameraFrames]:
+        """Render only the main camera frames needed for model conditioning."""
         if (
-            self._bev is not None
+            self._scene_data is None
+            or self._scene_id is None
+            or self._selected_camera_name is None
+        ):
+            raise RuntimeError("load_scene() must be called before render_chunk().")
+
+        camera_name = self._selected_camera_name
+        if camera_name not in self._all_camera_map:
+            available = sorted(self._all_camera_map.keys())
+            raise RuntimeError(
+                f"Camera {camera_name!r} not found. Available: {available}"
+            )
+
+        rig_poses_torch = torch.from_numpy(
+            np.ascontiguousarray(rig_poses_world, dtype=np.float32)
+        ).to(device=self._device)
+        timestamps_batch = torch.from_numpy(
+            np.ascontiguousarray(timestamps_us, dtype=np.int64)
+        ).to(device=self._device)
+
+        with nvtx.annotate("render_one_camera RGB", color="orange"):
+            rgb_frames = self._render_one_camera(
+                rig_poses=rig_poses_torch,
+                timestamps_batch=timestamps_batch,
+                scene_id=self._scene_id,
+                camera_id=self._all_camera_map[camera_name],
+                sensor_to_rig=self._sensor_to_rig[camera_name],
+                camera_type=CAMERA_TYPE_REGULAR,
+                resolution=(self._raster.height, self._raster.width),
+            )
+        return (
+            np.asarray(timestamps_us, dtype=np.int64),
+            rig_poses_torch,
+            timestamps_batch,
+            rgb_frames,
+        )
+
+    @nvtx.annotate()
+    def render_bev_frames(
+        self,
+        *,
+        rig_poses_torch: Tensor,
+        timestamps_batch: Tensor,
+    ) -> _RenderedCameraFrames | None:
+        """Render BEV frames for an already-prepared pose batch."""
+        if not (
+            self._scene_id is not None
+            and self._bev is not None
             and self._bev.enabled
             and self._bev_camera_id is not None
             and self._bev_sensor_to_rig is not None
         ):
-            with nvtx.annotate("render_one_camera BEV", color="orange"):
-                bev_frames = self._render_one_camera(
-                    rig_poses=rig_poses_torch,
-                    timestamps_batch=timestamps_batch,
-                    scene_id=self._scene_id,
-                    camera_id=self._bev_camera_id,
-                    sensor_to_rig=self._bev_sensor_to_rig,
-                    camera_type=CAMERA_TYPE_BEV,
-                    resolution=(self._bev.height, self._bev.width),
-                )
+            return None
+        with nvtx.annotate("render_one_camera BEV", color="orange"):
+            return self._render_one_camera(
+                rig_poses=rig_poses_torch,
+                timestamps_batch=timestamps_batch,
+                scene_id=self._scene_id,
+                camera_id=self._bev_camera_id,
+                sensor_to_rig=self._bev_sensor_to_rig,
+                camera_type=CAMERA_TYPE_BEV,
+                resolution=(self._bev.height, self._bev.width),
+            )
 
+    @nvtx.annotate()
+    def build_chunk(
+        self,
+        *,
+        timestamps_us: npt.NDArray[np.int64],
+        rgb_frames: _RenderedCameraFrames,
+        bev_frames: _RenderedCameraFrames | None,
+    ) -> RasterChunk:
+        """Wrap rendered camera tensors in lazy frame objects."""
+        if (
+            bev_frames is not None
+            and int(bev_frames.frames_hwc_uint8.shape[0]) == 0
+        ):
+            bev_frames = None
+        bev_frame_indices = _resampled_frame_indices(
+            source_count=(
+                int(bev_frames.frames_hwc_uint8.shape[0])
+                if bev_frames is not None
+                else 0
+            ),
+            target_count=len(timestamps_us),
+        )
         if self._use_cuda_frames:
             with nvtx.annotate("rasterizer.build_lazy_presented_frames", color="yellow"):
                 frames = [
@@ -334,7 +420,7 @@ class _LudusConditionRasterizerImpl:
                         bev_host_uint8=(
                             _LazyRasterFrame(
                                 bev_frames.frames_hwc_uint8,
-                                idx,
+                                bev_frame_indices[idx],
                                 source_event=bev_frames.ready_event,
                             )
                             if bev_frames is not None
@@ -356,7 +442,9 @@ class _LudusConditionRasterizerImpl:
                     rgb_host_uint8=rgb_host_frames[idx],
                     depth_host_f32=None,
                     bev_host_uint8=(
-                        bev_host_frames[idx] if bev_host_frames is not None else None
+                        bev_host_frames[bev_frame_indices[idx]]
+                        if bev_host_frames is not None
+                        else None
                     ),
                 )
                 for idx in range(len(timestamps_us))
@@ -450,10 +538,17 @@ class LudusConditionRasterizer:
         self._impl: _LudusConditionRasterizerImpl | None = self._exec.submit(
             _LudusConditionRasterizerImpl, raster, bev
         ).result()
+        self._bev_enabled = bool(bev is not None and bev.enabled)
+        self._pending_bev: (
+            concurrent.futures.Future[_RenderedCameraFrames | None] | None
+        ) = None
+        self._latest_bev: _RenderedCameraFrames | None = None
 
     @nvtx.annotate()
     def load_scene(self, scene: SceneBundle) -> None:
         exec_, impl = self._require_alive()
+        self._clear_pending_bev()
+        self._latest_bev = None
         return exec_.submit(impl.load_scene, scene).result()
 
     @nvtx.annotate()
@@ -463,7 +558,38 @@ class LudusConditionRasterizer:
         timestamps_us: npt.NDArray[np.int64],
     ) -> "RasterChunk":
         exec_, impl = self._require_alive()
-        return exec_.submit(impl.render_chunk, rig_poses_world, timestamps_us).result()
+        if not self._bev_enabled:
+            return exec_.submit(
+                impl.render_chunk, rig_poses_world, timestamps_us
+            ).result()
+
+        with nvtx.annotate("rasterizer.poll_lagged_bev", color="yellow"):
+            lagged_bev = self._poll_ready_bev()
+
+        (
+            chunk_timestamps_us,
+            rig_poses_torch,
+            timestamps_batch,
+            rgb_frames,
+        ) = exec_.submit(impl.render_rgb_frames, rig_poses_world, timestamps_us).result()
+
+        # RGB rendering gives the previous BEV another chance to finish without
+        # ever making it part of the critical path. If it is still in flight,
+        # reuse the latest completed BEV and skip this refresh so work cannot
+        # queue up behind presentation.
+        with nvtx.annotate("rasterizer.poll_lagged_bev_after_rgb", color="yellow"):
+            lagged_bev = self._poll_ready_bev()
+        if self._pending_bev is None:
+            self._pending_bev = exec_.submit(
+                impl.render_bev_frames,
+                rig_poses_torch=rig_poses_torch,
+                timestamps_batch=timestamps_batch,
+            )
+        return impl.build_chunk(
+            timestamps_us=chunk_timestamps_us,
+            rgb_frames=rgb_frames,
+            bev_frames=lagged_bev,
+        )
 
     def _require_alive(
         self,
@@ -477,6 +603,7 @@ class LudusConditionRasterizer:
         exec_ = getattr(self, "_exec", None)
         if exec_ is None:
             return
+        self._clear_pending_bev()
         impl = self._impl
         self._impl = None
         if impl is not None:
@@ -489,6 +616,22 @@ class LudusConditionRasterizer:
         with contextlib.suppress(Exception):
             self.cleanup()
 
+    def _clear_pending_bev(self) -> None:
+        pending = getattr(self, "_pending_bev", None)
+        if pending is None:
+            return
+        pending.cancel()
+        with contextlib.suppress(Exception):
+            pending.result(timeout=0)
+        self._pending_bev = None
+
+    def _poll_ready_bev(self) -> _RenderedCameraFrames | None:
+        pending = self._pending_bev
+        if pending is not None and pending.done():
+            self._latest_bev = pending.result()
+            self._pending_bev = None
+        return self._latest_bev
+
 
 @nvtx.annotate()
 def _rendered_frames_to_numpy(rendered: _RenderedCameraFrames) -> list[np.ndarray]:
@@ -498,6 +641,16 @@ def _rendered_frames_to_numpy(rendered: _RenderedCameraFrames) -> list[np.ndarra
     frames = rendered.frames_hwc_uint8.detach().cpu().numpy()
     frames = np.ascontiguousarray(frames, dtype=np.uint8)
     return [frames[idx] for idx in range(frames.shape[0])]
+
+
+def _resampled_frame_indices(*, source_count: int, target_count: int) -> list[int]:
+    """Map a lagged chunk across the current chunk without assuming equal sizes."""
+    if source_count <= 0 or target_count <= 0:
+        return []
+    if source_count == 1 or target_count == 1:
+        return [0] * target_count
+    scale = (source_count - 1) / (target_count - 1)
+    return [round(index * scale) for index in range(target_count)]
 
 
 def _build_bev_camera(bev: BevConfig, device: torch.device) -> FThetaCamera:

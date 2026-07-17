@@ -222,7 +222,7 @@ class SlangPyPresenter:
         interop_frame = self._cuda_rgb_interop.ready_rgba_buffer()
         if interop_frame is None:
             return False
-        rgba_buffer, cuda_stream = interop_frame
+        rgba_buffer, _cuda_stream = interop_frame
         if not self._surface.config:
             return False
         surface_texture = self._surface.acquire_next_image()
@@ -245,14 +245,14 @@ class SlangPyPresenter:
             )
             command_encoder.blit(surface_texture, self._display_texture)
         with nvtx.annotate("presenter.submit_ready_cuda_rgb.submit", color="green"):
-            submit_id = self._device.submit_command_buffer(
-                command_encoder.finish(),
-                cuda_stream=cuda_stream,
-            )
+            # ``ready_rgba_buffer`` only returns after its CUDA completion
+            # event succeeds. Passing the producer stream here would make
+            # Slang wait on newer work appended after that ready buffer.
+            submit_id = self._device.submit_command_buffer(command_encoder.finish())
         self._cuda_rgb_interop.mark_submitted(rgba_buffer, submit_id)
-        del surface_texture
         with nvtx.annotate("presenter.submit_ready_cuda_rgb.surface_present", color="green"):
             self._surface.present()
+        del surface_texture
         return True
 
     @nvtx.annotate()
@@ -272,9 +272,9 @@ class SlangPyPresenter:
             command_encoder = self._device.create_command_encoder()
             command_encoder.blit(surface_texture, self._display_texture)
             self._device.submit_command_buffer(command_encoder.finish())
-        del surface_texture
         with nvtx.annotate("presenter.present_array.surface_present", color="green"):
             self._surface.present()
+        del surface_texture
 
     def _choose_surface_format(self):
         linear_pairs = {

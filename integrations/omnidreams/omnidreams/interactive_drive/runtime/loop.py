@@ -39,6 +39,8 @@ _PROFILE_E2E_SUM_RAW_MS: float = 0.0
 _PROFILE_E2E_SUM_ADJ_MS: float = 0.0
 _PROFILE_E2E_COUNT: int = 0
 _PROFILE_E2E_WINDOW_START: float | None = None
+_PROFILE_LAST_PRESENT_TIME: float | None = None
+_PROFILE_PRESENT_INTERVALS_MS: list[float] = []
 
 
 def _profile_input_to_present_enabled() -> bool:
@@ -61,11 +63,25 @@ def reset_input_to_present_profile_window() -> None:
     global _PROFILE_E2E_SUM_ADJ_MS
     global _PROFILE_E2E_COUNT
     global _PROFILE_E2E_WINDOW_START
+    global _PROFILE_LAST_PRESENT_TIME
 
     _PROFILE_E2E_SUM_RAW_MS = 0.0
     _PROFILE_E2E_SUM_ADJ_MS = 0.0
     _PROFILE_E2E_COUNT = 0
     _PROFILE_E2E_WINDOW_START = None
+    _PROFILE_LAST_PRESENT_TIME = None
+    _PROFILE_PRESENT_INTERVALS_MS.clear()
+
+
+def _profile_percentile(values: list[float], quantile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    position = (len(ordered) - 1) * quantile
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    fraction = position - lower
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
 
 
 def _chunk_frame_interval_s(chunk_times: ChunkTimes) -> float:
@@ -88,7 +104,13 @@ def _record_input_to_present_for_profile(
     global _PROFILE_E2E_SUM_ADJ_MS
     global _PROFILE_E2E_COUNT
     global _PROFILE_E2E_WINDOW_START
+    global _PROFILE_LAST_PRESENT_TIME
 
+    if _PROFILE_LAST_PRESENT_TIME is not None:
+        _PROFILE_PRESENT_INTERVALS_MS.append(
+            (present_time - _PROFILE_LAST_PRESENT_TIME) * 1000.0
+        )
+    _PROFILE_LAST_PRESENT_TIME = present_time
     raw_ms = (present_time - input_sample_time) * 1000.0
     scheduled_ms = frame_index * (frame_interval_s * 1000.0)
     adj_ms = raw_ms - scheduled_ms
@@ -109,9 +131,23 @@ def _record_input_to_present_for_profile(
     wall_present_fps = float(count) / window_s if window_s > 1e-9 else 0.0
     avg_raw_ms = _PROFILE_E2E_SUM_RAW_MS / float(count)
     avg_adj_ms = _PROFILE_E2E_SUM_ADJ_MS / float(count)
+    present_interval_p50_ms = _profile_percentile(
+        _PROFILE_PRESENT_INTERVALS_MS, 0.50
+    )
+    present_interval_p95_ms = _profile_percentile(
+        _PROFILE_PRESENT_INTERVALS_MS, 0.95
+    )
+    present_interval_p99_ms = _profile_percentile(
+        _PROFILE_PRESENT_INTERVALS_MS, 0.99
+    )
+    present_interval_max_ms = max(_PROFILE_PRESENT_INTERVALS_MS, default=0.0)
     logger.info(
         "[profile] e2e "
         f"wall_present_fps={wall_present_fps:.1f} "
+        f"present_interval_p50_ms={present_interval_p50_ms:.2f} "
+        f"present_interval_p95_ms={present_interval_p95_ms:.2f} "
+        f"present_interval_p99_ms={present_interval_p99_ms:.2f} "
+        f"present_interval_max_ms={present_interval_max_ms:.2f} "
         f"avg_adj_control_to_present_ms={avg_adj_ms:.2f} "
         f"avg_raw_control_to_present_ms={avg_raw_ms:.2f} "
         f"samples={count}",
@@ -120,6 +156,7 @@ def _record_input_to_present_for_profile(
     _PROFILE_E2E_SUM_ADJ_MS = 0.0
     _PROFILE_E2E_COUNT = 0
     _PROFILE_E2E_WINDOW_START = present_time
+    _PROFILE_PRESENT_INTERVALS_MS.clear()
 
 
 class PresenterBackend(Protocol):
