@@ -2480,6 +2480,7 @@ class SlangPyHudPresenter:
         bev_panel_future = getattr(self, "_bev_panel_future", None)
         if bev_panel_future is not None:
             bev_panel_future.cancel()
+            self.bev_panel_future = None
         self._bev_panel_cache_key = None
         self._bev_panel_cache = None
         # Panel chrome shows the scene label, so its cache key changes
