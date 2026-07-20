@@ -26,6 +26,7 @@ members = [
     "flashdreams-flashvsr",
     "flashdreams-hy-worldplay",
     "flashdreams-lingbot",
+    "flashdreams-mira",
     "flashdreams-omnidreams",
     "flashdreams-self-forcing",
     "flashdreams-wan21",
@@ -1489,6 +1490,26 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
     { name = "scipy", specifier = ">=1.11" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-mira"
+version = "0.1.0"
+source = { editable = "integrations/mira" }
+dependencies = [
+    { name = "flashdreams" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
 provides-extras = ["dev"]
 

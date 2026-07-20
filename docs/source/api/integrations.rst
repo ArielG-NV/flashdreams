@@ -54,6 +54,7 @@ Reference integration folders
 - `self_forcing <https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing>`_
 - `causal_forcing <https://github.com/NVIDIA/flashdreams/tree/main/integrations/causal_forcing>`_
 - `lingbot <https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot>`_
+- `mira <https://github.com/NVIDIA/flashdreams/tree/main/integrations/mira>`_
 - `wan21 <https://github.com/NVIDIA/flashdreams/tree/main/integrations/wan21>`_
 - `fastvideo_causal_wan22 <https://github.com/NVIDIA/flashdreams/tree/main/integrations/fastvideo_causal_wan22>`_
 - `flashvsr <https://github.com/NVIDIA/flashdreams/tree/main/integrations/flashvsr>`_

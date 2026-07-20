@@ -101,6 +101,19 @@ aiortc                 BSD-3-Clause https://github.com/aiortc/aiortc
 opencv-python-headless Apache-2.0   https://github.com/opencv/opencv-python
 
 ================================================================================
+Optional integration: integrations/mira
+================================================================================
+
+MIRA architecture       Apache-2.0   https://github.com/mira-wm/mira
+DINOv3 architecture     Apache-2.0   https://github.com/facebookresearch/dinov3
+
+The integration provides an original FlashDreams-native implementation; no
+MIRA, Alakazam MIRA Mini, DINOv3, or model-weight source is redistributed in
+this repository. The example downloads the `alakazamworld/mira-mini` bundle
+at runtime. Those weights are separately licensed under CC BY-NC-SA 4.0 and
+are restricted to non-commercial, share-alike use.
+
+================================================================================
 Source-level redistributions
 ================================================================================
 

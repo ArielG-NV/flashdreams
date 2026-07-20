@@ -28,6 +28,7 @@ Models
    flashvsr
    hy_worldplay
    lingbot_world
+   mira
    wan21
 
 FlashDreams runs a growing family of world and video models (text-to-video,
@@ -137,6 +138,13 @@ uses, and the settings you can tune.
          </video>
 
       Action- and camera-controllable image-to-video world model.
+
+   .. grid-item-card:: MIRA Mini
+      :class-card: fd-feature
+      :link: /models/mira
+      :link-type: doc
+
+      Action-conditioned interactive car-soccer world model.
 
 .. container:: fd-eyebrow
 
