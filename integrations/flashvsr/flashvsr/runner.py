@@ -17,23 +17,28 @@
 
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-import mediapy as media
-import numpy as np
 import torch
-from einops import rearrange
 from loguru import logger
 
 from flashdreams.core.distributed import init as init_distributed
-from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig, _is_torchrun_env
+from flashdreams.infra.runner_io import (
+    ensure_output_dir,
+    read_video_fps,
+    read_video_rgb,
+    resolve_input_path,
+    rgb_video_to_normalized_tensor,
+    runner_artifact_path,
+    write_runner_stats,
+    write_video_tensor,
+)
 from flashvsr.encoder import FlashVSREncoder
 from flashvsr.pipeline import (
     FlashVSRPipeline,
@@ -57,21 +62,6 @@ INPUT_CACHE_DIR = (
     / "flashvsr"
 )
 """User-writable cache for on-the-fly demo-video downloads."""
-
-
-def _resolve_input_path(input_path: str | Path) -> Path:
-    """Return a local ``Path`` for ``input_path``, downloading URLs on the fly.
-
-    ``http(s)://`` strings are atomically fetched into
-    :data:`INPUT_CACHE_DIR` and validated as decodable videos before being
-    published; local paths pass through unchanged.
-    """
-    if isinstance(input_path, Path):
-        return input_path
-    if not input_path.startswith(("http://", "https://")):
-        return Path(input_path)
-
-    return download_to_cache(input_path, cache_dir=INPUT_CACHE_DIR)
 
 
 ## Chunk planning helpers
@@ -184,10 +174,7 @@ def _probe_input_fps(path: Path) -> float:
         Probed frame rate, or ``30.0`` if metadata probing fails.
     """
     try:
-        # ``mediapy`` ships without type stubs so ty cannot see the
-        # ``VideoMetadata.from_path`` classmethod (added in mediapy 1.1).
-        meta = media.VideoMetadata.from_path(str(path))  # ty: ignore[unresolved-attribute]
-        return float(meta.fps)
+        return read_video_fps(path)
     except Exception:
         logger.warning(f"Could not probe fps for {path}; defaulting to 30.0.")
         return 30.0
@@ -327,7 +314,7 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
         # Resolve once: local paths pass through, ``http(s)://`` URLs are
         # downloaded into :data:`INPUT_CACHE_DIR` and validated as
         # decodable videos before being published.
-        path = _resolve_input_path(config.input_path)
+        path = resolve_input_path(config.input_path, cache_dir=INPUT_CACHE_DIR)
         assert path.is_file(), (
             f"--input-path must resolve to an existing video file; got: "
             f"{config.input_path!r} -> {path!r}"
@@ -335,7 +322,7 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
 
         if self.is_rank_zero:
             logger.info(f"Reading {path} ...")
-        video_np = media.read_video(str(path))[..., :3]  # uint8 [T, H, W, C]
+        video_np = read_video_rgb(path)
         T, H, W, _ = video_np.shape
 
         if config.crop_region != "none":
@@ -354,8 +341,12 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
 
         # bf16/cuda placement is deferred to :meth:`run` once the
         # pipeline (and therefore the target device + dtype) exists.
-        video_t = torch.from_numpy(video_np.astype(np.float32)) / 127.5 - 1.0
-        video_t = rearrange(video_t, "T H W C -> 1 C T H W")
+        video_t = rgb_video_to_normalized_tensor(
+            video_np,
+            device=torch.device("cpu"),
+            dtype=torch.float32,
+        )
+        video_t = video_t.permute(1, 0, 2, 3).unsqueeze(0)
         return video_t, H, W, fps
 
     def _initialize_cache(self) -> FlashVSRPipelineCache:
@@ -470,12 +461,9 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
         if generated is None:
             return
 
-        # [1, 3, T_out, target_H, target_W] in [-1, 1] -> [T_out, H, W, 3].
-        config.output_dir.mkdir(parents=True, exist_ok=True)
-        video_path = config.output_dir / f"{config.runner_name}.mp4"
-        canvas = rearrange(generated, "1 c t h w -> t h w c")
-        arr = ((canvas.float().numpy() + 1.0) / 2.0 * 255).clip(0, 255).astype("uint8")
-        media.write_video(str(video_path), arr, fps=fps)
+        ensure_output_dir(config.output_dir)
+        video_path = runner_artifact_path(config.output_dir, config.runner_name, "mp4")
+        write_video_tensor(generated, video_path, fps=fps, layout="bcthw")
 
         logger.info(
             f"[{config.runner_name}] wrote video {tuple(generated.shape)} "
@@ -483,8 +471,9 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
         )
 
         if stats_history:
-            stats_path = config.output_dir / f"stats_{config.runner_name}.json"
-            stats_path.write_text(json.dumps(stats_history, indent=2))
+            stats_path = write_runner_stats(
+                config.output_dir, config.runner_name, stats_history
+            )
             logger.info(
                 f"[{config.runner_name}] wrote per-AR-step stats -> "
                 f"{stats_path.resolve()}"
