@@ -48,6 +48,8 @@ from PIL import Image
 from scipy.spatial.transform import Rotation, Slerp
 from torch import Tensor
 
+from flashdreams.serving.realtime.media import encode_rgb_frame_to_jpeg
+
 
 def decode_image(
     image_bytes: bytes,
@@ -99,12 +101,12 @@ def encode_image(
     Returns:
         Encoded image bytes.
     """
+    if format.upper() == "JPEG":
+        return encode_rgb_frame_to_jpeg(image_np, quality=quality, value_range="uint8")
+
     img = Image.fromarray(image_np)
     buf = io.BytesIO()
-    if format.upper() == "JPEG":
-        img.save(buf, format="JPEG", quality=quality)
-    else:
-        img.save(buf, format=format)
+    img.save(buf, format=format)
     return buf.getvalue()
 
 
