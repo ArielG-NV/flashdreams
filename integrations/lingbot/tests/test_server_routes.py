@@ -32,6 +32,8 @@ from lingbot.webrtc.session import (
     SessionBusyError,
 )
 
+from flashdreams.serving.webrtc.server import PACKAGE_RESOURCE_STACK_KEY
+
 pytestmark = pytest.mark.ci_gpu
 
 
@@ -119,7 +121,7 @@ def test_create_app_keeps_package_web_resource_materialized() -> None:
         request_session_url="http://127.0.0.1:8080/request_session",
     )
     try:
-        assert isinstance(app["package_resource_stack"], ExitStack)
+        assert isinstance(app[PACKAGE_RESOURCE_STACK_KEY], ExitStack)
         assert _close_package_resources in app.on_cleanup
 
         static_resources = [
@@ -133,7 +135,7 @@ def test_create_app_keeps_package_web_resource_materialized() -> None:
         assert web_dir.is_dir()
         assert "Lingbot WebRTC Viewer" in (web_dir / "request_session.html").read_text()
     finally:
-        app["package_resource_stack"].close()
+        app[PACKAGE_RESOURCE_STACK_KEY].close()
 
 
 def test_create_app_closes_package_resource_when_app_creation_fails(

@@ -15,17 +15,37 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any
 
-import torch
 from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription
 from loguru import logger
 
 from flashdreams.serving.realtime.input import KeyboardResampler
 from flashdreams.serving.webrtc.media import BufferedVideoTrack
+from flashdreams.serving.webrtc.messages import (
+    MESSAGE_TYPE_ACTION,
+    MESSAGE_TYPE_DISCONNECT,
+    MESSAGE_TYPE_EVENT,
+    MESSAGE_TYPE_HEARTBEAT,
+    make_chunk_done_payload,
+    make_error_payload,
+    make_event_ack_payload,
+)
+from flashdreams.serving.webrtc.runtime import (
+    WebRTCGenerationRuntime,
+    WebRTCRuntimeConfig,
+    WebRTCStepResult,
+)
 from flashdreams.serving.webrtc.server import SessionBusyError
 from flashdreams.serving.webrtc.warmup import (
     run_loopback_warmup_session,
     wait_for_ice_gathering_complete,
 )
+
+__all__ = [
+    "BaseWebRTCSessionManager",
+    "ManagedWebRTCSession",
+    "WebRTCControlSignal",
+    "WebRTCStepResult",
+]
 
 # Close the active session if no client heartbeat/control message arrives
 # within this many seconds. Browsers sends periodic heartbeats.
@@ -44,16 +64,6 @@ class WebRTCControlSignal(IntEnum):
     CLOSE = 3
     EVENT = 4
     EXIT = 99
-
-
-@dataclass(slots=True)
-class WebRTCStepResult:
-    """One generated chunk handed back by a model runtime's ``generate_chunk``."""
-
-    chunk_index: int
-    num_frames: int
-    video_chunk: torch.Tensor
-    stats: dict[str, float] | None
 
 
 @dataclass(slots=True)
@@ -114,8 +124,8 @@ class BaseWebRTCSessionManager:
     def __init__(
         self,
         *,
-        runtime: Any,
-        runtime_config: Any,
+        runtime: WebRTCGenerationRuntime,
+        runtime_config: WebRTCRuntimeConfig,
         fps: int,
         client_liveness_timeout_s: float = DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
     ) -> None:
@@ -183,13 +193,12 @@ class BaseWebRTCSessionManager:
             if channel is not None:
                 self._send_json(
                     channel,
-                    {
-                        "type": "error",
-                        "message": (
+                    make_error_payload(
+                        (
                             "Event payload must include non-empty 'event_id' "
                             "unless state clears the active event."
                         ),
-                    },
+                    ),
                 )
             return False
 
@@ -198,10 +207,7 @@ class BaseWebRTCSessionManager:
             if channel is not None:
                 self._send_json(
                     channel,
-                    {
-                        "type": "error",
-                        "message": "This runtime does not support event messages.",
-                    },
+                    make_error_payload("This runtime does not support event messages."),
                 )
             return False
 
@@ -211,20 +217,18 @@ class BaseWebRTCSessionManager:
                 result = await result
         except Exception as exc:
             if channel is not None:
-                self._send_json(channel, {"type": "error", "message": str(exc)})
+                self._send_json(channel, make_error_payload(str(exc)))
             return False
 
         if channel is not None:
-            ack: dict[str, Any] = {
-                "type": "event_ack",
-                "event_id": event_id or None,
-                "state": state,
-            }
-            if isinstance(result, dict):
-                for key, value in result.items():
-                    if key not in ack:
-                        ack[key] = value
-            self._send_json(channel, ack)
+            self._send_json(
+                channel,
+                make_event_ack_payload(
+                    event_id=event_id or None,
+                    state=state,
+                    result=result if isinstance(result, dict) else None,
+                ),
+            )
         return True
 
     def has_active_session(self) -> bool:
@@ -440,32 +444,28 @@ class BaseWebRTCSessionManager:
         managed_session.last_client_message_at = asyncio.get_running_loop().time()
 
         if not isinstance(raw_message, str):
-            self._send_json(
-                channel, {"type": "error", "message": "Expected text payload."}
-            )
+            self._send_json(channel, make_error_payload("Expected text payload."))
             return
 
         try:
             payload = json.loads(raw_message)
         except json.JSONDecodeError:
-            self._send_json(
-                channel, {"type": "error", "message": "Invalid JSON payload."}
-            )
+            self._send_json(channel, make_error_payload("Invalid JSON payload."))
             return
 
         if not isinstance(payload, dict):
             self._send_json(
-                channel, {"type": "error", "message": "Payload must be a JSON object."}
+                channel, make_error_payload("Payload must be a JSON object.")
             )
             return
         message_type = str(payload.get("type", "")).strip().lower()
-        if message_type == "heartbeat":
+        if message_type == MESSAGE_TYPE_HEARTBEAT:
             return
-        if message_type == "disconnect":
+        if message_type == MESSAGE_TYPE_DISCONNECT:
             logger.info("Client requested disconnect; closing active session.")
             await self.close_active_session()
             return
-        if message_type == "event":
+        if message_type == MESSAGE_TYPE_EVENT:
             handled = await self._handle_event_message(
                 managed_session=managed_session,
                 payload=payload,
@@ -475,22 +475,19 @@ class BaseWebRTCSessionManager:
                 # want the model to generate an idle-camera chunk with updated text.
                 managed_session.first_action_received.set()
             return
-        if message_type != "action":
+        if message_type != MESSAGE_TYPE_ACTION:
             self._send_json(
                 channel,
-                {
-                    "type": "error",
-                    "message": "Unsupported message type, expected "
+                make_error_payload(
+                    "Unsupported message type, expected "
                     "'action', 'event', 'heartbeat', or 'disconnect'.",
-                },
+                ),
             )
             return
 
         action_payload = payload.get("action", payload)
         if not isinstance(action_payload, dict):
-            self._send_json(
-                channel, {"type": "error", "message": "'action' must be an object."}
-            )
+            self._send_json(channel, make_error_payload("'action' must be an object."))
             return
 
         event = str(action_payload.get("event", "")).strip().lower()
@@ -503,21 +500,16 @@ class BaseWebRTCSessionManager:
         if event not in ("keydown", "keyup"):
             self._send_json(
                 channel,
-                {
-                    "type": "error",
-                    "message": f"Unsupported event={event!r}; "
-                    "expected 'keydown' or 'keyup'.",
-                },
+                make_error_payload(
+                    f"Unsupported event={event!r}; expected 'keydown' or 'keyup'.",
+                ),
             )
             return
         key = str(action_payload.get("key", "")).strip()
         if not key:
             self._send_json(
                 channel,
-                {
-                    "type": "error",
-                    "message": "Action payload must include non-empty 'key'.",
-                },
+                make_error_payload("Action payload must include non-empty 'key'."),
             )
             return
 
@@ -611,7 +603,7 @@ class BaseWebRTCSessionManager:
                     logger.exception("Chunk generation failed.")
                     channel = managed_session.control_channel
                     if channel is not None:
-                        self._send_json(channel, {"type": "error", "message": str(exc)})
+                        self._send_json(channel, make_error_payload(str(exc)))
                     if self._close_session_on_generation_error:
                         await self.close_active_session()
                         return
@@ -646,29 +638,26 @@ class BaseWebRTCSessionManager:
 
                 channel = managed_session.control_channel
                 if channel is not None:
-                    payload: dict[str, Any] = {
-                        "type": "chunk_done",
-                        "chunk_index": result.chunk_index,
-                        "num_frames": result.num_frames,
-                        "enqueued_frames": enqueued,
-                        "fps": video_track.fps,
-                        "resolution": {
-                            "width": self.runtime_config.video_width,
-                            "height": self.runtime_config.video_height,
-                        },
-                        "model": self._model_name(),
-                        "gen_ms": round(gen_ms, 1),
-                        "enqueue_ms": round(enqueue_ms, 1),
-                        "play_ms": round(play_ms, 1),
-                        "queue_depth": video_track.qsize(),
-                        "lag_ms": round(lag_ms, 1),
-                    }
-                    payload.update(self._chunk_done_extra())
-                    if control_latency_ms is not None:
-                        payload["latency_ms"] = round(control_latency_ms, 1)
-                        payload["control_latency_ms"] = round(control_latency_ms, 1)
-                        payload["consumed_actions"] = len(consumed_action_arrivals)
-                    self._send_json(channel, payload)
+                    self._send_json(
+                        channel,
+                        make_chunk_done_payload(
+                            chunk_index=result.chunk_index,
+                            num_frames=result.num_frames,
+                            enqueued_frames=enqueued,
+                            fps=video_track.fps,
+                            width=self.runtime_config.video_width,
+                            height=self.runtime_config.video_height,
+                            model=self._model_name(),
+                            gen_ms=gen_ms,
+                            enqueue_ms=enqueue_ms,
+                            play_ms=play_ms,
+                            queue_depth=video_track.qsize(),
+                            lag_ms=lag_ms,
+                            control_latency_ms=control_latency_ms,
+                            consumed_actions=len(consumed_action_arrivals),
+                            extra=self._chunk_done_extra(),
+                        ),
+                    )
         except asyncio.CancelledError:
             logger.info("Generation worker cancelled.")
             raise
