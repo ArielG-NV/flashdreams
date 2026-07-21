@@ -1,0 +1,30 @@
+schema_version: 1
+fixtures:
+  warehouse_dolly:
+    first-frame: CAMERA_CONTROL_WAREHOUSE_FIXTURE
+    prompt: a smooth dolly through an industrial warehouse
+    camera_path: forward:8,yaw-left:4,forward:8,yaw-right:4
+    seed: 4
+    chunk_size: 4
+    num_steps: 24
+  trail_drive:
+    first-frame: CAMERA_CONTROL_TRAIL_FIXTURE
+    prompt: a first-person camera traveling along a mountain trail
+    camera_path: forward:6,pitch-up:3,forward:6,yaw-right:3
+    actions: throttle:8,steer-left:4,throttle:8,steer-right:4
+    seed: 5
+    chunk_size: 4
+    num_steps: 24
+cases:
+- id: warehouse-lingbot-fast
+  fixture: warehouse_dolly
+  variant: lingbot-world-fast
+- id: trail-hy-worldplay
+  fixture: trail_drive
+  variant: hy-worldplay-wan-i2v-5b
+suites:
+  per_commit:
+  - warehouse-lingbot-fast
+  nightly:
+  - warehouse-lingbot-fast
+  - trail-hy-worldplay

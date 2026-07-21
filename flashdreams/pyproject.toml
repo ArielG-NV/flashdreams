@@ -25,6 +25,7 @@ readme = "PYPI_README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
 dependencies = [
+    "flashdreams-test-suite-demos",
     "boto3>=1.35",
     "botocore>=1.35",
     "einops>=0.7",
@@ -69,6 +70,7 @@ dependencies = [
 # Mirrors nerfstudio's ``ns-train`` console script shape (one hyphenated
 # binary, tyro union over runners as direct subcommands).
 flashdreams-run = "flashdreams.scripts.cli:entrypoint"
+test-suite = "flashdreams.configs.test_suite:entrypoint"
 
 [project.urls]
 Homepage = "https://github.com/NVIDIA/flashdreams"
@@ -155,6 +157,7 @@ url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.uv.sources]
+flashdreams-test-suite-demos = { workspace = true }
 # The cu130 binding is intentionally group-free: uv's `default-groups`
 # does not propagate per-group source bindings, so a group-gated cu130
 # binding would not fire on plain `uv sync` on Windows.

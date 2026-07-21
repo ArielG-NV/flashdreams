@@ -18,9 +18,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TypeAlias
+from typing import Annotated, TypeAlias
 
 import torch
+import tyro
 from torch import Tensor
 
 from flashdreams.infra.encoder import EncoderConfig, StreamingVideoEncoder
@@ -56,7 +57,9 @@ class I2VCtrl:
 class WanI2VCtrlEncoderConfig(EncoderConfig):
     """Config for the I2V control encoder."""
 
-    _target: type["I2VCtrlEncoder"] = field(default_factory=lambda: I2VCtrlEncoder)
+    _target: Annotated[type, tyro.conf.Suppress] = field(
+        default_factory=lambda: I2VCtrlEncoder
+    )
 
     encoder: WanVAEEncoderConfig = field(default_factory=WanVAEEncoderConfig)
     """Streaming Wan VAE encoder. Pin its checkpoint to the decoder's so

@@ -1,5 +1,5 @@
 schema_version: 1
-description: FlashDreams video-quality regression case catalog.
+description: Legacy FlashDreams video-quality regression case catalog.
 
 suites:
   - calibration

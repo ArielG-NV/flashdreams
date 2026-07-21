@@ -1,0 +1,404 @@
+schema_version: 1
+backends:
+- id: cosmos-predict2
+  adapter: integrations.cosmos_predict2.model
+- id: wan21
+  adapter: integrations.wan21.model
+- id: wan22
+  adapter: integrations.wan22.model
+- id: self-forcing
+  adapter: integrations.self_forcing.model
+- id: causal-forcing
+  adapter: integrations.causal_forcing.model
+- id: fastvideo-causal-wan22
+  adapter: integrations.fastvideo_causal_wan22.model
+- id: omnidreams
+  adapter: integrations.omnidreams.model
+- id: lingbot-world
+  adapter: integrations.lingbot.model
+- id: hy-worldplay
+  adapter: integrations.hy_worldplay.model
+- id: flashvsr
+  adapter: integrations.flashvsr.model
+decoders:
+- id: wan21
+  adapter: decoders.wan21
+- id: wan22
+  adapter: decoders.wan22
+- id: taehv
+  adapter: decoders.taehv
+- id: flashvsr-tcdecoder
+  adapter: decoders.flashvsr_tcdecoder
+
+named-variants:
+- id: cosmos2-t2v-2b-720p
+  backend: cosmos-predict2
+  settings:
+    decoder: wan21
+    input_styles:
+    - prompt
+    windows:
+    - 24
+    compile_modes:
+    - compile
+    cuda_graph_modes:
+    - 'off'
+    execution_modes:
+    - eager
+- id: cosmos2-i2v-2b-720p
+  backend: cosmos-predict2
+  settings:
+    decoder: wan21
+    input_styles:
+    - prompt
+    - first-frame
+    windows:
+    - 24
+    compile_modes:
+    - compile
+    cuda_graph_modes:
+    - 'off'
+    execution_modes:
+    - eager
+- id: wan21-t2v-1.3b-480p
+  backend: wan21
+  settings:
+    decoder: wan21
+    input_styles:
+    - prompt
+    windows:
+    - 21
+    compile_modes:
+    - 'off'
+    cuda_graph_modes:
+    - 'off'
+    execution_modes:
+    - eager
+- id: wan21-i2v-14b-480p
+  backend: wan21
+  settings:
+    decoder: wan21
+    input_styles:
+    - prompt
+    - first-frame
+    windows:
+    - 21
+    compile_modes:
+    - 'off'
+    cuda_graph_modes:
+    - 'off'
+    execution_modes:
+    - eager
+- id: wan22-ti2v-5b
+  backend: wan22
+  settings:
+    decoder: wan22
+    input_styles:
+    - prompt
+    - first-frame
+    windows:
+    - 21
+    compile_modes:
+    - 'off'
+    cuda_graph_modes:
+    - 'off'
+    execution_modes:
+    - eager
+- id: self-forcing-wan2.1-t2v-1.3b
+  backend: self-forcing
+  settings:
+    decoder: wan21
+    input_styles:
+    - prompt
+    windows:
+    - 21
+    cache_modes:
+    - block
+    cache_update_modes:
+    - sync
+    compile_modes:
+    - compile
+    cuda_graph_modes:
+    - 'off'
+    execution_modes:
+    - eager
+- id: self-forcing-wan2.1-t2v-1.3b-taehv
+  backend: self-forcing
+  settings:
+    decoder: taehv
+    input_styles:
+    - prompt
+    windows:
+    - 21
+    cache_modes:
+    - block
+    cache_update_modes:
+    - sync
+    compile_modes:
+    - compile
+    cuda_graph_modes:
+    - 'off'
+    execution_modes:
+    - eager
+- id: self-forcing-wan2.1-t2v-1.3b-sink5-window7-rerope
+  backend: self-forcing
+  settings:
+    decoder: wan21
+    input_styles:
+    - prompt
+    windows:
+    - 7
+    cache_modes:
+    - block
+    cache_update_modes:
+    - sync
+    compile_modes:
+    - 'off'
+    cuda_graph_modes:
+    - 'off'
+    execution_modes:
+    - eager
+- id: causal-forcing-wan2.1-t2v-1.3b-chunkwise
+  backend: causal-forcing
+  settings:
+    decoder: wan21
+    input_styles:
+    - prompt
+    windows:
+    - 21
+    compile_modes:
+    - compile
+    cuda_graph_modes:
+    - 'off'
+    execution_modes:
+    - eager
+- id: causal-forcing-wan2.1-t2v-1.3b-framewise
+  backend: causal-forcing
+  settings:
+    decoder: wan21
+    input_styles:
+    - prompt
+    windows:
+    - 21
+    compile_modes:
+    - compile
+    cuda_graph_modes:
+    - 'off'
+    execution_modes:
+    - eager
+- id: causal-forcing-wan2.1-i2v-1.3b-framewise
+  backend: causal-forcing
+  settings:
+    decoder: wan21
+    input_styles:
+    - prompt
+    - first-frame
+    windows:
+    - 21
+    compile_modes:
+    - compile
+    cuda_graph_modes:
+    - 'off'
+    execution_modes:
+    - eager
+- id: fastvideo-causal-wan2.2-t2v-14b
+  backend: fastvideo-causal-wan22
+  settings:
+    decoder: wan21
+    input_styles:
+    - prompt
+    windows:
+    - 21
+    compile_modes:
+    - compile
+    cuda_graph_modes:
+    - 'off'
+    execution_modes:
+    - eager
+- id: omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae
+  backend: omnidreams
+  settings:
+    decoder: taehv
+    input_styles:
+    - prompt
+    - first-frame
+    - keyboard-inputs
+    windows:
+    - 6
+    cache_modes:
+    - block
+    cache_update_modes:
+    - sync
+    compile_modes:
+    - compile
+    cuda_graph_modes:
+    - 'off'
+    execution_modes:
+    - eager
+- id: omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf
+  backend: omnidreams
+  settings:
+    decoder: taehv
+    input_styles:
+    - prompt
+    - first-frame
+    - keyboard-inputs
+    windows:
+    - 6
+    cache_modes:
+    - block
+    cache_update_modes:
+    - sync
+    compile_modes:
+    - compile
+    cuda_graph_modes:
+    - 'on'
+    execution_modes:
+    - captured
+- id: lingbot-world-fast
+  backend: lingbot-world
+  settings:
+    decoder: wan21
+    input_styles:
+    - prompt
+    - first-frame
+    - camera-controls
+    windows:
+    - 63
+    compile_modes:
+    - compile
+    cuda_graph_modes:
+    - 'off'
+    execution_modes:
+    - eager
+- id: lingbot-world-fast-taehv-window15-sink3
+  backend: lingbot-world
+  settings:
+    decoder: taehv
+    input_styles:
+    - prompt
+    - first-frame
+    - camera-controls
+    windows:
+    - 15
+    cache_modes:
+    - block
+    compile_modes:
+    - compile
+    cuda_graph_modes:
+    - 'off'
+    execution_modes:
+    - eager
+- id: hy-worldplay-wan-i2v-5b
+  backend: hy-worldplay
+  settings:
+    decoder: wan22
+    input_styles:
+    - prompt
+    - first-frame
+    - camera-controls
+    - action-controls
+    windows:
+    - 4
+    compile_modes:
+    - compile
+    cuda_graph_modes:
+    - 'off'
+    execution_modes:
+    - eager
+- id: flashvsr-v1.1-sparse-ratio-2.0
+  backend: flashvsr
+  settings:
+    decoder: flashvsr-tcdecoder
+    input_styles:
+    - video
+    scale:
+    - 2
+    attention_modes:
+    - sparse
+    compile_modes:
+    - compile
+    cuda_graph_modes:
+    - 'on'
+    execution_modes:
+    - captured
+- id: flashvsr-v1.1-sparse-ratio-1.5
+  backend: flashvsr
+  settings:
+    decoder: flashvsr-tcdecoder
+    input_styles:
+    - video
+    scale:
+    - 2
+    attention_modes:
+    - sparse
+    compile_modes:
+    - compile
+    cuda_graph_modes:
+    - 'on'
+    execution_modes:
+    - captured
+- id: flashvsr-v1.1-full-attn
+  backend: flashvsr
+  settings:
+    decoder: flashvsr-tcdecoder
+    input_styles:
+    - video
+    scale:
+    - 2
+    attention_modes:
+    - full
+    compile_modes:
+    - compile
+    cuda_graph_modes:
+    - 'on'
+    execution_modes:
+    - captured
+demos:
+- id: text-to-video
+  adapter: test_suite_demos.text_to_video.adapter
+  config-path: test-suite-demos/text_to_video/test-suite-configs/demo-manifest.yml
+  supported-backends:
+  - cosmos-predict2
+  - wan21
+  - self-forcing
+  - causal-forcing
+  - fastvideo-causal-wan22
+- id: image-to-video
+  adapter: test_suite_demos.image_to_video.adapter
+  config-path: test-suite-demos/image_to_video/test-suite-configs/demo-manifest.yml
+  supported-backends:
+  - cosmos-predict2
+  - wan21
+  - wan22
+  - causal-forcing
+- id: interactive-drive
+  adapter: test_suite_demos.interactive_drive.adapter
+  config-path: test-suite-demos/interactive_drive/test-suite-configs/demo-manifest.yml
+  supported-backends:
+  - omnidreams
+  - lingbot-world
+  - hy-worldplay
+- id: camera-control-i2v
+  adapter: test_suite_demos.camera_control_i2v.adapter
+  config-path: test-suite-demos/camera_control_i2v/test-suite-configs/demo-manifest.yml
+  supported-backends:
+  - lingbot-world
+  - hy-worldplay
+- id: video-super-resolution
+  adapter: test_suite_demos.video_super_resolution.adapter
+  config-path: test-suite-demos/video_super_resolution/test-suite-configs/demo-manifest.yml
+  supported-backends:
+  - flashvsr
+suites:
+  per_commit:
+  - text-to-video
+  - image-to-video
+  - interactive-drive
+  - video-super-resolution
+  nightly:
+  - text-to-video
+  - image-to-video
+  - interactive-drive
+  - camera-control-i2v
+  - video-super-resolution

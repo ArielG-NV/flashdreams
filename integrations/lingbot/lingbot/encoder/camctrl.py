@@ -19,8 +19,10 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import Annotated
 
 import torch
+import tyro
 from einops import rearrange
 from torch import Tensor
 
@@ -71,7 +73,9 @@ class I2VCamCtrlInput:
 class LingbotI2VCtrlEncoderConfig(WanI2VCtrlEncoderConfig):
     """Wan I2V control encoder config with Tyro-friendly target typing."""
 
-    _target: type[I2VCtrlEncoder] = field(default_factory=lambda: I2VCtrlEncoder)
+    _target: Annotated[type, tyro.conf.Suppress] = field(
+        default_factory=lambda: I2VCtrlEncoder
+    )
 
 
 @dataclass(kw_only=True)
@@ -93,7 +97,7 @@ class I2VCamCtrlEmbeddings:
 class I2VCamCtrlEncoderConfig(EncoderConfig):
     """Config for the composite I2V + Plücker encoder."""
 
-    _target: type["I2VCamCtrlEncoder"] = field(
+    _target: Annotated[type, tyro.conf.Suppress] = field(
         default_factory=lambda: I2VCamCtrlEncoder
     )
 

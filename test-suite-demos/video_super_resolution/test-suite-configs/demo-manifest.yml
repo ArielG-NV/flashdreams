@@ -1,0 +1,27 @@
+schema_version: 1
+fixtures:
+  street_lowres:
+    input-video: FLASHVSR_STREET_LOWRES_VIDEO
+    scale: 2
+    seed: 0
+  gameplay_lowres:
+    input-video: FLASHVSR_GAMEPLAY_LOWRES_VIDEO
+    scale: 2
+    seed: 1
+cases:
+- id: street-sparse-stable
+  fixture: street_lowres
+  variant: flashvsr-v1.1-sparse-ratio-2.0
+- id: street-full-attn
+  fixture: street_lowres
+  variant: flashvsr-v1.1-full-attn
+- id: gameplay-sparse-fast
+  fixture: gameplay_lowres
+  variant: flashvsr-v1.1-sparse-ratio-1.5
+suites:
+  per_commit:
+  - street-sparse-stable
+  nightly:
+  - street-sparse-stable
+  - street-full-attn
+  - gameplay-sparse-fast

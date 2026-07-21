@@ -13,13 +13,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Public surface for the runner registry and CLI aggregator."""
+"""Public surface for the runner registry, manifests, and CLI aggregator."""
 
+from flashdreams.configs.manifest import (
+    BackendEntry,
+    DecoderEntry,
+    DemoCase,
+    DemoEntry,
+    DemoManifest,
+    GlobalManifest,
+    NamedVariant,
+    load_demo_manifest,
+    load_global_manifest,
+)
 from flashdreams.configs.registry import register_runner, supported_runners
 from flashdreams.configs.runner_configs import all_runners
 
 __all__ = [
     "all_runners",
+    "BackendEntry",
+    "DecoderEntry",
+    "DemoCase",
+    "DemoEntry",
+    "DemoManifest",
+    "GlobalManifest",
+    "load_demo_manifest",
+    "load_global_manifest",
+    "NamedVariant",
     "register_runner",
     "supported_runners",
 ]

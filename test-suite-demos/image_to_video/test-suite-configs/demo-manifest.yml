@@ -1,0 +1,34 @@
+schema_version: 1
+fixtures:
+  portrait_turntable:
+    first-frame: IMAGE_TO_VIDEO_PORTRAIT_FIXTURE
+    prompt: a portrait subject slowly turning toward soft studio light
+    seed: 2
+    height: 480
+    width: 832
+    num_frames: 81
+  product_orbit:
+    first-frame: IMAGE_TO_VIDEO_PRODUCT_FIXTURE
+    prompt: a product hero shot rotating on a glossy tabletop
+    seed: 3
+    height: 480
+    width: 832
+    num_frames: 81
+cases:
+- id: portrait-cosmos2
+  fixture: portrait_turntable
+  variant: cosmos2-i2v-2b-720p
+- id: portrait-wan21
+  fixture: portrait_turntable
+  variant: wan21-i2v-14b-480p
+- id: product-causal-forcing
+  fixture: product_orbit
+  variant: causal-forcing-wan2.1-i2v-1.3b-framewise
+suites:
+  per_commit:
+  - portrait-cosmos2
+  - portrait-wan21
+  nightly:
+  - portrait-cosmos2
+  - portrait-wan21
+  - product-causal-forcing

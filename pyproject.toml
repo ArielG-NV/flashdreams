@@ -1,6 +1,7 @@
 [tool.uv.workspace]
 members = [
     "flashdreams",
+    "test-suite-demos",
     # Each populated subdir under ``integrations/`` is a standalone
     # external integration repo (e.g. ``causal_forcing`` / ``self_forcing``
     # plugins, ``omnidreams`` / ``lingbot`` integrations); empty stub

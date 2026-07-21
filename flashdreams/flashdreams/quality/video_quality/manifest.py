@@ -115,7 +115,7 @@ class VideoQualityManifest:
 
 
 def load_manifest(path: Path | str) -> VideoQualityManifest:
-    """Read and validate a video-quality case manifest."""
+    """Read and validate a standalone video-quality case manifest."""
     manifest_path = Path(path)
     with manifest_path.open("r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
@@ -156,7 +156,6 @@ def load_manifest(path: Path | str) -> VideoQualityManifest:
         default_hf_dataset=default_hf_dataset,
         cases=cases,
     )
-
 
 def _parse_case(
     value: Any,
@@ -295,6 +294,7 @@ def _parse_threshold(value: Any, *, context: str) -> Threshold:
         value=threshold_value,
         severity=severity,
     )
+
 
 
 def _parse_window(name: str, value: Any, *, context: str) -> Window:

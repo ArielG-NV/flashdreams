@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-test-suite-demos"
+version = "0.1.0"
+description = "Manifest-addressable FlashDreams demo adapters"
+requires-python = ">=3.10"
+dependencies = [
+    "huggingface-hub>=0.33",
+]
+
+[tool.setuptools]
+packages = [
+    "test_suite_demos",
+    "test_suite_demos.camera_control_i2v",
+    "test_suite_demos.image_to_video",
+    "test_suite_demos.interactive_drive",
+    "test_suite_demos.text_to_video",
+    "test_suite_demos.video_super_resolution",
+]
+package-dir = {test_suite_demos = "."}

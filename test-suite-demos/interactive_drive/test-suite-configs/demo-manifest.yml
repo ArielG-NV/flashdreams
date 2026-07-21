@@ -1,0 +1,22 @@
+schema_version: 1
+fixtures:
+  residential_drive:
+    clipgt: https://huggingface.co/datasets/nvidia/omni-dreams-scenes/resolve/main/scenes/clipgt-0d404ff7-2b66-498c-b047-1ed8cded60d4.usdz
+    stop-after-chunks: 1
+    stream-mjpeg: 127.0.0.1:18080
+    prompt: FPV driving through a residential area in a car.
+    perf-manifest: integrations/omnidreams/omnidreams/interactive_drive/configs/example_world_model_perf.yaml
+cases:
+- id: omnidreams-residential_drive
+  fixture: residential_drive
+  variant: omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae
+- id: omnidreams-perf-residential_drive
+  fixture: residential_drive
+  variant: omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf
+suites:
+  per_commit:
+  - omnidreams-residential_drive
+  - omnidreams-perf-residential_drive
+  nightly:
+  - omnidreams-residential_drive
+  - omnidreams-perf-residential_drive

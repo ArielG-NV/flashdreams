@@ -28,6 +28,7 @@ members = [
     "flashdreams-lingbot",
     "flashdreams-omnidreams",
     "flashdreams-self-forcing",
+    "flashdreams-test-suite-demos",
     "flashdreams-wan21",
     "flashdreams-wan22",
     "ludus-renderer",
@@ -1215,6 +1216,7 @@ dependencies = [
     { name = "botocore" },
     { name = "einops" },
     { name = "filelock" },
+    { name = "flashdreams-test-suite-demos" },
     { name = "ftfy" },
     { name = "huggingface-hub" },
     { name = "loguru" },
@@ -1281,6 +1283,7 @@ requires-dist = [
     { name = "botocore", specifier = ">=1.35" },
     { name = "einops", specifier = ">=0.7" },
     { name = "filelock", specifier = ">=3" },
+    { name = "flashdreams-test-suite-demos", editable = "test-suite-demos" },
     { name = "ftfy", specifier = ">=6.0" },
     { name = "huggingface-hub", specifier = ">=0.33" },
     { name = "loguru", specifier = ">=0.7" },
@@ -1588,6 +1591,17 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
 provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-test-suite-demos"
+version = "0.1.0"
+source = { editable = "test-suite-demos" }
+dependencies = [
+    { name = "huggingface-hub" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "huggingface-hub", specifier = ">=0.33" }]
 
 [[package]]
 name = "flashdreams-wan21"
@@ -3200,26 +3214,10 @@ name = "numpy"
 version = "2.4.6"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13'",
-    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32' and extra != 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13'",
-    "python_full_version == '3.11.*' and sys_platform == 'win32' and extra != 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13'",
-    "python_full_version >= '3.14' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13'",
-    "python_full_version == '3.13.*' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13'",
-    "python_full_version == '3.12.*' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13'",
-    "python_full_version == '3.11.*' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13'",
-    "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
-    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32' and extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
-    "python_full_version == '3.11.*' and sys_platform == 'win32' and extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
-    "python_full_version >= '3.14' and sys_platform != 'win32' and extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
-    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'win32' and extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
-    "python_full_version == '3.11.*' and sys_platform != 'win32' and extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
-    "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
-    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32' and extra != 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
-    "python_full_version == '3.11.*' and sys_platform == 'win32' and extra != 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
-    "python_full_version >= '3.14' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
-    "python_full_version == '3.13.*' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
-    "python_full_version == '3.12.*' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
-    "python_full_version == '3.11.*' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
+    "python_full_version >= '3.12' and sys_platform == 'win32'",
+    "python_full_version == '3.11.*' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and sys_platform != 'win32'",
+    "python_full_version == '3.11.*' and sys_platform != 'win32'",
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/d0/ad/fed0499ce6a338d2a03ebae59cd15093910c8875328855781952abf6c2fe/numpy-2.4.6.tar.gz", hash = "sha256:f3a3570c4a2a16746ac2c31a7c7c7b0c186b95ce902e33db6f28094ed7387dda", size = 20735807, upload-time = "2026-05-18T23:37:14.07Z" }
 wheels = [

@@ -1,0 +1,36 @@
+schema_version: 1
+fixtures:
+  city_flythrough:
+    prompt: a cinematic flythrough of a neon city at dusk
+    seed: 0
+    height: 480
+    width: 832
+    num_frames: 81
+  misty_forest:
+    prompt: a slow tracking shot through a misty old-growth forest
+    seed: 1
+    height: 480
+    width: 832
+    num_frames: 81
+cases:
+- id: city-cosmos2
+  fixture: city_flythrough
+  variant: cosmos2-t2v-2b-720p
+- id: city-wan21
+  fixture: city_flythrough
+  variant: wan21-t2v-1.3b-480p
+- id: forest-self-forcing
+  fixture: misty_forest
+  variant: self-forcing-wan2.1-t2v-1.3b
+- id: forest-fastvideo-wan22
+  fixture: misty_forest
+  variant: fastvideo-causal-wan2.2-t2v-14b
+suites:
+  per_commit:
+  - city-cosmos2
+  - city-wan21
+  nightly:
+  - city-cosmos2
+  - city-wan21
+  - forest-self-forcing
+  - forest-fastvideo-wan22

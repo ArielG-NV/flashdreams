@@ -36,7 +36,7 @@ def test_starter_manifest_loads() -> None:
 def test_manifest_rejects_bool_schema_version(tmp_path: Path) -> None:
     data = yaml.safe_load(Path("configs/video_quality_cases.yml").read_text())
     data["schema_version"] = True
-    manifest_path = tmp_path / "cases.yml"
+    manifest_path = tmp_path / "global.yml"
     manifest_path.write_text(yaml.safe_dump(data), encoding="utf-8")
 
     with pytest.raises(ValueError, match="schema_version must be an integer"):

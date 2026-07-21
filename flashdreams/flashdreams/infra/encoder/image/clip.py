@@ -19,9 +19,10 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Literal, cast
+from typing import Annotated, Literal, cast
 
 import torch
+import tyro
 from torch import Tensor
 from transformers import BatchFeature, CLIPImageProcessor, CLIPVisionModel
 from transformers.modeling_outputs import BaseModelOutputWithPooling
@@ -34,7 +35,9 @@ from flashdreams.infra.encoder import Encoder, EncoderConfig
 class CLIPImageEncoderConfig(EncoderConfig):
     """Config for the Wan I2V CLIP image encoder."""
 
-    _target: type["CLIPImageEncoder"] = field(default_factory=lambda: CLIPImageEncoder)
+    _target: Annotated[type, tyro.conf.Suppress] = field(
+        default_factory=lambda: CLIPImageEncoder
+    )
 
     model_id_or_local_path: Literal[
         "Wan-AI/Wan2.1-I2V-14B-480P-Diffusers",

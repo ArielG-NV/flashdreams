@@ -95,7 +95,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--manifest",
         type=Path,
         default=Path("configs/video_quality_cases.yml"),
-        help="Path to the video-quality case manifest.",
+        help="Path to the legacy standalone video-quality manifest.",
     )
     parser.add_argument(
         "--suite",
