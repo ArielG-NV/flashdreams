@@ -34,7 +34,7 @@ class WebRTCRuntimeConfig(Protocol):
 
 
 class WebRTCGenerationRuntime(Protocol):
-    """Lifecycle required by :class:`BaseWebRTCSessionManager`.
+    """Generation lifecycle for one shared WebRTC session.
 
     Integrations keep their model-specific state, checkpoints, conditioning,
     and cache logic inside their concrete runtime. The shared manager only
@@ -73,3 +73,7 @@ class WebRTCServerLifecycle(Protocol):
     def send_exit_signal(self) -> None: ...
 
     def wait_for_termination(self) -> None: ...
+
+
+class WebRTCSessionRuntime(WebRTCGenerationRuntime, WebRTCServerLifecycle, Protocol):
+    """Complete runtime contract consumed by the shared session manager."""

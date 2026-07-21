@@ -13,7 +13,7 @@ from collections import deque
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription
 from loguru import logger
@@ -30,7 +30,7 @@ from flashdreams.serving.webrtc.messages import (
     make_event_ack_payload,
 )
 from flashdreams.serving.webrtc.runtime import (
-    WebRTCGenerationRuntime,
+    WebRTCSessionRuntime,
     WebRTCRuntimeConfig,
     WebRTCStepResult,
 )
@@ -53,6 +53,9 @@ DEFAULT_CLIENT_LIVENESS_TIMEOUT_S = 10.0
 
 # How often the liveness watchdog wakes to re-check the elapsed-since-last-message.
 _CLIENT_LIVENESS_CHECK_INTERVAL_S = 1.0
+
+_RuntimeT = TypeVar("_RuntimeT", bound=WebRTCSessionRuntime)
+_RuntimeConfigT = TypeVar("_RuntimeConfigT", bound=WebRTCRuntimeConfig)
 
 
 class WebRTCControlSignal(IntEnum):
@@ -112,7 +115,7 @@ class ManagedWebRTCSession:
         await self.peer_connection.close()
 
 
-class BaseWebRTCSessionManager:
+class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
     """Owns one active WebRTC session and forwards actions into a model runtime."""
 
     _busy_message: str = "A WebRTC session is already active."
@@ -124,8 +127,8 @@ class BaseWebRTCSessionManager:
     def __init__(
         self,
         *,
-        runtime: WebRTCGenerationRuntime,
-        runtime_config: WebRTCRuntimeConfig,
+        runtime: _RuntimeT,
+        runtime_config: _RuntimeConfigT,
         fps: int,
         client_liveness_timeout_s: float = DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
     ) -> None:

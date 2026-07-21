@@ -46,7 +46,7 @@ def _distributed_init() -> None:
 def initialize_cuda_distributed(
     *,
     default_device: str | torch.device = "cuda:0",
-    distributed_init_fn: Callable[[], None] | None = None,
+    distributed_init_fn: Callable[[], object] | None = None,
     configure_logging_fn: Callable[..., None] = configure_logging,
     torch_module: Any = torch,
     dist_module: Any = dist,
