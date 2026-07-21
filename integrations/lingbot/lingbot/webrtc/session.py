@@ -1132,7 +1132,9 @@ class LingbotInferenceRuntime:
 _ManagedLingbotSession = ManagedWebRTCSession
 
 
-class LingbotWebRTCSessionManager(BaseWebRTCSessionManager):
+class LingbotWebRTCSessionManager(
+    BaseWebRTCSessionManager[LingbotInferenceRuntime, LingbotRuntimeConfig]
+):
     """Owns one active WebRTC session and forwards actions into Lingbot runtime."""
 
     _busy_message = "A Lingbot session is already active."

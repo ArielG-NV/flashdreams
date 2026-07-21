@@ -4,8 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import os
-from contextlib import ExitStack
 from importlib.resources import as_file, files
 from pathlib import Path
 
@@ -26,9 +24,17 @@ from flashdreams.core.distributed import (
 from flashdreams.serving.network import get_external_ip
 from flashdreams.serving.webrtc.bootstrap import (
     configure_logging,
+    initialize_cuda_distributed,
     run_webrtc_server,
 )
-from flashdreams.serving.webrtc.server import WebRTCSessionManager, create_webrtc_app
+from flashdreams.serving.webrtc.server import (
+    WebRTCSessionManager,
+    create_packaged_webrtc_app,
+    create_webrtc_app,
+)
+from flashdreams.serving.webrtc.server import (
+    close_package_resources as _close_package_resources,
+)
 
 WEB_DIR_RESOURCE = files("omnidreams.webrtc").joinpath("web")
 
@@ -109,33 +115,21 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-async def _close_package_resources(app: web.Application) -> None:
-    app["package_resource_stack"].close()
-
-
 def create_app(
     *,
     request_session_url: str,
     session_manager: WebRTCSessionManager | None = None,
 ) -> web.Application:
     manager = session_manager or OmnidreamsWebRTCSessionManager()
-
-    resource_stack = ExitStack()
-    try:
-        web_dir = resource_stack.enter_context(as_file(WEB_DIR_RESOURCE))
-
-        app = create_webrtc_app(
-            web_dir=web_dir,
-            session_manager=manager,
-            preload_name="Omnidreams",
-            request_session_url=request_session_url,
-        )
-        app["package_resource_stack"] = resource_stack
-        app.on_cleanup.append(_close_package_resources)
-    except Exception:
-        resource_stack.close()
-        raise
-    return app
+    return create_packaged_webrtc_app(
+        web_resource=WEB_DIR_RESOURCE,
+        session_manager=manager,
+        preload_name="Omnidreams",
+        request_session_url=request_session_url,
+        as_file_fn=as_file,
+        create_app_fn=create_webrtc_app,
+        cleanup_callback=_close_package_resources,
+    )
 
 
 def build_runtime_config(
@@ -164,50 +158,19 @@ def initialize_distributed(
     *,
     default_device: str | torch.device = "cuda:0",
 ) -> tuple[torch.device, int, int]:
-    if not torch.cuda.is_available():
-        raise RuntimeError(
-            "CUDA is required for inference in the Omnidreams WebRTC server."
-        )
-
-    has_rank = "RANK" in os.environ
-    has_world_size = "WORLD_SIZE" in os.environ
-    if has_rank != has_world_size:
-        raise RuntimeError(
-            "Distributed launch expects both RANK and WORLD_SIZE to be set."
-        )
-
-    distributed_launch = has_rank and has_world_size
-    if distributed_launch:
-        distributed_init()
-        world_rank = dist.get_rank()
-        world_size = dist.get_world_size()
-    else:
-        world_rank = 0
-        world_size = 1
-
-    device_count = torch.cuda.device_count()
-    if device_count < 1:
-        raise RuntimeError("CUDA device count must be >= 1 for inference.")
-    if distributed_launch:
-        local_rank = world_rank % device_count
-        torch_device = torch.device(f"cuda:{local_rank}")
-    else:
-        torch_device = torch.device(default_device)
-        if torch_device.type != "cuda":
-            raise RuntimeError(
-                f"CUDA device is required for inference, got {torch_device}."
-            )
-        if torch_device.index is None:
-            torch_device = torch.device("cuda:0")
-    torch.cuda.set_device(torch_device)
-
-    configure_logging(world_rank=world_rank)
+    context = initialize_cuda_distributed(
+        default_device=default_device,
+        distributed_init_fn=distributed_init,
+        configure_logging_fn=configure_logging,
+        torch_module=torch,
+        dist_module=dist,
+    )
     logger.info(
         "Rank {} initialized Omnidreams runtime with context_parallel_size {}",
-        world_rank,
-        world_size,
+        context.world_rank,
+        context.world_size,
     )
-    return torch_device, world_rank, world_size
+    return context.device, context.world_rank, context.world_size
 
 
 def _validate_single_view_config(config_name: str) -> None:

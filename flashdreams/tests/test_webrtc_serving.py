@@ -3,9 +3,13 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 import numpy as np
 import pytest
 import torch
+from aiohttp import web
+from aiohttp.test_utils import TestClient, TestServer
 
 from flashdreams.serving.webrtc.controls import (
     WSAD_SUPPORTED_KEYS,
@@ -14,6 +18,16 @@ from flashdreams.serving.webrtc.controls import (
     KeyboardState,
 )
 from flashdreams.serving.webrtc.media import tensor_chunk_to_rgb_frames
+from flashdreams.serving.webrtc.messages import (
+    make_chunk_done_payload,
+    make_error_payload,
+    make_event_ack_payload,
+)
+from flashdreams.serving.webrtc.server import (
+    PACKAGE_RESOURCE_STACK_KEY,
+    close_package_resources,
+    create_packaged_webrtc_app,
+)
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -80,3 +94,156 @@ def test_tensor_chunk_to_rgb_frames_supports_omnidreams_layout() -> None:
     assert frames[0].shape == (4, 5, 3)
     assert frames[0].dtype == np.uint8
     assert frames[1][0, 0, 0] == 255
+
+
+class _FakeSessionManager:
+    def __init__(self) -> None:
+        self.preload_calls = 0
+        self.shutdown_calls = 0
+
+    def has_active_session(self) -> bool:
+        return False
+
+    def is_runtime_ready(self) -> bool:
+        return self.preload_calls > 0
+
+    async def preload_runtime(self) -> None:
+        self.preload_calls += 1
+
+    async def create_answer(self, *, offer_sdp: str, offer_type: str) -> dict[str, str]:
+        del offer_sdp, offer_type
+        return {"sdp": "answer-sdp", "type": "answer"}
+
+    async def shutdown(self) -> None:
+        self.shutdown_calls += 1
+
+
+def test_packaged_webrtc_app_keeps_resource_materialized(tmp_path) -> None:
+    (tmp_path / "request_session.html").write_text(
+        "<html>session</html>", encoding="utf-8"
+    )
+    (tmp_path / "client.js").write_text("", encoding="utf-8")
+
+    app = create_packaged_webrtc_app(
+        web_resource=tmp_path,
+        session_manager=_FakeSessionManager(),
+        request_session_url="http://127.0.0.1:8080/request_session",
+        preload_name="Test",
+        as_file_fn=lambda resource: nullcontext(resource),
+    )
+    try:
+        assert PACKAGE_RESOURCE_STACK_KEY in app
+        assert close_package_resources in app.on_cleanup
+
+        static_resources = [
+            resource
+            for resource in app.router.resources()
+            if resource.get_info().get("prefix") in {"/static", "/static/"}
+        ]
+        assert len(static_resources) == 1
+        assert static_resources[0].get_info()["directory"] == tmp_path
+    finally:
+        app[PACKAGE_RESOURCE_STACK_KEY].close()
+
+
+def test_packaged_webrtc_app_closes_resource_when_setup_fails(tmp_path) -> None:
+    closed = False
+
+    class _TrackedContext:
+        def __enter__(self):
+            return tmp_path
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            nonlocal closed
+            closed = True
+
+    def _raise_creation_failure(**_kwargs) -> web.Application:
+        raise RuntimeError("app creation failed")
+
+    with pytest.raises(RuntimeError, match="app creation failed"):
+        create_packaged_webrtc_app(
+            web_resource=tmp_path,
+            session_manager=_FakeSessionManager(),
+            request_session_url="http://127.0.0.1:8080/request_session",
+            preload_name="Test",
+            as_file_fn=lambda _resource: _TrackedContext(),
+            create_app_fn=_raise_creation_failure,
+        )
+
+    assert closed
+
+
+@pytest.mark.asyncio
+async def test_packaged_webrtc_app_serves_common_routes(tmp_path) -> None:
+    (tmp_path / "request_session.html").write_text(
+        "<html>session</html>", encoding="utf-8"
+    )
+    manager = _FakeSessionManager()
+    app = create_packaged_webrtc_app(
+        web_resource=tmp_path,
+        session_manager=manager,
+        request_session_url="http://127.0.0.1:8080/request_session",
+        preload_name="Test",
+        as_file_fn=lambda resource: nullcontext(resource),
+    )
+    server = TestServer(app)
+    client = TestClient(server)
+    await client.start_server()
+    try:
+        response = await client.get("/request_session")
+        body = await response.text()
+
+        assert response.status == 200
+        assert body == "<html>session</html>"
+        assert manager.preload_calls == 1
+    finally:
+        await client.close()
+
+
+def test_webrtc_message_helpers_preserve_public_payload_shape() -> None:
+    assert make_error_payload("boom") == {"type": "error", "message": "boom"}
+    assert make_event_ack_payload(
+        event_id="rain",
+        state="trigger",
+        result={"state": "ignored", "active_event_id": "rain"},
+    ) == {
+        "type": "event_ack",
+        "event_id": "rain",
+        "state": "trigger",
+        "active_event_id": "rain",
+    }
+
+    assert make_chunk_done_payload(
+        chunk_index=2,
+        num_frames=3,
+        enqueued_frames=3,
+        fps=30,
+        width=1280,
+        height=704,
+        model="demo",
+        gen_ms=12.34,
+        enqueue_ms=0.56,
+        play_ms=100.0,
+        queue_depth=1,
+        lag_ms=4.44,
+        control_latency_ms=20.04,
+        consumed_actions=2,
+        extra={"stream": "rgb"},
+    ) == {
+        "type": "chunk_done",
+        "chunk_index": 2,
+        "num_frames": 3,
+        "enqueued_frames": 3,
+        "fps": 30,
+        "resolution": {"width": 1280, "height": 704},
+        "model": "demo",
+        "gen_ms": 12.3,
+        "enqueue_ms": 0.6,
+        "play_ms": 100.0,
+        "queue_depth": 1,
+        "lag_ms": 4.4,
+        "stream": "rgb",
+        "latency_ms": 20.0,
+        "control_latency_ms": 20.0,
+        "consumed_actions": 2,
+    }

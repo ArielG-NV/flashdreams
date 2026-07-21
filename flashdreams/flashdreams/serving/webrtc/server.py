@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from contextlib import AbstractContextManager, ExitStack
+from importlib.resources import as_file
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -25,6 +28,7 @@ class WebRTCSessionManager(Protocol):
 
 
 SESSION_MANAGER_KEY = web.AppKey("session_manager", WebRTCSessionManager)
+PACKAGE_RESOURCE_STACK_KEY = web.AppKey("package_resource_stack", ExitStack)
 
 
 def create_webrtc_app(
@@ -103,4 +107,47 @@ def create_webrtc_app(
     app.router.add_static("/static/", web_dir, show_index=False)
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
+    return app
+
+
+async def close_package_resources(app: web.Application) -> None:
+    app[PACKAGE_RESOURCE_STACK_KEY].close()
+
+
+def create_packaged_webrtc_app(
+    *,
+    web_resource: Any,
+    session_manager: WebRTCSessionManager,
+    request_session_url: str,
+    preload_name: str,
+    configure_app: Callable[[web.Application], None] | None = None,
+    index_filename: str = "request_session.html",
+    as_file_fn: Callable[[Any], AbstractContextManager[Path]] = as_file,
+    create_app_fn: Callable[..., web.Application] = create_webrtc_app,
+    cleanup_callback: Callable[[web.Application], Any] = close_package_resources,
+) -> web.Application:
+    """Create a WebRTC app from packaged static assets.
+
+    ``importlib.resources.as_file`` can materialize package resources into a
+    temporary directory. The returned app owns that context until aiohttp
+    cleanup, so demos can serve static browser assets from packages and tests
+    can still inspect the materialized directory.
+    """
+    resource_stack = ExitStack()
+    try:
+        web_dir = resource_stack.enter_context(as_file_fn(web_resource))
+        app = create_app_fn(
+            web_dir=web_dir,
+            session_manager=session_manager,
+            preload_name=preload_name,
+            request_session_url=request_session_url,
+            index_filename=index_filename,
+        )
+        if configure_app is not None:
+            configure_app(app)
+        app[PACKAGE_RESOURCE_STACK_KEY] = resource_stack
+        app.on_cleanup.append(cleanup_callback)
+    except Exception:
+        resource_stack.close()
+        raise
     return app

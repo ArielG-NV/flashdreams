@@ -898,7 +898,9 @@ class OmnidreamsInferenceRuntime:
 _ManagedOmnidreamsSession = ManagedWebRTCSession
 
 
-class OmnidreamsWebRTCSessionManager(BaseWebRTCSessionManager):
+class OmnidreamsWebRTCSessionManager(
+    BaseWebRTCSessionManager[OmnidreamsInferenceRuntime, OmnidreamsRuntimeConfig]
+):
     """Owns one active WebRTC session and forwards WSAD actions."""
 
     _busy_message = "An Omnidreams session is already active."
