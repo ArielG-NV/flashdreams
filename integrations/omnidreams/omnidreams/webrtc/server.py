@@ -29,9 +29,11 @@ from flashdreams.serving.webrtc.bootstrap import (
 )
 from flashdreams.serving.webrtc.server import (
     WebRTCSessionManager,
-    close_package_resources as _close_package_resources,
     create_packaged_webrtc_app,
     create_webrtc_app,
+)
+from flashdreams.serving.webrtc.server import (
+    close_package_resources as _close_package_resources,
 )
 
 WEB_DIR_RESOURCE = files("omnidreams.webrtc").joinpath("web")
