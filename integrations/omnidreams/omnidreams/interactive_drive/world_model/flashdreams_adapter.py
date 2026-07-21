@@ -3,22 +3,31 @@
 
 from __future__ import annotations
 
-import gc
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import replace
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
 import torch
 from loguru import logger
 from omnidreams.interactive_drive.config import WorldModelProfileConfig
-from omnidreams.interactive_drive.cuda_host_prefetch import CudaHostPrefetch
 from omnidreams.interactive_drive.world_model.manifest import WorldModelManifest
 from omnidreams.interactive_drive.world_model.synthetic_fixture import (
     build_synthetic_world_model_assets,
     default_synthetic_asset_dir,
 )
+
+from flashdreams.infra.acceleration.encoder_lifecycle import (
+    collect_and_release_cuda_memory,
+    move_tensors_to_cpu,
+    release_one_shot_encoder_references,
+    run_one_shot_encoder_stage,
+    setup_one_shot_encoder,
+)
+from flashdreams.infra.acceleration.frame_prefetch import LazyCudaFrame
+from flashdreams.infra.acceleration.prewarm import run_timed_prewarm
 
 PipelineFactory = Callable[[WorldModelManifest, WorldModelProfileConfig], Any]
 _VIEW_NAMES = ["camera_front_wide_120fov"]
@@ -323,17 +332,28 @@ def _precompute_embeddings_from_config(
     )
 
     start = time.perf_counter()
-    text_encoder = text_encoder_config.setup().to(device=device)
-    image_encoder = image_encoder_config.setup().to(device=device)
-    with torch.no_grad():
+    encoders = SimpleNamespace(
+        text_encoder=setup_one_shot_encoder(
+            text_encoder_config,
+            device=device,
+            torch_module=torch,
+        ),
+        image_encoder=setup_one_shot_encoder(
+            image_encoder_config,
+            device=device,
+            torch_module=torch,
+        ),
+    )
+
+    def compute_embeddings() -> dict[str, torch.Tensor | None]:
         text_embeddings = torch.stack(
-            [text_encoder(prompt_row) for prompt_row in text], dim=0
+            [encoders.text_encoder(prompt_row) for prompt_row in text], dim=0
         )
-        image_embeddings = image_encoder(image)
+        image_embeddings = encoders.image_encoder(image)
         negative_text_embeddings = (
             torch.stack(
                 [
-                    text_encoder([NEGATIVE_PROMPT for _ in prompt_row])
+                    encoders.text_encoder([NEGATIVE_PROMPT for _ in prompt_row])
                     for prompt_row in text
                 ],
                 dim=0,
@@ -341,33 +361,34 @@ def _precompute_embeddings_from_config(
             if needs_negative_text
             else None
         )
+        return {
+            "text_embeddings": text_embeddings,
+            "image_embeddings": image_embeddings,
+            "negative_text_embeddings": negative_text_embeddings,
+        }
 
-    embeddings = {
-        "text_embeddings": text_embeddings.cpu(),
-        "image_embeddings": image_embeddings.cpu(),
-        "negative_text_embeddings": (
-            negative_text_embeddings.cpu()
-            if negative_text_embeddings is not None
-            else None
+    embeddings = run_one_shot_encoder_stage(
+        compute_embeddings,
+        release=lambda: release_one_shot_encoder_references(
+            encoders,
+            "text_encoder",
+            "image_encoder",
+            device=device,
+            synchronize_cuda=device.type == "cuda",
+            torch_module=torch,
         ),
-    }
-    del (
-        text_encoder,
-        image_encoder,
-        text_embeddings,
-        image_embeddings,
-        negative_text_embeddings,
+        torch_module=torch,
     )
-    gc.collect()
-    if device.type == "cuda" and torch.cuda.is_available():
-        torch.cuda.synchronize(device)
-        torch.cuda.empty_cache()
+    text_embeddings = embeddings["text_embeddings"]
+    image_embeddings = embeddings["image_embeddings"]
+    assert text_embeddings is not None
+    assert image_embeddings is not None
     elapsed_ms = (time.perf_counter() - start) * 1000.0
     logger.info(
         "[flashdreams-session] offloaded one-shot encoders "
         f"precompute_ms={elapsed_ms:.1f} "
-        f"text_shape={tuple(embeddings['text_embeddings'].shape)} "
-        f"image_shape={tuple(embeddings['image_embeddings'].shape)}",
+        f"text_shape={tuple(text_embeddings.shape)} "
+        f"image_shape={tuple(image_embeddings.shape)}",
     )
     return embeddings
 
@@ -500,18 +521,29 @@ class FlashdreamsWorldModelSession:
         embeddings are computed and the one-shot encoders freed before the
         AR pipeline is allocated.
         """
-        start = time.perf_counter()
-        if self._pipeline_factory is not None:
-            self._pipeline = self._pipeline_factory(self.manifest, self._profile_config)
-        elif self._offload_text_encoder and not self.manifest.synthetic_model:
+        if (
+            self._pipeline_factory is None
+            and self._offload_text_encoder
+            and not self.manifest.synthetic_model
+        ):
             return
-        else:
-            config = _build_pipeline_config(self.manifest, self._profile_config)
-            self._pipeline = _setup_pipeline_from_config(config, self.manifest)
-        self._validate_chunk_sizes()
-        elapsed_ms = (time.perf_counter() - start) * 1000.0
+
+        def build_and_validate_pipeline() -> None:
+            if self._pipeline_factory is not None:
+                self._pipeline = self._pipeline_factory(
+                    self.manifest, self._profile_config
+                )
+            else:
+                config = _build_pipeline_config(self.manifest, self._profile_config)
+                self._pipeline = _setup_pipeline_from_config(config, self.manifest)
+            self._validate_chunk_sizes()
+
+        warmup_timing = run_timed_prewarm(
+            build_and_validate_pipeline,
+            label="flashdreams-session.model",
+        )
         logger.info(
-            f"[flashdreams-session] model warmup runtime_ms={elapsed_ms:.1f}",
+            f"[flashdreams-session] model warmup runtime_ms={warmup_timing.elapsed_ms:.1f}",
         )
 
     def prepare_for_scene(
@@ -568,11 +600,12 @@ class FlashdreamsWorldModelSession:
         if self._pipeline is None:
             return
         self._pipeline = None
-        gc.collect()
         device = torch.device(self.manifest.device)
-        if device.type == "cuda" and torch.cuda.is_available():
-            torch.cuda.synchronize(device)
-            torch.cuda.empty_cache()
+        collect_and_release_cuda_memory(
+            device=device,
+            synchronize_cuda=device.type == "cuda",
+            torch_module=torch,
+        )
 
     def start(
         self,
@@ -709,15 +742,18 @@ class FlashdreamsWorldModelSession:
                 "offload_text_encoder requires flashdreams precompute_embeddings()."
             )
 
-        embeddings = precompute_embeddings(
-            text=[[prompt]],
-            image=self._initial_rgb_tensor(initial_rgb),
+        embeddings = move_tensors_to_cpu(
+            precompute_embeddings(
+                text=[[prompt]],
+                image=self._initial_rgb_tensor(initial_rgb),
+            ),
+            torch_module=torch,
         )
         self._precomputed_embeddings = {
-            "text_embeddings": embeddings["text_embeddings"].cpu(),
-            "image_embeddings": embeddings["image_embeddings"].cpu(),
+            "text_embeddings": embeddings["text_embeddings"],
+            "image_embeddings": embeddings["image_embeddings"],
             "negative_text_embeddings": (
-                embeddings["negative_text_embeddings"].cpu()
+                embeddings["negative_text_embeddings"]
                 if embeddings.get("negative_text_embeddings") is not None
                 else None
             ),
@@ -767,7 +803,7 @@ class FlashdreamsWorldModelSession:
         ]
 
 
-class _LazyRGBFrame:
+class _LazyRGBFrame(LazyCudaFrame):
     """Defer GPU-to-host copies until the presenter consumes each frame."""
 
     def __init__(
@@ -777,61 +813,13 @@ class _LazyRGBFrame:
         *,
         source_event: object | None = None,
     ) -> None:
-        self._frames_hwc_uint8: torch.Tensor | None = frames_hwc_uint8
-        self._frame_index = int(frame_index)
-        self._source_event = source_event
-        self._host: np.ndarray | None = None
-        self._prefetch: CudaHostPrefetch | None = None
-
-    def prefetch_to_numpy(self) -> None:
-        if (
-            self._host is not None
-            or self._prefetch is not None
-            or self._frames_hwc_uint8 is None
-        ):
-            return
-        frame = self._frames_hwc_uint8[self._frame_index].detach()
-        prefetch = CudaHostPrefetch(frame, source_event=self._source_event)
-        if prefetch.start():
-            self._prefetch = prefetch
-
-    def to_numpy(self) -> np.ndarray:
-        if self._host is None:
-            if self._prefetch is not None:
-                self._host = self._prefetch.to_numpy()
-                self._prefetch = None
-                self._frames_hwc_uint8 = None
-                return self._host
-            if self._frames_hwc_uint8 is None:
-                raise RuntimeError(
-                    "Lazy RGB frame lost its source tensor before materialization."
-                )
-            frame = self._frames_hwc_uint8[self._frame_index].detach().cpu().numpy()
-            self._host = np.ascontiguousarray(frame, dtype=np.uint8)
-            self._frames_hwc_uint8 = None
-        return self._host
-
-    def to_cuda_tensor(self) -> torch.Tensor:
-        if self._frames_hwc_uint8 is None:
-            raise RuntimeError("Lazy RGB frame was already materialized on the host.")
-        return self._frames_hwc_uint8[self._frame_index]
-
-    def to_cuda_event(self) -> object | None:
-        if self._frames_hwc_uint8 is None:
-            return None
-        return self._source_event
-
-    def __array__(
-        self,
-        dtype: object | None = None,
-        copy: bool | None = None,
-    ) -> np.ndarray:
-        array = self.to_numpy()
-        if dtype is not None:
-            array = array.astype(dtype, copy=False)
-        if copy:
-            return np.array(array, copy=True)
-        return array
+        super().__init__(
+            frames_hwc_uint8,
+            frame_index,
+            source_event=source_event,
+            lost_source_message="Lazy RGB frame lost its source tensor before materialization.",
+            already_materialized_message="Lazy RGB frame was already materialized on the host.",
+        )
 
 
 def _rgb_hwc_uint8(frame: object) -> np.ndarray:
