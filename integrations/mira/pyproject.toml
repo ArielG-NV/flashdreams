@@ -44,6 +44,9 @@ dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
 [project.scripts]
 mira-webrtc = "mira_integration.webrtc.server:main"
 
+[project.entry-points."flashdreams.runner_configs"]
+mira = "mira_integration.configs:RUNNER_MIRA"
+
 [tool.setuptools.packages.find]
 include = ["mira_integration*"]
 exclude = ["tests"]

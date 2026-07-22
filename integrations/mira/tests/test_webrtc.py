@@ -240,6 +240,41 @@ async def test_runtime_translates_latest_keys_and_emits_uint8_chunk() -> None:
 
 
 @pytest.mark.asyncio
+async def test_runtime_render_uses_latest_published_input_state() -> None:
+    pipeline = _FakePipeline()
+    runtime = MiraInferenceRuntime(
+        config=MiraRuntimeConfig(model_config=DEMO_4P, device="cpu"),
+        pipeline_factory=lambda _config: pipeline,  # ty: ignore[invalid-argument-type]
+    )
+    try:
+        await runtime.initialize()
+        await runtime.reset_for_new_session()
+
+        runtime.publish_player_keys(
+            (
+                frozenset({"w"}),
+                None,
+                None,
+                None,
+            )
+        )
+        runtime.publish_player_keys(
+            (
+                frozenset({"d"}),
+                frozenset({"space"}),
+                None,
+                frozenset(),
+            )
+        )
+        result = await runtime.render_next_chunk()
+
+        assert pipeline.generated_keys == [[["D"], ["Space"], None, []]]
+        assert result.chunk_index == 0
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
 async def test_packaged_app_serves_mira_control_ui() -> None:
     manager = _FakeSessionManager()
     app = create_app(

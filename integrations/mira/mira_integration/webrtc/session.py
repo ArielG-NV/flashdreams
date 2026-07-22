@@ -26,9 +26,14 @@ from typing import Any, TypeVar
 
 import nvtx
 import torch
+from torch import Tensor
 
 from flashdreams.serving.webrtc.runtime import WebRTCStepResult
-from mira_integration.configs.schema import MiraModelMetadata, MiraWebRTCModelConfig
+from mira_integration.configs.schema import (
+    MiraModelMetadata,
+    MiraWebRTCModelConfig,
+    preview_grid_dimensions,
+)
 from mira_integration.pipeline import MiraCache, MiraPipeline, MiraPipelineConfig
 
 MIRA_VIDEO_HEIGHT = 288
@@ -59,13 +64,13 @@ class MiraRuntimeConfig:
     fps: int = 60
     """WebRTC playback and keyboard-resampling frame rate."""
 
-    video_height: int = MIRA_VIDEO_HEIGHT
+    video_height: int | None = None
     """Fixed MIRA output height reported to the browser."""
 
-    video_width: int = MIRA_VIDEO_WIDTH
+    video_width: int | None = None
     """Fixed MIRA output width reported to the browser."""
 
-    frames_per_chunk: int = MIRA_FRAMES_PER_CHUNK
+    frames_per_chunk: int | None = None
     """Pixel frames expected from each generated chunk."""
 
     n_diffusion_steps: int = 2
@@ -79,6 +84,12 @@ class MiraRuntimeConfig:
 
     def __post_init__(self) -> None:
         metadata = self.model_config.metadata
+        if self.video_height is None:
+            self.video_height = metadata.video_height
+        if self.video_width is None:
+            self.video_width = metadata.video_width
+        if self.frames_per_chunk is None:
+            self.frames_per_chunk = metadata.frames_per_chunk
         if (self.video_height, self.video_width) != (
             metadata.video_height,
             metadata.video_width,
@@ -111,6 +122,57 @@ def checkpoint_keys(
     return metadata.checkpoint_keys(keys)
 
 
+@nvtx.annotate()
+def normalize_player_chunk(video: Tensor, *, n_players: int) -> Tensor:
+    """Return a generated chunk in ``[P,T,C,H,W]`` layout."""
+    if video.ndim == 4:
+        video = video.unsqueeze(0)
+    if video.ndim != 5 or video.shape[0] != n_players:
+        raise ValueError(
+            f"Expected [{n_players},T,C,H,W] MIRA output, got {tuple(video.shape)}"
+        )
+    return video
+
+
+@nvtx.annotate()
+def tile_player_video(video: Tensor) -> Tensor:
+    """Tile per-player video into one near-square preview image stream."""
+    if video.ndim != 5 or video.shape[0] <= 0:
+        raise ValueError(f"Expected [P,T,C,H,W] player video, got {tuple(video.shape)}")
+    players, frames, channels, height, width = video.shape
+    rows, columns = preview_grid_dimensions(players)
+    preview = torch.zeros(
+        frames,
+        channels,
+        rows * height,
+        columns * width,
+        dtype=video.dtype,
+        device=video.device,
+    )
+    for player in range(players):
+        row, column = divmod(player, columns)
+        preview[
+            :,
+            :,
+            row * height : (row + 1) * height,
+            column * width : (column + 1) * width,
+        ] = video[player]
+    return preview
+
+
+@nvtx.annotate()
+def video_to_uint8_image(video: Tensor) -> Tensor:
+    """Convert ``[0,1]`` RGB video to a GPU-resident ``uint8`` image tensor."""
+    return (
+        video.detach()
+        .float()
+        .clamp(0, 1)
+        .mul(255)
+        .round()
+        .to(torch.uint8)
+    )
+
+
 class MiraInferenceRuntime:
     """Run a persistent MIRA pipeline behind the shared async WebRTC manager."""
 
@@ -127,6 +189,13 @@ class MiraInferenceRuntime:
         self._cache: MiraCache | None = None
         self._autoregressive_index = 0
         self._closed = False
+        player_count = self.model_config.metadata.player_count
+        self._input_buffers: list[list[frozenset[str] | None]] = [
+            [None] * player_count,
+            [None] * player_count,
+        ]
+        self._active_input_buffer = 0
+        self._input_lock = threading.Lock()
         self._step_lock = asyncio.Lock()
         self._exit_event = threading.Event()
         self._executor = ThreadPoolExecutor(
@@ -153,9 +222,10 @@ class MiraInferenceRuntime:
     @nvtx.annotate()
     async def reset_for_new_session(self) -> None:
         """Reset the cache and RNG for a new browser session."""
-        if self._closed:
-            raise RuntimeError("MIRA runtime is closed.")
-        await self._run_on_runtime_thread(self._reset_sync)
+        async with self._step_lock:
+            if self._closed:
+                raise RuntimeError("MIRA runtime is closed.")
+            await self._run_on_runtime_thread(self._reset_sync)
 
     def peek_steady_chunk_num_frames(self) -> int:
         """Return the fixed number of frames in a MIRA output chunk."""
@@ -171,14 +241,30 @@ class MiraInferenceRuntime:
         *,
         player_keys: tuple[frozenset[str] | None, ...],
     ) -> WebRTCStepResult:
-        """Generate one synchronized chunk from all four held-key states."""
+        """Publish held-key states and render one synchronized chunk."""
+        self.publish_player_keys(player_keys)
+        return await self.render_next_chunk()
+
+    @nvtx.annotate()
+    def publish_player_keys(
+        self,
+        player_keys: tuple[frozenset[str] | None, ...],
+    ) -> None:
+        """Publish the latest browser-key state for future rendered chunks."""
+        normalized = self._validate_player_keys(player_keys)
+        with self._input_lock:
+            write_index = 1 - self._active_input_buffer
+            buffer = self._input_buffers[write_index]
+            buffer[:] = normalized
+            self._active_input_buffer = write_index
+
+    @nvtx.annotate()
+    async def render_next_chunk(self) -> WebRTCStepResult:
+        """Render one chunk from the most recently published input state."""
         async with self._step_lock:
             if self._closed:
                 raise RuntimeError("MIRA runtime is closed.")
-            return await self._run_on_runtime_thread(
-                self._generate_chunk_sync,
-                player_keys,
-            )
+            return await self._run_on_runtime_thread(self._render_next_chunk_sync)
 
     @nvtx.annotate()
     async def close(self) -> None:
@@ -222,7 +308,7 @@ class MiraInferenceRuntime:
     ) -> _T:
         device = torch.device(self.config.device)
         if device.type == "cuda":
-            torch.cuda.set_device(device)
+            torch.cuda.set_device(0 if device.index is None else device.index)
         return function(*args)
 
     @nvtx.annotate()
@@ -244,21 +330,14 @@ class MiraInferenceRuntime:
             n_diffusion_steps=self.config.n_diffusion_steps
         )
         self._autoregressive_index = 0
+        self._reset_input_buffers()
 
     @nvtx.annotate()
-    def _generate_chunk_sync(
-        self,
-        player_keys: tuple[frozenset[str] | None, ...],
-    ) -> WebRTCStepResult:
+    def _render_next_chunk_sync(self) -> WebRTCStepResult:
         if self._pipeline is None or self._cache is None:
             raise RuntimeError("MIRA session is not initialized.")
-        player_count = self.model_config.metadata.player_count
-        if len(player_keys) != player_count:
-            raise ValueError(
-                f"MIRA expects controls for {player_count} players, "
-                f"got {len(player_keys)}."
-            )
 
+        player_keys = self._snapshot_player_keys()
         with nvtx.annotate("MiraInferenceRuntime.translate_keys"):
             held_keys = [
                 None
@@ -266,27 +345,25 @@ class MiraInferenceRuntime:
                 else checkpoint_keys(keys, self.model_config.metadata)
                 for keys in player_keys
             ]
+
         chunk_index = self._autoregressive_index
-        with nvtx.annotate("MiraInferenceRuntime.pipeline_generate"):
-            video = self._pipeline.generate(
-                chunk_index,
-                self._cache,
-                input=held_keys,
-            )
-        with nvtx.annotate("MiraInferenceRuntime.pipeline_finalize"):
-            stats = self._pipeline.finalize(chunk_index, self._cache)
-        with nvtx.annotate("MiraInferenceRuntime.materialize_uint8_cpu"):
-            video_uint8 = (
-                video.detach()
-                .float()
-                .clamp(0, 1)
-                .mul(255)
-                .round()
-                .to(torch.uint8)
-                .cpu()
-            )
-        if video_uint8.ndim == 4:
-            video_uint8 = video_uint8.unsqueeze(0)
+        with torch.inference_mode():
+            with nvtx.annotate("MiraInferenceRuntime.pipeline_generate"):
+                video = self._pipeline.generate(
+                    chunk_index,
+                    self._cache,
+                    input=held_keys,
+                )
+            with nvtx.annotate("MiraInferenceRuntime.pipeline_finalize"):
+                stats = self._pipeline.finalize(chunk_index, self._cache)
+            with nvtx.annotate("MiraInferenceRuntime.materialize_uint8_image"):
+                video_uint8 = video_to_uint8_image(
+                    normalize_player_chunk(
+                        video,
+                        n_players=self.model_config.metadata.player_count,
+                    )
+                )
+
         self._autoregressive_index += 1
         return WebRTCStepResult(
             chunk_index=chunk_index,
@@ -294,6 +371,41 @@ class MiraInferenceRuntime:
             video_chunk=video_uint8,
             stats=stats,
         )
+
+    @nvtx.annotate()
+    def _validate_player_keys(
+        self,
+        player_keys: tuple[frozenset[str] | None, ...],
+    ) -> list[frozenset[str] | None]:
+        player_count = self.model_config.metadata.player_count
+        if len(player_keys) != player_count:
+            raise ValueError(
+                f"MIRA expects controls for {player_count} players, "
+                f"got {len(player_keys)}."
+            )
+        browser_keys = self.model_config.metadata.browser_keys
+        normalized: list[frozenset[str] | None] = []
+        for keys in player_keys:
+            if keys is None:
+                normalized.append(None)
+                continue
+            unknown = sorted(keys - browser_keys)
+            if unknown:
+                raise ValueError(f"unknown MIRA browser key(s): {unknown}")
+            normalized.append(frozenset(keys))
+        return normalized
+
+    @nvtx.annotate()
+    def _snapshot_player_keys(self) -> tuple[frozenset[str] | None, ...]:
+        with self._input_lock:
+            return tuple(self._input_buffers[self._active_input_buffer])
+
+    @nvtx.annotate()
+    def _reset_input_buffers(self) -> None:
+        with self._input_lock:
+            for buffer in self._input_buffers:
+                buffer[:] = [None] * len(buffer)
+            self._active_input_buffer = 0
 
     @nvtx.annotate()
     def _close_sync(self) -> None:
@@ -316,4 +428,7 @@ __all__ = [
     "MiraInferenceRuntime",
     "MiraRuntimeConfig",
     "checkpoint_keys",
+    "normalize_player_chunk",
+    "tile_player_video",
+    "video_to_uint8_image",
 ]

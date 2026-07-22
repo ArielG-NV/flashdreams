@@ -18,12 +18,16 @@ uv pip install imageio-ffmpeg
 Run the demo with a custom action sequence. Generated videos and timing data are written to `artifacts/mira/` by default:
 
 ```bash
-# W for 10 frames, then W+D for 6 frames, then Space for 2 frames, then W+A for 6 frames
+# W for 1.0s, then W+D for 0.6s, then Space for 0.2s, then W+A for 0.6s
 uv run flashdreams-run mira \
   --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
   --demo mira-mini-1p \
-  --action-script 'W@10,W+D@6,Space@2,W+A@6'
+  --action-script 'W@5,W+D@5,Space@6,W+A@5'
 ```
+
+Each action-script suffix is a duration in 100 ms units, so `W@3` holds `W`
+for 300 ms. The runner converts that duration to generated chunks using the
+configured `fps` and the selected demo's `frames_per_chunk`.
 
 For multiplayer demos, the action script controls player 1 and leaves the
 remaining players inactive. The output MP4 tiles all configured player views.
@@ -91,13 +95,13 @@ nsys profile \
   --sample=process-tree \
   --cpuctxsw=process-tree \
   --python-sampling=true \
-  --python-sampling-frequency=500 \
+  --python-sampling-frequency=200 \
   --cuda-memory-usage=true \
   --cuda-trace-all-apis=true \
   --gpu-metrics-devices=cuda-visible \
-  --gpu-metrics-frequency=10000 \
+  --gpu-metrics-frequency=1000 \
   uv run flashdreams-run mira \
     --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
     --demo mira-mini-1p \
-    --action-script 'W@10,W+D@6,Space@2,W+A@6'
+    --action-script 'W@5,W+D@5,Space@6,W+A@5'
 ```

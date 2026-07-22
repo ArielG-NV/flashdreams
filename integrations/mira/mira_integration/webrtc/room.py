@@ -25,10 +25,8 @@ from typing import Any
 from uuid import uuid4
 
 import nvtx
-import torch
 from aiortc import RTCPeerConnection, RTCSessionDescription
 from loguru import logger
-from torch import Tensor
 
 from flashdreams.serving.webrtc.media import BufferedVideoTrack
 from flashdreams.serving.webrtc.messages import (
@@ -41,43 +39,8 @@ from mira_integration.configs.schema import preview_grid_dimensions
 from mira_integration.webrtc.session import (
     MiraInferenceRuntime,
     MiraRuntimeConfig,
+    tile_player_video,
 )
-
-
-@nvtx.annotate()
-def tile_player_video(video: Tensor) -> Tensor:
-    """Tile per-player video into one near-square preview stream.
-
-    Args:
-        video: Player video with shape ``[P, T, C, H, W]``.
-
-    Returns:
-        Tiled video with shape ``[T, C, rows*H, columns*W]``.
-
-    Raises:
-        ValueError: ``video`` does not contain a positive player dimension.
-    """
-    if video.ndim != 5 or video.shape[0] <= 0:
-        raise ValueError(f"Expected [P,T,C,H,W] player video, got {tuple(video.shape)}")
-    players, frames, channels, height, width = video.shape
-    rows, columns = preview_grid_dimensions(players)
-    preview = torch.zeros(
-        frames,
-        channels,
-        rows * height,
-        columns * width,
-        dtype=video.dtype,
-        device=video.device,
-    )
-    for player in range(players):
-        row, column = divmod(player, columns)
-        preview[
-            :,
-            :,
-            row * height : (row + 1) * height,
-            column * width : (column + 1) * width,
-        ] = video[player]
-    return preview
 
 
 @dataclass(slots=True)
@@ -342,6 +305,7 @@ class MiraMultiplayerSessionManager:
             session.held_keys.add(key)
         else:
             session.held_keys.discard(key)
+        self._publish_current_inputs()
 
     @nvtx.annotate()
     async def _claim_seat(self, session: MiraBrowserSession, raw_seat: Any) -> None:
@@ -371,6 +335,7 @@ class MiraMultiplayerSessionManager:
             session.seat = seat
             session.held_keys.clear()
             self._seat_owners[seat] = session.session_id
+            self._publish_current_inputs()
         self._send(session, {"type": "seat_claimed", "seat": seat})
 
     @nvtx.annotate()
@@ -384,6 +349,7 @@ class MiraMultiplayerSessionManager:
                     self._seat_owners.pop(seat, None)
             session.seat = None
             session.held_keys.clear()
+            self._publish_current_inputs()
         self._send(session, {"type": "seat_released", "seat": seat})
 
     @nvtx.annotate()
@@ -400,21 +366,11 @@ class MiraMultiplayerSessionManager:
         try:
             while self._sessions:
                 started = loop.time()
-                with nvtx.annotate("MiraMultiplayerSessionManager.collect_keys"):
-                    player_keys: list[frozenset[str] | None] = []
-                    for seat in range(self.metadata.player_count):
-                        controller = self._session_for_seat(seat)
-                        player_keys.append(
-                            frozenset(controller.held_keys)
-                            if controller is not None
-                            else None
-                        )
-                    keys = tuple(player_keys)
                 try:
                     with nvtx.annotate(
-                        "MiraMultiplayerSessionManager.generate_chunk"
+                        "MiraMultiplayerSessionManager.render_chunk"
                     ):
-                        result = await self._runtime.generate_chunk(player_keys=keys)
+                        result = await self._runtime.render_next_chunk()
                 except Exception as exc:
                     logger.exception("MIRA multiplayer generation failed.")
                     for session in tuple(self._sessions.values()):
@@ -485,6 +441,16 @@ class MiraMultiplayerSessionManager:
         return self._sessions.get(owner) if owner is not None else None
 
     @nvtx.annotate()
+    def _publish_current_inputs(self) -> None:
+        player_keys: list[frozenset[str] | None] = []
+        for seat in range(self.metadata.player_count):
+            controller = self._session_for_seat(seat)
+            player_keys.append(
+                frozenset(controller.held_keys) if controller is not None else None
+            )
+        self._runtime.publish_player_keys(tuple(player_keys))
+
+    @nvtx.annotate()
     async def _watch_liveness(self, session: MiraBrowserSession) -> None:
         try:
             while not session.closed:
@@ -506,6 +472,7 @@ class MiraMultiplayerSessionManager:
             if current is not session:
                 return
             self._remove_session_locked(session)
+            self._publish_current_inputs()
         await session.close()
         if not self._sessions and self._generation_task is not None:
             task = self._generation_task

@@ -60,7 +60,8 @@ Run the default forward-and-steer sequence:
 
 The runner writes ``mira.mp4`` and ``stats_mira.json`` under
 ``artifacts/mira/`` by default. Controls use
-``KEY+KEY@STEPS`` segments:
+``KEY+KEY@100MS`` segments, where ``@N`` holds the listed keys for
+``N * 100 ms``:
 
 .. code-block:: bash
 

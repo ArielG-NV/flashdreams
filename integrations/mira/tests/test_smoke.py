@@ -76,13 +76,18 @@ def test_configure_media_ffmpeg_uses_bundled_binary(
 
 
 def test_parse_action_script_expands_controls() -> None:
-    assert parse_action_script("W@2,W+D@1,A@2") == [
+    assert parse_action_script("W@2,W+D@1,A@2", fps=10, frames_per_chunk=1) == [
         ["W"],
         ["W"],
         ["W", "D"],
         ["A"],
         ["A"],
     ]
+
+
+def test_parse_action_script_uses_100ms_duration_units() -> None:
+    assert parse_action_script("W@1") == [["W"]] * 6
+    assert parse_action_script("A@2", fps=30, frames_per_chunk=4) == [["A"]] * 2
 
 
 def test_scripted_controls_only_target_player_one() -> None:

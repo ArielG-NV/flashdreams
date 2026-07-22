@@ -210,9 +210,6 @@ class MiraPipeline(
             cache,
             input=list(input or ()),
         )
-        if self.config.n_players == 1:
-            assert output.shape[0] == 1
-            return output[0]
         assert output.shape[0] == self.config.n_players
         return output
 
