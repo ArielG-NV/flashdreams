@@ -115,14 +115,17 @@ class KeyboardState:
 
     def resolved_effective_keys(self) -> frozenset[str]:
         effective: set[str] = set()
-        for key in (
-            self._latest_pressed(("w", "s")),
-            self._latest_pressed(("a", "d", "j", "l")),
-            self._latest_pressed(("q", "e")),
-            self._latest_pressed(("i", "k")),
-        ):
+        exclusive_groups = (
+            ("w", "s"),
+            ("a", "d", "j", "l"),
+            ("q", "e"),
+            ("i", "k"),
+        )
+        for key in (self._latest_pressed(group) for group in exclusive_groups):
             if key is not None:
                 effective.add(key)
+        exclusive_keys = {key for group in exclusive_groups for key in group}
+        effective.update(self.pressed_keys - exclusive_keys)
         return frozenset(key for key in effective if key in self.supported_keys)
 
 

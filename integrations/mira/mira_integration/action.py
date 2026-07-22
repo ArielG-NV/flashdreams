@@ -39,6 +39,7 @@ class MiraActionEncoder(nn.Module):
         num_keys: int = 9,
         dim: int = 2048,
         temporal_downsampling: int = 2,
+        per_player_dropout: bool = False,
     ) -> None:
         super().__init__()
         self.dim = dim
@@ -72,21 +73,31 @@ class MiraActionEncoder(nn.Module):
             nn.Linear(dim, dim), nn.SiLU(), nn.Linear(dim, dim)
         )
         self.mouse_dropout_token = nn.Parameter(torch.empty(1, 1, mouse_dim))
-        self.keyboard_dropout_token = nn.Parameter(torch.empty(1, 1, keyboard_dim))
+        if per_player_dropout:
+            self.key_dropout_embed = nn.Parameter(torch.empty(num_keys, split_dim))
+            self.register_parameter("keyboard_dropout_token", None)
+        else:
+            self.register_parameter("key_dropout_embed", None)
+            self.keyboard_dropout_token = nn.Parameter(torch.empty(1, 1, keyboard_dim))
         self.initial_action_token = nn.Parameter(torch.empty(1, 1, dim))
         nn.init.normal_(self.mouse_sensitivity_dropout_token, std=0.02)
         nn.init.normal_(self.mouse_dropout_token, std=0.02)
-        nn.init.normal_(self.keyboard_dropout_token, std=0.02)
+        if self.key_dropout_embed is not None:
+            nn.init.normal_(self.key_dropout_embed, std=0.02)
+        if self.keyboard_dropout_token is not None:
+            nn.init.normal_(self.keyboard_dropout_token, std=0.02)
         nn.init.normal_(self.initial_action_token, std=0.02)
 
     def forward(self, key_presses: Tensor) -> Tensor:
-        """Encode multi-hot keyboard rows ``[B,T,9]`` into action tokens."""
+        """Encode keyboard rows ``[B,T,K]`` into action tokens."""
         batch, steps, _ = key_presses.shape
         assert steps % self.temporal_downsampling == 0, (
             f"action row count {steps} must be divisible by "
             f"{self.temporal_downsampling}"
         )
         dtype = self.mouse_mlp.weight.dtype
+        autopilot_mask = (key_presses[:, -1] < 0).all(dim=-1)
+        key_presses = key_presses.clamp_min(0)
         mouse = torch.zeros(batch, steps, 2, device=key_presses.device, dtype=dtype)
         mouse = self.mouse_mlp(_symlog_normalize(mouse))
         sensitivity = torch.ones(batch, 1, 1, device=key_presses.device, dtype=dtype)
@@ -97,8 +108,10 @@ class MiraActionEncoder(nn.Module):
         mouse = mouse + sensitivity
 
         keyboard_parts = [
-            self.keyboard_embedding_dict[str(index)](
-                key_presses[..., index].to(dtype=torch.long)
+            self._embed_key(
+                key_presses=key_presses,
+                key_index=index,
+                autopilot_mask=autopilot_mask,
             )
             for index in range(key_presses.shape[-1])
         ]
@@ -114,8 +127,36 @@ class MiraActionEncoder(nn.Module):
         keyboard = self.keyboard_temporal_pool(
             keyboard.unflatten(1, (-1, stride)).flatten(2)
         )
+        if autopilot_mask.any():
+            mask = autopilot_mask[:, None, None]
+            mouse = torch.where(
+                mask,
+                self.mouse_dropout_token.to(dtype=mouse.dtype),
+                mouse,
+            )
+            if self.keyboard_dropout_token is not None:
+                keyboard = torch.where(
+                    mask,
+                    self.keyboard_dropout_token.to(dtype=keyboard.dtype),
+                    keyboard,
+                )
         encoded = self.joint_mlp(torch.cat((mouse, keyboard), dim=-1))
         initial = self.initial_action_token.expand(batch, -1, -1).to(
             dtype=encoded.dtype
         )
         return torch.cat((initial, encoded), dim=1)
+
+    def _embed_key(
+        self,
+        *,
+        key_presses: Tensor,
+        key_index: int,
+        autopilot_mask: Tensor,
+    ) -> Tensor:
+        embedded = self.keyboard_embedding_dict[str(key_index)](
+            key_presses[..., key_index].to(dtype=torch.long)
+        )
+        if self.key_dropout_embed is None:
+            return embedded
+        token = self.key_dropout_embed[key_index].to(dtype=embedded.dtype)
+        return torch.where(autopilot_mask[:, None, None], token, embedded)

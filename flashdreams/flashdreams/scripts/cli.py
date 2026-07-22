@@ -61,6 +61,7 @@ def main(
     Under ``torchrun`` only local-rank 0 prints; every rank holds the
     same resolved config.
     """
+    config = config.resolve()
     if int(os.environ.get("LOCAL_RANK", "0")) == 0:
         print(f"Resolved config for {config.runner_name!r}:")
         print(config)

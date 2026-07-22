@@ -168,6 +168,9 @@ class MiraDecoderConfig(DecoderConfig):
     latent_std: float = 0.9276199261988762
     """Published codec latent standard deviation."""
 
+    n_players: int = 1
+    """Number of player views stacked along the incoming latent height."""
+
 
 class MiraVideoDecoder(StreamingVideoDecoder[MiraDecoderCache]):
     """Decode MIRA latents with two-frame causal context and emit RGB video."""
@@ -234,6 +237,12 @@ class MiraVideoDecoder(StreamingVideoDecoder[MiraDecoderCache]):
         """Decode one normalized latent and return two new RGB frames."""
         _ = autoregressive_index
         assert cache is not None
+        if self.mira_config.n_players > 1:
+            input = rearrange(
+                input,
+                "b c t (p h) w -> (b p) c t h w",
+                p=self.mira_config.n_players,
+            )
         normalized = torch.cat((cache.latent_history, input), dim=2)
         cache.latent_history = normalized[:, :, -2:].detach()
         latent = self.mira_config.latent_std * normalized + self.mira_config.latent_mean

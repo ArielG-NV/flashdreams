@@ -23,17 +23,30 @@ version = "0.1.0"
 description = "MIRA Mini interactive world-model integration for FlashDreams."
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["flashdreams"]
+dependencies = [
+    "flashdreams[serving]",
+    "ftfy",
+    "omegaconf",
+    "regex",
+    "scikit-learn",
+    "submitit",
+    "termcolor",
+    "torchmetrics>=1.0",
+]
 
 [tool.uv.sources]
 flashdreams = { workspace = true }
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
 
-[project.entry-points."flashdreams.runner_configs"]
-"mira-mini-1b-demo" = "mira_integration.config:RUNNER_MIRA_MINI_1B_DEMO"
+[project.scripts]
+mira-webrtc = "mira_integration.webrtc.server:main"
 
 [tool.setuptools.packages.find]
 include = ["mira_integration*"]
 exclude = ["tests"]
+
+[tool.setuptools.package-data]
+"mira_integration.configs" = ["*.yaml"]
+"mira_integration.webrtc.web" = ["*.html", "*.css", "*.js"]

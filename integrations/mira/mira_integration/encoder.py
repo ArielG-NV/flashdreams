@@ -74,7 +74,7 @@ class MiraControlEncoder(StreamingEncoder[MiraControlEncoderCache]):
 
     def forward(
         self,
-        input: list[str] | tuple[str, ...],
+        input: list[str] | tuple[str, ...] | list[list[str] | None],
         autoregressive_index: int = 0,
         cache: MiraControlEncoderCache | None = None,
     ) -> Tensor:
@@ -82,10 +82,23 @@ class MiraControlEncoder(StreamingEncoder[MiraControlEncoderCache]):
         _ = autoregressive_index
         assert cache is not None, "MIRA controls require an initialized encoder cache"
         current = torch.zeros_like(cache.previous_row)
-        for key in input:
-            if key not in self._key_index:
-                raise ValueError(f"Unknown MIRA key: {key!r}")
-            current[..., self._key_index[key]] = 1
+        if input and (isinstance(input[0], list) or input[0] is None):
+            per_player = input
+        else:
+            flat_input = [key for key in input if isinstance(key, str)]
+            per_player = [flat_input] * current.shape[0]
+        if len(per_player) != current.shape[0]:
+            raise ValueError(
+                f"Expected controls for {current.shape[0]} players, got {len(per_player)}"
+            )
+        for player, keys in enumerate(per_player):
+            if keys is None:
+                current[player].fill_(-1)
+                continue
+            for key in keys:
+                if key not in self._key_index:
+                    raise ValueError(f"Unknown MIRA key: {key!r}")
+                current[player, ..., self._key_index[key]] = 1
         rows = torch.cat((cache.previous_row, current), dim=1)
         cache.previous_row = current
         return rows

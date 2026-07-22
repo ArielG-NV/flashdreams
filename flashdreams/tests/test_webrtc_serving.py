@@ -55,6 +55,20 @@ def test_wsad_resampler_preserves_held_key() -> None:
     assert frame_times == pytest.approx([1.0 + 1 / 30, 1.0 + 2 / 30])
 
 
+def test_keyboard_state_preserves_supported_non_axis_keys() -> None:
+    state = KeyboardState(
+        supported_keys=frozenset({"w", "s", "space", "shift", "control"})
+    )
+
+    assert state.apply_event(event="keydown", key="w")
+    assert state.apply_event(event="keydown", key="space")
+    assert state.apply_event(event="keydown", key="shift")
+    assert state.resolved_effective_keys() == frozenset({"w", "space", "shift"})
+
+    assert state.apply_event(event="keydown", key="s")
+    assert state.resolved_effective_keys() == frozenset({"s", "space", "shift"})
+
+
 def test_camera_pose_integrator_flu_uses_driving_axes() -> None:
     integrator = CameraPoseIntegrator(
         move_speed_per_s=2.0,

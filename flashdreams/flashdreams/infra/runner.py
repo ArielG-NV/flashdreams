@@ -89,6 +89,10 @@ class RunnerConfig(InstantiateConfig):
     running distributed. Defaults to ``True`` so each rank draws from a
     distinct RNG stream while preserving deterministic replay per rank."""
 
+    def resolve(self) -> RunnerConfig:
+        """Return the runtime-ready runner configuration."""
+        return self
+
 
 RunnerConfigT = TypeVar("RunnerConfigT", bound=RunnerConfig)
 PipelineT = TypeVar("PipelineT", bound=StreamInferencePipeline[Any, Any, Any])

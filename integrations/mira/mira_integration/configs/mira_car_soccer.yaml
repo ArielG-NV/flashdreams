@@ -1,0 +1,89 @@
+input-map:
+  car-soccer:
+    accelerate:
+      browser_key: [w, arrowup, keyw]
+      checkpoint_key: W
+      label: W
+      action: Accelerate
+      group: Movement
+      group_description: Accelerate, reverse, and steer.
+    steer-left:
+      browser_key: [a, arrowleft, keya]
+      checkpoint_key: A
+      label: A
+      action: Steer left
+      group: Movement
+      group_description: Accelerate, reverse, and steer.
+    reverse:
+      browser_key: [s, arrowdown, keys]
+      checkpoint_key: S
+      label: S
+      action: Reverse
+      group: Movement
+      group_description: Accelerate, reverse, and steer.
+    steer-right:
+      browser_key: [d, arrowright, keyd]
+      checkpoint_key: D
+      label: D
+      action: Steer right
+      group: Movement
+      group_description: Accelerate, reverse, and steer.
+    roll-left:
+      browser_key: [q, keyq]
+      checkpoint_key: Q
+      label: Q
+      action: Roll left
+      group: Air control
+      group_description: Roll left or right.
+    roll-right:
+      browser_key: [e, keye]
+      checkpoint_key: E
+      label: E
+      action: Roll right
+      group: Air control
+      group_description: Roll left or right.
+    jump:
+      browser_key: [space, " ", spacebar]
+      checkpoint_key: Space
+      label: SPACE
+      action: Jump
+      group: Actions
+      group_description: Jump, boost, and powerslide.
+    boost:
+      browser_key: [shift, shiftleft, shiftright]
+      checkpoint_key: LShiftKey
+      label: SHIFT
+      action: Boost
+      group: Actions
+      group_description: Jump, boost, and powerslide.
+    powerslide:
+      browser_key: [control, controlleft, controlright]
+      checkpoint_key: LControlKey
+      label: CTRL
+      action: Powerslide
+      group: Actions
+      group_description: Jump, boost, and powerslide.
+
+demos:
+  mira-mini-1p:
+    checkpoint-hugging-face: alakazamworld/mira-mini
+    input-map: car-soccer
+    player_count: 1
+    steps: 8
+    latent_height: 9
+    latent_width: 16
+    video_width: 512
+    video_height: 288
+    frames_per_chunk: 1
+    display_name: MIRA Mini 1B
+  mira-mini-4p:
+    checkpoint-hugging-face: alakazamworld/mira-mini-4p
+    input-map: car-soccer
+    player_count: 4
+    steps: 8
+    latent_height: 9
+    latent_width: 16
+    video_width: 512
+    video_height: 288
+    frames_per_chunk: 1
+    display_name: MIRA Mini 4P

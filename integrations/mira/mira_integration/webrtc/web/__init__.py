@@ -13,14 +13,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""FlashDreams adapter for Alakazam's MIRA Mini runtime."""
-
-from mira_integration.config import (
-    load_demo_config,
-    load_manifest,
-)
-
-__all__ = [
-    "load_demo_config",
-    "load_manifest",
-]
+"""Packaged browser assets for the MIRA WebRTC controller."""

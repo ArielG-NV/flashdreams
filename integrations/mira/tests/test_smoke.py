@@ -17,35 +17,34 @@
 
 from __future__ import annotations
 
+import sys
 from importlib.metadata import entry_points
 from pathlib import Path
 from types import SimpleNamespace
-import sys
 
 import pytest
-
-from flashdreams.infra.runner import RunnerConfig
+import torch
 from mira_integration.config import (
-    MIRA_CONFIGS,
-    PIPELINE_MIRA_MINI_1B,
-    RUNNER_CONFIGS,
-    RUNNER_MIRA_MINI_1B_DEMO,
+    load_demo_config,
 )
-from mira_integration.pipeline import DEFAULT_MODEL_REPO, MiraPipelineConfig
-from mira_integration.runner import _configure_media_ffmpeg, parse_action_script
+from mira_integration.pipeline import MiraPipelineConfig
+from mira_integration.runner import (
+    _configure_media_ffmpeg,
+    _normalize_player_chunk,
+    _player_one_controls,
+    _tile_player_video,
+    parse_action_script,
+)
+
+from flashdreams.infra.config import derive_config
+from flashdreams.infra.runner import RunnerConfig
 
 pytestmark = pytest.mark.ci_cpu
 
 
-def test_static_configs_are_registered_by_matching_slug() -> None:
-    assert MIRA_CONFIGS == {"mira-mini-1b-demo": PIPELINE_MIRA_MINI_1B}
-    assert RUNNER_CONFIGS == {"mira-mini-1b-demo": RUNNER_MIRA_MINI_1B_DEMO}
-    assert isinstance(RUNNER_MIRA_MINI_1B_DEMO, RunnerConfig)
-    assert isinstance(PIPELINE_MIRA_MINI_1B, MiraPipelineConfig)
-    assert RUNNER_MIRA_MINI_1B_DEMO.runner_name == PIPELINE_MIRA_MINI_1B.name
-    assert PIPELINE_MIRA_MINI_1B.model_repo == DEFAULT_MODEL_REPO
-    assert PIPELINE_MIRA_MINI_1B.enable_sync_and_profile
-
+MANIFEST_PATH = (
+    Path(__file__).parents[1] / "mira_integration" / "configs" / "mira_car_soccer.yaml"
+)
 
 def test_runtime_has_no_alakazam_package_imports() -> None:
     package = Path(__file__).parents[1] / "mira_integration"
@@ -86,18 +85,35 @@ def test_parse_action_script_expands_controls() -> None:
     ]
 
 
+def test_scripted_controls_only_target_player_one() -> None:
+    held = ["W", "D"]
+    assert _player_one_controls(held, n_players=1) == [held]
+    assert _player_one_controls(held, n_players=4) == [held, None, None, None]
+
+
+def test_scripted_video_normalizes_and_tiles_dynamic_player_count() -> None:
+    single = _normalize_player_chunk(torch.zeros(2, 3, 4, 5), n_players=1)
+    assert single.shape == (1, 2, 3, 4, 5)
+
+    players = torch.stack(
+        tuple(torch.full((2, 3, 4, 5), float(index)) for index in range(3))
+    )
+    normalized = _normalize_player_chunk(players, n_players=3)
+    tiled = _tile_player_video(normalized)
+    assert normalized.shape == (3, 2, 3, 4, 5)
+    assert tiled.shape == (2, 3, 8, 10)
+    assert torch.equal(tiled[:, :, :4, :5], players[0])
+    assert torch.equal(tiled[:, :, :4, 5:], players[1])
+    assert torch.equal(tiled[:, :, 4:, :5], players[2])
+    assert torch.count_nonzero(tiled[:, :, 4:, 5:]) == 0
+
+
+def test_scripted_video_rejects_wrong_player_count() -> None:
+    with pytest.raises(ValueError, match=r"Expected \[4,T,C,H,W\]"):
+        _normalize_player_chunk(torch.zeros(3, 2, 3, 4, 5), n_players=4)
+
+
 @pytest.mark.parametrize("value", ("", "W", "W@0", "NotAKey@1", "W@wat"))
 def test_parse_action_script_rejects_invalid_input(value: str) -> None:
     with pytest.raises(ValueError):
         parse_action_script(value)
-
-
-def test_entry_point_registered_when_plugin_is_installed() -> None:
-    eps = {
-        ep.name: ep
-        for ep in entry_points(group="flashdreams.runner_configs")
-        if ep.value.startswith("mira_integration.")
-    }
-    if not eps:
-        pytest.skip("flashdreams-mira is not installed in the active environment")
-    assert eps["mira-mini-1b-demo"].load() is RUNNER_MIRA_MINI_1B_DEMO

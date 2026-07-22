@@ -23,6 +23,7 @@ import torch
 from einops import rearrange
 from torch import Tensor
 
+from flashdreams.infra.acceleration.cuda_graph_dispatch import CUDAGraphDispatch
 from flashdreams.infra.compile import compile_module
 from flashdreams.infra.diffusion.transformer import (
     Transformer,
@@ -77,6 +78,12 @@ class MiraTransformerConfig(TransformerConfig):
     compile_network: bool = False
     """Compile the checkpoint-compatible network after weight loading."""
 
+    use_cuda_graph: bool = False
+    """Replay steady-state MIRA network forwards through CUDA graphs."""
+
+    cuda_graph_warmup_iters: int = 2
+    """Eager calls before CUDA graph capture for a stable input signature."""
+
 
 class MiraTransformer(Transformer[MiraTransformerCache]):
     """Adapt MIRA's single-latent AR model to FlashDreams diffusion contracts."""
@@ -96,6 +103,10 @@ class MiraTransformer(Transformer[MiraTransformerCache]):
         self._batch_size: int | None = None
         self._height: int | None = None
         self._width: int | None = None
+        # The context has already filled N slots. AR step 0 fills the final
+        # fixed-size cache slot; step 1 is the first steady-state rollout.
+        self._cuda_graph_capture_ar_idx = 1
+        self._cuda_graph_dispatch: CUDAGraphDispatch | None = None
 
     def finish_loading(self) -> None:
         """Compile the network after checkpoint restoration when requested."""
@@ -118,7 +129,7 @@ class MiraTransformer(Transformer[MiraTransformerCache]):
 
     def patchify_and_maybe_split_cp(self, x: Tensor) -> Tensor:
         """Flatten video latents or encode a two-row keyboard payload."""
-        if x.ndim == 3 and x.shape[-1] == 9:
+        if x.ndim == 3 and x.shape[-1] == self.config.network.num_action_keys:
             return self.network.encode_actions(x)
         assert x.ndim == 5 and x.shape[2] == 1, (
             f"MIRA expects [B,C,1,H,W], got {tuple(x.shape)}"
@@ -150,6 +161,14 @@ class MiraTransformer(Transformer[MiraTransformerCache]):
             context_latents.to(dtype=self.config.dtype),
             context_action_rows,
         )
+        self._cuda_graph_dispatch = None
+        if self.config.use_cuda_graph:
+            self._cuda_graph_dispatch = CUDAGraphDispatch(
+                self.network,
+                enabled=True,
+                capture_ar_idx=self._cuda_graph_capture_ar_idx,
+                warmup_iters=self.config.cuda_graph_warmup_iters,
+            )
         clean_past = rearrange(context_latents[:, :, -1:], "b c 1 h w -> b (h w) c").to(
             dtype=self.config.dtype
         )
@@ -167,7 +186,15 @@ class MiraTransformer(Transformer[MiraTransformerCache]):
     ) -> Tensor:
         """Predict current-frame flow using action and clean-past conditioning."""
         assert input is not None, "MIRA requires encoded keyboard actions"
-        return self.network(
+        network = (
+            self.network
+            if self._cuda_graph_dispatch is None
+            else self._cuda_graph_dispatch.select(
+                cache.autoregressive_index,
+                uncond=False,
+            )
+        )
+        return network(
             noisy_latent,
             timesteps=timestep,
             cache=cache.network_cache,

@@ -1,0 +1,87 @@
+<!doctype html>
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#08090d">
+  <title>MIRA Mini · FlashDreams</title>
+  <link rel="stylesheet" href="/static/request_session.css">
+</head>
+<body data-status="idle">
+  <main class="shell">
+    <header class="topbar">
+      <a class="brand" href="/request_session" aria-label="FlashDreams MIRA home">
+        <span class="brandMark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span><strong>FLASHDREAMS</strong><small>MIRA MINI / LIVE WORLD</small></span>
+      </a>
+      <div class="serverState" aria-live="polite">
+        <span id="statusDot" class="statusDot"></span>
+        <span id="statusText">Offline</span>
+      </div>
+    </header>
+
+    <section class="viewport" aria-label="MIRA generated world">
+      <div class="ambient" aria-hidden="true">
+        <div class="fieldLines"></div>
+        <div class="ball"></div>
+      </div>
+      <video id="remoteVideo" autoplay playsinline muted></video>
+      <div class="scanlines" aria-hidden="true"></div>
+
+      <div class="viewBadge">
+        <span class="livePip"></span>
+        <span id="viewLabel">WORLD STREAM STANDBY</span>
+      </div>
+
+      <div class="heroCopy">
+        <p>INTERACTIVE WORLD MODEL</p>
+        <h1>Drive the<br><em>next frame.</em></h1>
+      </div>
+
+      <button id="connectButton" class="connectButton" type="button">
+        <span>Connecting preview</span><b aria-hidden="true">↗</b>
+      </button>
+    </section>
+
+    <section class="previewControls" aria-label="Player selection and telemetry">
+      <div class="playerPicker" aria-label="Choose a player">
+        <div class="playerPickerHeading">
+          <span>CHOOSE YOUR PLAYER</span>
+          <button id="copyLinkButton" type="button">COPY INVITE LINK</button>
+        </div>
+        <div class="playerGrid" id="playerGrid"></div>
+      </div>
+
+      <aside class="telemetry" aria-label="Live telemetry">
+        <div><span>MODEL</span><strong id="modelValue">MIRA</strong></div>
+        <div><span>AVG. FRAME RATE</span><strong id="averageFpsValue">—</strong></div>
+        <div><span>FRAME RATE</span><strong id="fpsValue">—</strong></div>
+        <div><span>LATENCY</span><strong id="latencyValue">—</strong></div>
+        <div><span>STEP</span><strong id="stepValue">—</strong></div>
+        <div><span>OUTPUT</span><strong id="resolutionValue">512 × 288</strong></div>
+      </aside>
+    </section>
+
+    <section class="controlDeck" aria-label="MIRA controls">
+      <div class="deckHeading">
+        <div>
+          <h2>MIRA inputs</h2>
+        </div>
+        <p id="controlHint">Connect a session to enable controls.</p>
+      </div>
+
+      <div class="controlGrid" id="controlGrid"></div>
+    </section>
+
+    <footer>
+      <span>FLASHDREAMS / REALTIME INFERENCE</span>
+      <span id="messageText" aria-live="polite">Runtime loads before the page becomes available.</span>
+    </footer>
+  </main>
+  <script src="/static/request_session.js?v=preview-phases" type="module"></script>
+</body>
+</html>

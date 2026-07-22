@@ -2,14 +2,7 @@
 
 This integration runs the 1B MIRA Mini car-soccer world model using native
 FlashDreams components. Its action encoder, diffusion transformer,
-`BlockKVCache` temporal state, flow scheduler, bootstrap encoder, and causal
-video decoder are implemented under `mira_integration`; the external
-`alakazam-mira-mini` Python package is not a runtime dependency.
-
-The default weights are downloaded from
-[`alakazamworld/mira-mini`](https://huggingface.co/alakazamworld/mira-mini)
-on the first real rollout. Config inspection does not construct the model or
-download weights.
+`BlockKVCache` temporal state, flow scheduler, bootstrap encoder, and causal video decoder are implemented under `mira_integration`.
 
 ## Install
 
@@ -18,57 +11,57 @@ uv sync --package flashdreams-mira --extra dev --extra runners
 uv pip install imageio-ffmpeg
 ```
 
-`huggingface_hub` reads `HF_TOKEN` from the environment. Do not put a token in
-the runner config or command line. The 1B bundle is roughly 12 GB and requires
-an NVIDIA GPU. Its weights are CC BY-NC-SA 4.0 (non-commercial, share-alike).
-
-The bootstrap video encoder uses the DINOv3 architecture loaded through
-PyTorch Hub; its weights are restored from the MIRA checkpoint rather than
-downloaded separately.
+`huggingface_hub` reads `HF_TOKEN` from the environment. Ensure the token exists and has premissions to access DINOv3.
 
 ## Demo
 
-Inspect the resolved config without loading a model:
+Run the demo with a custom action sequence. Generated videos and timing data are written to `artifacts/mira/` by default:
 
 ```bash
-uv run flashdreams-run --no-instantiate mira-mini-1b-demo
-```
-
-Generate the scripted example (forward, steer right, forward, steer left):
-
-```bash
-uv run flashdreams-run mira-mini-1b-demo
-```
-
-The output directory contains `mira-mini-1b-demo.mp4` and
-`stats_mira-mini-1b-demo.json`. Override the action script using
-`KEY+KEY@STEPS` segments:
-
-```bash
-uv run flashdreams-run mira-mini-1b-demo \
+# W for 10 frames, then W+D for 6 frames, then Space for 2 frames, then W+A for 6 frames
+uv run flashdreams-run mira \
+  --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
+  --demo mira-mini-1p \
   --action-script 'W@10,W+D@6,Space@2,W+A@6'
 ```
 
-Use local files instead of Hugging Face by overriding the pipeline paths:
+For multiplayer demos, the action script controls player 1 and leaves the
+remaining players inactive. The output MP4 tiles all configured player views.
+
+Launch the browser UI to host MIRA. Browser will print the `<IP>/request_session` URL to join the play session through:
 
 ```bash
-uv run flashdreams-run mira-mini-1b-demo \
-  --pipeline.bundle-path C:/models/mira-mini \
-  --pipeline.checkpoint-path C:/models/mira-mini/checkpoint-52000/checkpoint.pth \
-  --pipeline.context-path C:/models/mira-mini/context/default.npz
+# launch 4 player mira demo
+uv run mira-webrtc \
+  --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
+  --demo mira-mini-4p \
+  --host 0.0.0.0 --port 8083
+
+# launch 1 player mira demo
+uv run mira-webrtc \
+  --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
+  --demo mira-mini-1p \
+  --host 0.0.0.0 --port 8083
 ```
 
-MIRA Mini generation is single-GPU. CPU execution is supported for focused
-unit tests, not for the example rollout.
+## Adding new demos/checkpoints
+
+Model definitions live in
+`mira_integration/configs/*`. The manifest describes an input-map, checkpoint,
+player count, sampler step count, latent grid, output frame shape, and other
+metadata needed for MIRA to run.
+
+The manifests in this folder are your `<manifest_slug>` for argument `--manifest <manifest_slug>` and the members of `demos` inside the manifest are your argument for the `--demo <demo_slug>` parameter.
 
 ## Programmatic pipeline
 
 ```python
-from mira_integration.config import PIPELINE_MIRA_MINI_1B
+from mira_integration.config import load_demo_config
 
-pipeline = PIPELINE_MIRA_MINI_1B.setup().to("cuda").eval()
-cache = pipeline.initialize_cache(n_diffusion_steps=2)
-frames = pipeline.generate(0, cache, input=["W", "D"])  # [T, C, H, W]
+selection = load_demo_config("path/to/manifest.yaml", "mira-mini-1p")
+pipeline = selection.pipeline.setup().to("cuda").eval()
+cache = pipeline.initialize_cache(n_diffusion_steps=selection.metadata.steps)
+frames = pipeline.generate(0, cache, input=["W", "D"])
 pipeline.finalize(0, cache)
 pipeline.close()
 ```

@@ -23,6 +23,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from einops import rearrange
 from torch import Tensor
 
 from flashdreams.infra.pipeline import (
@@ -30,7 +31,6 @@ from flashdreams.infra.pipeline import (
     StreamInferencePipelineCache,
     StreamInferencePipelineConfig,
 )
-
 from mira_integration.decoder import (
     MiraDecoderCache,
     MiraDecoderConfig,
@@ -74,14 +74,8 @@ class MiraPipelineConfig(StreamInferencePipelineConfig):
     model_repo: str = DEFAULT_MODEL_REPO
     """Hugging Face repository containing the published checkpoint bundle."""
 
-    bundle_path: Path | None = None
-    """Optional local bundle override that disables Hugging Face resolution."""
-
-    checkpoint_path: Path | None = None
-    """Optional local world-model checkpoint override."""
-
-    context_path: Path | None = None
-    """Optional bootstrap ``.npz`` override."""
+    n_players: int = 1
+    """Number of synchronized player views in the checkpoint."""
 
 
 MiraCache = StreamInferencePipelineCache[
@@ -121,12 +115,8 @@ class MiraPipeline(
         """Resolve and restore the checkpoint into all native components once."""
         if self._weights_loaded:
             return
-        bundle = resolve_bundle(self.config.model_repo, self.config.bundle_path)
-        checkpoint = (
-            self.config.checkpoint_path.expanduser()
-            if self.config.checkpoint_path is not None
-            else find_world_checkpoint(bundle)
-        )
+        bundle = resolve_bundle(self.config.model_repo, None)
+        checkpoint = find_world_checkpoint(bundle)
         load_native_weights(
             checkpoint,
             transformer=self.transformer,
@@ -140,7 +130,7 @@ class MiraPipeline(
     def _context_file(self) -> Path:
         """Return the configured bootstrap context file after bundle resolution."""
         assert self._bundle is not None
-        path = self.config.context_path or self._bundle / "context" / "default.npz"
+        path = self._bundle / "context" / "default.npz"
         path = path.expanduser()
         if not path.is_file():
             raise FileNotFoundError(f"MIRA bootstrap context does not exist: {path}")
@@ -150,8 +140,8 @@ class MiraPipeline(
         self, *, n_diffusion_steps: int = 2, context: str = "default"
     ) -> MiraCache:
         """Load weights, encode bootstrap frames, and prime every streaming cache."""
-        if context != "default" and self.config.context_path is None:
-            raise ValueError("Named MIRA contexts require an explicit context_path")
+        if context != "default":
+            raise ValueError("MIRA checkpoint bundles provide the default context only")
         self._load_weights()
         data = np.load(self._context_file(), allow_pickle=False)
         frames = torch.from_numpy(data["frames"][:, -40:]).to(
@@ -170,6 +160,15 @@ class MiraPipeline(
         latent_window = latent_window[:, :, -20:].to(
             dtype=self.transformer.config.dtype
         )
+        tiled_latent_window = (
+            rearrange(
+                latent_window,
+                "(b p) c t h w -> b c t (p h) w",
+                p=self.config.n_players,
+            )
+            if self.config.n_players > 1
+            else latent_window
+        )
 
         scheduler = self.diffusion_model.scheduler
         assert isinstance(scheduler, MiraFlowScheduler)
@@ -179,7 +178,7 @@ class MiraPipeline(
                 previous_row=actions[:, -1:]
             ),
             transformer_cache=self.transformer.initialize_autoregressive_cache(
-                context_latents=latent_window[:, :, 1:],
+                context_latents=tiled_latent_window[:, :, 1:],
                 context_action_rows=actions[:, -37:-1],
             ),
             decoder_cache=self.decoder.initialize_autoregressive_cache(
@@ -195,7 +194,7 @@ class MiraPipeline(
         self,
         autoregressive_index: int,
         cache: MiraCache,
-        input: list[str] | tuple[str, ...] | None = None,
+        input: list[str] | tuple[str, ...] | list[list[str] | None] | None = None,
     ) -> Tensor:
         """Generate two RGB frames for one held-key action step."""
         output = super().generate(
@@ -203,8 +202,15 @@ class MiraPipeline(
             cache,
             input=list(input or ()),
         )
-        assert output.shape[0] == 1
-        return output[0]
+        if self.config.n_players == 1:
+            assert output.shape[0] == 1
+            return output[0]
+        assert output.shape[0] == self.config.n_players
+        return output
 
 
-__all__ = ["DEFAULT_MODEL_REPO", "MiraPipeline", "MiraPipelineConfig"]
+__all__ = [
+    "DEFAULT_MODEL_REPO",
+    "MiraPipeline",
+    "MiraPipelineConfig",
+]

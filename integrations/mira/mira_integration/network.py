@@ -183,6 +183,9 @@ class MiraDiTConfig(InstantiateConfig):
     hidden_dim: int = 2048
     """Transformer residual width."""
 
+    num_action_keys: int = 9
+    """Number of checkpoint keyboard-action fields resolved from the manifest."""
+
     num_heads: int = 16
     """Query head count."""
 
@@ -196,10 +199,13 @@ class MiraDiTConfig(InstantiateConfig):
     """Interval between temporal-attention blocks; the final block is always temporal."""
 
     latent_height: int = 9
-    """Published latent grid height."""
+    """Manifest-resolved latent grid height."""
 
     latent_width: int = 16
-    """Published latent grid width."""
+    """Manifest-resolved latent grid width."""
+
+    n_players: int = 1
+    """Number of vertically tiled player views in the joint world state."""
 
     attention_gating: bool = True
     """Enable checkpoint-trained sigmoid attention gates."""
@@ -321,7 +327,18 @@ class MiraDiT(nn.Module):
         super().__init__()
         self.config = config
         self.world_model = MiraDiffusionTransformer(config)
-        self.action_encoder = MiraActionEncoder(dim=config.hidden_dim)
+        self.action_encoder = MiraActionEncoder(
+            num_keys=config.num_action_keys,
+            dim=config.hidden_dim,
+            per_player_dropout=config.n_players > 1,
+        )
+        if config.n_players > 1:
+            self.player_embedding = nn.Parameter(
+                torch.randn(config.n_players, config.hidden_dim) * 0.02
+            )
+            self.player_action_projection = nn.Sequential(
+                nn.SiLU(), nn.Linear(config.hidden_dim, config.hidden_dim)
+            )
         self.bos = nn.Parameter(
             torch.empty(config.latent_height, config.latent_width, config.latent_dim)
         )
@@ -329,7 +346,16 @@ class MiraDiT(nn.Module):
 
     def encode_actions(self, rows: Tensor) -> Tensor:
         """Encode raw action rows and return the final latent-frame token."""
-        return self.action_encoder(rows)[:, -1:]
+        actions = self.action_encoder(rows)
+        if self.config.n_players > 1:
+            actions = rearrange(
+                actions,
+                "(b p) t d -> b p t d",
+                p=self.config.n_players,
+            )
+            actions = actions + self.player_embedding[None, :, None, :]
+            actions = self.player_action_projection(actions).mean(dim=1)
+        return actions[:, -1:]
 
     @torch.no_grad()
     def initialize_cache(
@@ -344,6 +370,14 @@ class MiraDiT(nn.Module):
             self.config.latent_dim,
         )
         actions = self.action_encoder(context_action_rows)
+        if self.config.n_players > 1:
+            actions = rearrange(
+                actions,
+                "(b p) t d -> b p t d",
+                p=self.config.n_players,
+            )
+            actions = actions + self.player_embedding[None, :, None, :]
+            actions = self.player_action_projection(actions).mean(dim=1)
         assert actions.shape[1] == frames, (
             f"context action tokens {actions.shape[1]} != context latents {frames}"
         )

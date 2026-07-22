@@ -78,13 +78,21 @@ def load_native_weights(
         raise KeyError(f"MIRA checkpoint has no state_dict: {checkpoint_path}")
     state = cast(dict[str, Tensor], checkpoint["state_dict"])
 
-    network_state = {
-        key: value
-        for key, value in state.items()
-        if key == "bos"
-        or key.startswith("action_encoder.")
-        or key.startswith("world_model.")
-    }
+    multiplayer = any(key.startswith("single_world_model.") for key in state)
+    network_state: dict[str, Tensor] = {}
+    for key, value in state.items():
+        native_key = key.removeprefix("single_world_model.") if multiplayer else key
+        if (
+            native_key == "bos"
+            or native_key.startswith("action_encoder.")
+            or native_key.startswith("world_model.")
+            or key == "player_embedding"
+            or key.startswith("player_action_projection.")
+        ):
+            network_state[key if key.startswith("player_") else native_key] = value
     transformer.network.load_state_dict(network_state, strict=True)
-    bootstrap_encoder.load_state_dict(_select(state, "codec.encoder."), strict=True)
-    decoder.load_state_dict(_select(state, "codec.decoder."), strict=True)
+    codec_prefix = "single_world_model.codec." if multiplayer else "codec."
+    bootstrap_encoder.load_state_dict(
+        _select(state, f"{codec_prefix}encoder."), strict=True
+    )
+    decoder.load_state_dict(_select(state, f"{codec_prefix}decoder."), strict=True)

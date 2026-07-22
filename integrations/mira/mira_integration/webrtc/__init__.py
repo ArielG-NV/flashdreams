@@ -13,14 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""FlashDreams adapter for Alakazam's MIRA Mini runtime."""
+"""Interactive WebRTC serving for MIRA Mini."""
 
-from mira_integration.config import (
-    load_demo_config,
-    load_manifest,
-)
+from mira_integration.webrtc.room import MiraMultiplayerSessionManager
+from mira_integration.webrtc.session import MiraInferenceRuntime, MiraRuntimeConfig
 
 __all__ = [
-    "load_demo_config",
-    "load_manifest",
+    "MiraInferenceRuntime",
+    "MiraRuntimeConfig",
+    "MiraMultiplayerSessionManager",
 ]
