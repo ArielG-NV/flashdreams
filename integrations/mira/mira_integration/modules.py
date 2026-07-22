@@ -31,6 +31,7 @@ import triton.language as tl
 
 from flashdreams.core.attention import BlockKVCache, NativeAttention
 
+
 @triton.jit
 def _mira_rotary_kernel(
     x_ptr,
@@ -163,6 +164,22 @@ def _mira_qk_norm_rope_kernel(
         normalized = normalized * cos + rotated * sin
 
     tl.store(out_base + d * stride_od, normalized, mask=mask)
+
+
+@triton.jit
+def _mira_swiglu_kernel(
+    swish_ptr,
+    gate_ptr,
+    out_ptr,
+    n_elements,
+    BLOCK_SIZE: tl.constexpr,
+):
+    offsets = tl.program_id(0) * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+    mask = offsets < n_elements
+    swish = tl.load(swish_ptr + offsets, mask=mask, other=0.0).to(tl.float32)
+    gate = tl.load(gate_ptr + offsets, mask=mask, other=0.0).to(tl.float32)
+    out = (swish / (1.0 + tl.exp(-swish))) * gate
+    tl.store(out_ptr + offsets, out, mask=mask)
 
 
 @triton.jit
@@ -375,6 +392,28 @@ def _tiny_causal_attention_cuda(q: Tensor, k: Tensor, v: Tensor) -> Tensor | Non
     return out
 
 
+def _swiglu_gate_cuda(swish: Tensor, gate: Tensor) -> Tensor | None:
+    if triton is None or not swish.is_cuda:
+        return None
+    if swish.shape != gate.shape:
+        return None
+    if not swish.is_contiguous() or not gate.is_contiguous():
+        return None
+    out = torch.empty_like(swish)
+    n_elements = out.numel()
+    block_size = 256
+    _mira_swiglu_kernel[(triton.cdiv(n_elements, block_size),)](
+        swish,
+        gate,
+        out,
+        n_elements,
+        BLOCK_SIZE=block_size,
+        num_warps=4,
+        num_stages=4,
+    )
+    return out
+
+
 @nvtx.annotate("mira.modules.qk_layer_norm")
 def qk_layer_norm(x: Tensor, scale: Tensor, eps: float) -> Tensor:
     fused = _qk_layer_norm_cuda(x, scale, eps)
@@ -510,7 +549,12 @@ class SwiGLU(nn.Module):
     @nvtx.annotate("SwiGLU.forward")
     def forward(self, x: Tensor) -> Tensor:
         """Apply the gated feed-forward projection."""
-        return self.output_linear(F.silu(self.swish_linear(x)) * self.gate_linear(x))
+        swish = self.swish_linear(x)
+        gate = self.gate_linear(x)
+        gated = _swiglu_gate_cuda(swish, gate)
+        if gated is None:
+            gated = F.silu(swish) * gate
+        return self.output_linear(gated)
 
 
 class MiraSelfAttention(nn.Module):
@@ -656,3 +700,8 @@ class LayerScale(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         """Scale a residual branch channel-wise."""
         return x * self.gamma
+
+    @nvtx.annotate("LayerScale.residual")
+    def residual(self, residual: Tensor, branch: Tensor) -> Tensor:
+        """Add a scaled residual branch using one fused multiply-add op."""
+        return torch.addcmul(residual, branch, self.gamma)

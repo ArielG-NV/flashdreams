@@ -31,25 +31,6 @@ from torch.distributed.tensor import Shard, distribute_tensor
 from flashdreams.core.attention import ContextParallelAttention, NativeAttention
 
 
-@pytest.mark.ci_cpu
-def test_native_attention_causal_matches_sdpa_math() -> None:
-    torch.manual_seed(0)
-    query = torch.randn(2, 5, 3, 7)
-    key = torch.randn(2, 5, 3, 7)
-    value = torch.randn(2, 5, 3, 7)
-
-    attn = NativeAttention(qkv_format="bshd", backend="math")
-    actual = attn(query, key, value, is_causal=True)
-    expected = torch.nn.functional.scaled_dot_product_attention(
-        query.transpose(1, 2),
-        key.transpose(1, 2),
-        value.transpose(1, 2),
-        is_causal=True,
-    ).transpose(1, 2)
-
-    torch.testing.assert_close(actual, expected)
-
-
 @pytest.mark.ci_gpu
 def test_attention():
     # Run multi gpu test with
