@@ -206,3 +206,37 @@ def test_native_decoder_emits_two_rgb_frames() -> None:
     assert output.shape == (1, 2, 3, 8, 8)
     assert output.min() >= 0
     assert output.max() <= 1
+
+
+def test_native_decoder_triton_temporal_attention_falls_back_on_cpu() -> None:
+    torch.manual_seed(0)
+    reference = MiraDecoderConfig(
+        latent_dim=4,
+        width=32,
+        depth=2,
+        num_heads=4,
+        patch_size=2,
+        dtype=torch.float32,
+        attention_backend="math",
+        causal_temporal_attention_backend="torch",
+    ).setup()
+    candidate = MiraDecoderConfig(
+        latent_dim=4,
+        width=32,
+        depth=2,
+        num_heads=4,
+        patch_size=2,
+        dtype=torch.float32,
+        attention_backend="math",
+        causal_temporal_attention_backend="triton",
+    ).setup()
+    candidate.load_state_dict(reference.state_dict())
+    context = torch.randn(1, 4, 2, 2, 2)
+    input = torch.randn(1, 4, 1, 2, 2)
+    reference_cache = reference.initialize_autoregressive_cache(context_latents=context)
+    candidate_cache = candidate.initialize_autoregressive_cache(context_latents=context)
+
+    torch.testing.assert_close(
+        candidate(input, cache=candidate_cache),
+        reference(input, cache=reference_cache),
+    )

@@ -57,6 +57,7 @@ class MiraDecoderBlock(nn.Module):
         num_heads: int,
         *,
         backend: Literal["math", "efficient", "cudnn", "flash"],
+        causal_temporal_attention_backend: Literal["torch", "triton"],
         eps: float = 1e-6,
     ) -> None:
         super().__init__()
@@ -64,7 +65,13 @@ class MiraDecoderBlock(nn.Module):
         self.space_attn = MiraSelfAttention(dim, num_heads, num_heads, backend=backend)
         self.space_ls = LayerScale(dim)
         self.time_norm = nn.LayerNorm(dim, eps=eps)
-        self.time_attn = MiraSelfAttention(dim, num_heads, num_heads, backend=backend)
+        self.time_attn = MiraSelfAttention(
+            dim,
+            num_heads,
+            num_heads,
+            backend=backend,
+            causal_attention_backend=causal_temporal_attention_backend,
+        )
         self.time_ls = LayerScale(dim)
         self.mlp_norm = nn.LayerNorm(dim, eps=eps)
         self.mlp = SwiGLU(dim)
@@ -171,6 +178,9 @@ class MiraDecoderConfig(DecoderConfig):
     attention_backend: Literal["math", "efficient", "cudnn", "flash"] = "cudnn"
     """FlashDreams native-attention backend."""
 
+    causal_temporal_attention_backend: Literal["torch", "triton"] = "triton"
+    """Backend for decoder no-cache causal temporal attention."""
+
     latent_mean: float = 0.008073142703917577
     """Published codec latent mean."""
 
@@ -196,6 +206,9 @@ class MiraVideoDecoder(StreamingVideoDecoder[MiraDecoderCache]):
                     config.width,
                     config.num_heads,
                     backend=config.attention_backend,
+                    causal_temporal_attention_backend=(
+                        config.causal_temporal_attention_backend
+                    ),
                 )
                 for _ in range(config.depth)
             ]

@@ -165,9 +165,80 @@ def _mira_qk_norm_rope_kernel(
     tl.store(out_base + d * stride_od, normalized, mask=mask)
 
 
+@triton.jit
+def _mira_tiny_causal_attention_kernel(
+    q_ptr,
+    k_ptr,
+    v_ptr,
+    out_ptr,
+    stride_qb,
+    stride_qs,
+    stride_qh,
+    stride_qd,
+    stride_kb,
+    stride_ks,
+    stride_kh,
+    stride_kd,
+    stride_vb,
+    stride_vs,
+    stride_vh,
+    stride_vd,
+    stride_ob,
+    stride_os,
+    stride_oh,
+    stride_od,
+    S: tl.constexpr,
+    H: tl.constexpr,
+    D: tl.constexpr,
+    BLOCK_S: tl.constexpr,
+    BLOCK_D: tl.constexpr,
+    SCALE: tl.constexpr,
+):
+    pid = tl.program_id(0)
+    query_pos = pid % S
+    head = (pid // S) % H
+    batch = pid // (S * H)
+
+    d = tl.arange(0, BLOCK_D)
+    s = tl.arange(0, BLOCK_S)
+    d_mask = d < D
+    s_mask = s < S
+    causal_mask = s <= query_pos
+
+    q_base = q_ptr + batch * stride_qb + query_pos * stride_qs + head * stride_qh
+    k_base = k_ptr + batch * stride_kb + head * stride_kh
+    v_base = v_ptr + batch * stride_vb + head * stride_vh
+    out_base = out_ptr + batch * stride_ob + query_pos * stride_os + head * stride_oh
+
+    q = tl.load(q_base + d * stride_qd, mask=d_mask, other=0.0).to(tl.float32)
+    k = tl.load(
+        k_base + s[:, None] * stride_ks + d[None, :] * stride_kd,
+        mask=s_mask[:, None] & d_mask[None, :],
+        other=0.0,
+    ).to(tl.float32)
+    scores = tl.sum(k * q[None, :], axis=1) * SCALE
+    scores = tl.where(s_mask & causal_mask, scores, -float("inf"))
+    scores = scores - tl.max(scores, axis=0)
+    weights = tl.exp(scores)
+    weights = weights / tl.sum(weights, axis=0)
+
+    v = tl.load(
+        v_base + s[:, None] * stride_vs + d[None, :] * stride_vd,
+        mask=s_mask[:, None] & d_mask[None, :],
+        other=0.0,
+    ).to(tl.float32)
+    out = tl.sum(weights[:, None] * v, axis=0)
+    tl.store(out_base + d * stride_od, out, mask=d_mask)
+
+
 def _triton_block_d(head_dim: int) -> int:
     assert triton is not None
     return max(int(triton.next_power_of_2(head_dim)), 16)
+
+
+def _triton_block_s(length: int) -> int:
+    assert triton is not None
+    return max(int(triton.next_power_of_2(length)), 2)
 
 
 def _apply_rotary_cuda(x: Tensor, frequencies: tuple[Tensor, Tensor]) -> Tensor | None:
@@ -256,6 +327,48 @@ def _qk_layer_norm_cuda(
         BLOCK_D=_triton_block_d(head_dim),
         APPLY_ROTARY=apply_rotary_frequencies,
         NORM_DTYPE=norm_dtype,
+        num_warps=4,
+        num_stages=2,
+    )
+    return out
+
+
+def _tiny_causal_attention_cuda(q: Tensor, k: Tensor, v: Tensor) -> Tensor | None:
+    if triton is None or not q.is_cuda:
+        return None
+    if q.ndim != 4 or q.shape != k.shape or q.shape != v.shape:
+        return None
+    batch, length, heads, head_dim = q.shape
+    if length < 2 or length > 8 or head_dim > 128:
+        return None
+    out = torch.empty_like(q)
+    _mira_tiny_causal_attention_kernel[(batch * heads * length,)](
+        q,
+        k,
+        v,
+        out,
+        q.stride(0),
+        q.stride(1),
+        q.stride(2),
+        q.stride(3),
+        k.stride(0),
+        k.stride(1),
+        k.stride(2),
+        k.stride(3),
+        v.stride(0),
+        v.stride(1),
+        v.stride(2),
+        v.stride(3),
+        out.stride(0),
+        out.stride(1),
+        out.stride(2),
+        out.stride(3),
+        S=length,
+        H=heads,
+        D=head_dim,
+        BLOCK_S=_triton_block_s(length),
+        BLOCK_D=_triton_block_d(head_dim),
+        SCALE=head_dim**-0.5,
         num_warps=4,
         num_stages=2,
     )
@@ -411,6 +524,7 @@ class MiraSelfAttention(nn.Module):
         *,
         gating: bool = False,
         backend: Literal["math", "efficient", "cudnn", "flash"] = "cudnn",
+        causal_attention_backend: Literal["torch", "triton"] = "torch",
     ) -> None:
         super().__init__()
         assert dim % num_heads == 0
@@ -420,6 +534,7 @@ class MiraSelfAttention(nn.Module):
         self.num_kv_heads = num_kv_heads
         self.head_dim = dim // num_heads
         self.gating = gating
+        self.causal_attention_backend = causal_attention_backend
         kv_dim = num_kv_heads * self.head_dim
         self.wqkv = nn.Linear(
             dim, dim + 2 * kv_dim + (dim if gating else 0), bias=False
@@ -504,12 +619,22 @@ class MiraSelfAttention(nn.Module):
 
         with nvtx.annotate("MiraSelfAttention.attention"):
             if causal and kv_cache is None and length > 1:
-                out = F.scaled_dot_product_attention(
-                    q.transpose(1, 2),
-                    k.transpose(1, 2),
-                    v.transpose(1, 2),
-                    is_causal=True,
-                ).transpose(1, 2)
+                if self.causal_attention_backend == "triton":
+                    out = _tiny_causal_attention_cuda(q, k, v)
+                    if out is None:
+                        out = F.scaled_dot_product_attention(
+                            q.transpose(1, 2),
+                            k.transpose(1, 2),
+                            v.transpose(1, 2),
+                            is_causal=True,
+                        ).transpose(1, 2)
+                else:
+                    out = F.scaled_dot_product_attention(
+                        q.transpose(1, 2),
+                        k.transpose(1, 2),
+                        v.transpose(1, 2),
+                        is_causal=True,
+                    ).transpose(1, 2)
             else:
                 out = self.attention(q, k, v)
         with nvtx.annotate("MiraSelfAttention.output_projection"):
