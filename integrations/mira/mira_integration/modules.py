@@ -26,12 +26,274 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+import triton
+import triton.language as tl
+
 from flashdreams.core.attention import BlockKVCache, NativeAttention
+
+@triton.jit
+def _mira_rotary_kernel(
+    x_ptr,
+    out_ptr,
+    cos_ptr,
+    sin_ptr,
+    stride_xb,
+    stride_xs,
+    stride_xh,
+    stride_xd,
+    stride_ob,
+    stride_os,
+    stride_oh,
+    stride_od,
+    stride_fs,
+    stride_fd,
+    S: tl.constexpr,
+    H: tl.constexpr,
+    D: tl.constexpr,
+    BLOCK_D: tl.constexpr,
+):
+    pid = tl.program_id(0)
+    head = pid % H
+    token = (pid // H) % S
+    batch = pid // (H * S)
+    d = tl.arange(0, BLOCK_D)
+    mask = d < D
+    pair_d = tl.where((d & 1) == 0, d + 1, d - 1)
+
+    x_base = x_ptr + batch * stride_xb + token * stride_xs + head * stride_xh
+    out_base = out_ptr + batch * stride_ob + token * stride_os + head * stride_oh
+    freq_base = token * stride_fs
+
+    raw_value = tl.load(x_base + d * stride_xd, mask=mask, other=0.0)
+    value = raw_value.to(tl.float32)
+    pair = tl.load(
+        x_base + pair_d * stride_xd,
+        mask=mask & (pair_d < D),
+        other=0.0,
+    ).to(tl.float32)
+    cos = tl.load(cos_ptr + freq_base + d * stride_fd, mask=mask, other=1.0).to(
+        tl.float32
+    )
+    sin = tl.load(sin_ptr + freq_base + d * stride_fd, mask=mask, other=0.0).to(
+        tl.float32
+    )
+    rotated = tl.where((d & 1) == 0, -pair, pair)
+    tl.store(out_base + d * stride_od, value * cos + rotated * sin, mask=mask)
+
+@triton.jit
+def _mira_qk_norm_rope_kernel(
+    x_ptr,
+    scale_ptr,
+    out_ptr,
+    cos_ptr,
+    sin_ptr,
+    stride_xb,
+    stride_xs,
+    stride_xh,
+    stride_xd,
+    stride_sh,
+    stride_sd,
+    stride_ob,
+    stride_os,
+    stride_oh,
+    stride_od,
+    stride_fs,
+    stride_fd,
+    eps: tl.constexpr,
+    S: tl.constexpr,
+    H: tl.constexpr,
+    D: tl.constexpr,
+    BLOCK_D: tl.constexpr,
+    APPLY_ROTARY: tl.constexpr,
+    NORM_DTYPE: tl.constexpr,
+):
+    pid = tl.program_id(0)
+    head = pid % H
+    token = (pid // H) % S
+    batch = pid // (H * S)
+    d = tl.arange(0, BLOCK_D)
+    mask = d < D
+
+    x_base = x_ptr + batch * stride_xb + token * stride_xs + head * stride_xh
+    scale_base = scale_ptr + head * stride_sh
+    out_base = out_ptr + batch * stride_ob + token * stride_os + head * stride_oh
+
+    raw_value = tl.load(x_base + d * stride_xd, mask=mask, other=0.0)
+    value = raw_value.to(tl.float32)
+    mean = tl.sum(tl.where(mask, value, 0.0), axis=0) / D
+    centered = value - mean
+    variance = tl.sum(tl.where(mask, centered * centered, 0.0), axis=0) / D
+    scale = tl.load(scale_base + d * stride_sd, mask=mask, other=0.0).to(
+        tl.float32
+    )
+    normalized = centered * tl.rsqrt(variance + eps) * scale
+
+    if APPLY_ROTARY:
+        pair_d = tl.where((d & 1) == 0, d + 1, d - 1)
+        pair_raw_value = tl.load(
+            x_base + pair_d * stride_xd,
+            mask=mask & (pair_d < D),
+            other=0.0,
+        )
+        pair_value = pair_raw_value.to(tl.float32)
+        pair_scale = tl.load(
+            scale_base + pair_d * stride_sd,
+            mask=mask & (pair_d < D),
+            other=0.0,
+        ).to(tl.float32)
+        pair_normalized = (pair_value - mean) * tl.rsqrt(variance + eps) * pair_scale
+        if NORM_DTYPE == 1:
+            normalized = normalized.to(tl.float16).to(tl.float32)
+            pair_normalized = pair_normalized.to(tl.float16).to(tl.float32)
+        if NORM_DTYPE == 2:
+            normalized = normalized.to(tl.bfloat16).to(tl.float32)
+            pair_normalized = pair_normalized.to(tl.bfloat16).to(tl.float32)
+        freq_base = token * stride_fs
+        cos = tl.load(
+            cos_ptr + freq_base + d * stride_fd,
+            mask=mask,
+            other=1.0,
+        ).to(tl.float32)
+        sin = tl.load(
+            sin_ptr + freq_base + d * stride_fd,
+            mask=mask,
+            other=0.0,
+        ).to(tl.float32)
+        rotated = tl.where((d & 1) == 0, -pair_normalized, pair_normalized)
+        normalized = normalized * cos + rotated * sin
+
+    tl.store(out_base + d * stride_od, normalized, mask=mask)
+
+
+def _triton_block_d(head_dim: int) -> int:
+    assert triton is not None
+    return max(int(triton.next_power_of_2(head_dim)), 16)
+
+
+def _apply_rotary_cuda(x: Tensor, frequencies: tuple[Tensor, Tensor]) -> Tensor | None:
+    if triton is None or not x.is_cuda:
+        return None
+    if x.ndim != 4:
+        return None
+    cos, sin = frequencies
+    batch, length, heads, head_dim = x.shape
+    if cos.shape != (length, head_dim) or sin.shape != (length, head_dim):
+        return None
+    out = torch.empty_like(x)
+    _mira_rotary_kernel[(batch * length * heads,)](
+        x,
+        out,
+        cos,
+        sin,
+        x.stride(0),
+        x.stride(1),
+        x.stride(2),
+        x.stride(3),
+        out.stride(0),
+        out.stride(1),
+        out.stride(2),
+        out.stride(3),
+        cos.stride(0),
+        cos.stride(1),
+        S=length,
+        H=heads,
+        D=head_dim,
+        BLOCK_D=_triton_block_d(head_dim),
+        num_warps=4,
+        num_stages=2,
+    )
+    return out
+
+
+def _qk_layer_norm_cuda(
+    x: Tensor,
+    scale: Tensor,
+    eps: float,
+    rotary: tuple[Tensor, Tensor] | None = None,
+) -> Tensor | None:
+    if triton is None or not x.is_cuda:
+        return None
+    if x.ndim != 4:
+        return None
+    batch, length, heads, head_dim = x.shape
+    if scale.shape != (heads, head_dim):
+        return None
+    cos: Tensor
+    sin: Tensor
+    if rotary is None:
+        cos = x.new_empty((0, 0))
+        sin = x.new_empty((0, 0))
+        apply_rotary_frequencies = False
+    else:
+        cos, sin = rotary
+        if cos.shape != (length, head_dim) or sin.shape != (length, head_dim):
+            return None
+        apply_rotary_frequencies = True
+    out = torch.empty_like(x)
+    norm_dtype = 1 if x.dtype is torch.float16 else 2 if x.dtype is torch.bfloat16 else 0
+    _mira_qk_norm_rope_kernel[(batch * length * heads,)](
+        x,
+        scale,
+        out,
+        cos,
+        sin,
+        x.stride(0),
+        x.stride(1),
+        x.stride(2),
+        x.stride(3),
+        scale.stride(0),
+        scale.stride(1),
+        out.stride(0),
+        out.stride(1),
+        out.stride(2),
+        out.stride(3),
+        cos.stride(0) if apply_rotary_frequencies else 0,
+        cos.stride(1) if apply_rotary_frequencies else 0,
+        eps,
+        S=length,
+        H=heads,
+        D=head_dim,
+        BLOCK_D=_triton_block_d(head_dim),
+        APPLY_ROTARY=apply_rotary_frequencies,
+        NORM_DTYPE=norm_dtype,
+        num_warps=4,
+        num_stages=2,
+    )
+    return out
+
+
+@nvtx.annotate("mira.modules.qk_layer_norm")
+def qk_layer_norm(x: Tensor, scale: Tensor, eps: float) -> Tensor:
+    fused = _qk_layer_norm_cuda(x, scale, eps)
+    if fused is not None:
+        return fused
+    dtype = x.dtype
+    value = x.float()
+    mean = value.mean(-1, keepdim=True)
+    variance = (value - mean).square().mean(-1, keepdim=True)
+    value = (value - mean) * torch.rsqrt(variance + eps)
+    return (value * scale.float()).to(dtype=dtype)
+
+
+@nvtx.annotate("mira.modules.qk_layer_norm_rotary")
+def qk_layer_norm_rotary(
+    x: Tensor,
+    scale: Tensor,
+    eps: float,
+    frequencies: tuple[Tensor, Tensor],
+) -> Tensor:
+    fused = _qk_layer_norm_cuda(x, scale, eps, frequencies)
+    if fused is not None:
+        return fused
+    return apply_rotary(qk_layer_norm(x, scale, eps), frequencies)
 
 
 @nvtx.annotate("mira.modules.apply_rotary")
 def apply_rotary(x: Tensor, frequencies: tuple[Tensor, Tensor]) -> Tensor:
     """Apply pairwise rotary frequencies to ``[B, S, H, D]`` attention states."""
+    fused = _apply_rotary_cuda(x, frequencies)
+    if fused is not None:
+        return fused
     cos, sin = (frequency.unsqueeze(-2) for frequency in frequencies)
     paired = x.float().unflatten(-1, (-1, 2))
     real, imag = paired.unbind(-1)
@@ -103,12 +365,7 @@ class QKLayerNorm(nn.Module):
     @nvtx.annotate("QKLayerNorm.forward")
     def forward(self, x: Tensor) -> Tensor:
         """Normalize the final channel in fp32 and restore the input dtype."""
-        dtype = x.dtype
-        value = x.float()
-        mean = value.mean(-1, keepdim=True)
-        variance = (value - mean).square().mean(-1, keepdim=True)
-        value = (value - mean) * torch.rsqrt(variance + self.eps)
-        return (value * self.qk_scale.float()).to(dtype=dtype)
+        return qk_layer_norm(x, self.qk_scale, self.eps)
 
 
 class AdaptiveLayerNorm(nn.Module):
@@ -195,10 +452,35 @@ class MiraSelfAttention(nn.Module):
                 [self.dim, kv_dim, kv_dim] + ([self.dim] if self.gating else []),
                 dim=-1,
             )
-        with nvtx.annotate("MiraSelfAttention.qk_norm"):
-            q = self.q_ln(pieces[0].view(batch, length, self.num_heads, self.head_dim))
-            k = self.k_ln(
-                pieces[1].view(batch, length, self.num_kv_heads, self.head_dim)
+        q_in = pieces[0].view(batch, length, self.num_heads, self.head_dim)
+        k_in = pieces[1].view(batch, length, self.num_kv_heads, self.head_dim)
+        q_rotary = (
+            None
+            if rotary is None
+            else (rotary[0][-length:], rotary[1][-length:])
+        )
+        can_fuse_k_rotary = rotary is not None and kv_cache is None and not return_kv
+        with nvtx.annotate("MiraSelfAttention.q_norm_rotary"):
+            q = (
+                self.q_ln(q_in)
+                if q_rotary is None
+                else qk_layer_norm_rotary(
+                    q_in,
+                    self.q_ln.qk_scale,
+                    self.q_ln.eps,
+                    q_rotary,
+                )
+            )
+        with nvtx.annotate("MiraSelfAttention.k_norm_rotary"):
+            k = (
+                qk_layer_norm_rotary(
+                    k_in,
+                    self.k_ln.qk_scale,
+                    self.k_ln.eps,
+                    rotary,
+                )
+                if can_fuse_k_rotary
+                else self.k_ln(k_in)
             )
         with nvtx.annotate("MiraSelfAttention.value_view"):
             v = pieces[2].view(batch, length, self.num_kv_heads, self.head_dim)
@@ -211,10 +493,12 @@ class MiraSelfAttention(nn.Module):
                 k, v = kv_cache.cached_k(), kv_cache.cached_v()
         with nvtx.annotate("MiraSelfAttention.rotary"):
             if rotary is not None:
-                with nvtx.annotate("MiraSelfAttention.rotary.q"):
-                    q = apply_rotary(q, (rotary[0][-length:], rotary[1][-length:]))
-                with nvtx.annotate("MiraSelfAttention.rotary.k"):
-                    k = apply_rotary(k, rotary)
+                if q_rotary is None:
+                    with nvtx.annotate("MiraSelfAttention.rotary.q"):
+                        q = apply_rotary(q, (rotary[0][-length:], rotary[1][-length:]))
+                if not can_fuse_k_rotary:
+                    with nvtx.annotate("MiraSelfAttention.rotary.k"):
+                        k = apply_rotary(k, rotary)
         with nvtx.annotate("MiraSelfAttention.repeat_kv"):
             k, v = self._repeat_kv(k), self._repeat_kv(v)
 
