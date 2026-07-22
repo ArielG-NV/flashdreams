@@ -77,7 +77,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--demo", required=True)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--fps", type=int, default=20)
+    parser.add_argument("--fps", type=int, default=60)
     parser.add_argument("--n-diffusion-steps", type=int, default=None)
     compile_group = parser.add_mutually_exclusive_group()
     compile_group.add_argument(
