@@ -15,6 +15,8 @@
 
 """Explicit manifest loading and MIRA demo dispatch configuration."""
 
+import nvtx
+
 from mira_integration.configs.manifest import (
     build_pipeline_config,
     load_demo_config,
@@ -51,6 +53,8 @@ RUNNER_MIRA = MiraDemoRunnerConfig(
     pipeline=build_pipeline_config(_DISPATCH_METADATA),
 )
 """Manifest-selecting ``flashdreams-run mira`` dispatcher."""
+
+_NVTX_ANNOTATE = nvtx.annotate
 
 __all__ = [
     "MiraInputBinding",

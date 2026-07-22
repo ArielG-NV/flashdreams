@@ -15,8 +15,12 @@
 
 """Interactive WebRTC serving for MIRA Mini."""
 
+import nvtx
+
 from mira_integration.webrtc.room import MiraMultiplayerSessionManager
 from mira_integration.webrtc.session import MiraInferenceRuntime, MiraRuntimeConfig
+
+_NVTX_ANNOTATE = nvtx.annotate
 
 __all__ = [
     "MiraInferenceRuntime",

@@ -24,6 +24,7 @@ from dataclasses import replace
 from importlib.resources import as_file, files
 from pathlib import Path
 
+import nvtx
 from aiohttp import web
 from loguru import logger
 
@@ -54,6 +55,7 @@ WEB_DIR_RESOURCE = files("mira_integration.webrtc").joinpath("web")
 """Packaged browser assets served by the MIRA WebRTC app."""
 
 
+@nvtx.annotate()
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse MIRA WebRTC server arguments.
 
@@ -111,6 +113,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+@nvtx.annotate()
 def create_app(
     *,
     request_session_url: str,
@@ -119,6 +122,7 @@ def create_app(
     """Create the MIRA aiohttp app with packaged browser assets."""
     manager = session_manager
 
+    @nvtx.annotate()
     def configure_multiplayer_routes(app: web.Application) -> None:
         async def model_config(request: web.Request) -> web.StreamResponse:
             room_manager = request.app[SESSION_MANAGER_KEY]
@@ -179,6 +183,7 @@ def create_app(
     )
 
 
+@nvtx.annotate()
 def build_runtime_config(args: argparse.Namespace) -> MiraRuntimeConfig:
     """Build the runtime config from parsed server arguments."""
     model_config = load_demo_config(args.manifest, args.demo)
@@ -214,6 +219,7 @@ def build_runtime_config(args: argparse.Namespace) -> MiraRuntimeConfig:
     )
 
 
+@nvtx.annotate()
 def main() -> None:
     """Initialize CUDA and serve the interactive MIRA browser UI."""
     if int(os.environ.get("WORLD_SIZE", "1")) != 1:

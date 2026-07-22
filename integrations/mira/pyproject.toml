@@ -26,6 +26,7 @@ requires-python = ">=3.10"
 dependencies = [
     "flashdreams[serving]",
     "ftfy",
+    "nvtx",
     "omegaconf",
     "regex",
     "scikit-learn",

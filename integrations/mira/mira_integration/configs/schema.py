@@ -21,6 +21,8 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+import nvtx
+
 if TYPE_CHECKING:
     from mira_integration.pipeline import MiraPipelineConfig
 
@@ -50,6 +52,7 @@ class MiraInputBinding:
     aliases: tuple[str, ...] = ()
     """Additional normalized ``KeyboardEvent.key`` or ``code`` aliases."""
 
+    @nvtx.annotate()
     def to_public_dict(self) -> dict[str, Any]:
         """Return the browser-safe representation of this binding."""
         return {
@@ -110,6 +113,7 @@ class MiraModelMetadata:
         """Return the checkpoint action row width described by the input map."""
         return len(self.input_key_map)
 
+    @nvtx.annotate()
     def checkpoint_keys(self, keys: frozenset[str]) -> list[str]:
         """Translate held browser keys in checkpoint vocabulary order."""
         return [
@@ -118,6 +122,7 @@ class MiraModelMetadata:
             if binding.browser_key in keys
         ]
 
+    @nvtx.annotate()
     def to_public_dict(self) -> dict[str, Any]:
         """Return model metadata used to construct the browser UI."""
         rows, columns = preview_grid_dimensions(self.player_count)
@@ -163,6 +168,7 @@ class MiraManifest:
     """Model metadata keyed by command-line demo name."""
 
 
+@nvtx.annotate()
 def preview_grid_dimensions(player_count: int) -> tuple[int, int]:
     """Return a compact near-square ``(rows, columns)`` player grid.
 

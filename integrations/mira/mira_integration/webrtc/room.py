@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
+import nvtx
 import torch
 from aiortc import RTCPeerConnection, RTCSessionDescription
 from loguru import logger
@@ -43,6 +44,7 @@ from mira_integration.webrtc.session import (
 )
 
 
+@nvtx.annotate()
 def tile_player_video(video: Tensor) -> Tensor:
     """Tile per-player video into one near-square preview stream.
 
@@ -109,6 +111,7 @@ class MiraBrowserSession:
     closed: bool = False
     """Whether media and peer resources have been released."""
 
+    @nvtx.annotate()
     async def close(self) -> None:
         """Close this browser's media and peer connection."""
         if self.closed:
@@ -151,18 +154,22 @@ class MiraMultiplayerSessionManager:
         self._room_lock = asyncio.Lock()
         self._generation_task: asyncio.Task[Any] | None = None
 
+    @nvtx.annotate()
     def has_active_session(self) -> bool:
         """Return whether at least one browser is observing the room."""
         return any(not session.closed for session in self._sessions.values())
 
+    @nvtx.annotate()
     def is_runtime_ready(self) -> bool:
         """Return whether model initialization and warmup completed."""
         return self._runtime_ready
 
+    @nvtx.annotate()
     def public_config(self) -> dict[str, Any]:
         """Return configuration used to construct the browser UI."""
         return self.metadata.to_public_dict()
 
+    @nvtx.annotate()
     def room_state(self) -> dict[str, Any]:
         """Return public occupancy state for the browser seat picker."""
         return {
@@ -178,6 +185,7 @@ class MiraMultiplayerSessionManager:
             "runtime_ready": self._runtime_ready,
         }
 
+    @nvtx.annotate()
     async def preload_runtime(self) -> None:
         """Initialize and warm up the configured joint runtime once."""
         async with self._preload_lock:
@@ -191,6 +199,7 @@ class MiraMultiplayerSessionManager:
             await self._runtime.reset_for_new_session()
             self._runtime_ready = True
 
+    @nvtx.annotate()
     async def create_answer(self, *, offer_sdp: str, offer_type: str) -> dict[str, str]:
         """Negotiate an observer connection that receives the preview grid."""
         return await self._create_answer(
@@ -199,6 +208,7 @@ class MiraMultiplayerSessionManager:
             initial_seat=None,
         )
 
+    @nvtx.annotate()
     async def create_player_answer(
         self, *, seat: int, offer_sdp: str, offer_type: str
     ) -> dict[str, str]:
@@ -209,6 +219,7 @@ class MiraMultiplayerSessionManager:
             initial_seat=seat,
         )
 
+    @nvtx.annotate()
     async def _create_answer(
         self,
         *,
@@ -262,6 +273,7 @@ class MiraMultiplayerSessionManager:
                 await session.close()
                 raise
 
+    @nvtx.annotate()
     def _wire_peer(self, session: MiraBrowserSession) -> None:
         peer = session.peer_connection
 
@@ -285,6 +297,7 @@ class MiraMultiplayerSessionManager:
             if peer.connectionState in {"failed", "disconnected", "closed"}:
                 await self.close_session(session)
 
+    @nvtx.annotate()
     async def _handle_message(self, session: MiraBrowserSession, raw: Any) -> None:
         if session.closed or not isinstance(raw, str):
             return
@@ -330,6 +343,7 @@ class MiraMultiplayerSessionManager:
         else:
             session.held_keys.discard(key)
 
+    @nvtx.annotate()
     async def _claim_seat(self, session: MiraBrowserSession, raw_seat: Any) -> None:
         try:
             seat = int(raw_seat)
@@ -359,6 +373,7 @@ class MiraMultiplayerSessionManager:
             self._seat_owners[seat] = session.session_id
         self._send(session, {"type": "seat_claimed", "seat": seat})
 
+    @nvtx.annotate()
     async def _release_seat(self, session: MiraBrowserSession) -> None:
         """Release the browser's seat while keeping its preview session alive."""
         async with self._room_lock:
@@ -371,29 +386,35 @@ class MiraMultiplayerSessionManager:
             session.held_keys.clear()
         self._send(session, {"type": "seat_released", "seat": seat})
 
+    @nvtx.annotate()
     def _validate_seat(self, seat: int) -> None:
         if seat not in range(self.metadata.player_count):
             raise ValueError(
                 f"Player seat must be between 0 and {self.metadata.player_count - 1}."
             )
 
+    @nvtx.annotate()
     async def _generation_worker(self) -> None:
         logger.info("MIRA room ready; starting continuous generation.")
         loop = asyncio.get_running_loop()
         try:
             while self._sessions:
                 started = loop.time()
-                player_keys: list[frozenset[str] | None] = []
-                for seat in range(self.metadata.player_count):
-                    controller = self._session_for_seat(seat)
-                    player_keys.append(
-                        frozenset(controller.held_keys)
-                        if controller is not None
-                        else None
-                    )
-                keys = tuple(player_keys)
+                with nvtx.annotate("MiraMultiplayerSessionManager.collect_keys"):
+                    player_keys: list[frozenset[str] | None] = []
+                    for seat in range(self.metadata.player_count):
+                        controller = self._session_for_seat(seat)
+                        player_keys.append(
+                            frozenset(controller.held_keys)
+                            if controller is not None
+                            else None
+                        )
+                    keys = tuple(player_keys)
                 try:
-                    result = await self._runtime.generate_chunk(player_keys=keys)
+                    with nvtx.annotate(
+                        "MiraMultiplayerSessionManager.generate_chunk"
+                    ):
+                        result = await self._runtime.generate_chunk(player_keys=keys)
                 except Exception as exc:
                     logger.exception("MIRA multiplayer generation failed.")
                     for session in tuple(self._sessions.values()):
@@ -401,25 +422,27 @@ class MiraMultiplayerSessionManager:
                     return
                 generated = loop.time()
                 sessions = tuple(self._sessions.values())
-                preview = (
-                    tile_player_video(result.video_chunk)
-                    if any(session.seat is None for session in sessions)
-                    else None
-                )
-                chunks = [
-                    preview
-                    if session.seat is None
-                    else result.video_chunk[session.seat]
-                    for session in sessions
-                ]
-                assert all(chunk is not None for chunk in chunks)
-                enqueued = await asyncio.gather(
-                    *(
-                        session.video_track.enqueue_chunk(chunk)
-                        for session, chunk in zip(sessions, chunks, strict=True)
-                        if chunk is not None
+                with nvtx.annotate("MiraMultiplayerSessionManager.prepare_chunks"):
+                    preview = (
+                        tile_player_video(result.video_chunk)
+                        if any(session.seat is None for session in sessions)
+                        else None
                     )
-                )
+                    chunks = [
+                        preview
+                        if session.seat is None
+                        else result.video_chunk[session.seat]
+                        for session in sessions
+                    ]
+                assert all(chunk is not None for chunk in chunks)
+                with nvtx.annotate("MiraMultiplayerSessionManager.enqueue_chunks"):
+                    enqueued = await asyncio.gather(
+                        *(
+                            session.video_track.enqueue_chunk(chunk)
+                            for session, chunk in zip(sessions, chunks, strict=True)
+                            if chunk is not None
+                        )
+                    )
                 finished = loop.time()
                 rows, columns = preview_grid_dimensions(self.metadata.player_count)
                 for session, count in zip(sessions, enqueued, strict=True):
@@ -456,10 +479,12 @@ class MiraMultiplayerSessionManager:
         finally:
             self._generation_task = None
 
+    @nvtx.annotate()
     def _session_for_seat(self, seat: int) -> MiraBrowserSession | None:
         owner = self._seat_owners.get(seat)
         return self._sessions.get(owner) if owner is not None else None
 
+    @nvtx.annotate()
     async def _watch_liveness(self, session: MiraBrowserSession) -> None:
         try:
             while not session.closed:
@@ -473,6 +498,7 @@ class MiraMultiplayerSessionManager:
         except asyncio.CancelledError:
             raise
 
+    @nvtx.annotate()
     async def close_session(self, session: MiraBrowserSession) -> None:
         """Release one browser and its seat without disturbing the room."""
         async with self._room_lock:
@@ -489,6 +515,7 @@ class MiraMultiplayerSessionManager:
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
 
+    @nvtx.annotate()
     def _remove_session_locked(self, session: MiraBrowserSession) -> None:
         self._sessions.pop(session.session_id, None)
         if session.seat is not None:
@@ -496,6 +523,7 @@ class MiraMultiplayerSessionManager:
             if owner == session.session_id:
                 self._seat_owners.pop(session.seat, None)
 
+    @nvtx.annotate()
     async def shutdown(self) -> None:
         """Close every browser and release the MIRA runtime."""
         for session in tuple(self._sessions.values()):
@@ -503,15 +531,18 @@ class MiraMultiplayerSessionManager:
         await self._runtime.close()
         self._runtime_ready = False
 
+    @nvtx.annotate()
     def wait_for_termination(self) -> None:
         """Block the serving worker until shutdown is requested."""
         self._runtime.wait_for_termination()
 
+    @nvtx.annotate()
     def send_exit_signal(self) -> None:
         """Release a worker waiting for server shutdown."""
         self._runtime.send_exit_signal()
 
     @staticmethod
+    @nvtx.annotate()
     def _send(session: MiraBrowserSession, payload: dict[str, Any]) -> None:
         channel = session.control_channel
         if channel is None or getattr(channel, "readyState", "closed") != "open":

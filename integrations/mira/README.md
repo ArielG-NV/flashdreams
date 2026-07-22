@@ -74,3 +74,30 @@ pipeline.close()
 
 The Alakazam repository is a format and demo reference only; FlashDreams does
 not import its package at runtime.
+
+## Profile with NSight
+
+Use Nsight Systems to profile:
+
+```bash
+mkdir -p artifacts/mira/nsight
+
+nsys profile \
+  --force-overwrite=true \
+  --stats=true \
+  --output artifacts/mira/nsight/mira-demo-%h-%p \
+  --trace=cuda,cuda,nvtx,cublas-verbose,cuDNN-verbose,cusparse-verbose,nvvideo,cublas,nvtx,python-gil \
+  --pytorch=functions-trace-shapes,autograd-nvtx \
+  --sample=process-tree \
+  --cpuctxsw=process-tree \
+  --python-sampling=true \
+  --python-sampling-frequency=500 \
+  --cuda-memory-usage=true \
+  --cuda-trace-all-apis=true \
+  --gpu-metrics-devices=cuda-visible \
+  --gpu-metrics-frequency=10000 \
+  uv run flashdreams-run mira \
+    --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
+    --demo mira-mini-1p \
+    --action-script 'W@10,W+D@6,Space@2,W+A@6'
+```

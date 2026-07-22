@@ -19,11 +19,13 @@ from __future__ import annotations
 
 import math
 
+import nvtx
 import torch
 import torch.nn as nn
 from torch import Tensor
 
 
+@nvtx.annotate("mira.action._symlog_normalize")
 def _symlog_normalize(value: Tensor, maximum: float = 2048.0) -> Tensor:
     """Normalize signed mouse deltas with MIRA's logarithmic transform."""
     signed = torch.sign(value) * torch.log1p(torch.abs(value))
@@ -88,6 +90,7 @@ class MiraActionEncoder(nn.Module):
             nn.init.normal_(self.keyboard_dropout_token, std=0.02)
         nn.init.normal_(self.initial_action_token, std=0.02)
 
+    @nvtx.annotate("MiraActionEncoder.forward")
     def forward(self, key_presses: Tensor) -> Tensor:
         """Encode keyboard rows ``[B,T,K]`` into action tokens."""
         batch, steps, _ = key_presses.shape
@@ -146,6 +149,7 @@ class MiraActionEncoder(nn.Module):
         )
         return torch.cat((initial, encoded), dim=1)
 
+    @nvtx.annotate("MiraActionEncoder._embed_key")
     def _embed_key(
         self,
         *,

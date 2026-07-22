@@ -21,6 +21,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+import nvtx
 import torch
 import torch.nn as nn
 from einops import rearrange
@@ -65,6 +66,7 @@ class MiraControlEncoder(StreamingEncoder[MiraControlEncoderCache]):
         self.mira_config = config
         self._key_index = {name: index for index, name in enumerate(config.valid_keys)}
 
+    @nvtx.annotate("MiraControlEncoder.initialize_autoregressive_cache")
     def initialize_autoregressive_cache(
         self, *, previous_row: Tensor, **_context: Any
     ) -> MiraControlEncoderCache:
@@ -72,6 +74,7 @@ class MiraControlEncoder(StreamingEncoder[MiraControlEncoderCache]):
         assert previous_row.shape[-2:] == (1, len(self.mira_config.valid_keys))
         return MiraControlEncoderCache(previous_row=previous_row.to(dtype=torch.int32))
 
+    @nvtx.annotate("MiraControlEncoder.forward")
     def forward(
         self,
         input: list[str] | tuple[str, ...] | list[list[str] | None],
@@ -161,6 +164,7 @@ class _DinoBackbone(nn.Module):
             persistent=False,
         )
 
+    @nvtx.annotate("_DinoBackbone.forward")
     def forward(self, video: Tensor) -> Tensor:
         """Return the aggregated DINO feature map for ``[B,T,C,H,W]`` video."""
         batch, frames, _, height, width = video.shape
@@ -204,6 +208,7 @@ class MiraBootstrapEncoder(Encoder):
         self.eval()
 
     @torch.no_grad()
+    @nvtx.annotate("MiraBootstrapEncoder.forward")
     def forward(self, input: Tensor) -> Tensor:
         """Encode ``[B,T,C,H,W]`` uint8/float RGB into ``[B,C,T,h,w]`` latents."""
         video = (

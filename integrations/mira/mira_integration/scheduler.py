@@ -20,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
+import nvtx
 import torch
 from torch import Tensor
 
@@ -63,12 +64,14 @@ class MiraFlowScheduler(Scheduler):
         super().__init__(config)
         self.config = config
 
+    @nvtx.annotate("MiraFlowScheduler.set_num_inference_steps")
     def set_num_inference_steps(self, value: int) -> None:
         """Set the rollout-specific Euler step count."""
         if value < 1:
             raise ValueError("num_inference_steps must be positive")
         self.config.num_inference_steps = value
 
+    @nvtx.annotate("MiraFlowScheduler._schedule")
     def _schedule(self, device: torch.device) -> Tensor:
         steps = self.config.num_inference_steps
         if self.config.schedule_type == "linear":
@@ -83,6 +86,7 @@ class MiraFlowScheduler(Scheduler):
         ).square()
         return torch.cat((linear[:-1], quadratic))
 
+    @nvtx.annotate("MiraFlowScheduler.sample")
     def sample(
         self,
         initial_noise: Tensor,
@@ -94,10 +98,12 @@ class MiraFlowScheduler(Scheduler):
         sample = initial_noise
         schedule = self._schedule(initial_noise.device)
         for tau, delta in zip(schedule[:-1], schedule.diff()):
-            timestep = tau.to(dtype=initial_noise.dtype)
-            sample = sample + delta * predict_flow(sample, timestep)
+            with nvtx.annotate("MiraFlowScheduler.sample.step"):
+                timestep = tau.to(dtype=initial_noise.dtype)
+                sample = sample + delta * predict_flow(sample, timestep)
         return sample.to(dtype=initial_noise.dtype)
 
+    @nvtx.annotate("MiraFlowScheduler.add_noise")
     def add_noise(
         self,
         clean_input: Tensor,

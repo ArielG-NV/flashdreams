@@ -15,11 +15,15 @@
 
 """Compatibility exports for MIRA manifest dispatch."""
 
+import nvtx
+
 from mira_integration.configs import (
     build_pipeline_config,
     load_demo_config,
     load_manifest,
 )
+
+_NVTX_ANNOTATE = nvtx.annotate
 
 __all__ = [
     "build_pipeline_config",

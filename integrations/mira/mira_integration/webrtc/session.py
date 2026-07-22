@@ -24,6 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, TypeVar
 
+import nvtx
 import torch
 
 from flashdreams.serving.webrtc.runtime import WebRTCStepResult
@@ -101,6 +102,7 @@ class MiraRuntimeConfig:
             raise ValueError("warmup_chunks must be >= 0")
 
 
+@nvtx.annotate()
 def checkpoint_keys(
     keys: frozenset[str],
     metadata: MiraModelMetadata,
@@ -133,12 +135,14 @@ class MiraInferenceRuntime:
         )
 
     @staticmethod
+    @nvtx.annotate()
     def _setup_pipeline(config: MiraPipelineConfig) -> MiraPipeline:
         pipeline = config.setup()
         if not isinstance(pipeline, MiraPipeline):
             raise TypeError("MIRA WebRTC requires a MiraPipeline instance.")
         return pipeline
 
+    @nvtx.annotate()
     async def initialize(self) -> None:
         """Construct the MIRA pipeline on its dedicated runtime thread."""
         if self._closed:
@@ -146,6 +150,7 @@ class MiraInferenceRuntime:
         if self._pipeline is None:
             await self._run_on_runtime_thread(self._initialize_sync)
 
+    @nvtx.annotate()
     async def reset_for_new_session(self) -> None:
         """Reset the cache and RNG for a new browser session."""
         if self._closed:
@@ -160,6 +165,7 @@ class MiraInferenceRuntime:
         """Return the frame count expected from the next MIRA step."""
         return self.config.frames_per_chunk
 
+    @nvtx.annotate()
     async def generate_chunk(
         self,
         *,
@@ -174,6 +180,7 @@ class MiraInferenceRuntime:
                 player_keys,
             )
 
+    @nvtx.annotate()
     async def close(self) -> None:
         """Release pipeline state and stop the dedicated runtime thread."""
         if self._closed:
@@ -193,6 +200,7 @@ class MiraInferenceRuntime:
         """Release any worker waiting for server termination."""
         self._exit_event.set()
 
+    @nvtx.annotate()
     async def _run_on_runtime_thread(
         self,
         function: Callable[..., _T],
@@ -206,6 +214,7 @@ class MiraInferenceRuntime:
             args,
         )
 
+    @nvtx.annotate()
     def _runtime_thread_entry(
         self,
         function: Callable[..., _T],
@@ -216,6 +225,7 @@ class MiraInferenceRuntime:
             torch.cuda.set_device(device)
         return function(*args)
 
+    @nvtx.annotate()
     def _initialize_sync(self) -> None:
         self._pipeline = (
             self._pipeline_factory(self.model_config.pipeline)
@@ -223,6 +233,7 @@ class MiraInferenceRuntime:
             .eval()
         )
 
+    @nvtx.annotate()
     def _reset_sync(self) -> None:
         if self._pipeline is None:
             raise RuntimeError("MIRA runtime is not initialized.")
@@ -234,6 +245,7 @@ class MiraInferenceRuntime:
         )
         self._autoregressive_index = 0
 
+    @nvtx.annotate()
     def _generate_chunk_sync(
         self,
         player_keys: tuple[frozenset[str] | None, ...],
@@ -247,20 +259,32 @@ class MiraInferenceRuntime:
                 f"got {len(player_keys)}."
             )
 
-        held_keys = [
-            None if keys is None else checkpoint_keys(keys, self.model_config.metadata)
-            for keys in player_keys
-        ]
+        with nvtx.annotate("MiraInferenceRuntime.translate_keys"):
+            held_keys = [
+                None
+                if keys is None
+                else checkpoint_keys(keys, self.model_config.metadata)
+                for keys in player_keys
+            ]
         chunk_index = self._autoregressive_index
-        video = self._pipeline.generate(
-            chunk_index,
-            self._cache,
-            input=held_keys,
-        )
-        stats = self._pipeline.finalize(chunk_index, self._cache)
-        video_uint8 = (
-            video.detach().float().clamp(0, 1).mul(255).round().to(torch.uint8).cpu()
-        )
+        with nvtx.annotate("MiraInferenceRuntime.pipeline_generate"):
+            video = self._pipeline.generate(
+                chunk_index,
+                self._cache,
+                input=held_keys,
+            )
+        with nvtx.annotate("MiraInferenceRuntime.pipeline_finalize"):
+            stats = self._pipeline.finalize(chunk_index, self._cache)
+        with nvtx.annotate("MiraInferenceRuntime.materialize_uint8_cpu"):
+            video_uint8 = (
+                video.detach()
+                .float()
+                .clamp(0, 1)
+                .mul(255)
+                .round()
+                .to(torch.uint8)
+                .cpu()
+            )
         if video_uint8.ndim == 4:
             video_uint8 = video_uint8.unsqueeze(0)
         self._autoregressive_index += 1
@@ -271,6 +295,7 @@ class MiraInferenceRuntime:
             stats=stats,
         )
 
+    @nvtx.annotate()
     def _close_sync(self) -> None:
         pipeline = self._pipeline
         self._cache = None

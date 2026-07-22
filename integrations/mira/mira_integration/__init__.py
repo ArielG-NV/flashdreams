@@ -15,10 +15,14 @@
 
 """FlashDreams adapter for Alakazam's MIRA Mini runtime."""
 
+import nvtx
+
 from mira_integration.config import (
     load_demo_config,
     load_manifest,
 )
+
+_NVTX_ANNOTATE = nvtx.annotate
 
 __all__ = [
     "load_demo_config",

@@ -20,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+import nvtx
 import torch
 import torch.nn as nn
 from einops import rearrange
@@ -34,6 +35,7 @@ from flashdreams.infra.decoder import (
 from mira_integration.modules import LayerScale, MiraSelfAttention, SwiGLU, decoder_rope
 
 
+@nvtx.annotate("mira.decoder._spatial_decoder_rope")
 def _spatial_decoder_rope(
     height: int, width: int, head_dim: int, theta: float, device: torch.device
 ) -> tuple[Tensor, Tensor]:
@@ -68,6 +70,7 @@ class MiraDecoderBlock(nn.Module):
         self.mlp = SwiGLU(dim)
         self.mlp_ls = LayerScale(dim)
 
+    @nvtx.annotate("MiraDecoderBlock.forward")
     def forward(
         self,
         x: Tensor,
@@ -76,33 +79,38 @@ class MiraDecoderBlock(nn.Module):
     ) -> Tensor:
         """Apply spatial attention, causal temporal attention, and SwiGLU."""
         batch, frames, height, width, _ = x.shape
-        spatial_x = rearrange(x, "b t h w c -> (b t) (h w) c")
-        spatial_x = spatial_x + self.space_ls(
-            self.space_attn(self.space_norm(spatial_x), rotary=spatial_frequencies)
-        )
-        temporal_x = rearrange(
-            spatial_x,
-            "(b t) (h w) c -> (b h w) t c",
-            b=batch,
-            t=frames,
-            h=height,
-            w=width,
-        )
-        temporal_x = temporal_x + self.time_ls(
-            self.time_attn(
-                self.time_norm(temporal_x),
-                rotary=temporal_frequencies,
-                causal=True,
+        with nvtx.annotate("MiraDecoderBlock.spatial_attention"):
+            spatial_x = rearrange(x, "b t h w c -> (b t) (h w) c")
+            spatial_x = spatial_x + self.space_ls(
+                self.space_attn(
+                    self.space_norm(spatial_x), rotary=spatial_frequencies
+                )
             )
-        )
-        x = rearrange(
-            temporal_x,
-            "(b h w) t c -> b t h w c",
-            b=batch,
-            h=height,
-            w=width,
-        )
-        return x + self.mlp_ls(self.mlp(self.mlp_norm(x)))
+        with nvtx.annotate("MiraDecoderBlock.temporal_attention"):
+            temporal_x = rearrange(
+                spatial_x,
+                "(b t) (h w) c -> (b h w) t c",
+                b=batch,
+                t=frames,
+                h=height,
+                w=width,
+            )
+            temporal_x = temporal_x + self.time_ls(
+                self.time_attn(
+                    self.time_norm(temporal_x),
+                    rotary=temporal_frequencies,
+                    causal=True,
+                )
+            )
+            x = rearrange(
+                temporal_x,
+                "(b h w) t c -> b t h w c",
+                b=batch,
+                h=height,
+                w=width,
+            )
+        with nvtx.annotate("MiraDecoderBlock.mlp"):
+            return x + self.mlp_ls(self.mlp(self.mlp_norm(x)))
 
 
 class MiraPatchUnembed(nn.Module):
@@ -113,6 +121,7 @@ class MiraPatchUnembed(nn.Module):
         self.patch_size = patch_size
         self.proj = nn.Linear(width, 3 * 2 * patch_size * patch_size)
 
+    @nvtx.annotate("MiraPatchUnembed.forward")
     def forward(self, x: Tensor) -> Tensor:
         """Fold projected tokens into ``[B,2T,3,H,W]`` video."""
         projected = self.proj(x)
@@ -205,6 +214,7 @@ class MiraVideoDecoder(StreamingVideoDecoder[MiraDecoderCache]):
         """Return the codec's two-pixel-frames-per-latent ratio."""
         return 2
 
+    @nvtx.annotate("MiraVideoDecoder.get_output_temporal_size")
     def get_output_temporal_size(
         self, autoregressive_index: int, input_temporal_size: int
     ) -> int:
@@ -212,6 +222,7 @@ class MiraVideoDecoder(StreamingVideoDecoder[MiraDecoderCache]):
         _ = autoregressive_index
         return 2 * input_temporal_size
 
+    @nvtx.annotate("MiraVideoDecoder.get_input_temporal_size")
     def get_input_temporal_size(
         self, autoregressive_index: int, output_temporal_size: int
     ) -> int:
@@ -220,6 +231,7 @@ class MiraVideoDecoder(StreamingVideoDecoder[MiraDecoderCache]):
         assert output_temporal_size % 2 == 0
         return output_temporal_size // 2
 
+    @nvtx.annotate("MiraVideoDecoder.initialize_autoregressive_cache")
     def initialize_autoregressive_cache(
         self, *, context_latents: Tensor, **_context: Any
     ) -> MiraDecoderCache:
@@ -228,6 +240,7 @@ class MiraVideoDecoder(StreamingVideoDecoder[MiraDecoderCache]):
         return MiraDecoderCache(latent_history=context_latents[:, :, -2:].detach())
 
     @torch.no_grad()
+    @nvtx.annotate("MiraVideoDecoder.forward")
     def forward(
         self,
         input: Tensor,
@@ -237,31 +250,39 @@ class MiraVideoDecoder(StreamingVideoDecoder[MiraDecoderCache]):
         """Decode one normalized latent and return two new RGB frames."""
         _ = autoregressive_index
         assert cache is not None
-        if self.mira_config.n_players > 1:
-            input = rearrange(
-                input,
-                "b c t (p h) w -> (b p) c t h w",
-                p=self.mira_config.n_players,
+        with nvtx.annotate("MiraVideoDecoder.prepare_latents"):
+            if self.mira_config.n_players > 1:
+                input = rearrange(
+                    input,
+                    "b c t (p h) w -> (b p) c t h w",
+                    p=self.mira_config.n_players,
+                )
+            normalized = torch.cat((cache.latent_history, input), dim=2)
+            cache.latent_history = normalized[:, :, -2:].detach()
+            latent = (
+                self.mira_config.latent_std * normalized
+                + self.mira_config.latent_mean
             )
-        normalized = torch.cat((cache.latent_history, input), dim=2)
-        cache.latent_history = normalized[:, :, -2:].detach()
-        latent = self.mira_config.latent_std * normalized + self.mira_config.latent_mean
-        latent = rearrange(latent, "b c t h w -> b t c h w").to(
-            dtype=self.mira_config.dtype
-        )
+            latent = rearrange(latent, "b c t h w -> b t c h w").to(
+                dtype=self.mira_config.dtype
+            )
         batch, frames = latent.shape[:2]
-        x = rearrange(latent, "b t c h w -> (b t) c h w")
-        x = self.from_latent(x)
-        x = rearrange(x, "(b t) c h w -> b t h w c", b=batch, t=frames)
-        _, _, height, width, _ = x.shape
-        head_dim = self.mira_config.width // self.mira_config.num_heads
-        spatial_frequencies = _spatial_decoder_rope(
-            height, width, head_dim, 100.0, x.device
-        )
-        temporal_frequencies = decoder_rope(
-            torch.arange(frames, device=x.device), head_dim, 64.0
-        )
-        for block in self.blocks:
-            x = block(x, spatial_frequencies, temporal_frequencies)
-        video = torch.tanh(self.patch_unembed(self.norm_out(x)))
-        return video[:, -2:].mul(0.5).add(0.5)
+        with nvtx.annotate("MiraVideoDecoder.from_latent"):
+            x = rearrange(latent, "b t c h w -> (b t) c h w")
+            x = self.from_latent(x)
+            x = rearrange(x, "(b t) c h w -> b t h w c", b=batch, t=frames)
+        with nvtx.annotate("MiraVideoDecoder.rope"):
+            _, _, height, width, _ = x.shape
+            head_dim = self.mira_config.width // self.mira_config.num_heads
+            spatial_frequencies = _spatial_decoder_rope(
+                height, width, head_dim, 100.0, x.device
+            )
+            temporal_frequencies = decoder_rope(
+                torch.arange(frames, device=x.device), head_dim, 64.0
+            )
+        with nvtx.annotate("MiraVideoDecoder.blocks"):
+            for block in self.blocks:
+                x = block(x, spatial_frequencies, temporal_frequencies)
+        with nvtx.annotate("MiraVideoDecoder.output_projection"):
+            video = torch.tanh(self.patch_unembed(self.norm_out(x)))
+            return video[:, -2:].mul(0.5).add(0.5)

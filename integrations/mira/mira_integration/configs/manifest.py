@@ -21,6 +21,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+import nvtx
 from omegaconf import OmegaConf
 
 from mira_integration.configs.schema import (
@@ -37,24 +38,28 @@ from mira_integration.scheduler import MiraDiffusionModelConfig, MiraFlowSchedul
 from mira_integration.transformer import MiraTransformerConfig
 
 
+@nvtx.annotate()
 def _mapping(value: Any, location: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError(f"{location} must be a mapping")
     return value
 
 
+@nvtx.annotate()
 def _string(value: Any, location: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{location} must be a non-empty string")
     return value
 
 
+@nvtx.annotate()
 def _positive_int(value: Any, location: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise ValueError(f"{location} must be a positive integer")
     return value
 
 
+@nvtx.annotate()
 def _browser_keys(value: Any, location: str) -> tuple[str, ...]:
     if isinstance(value, str) or not isinstance(value, Sequence) or not value:
         raise ValueError(f"{location} must be a non-empty list of strings")
@@ -68,6 +73,7 @@ def _browser_keys(value: Any, location: str) -> tuple[str, ...]:
     return keys
 
 
+@nvtx.annotate()
 def _load_input_maps(
     root: Mapping[str, Any],
 ) -> dict[str, tuple[MiraInputBinding, ...]]:
@@ -111,6 +117,7 @@ def _load_input_maps(
     return input_maps
 
 
+@nvtx.annotate()
 def _load_demos(
     root: Mapping[str, Any],
     input_maps: Mapping[str, tuple[MiraInputBinding, ...]],
@@ -161,6 +168,7 @@ def _load_demos(
     return demos
 
 
+@nvtx.annotate()
 def load_manifest(path: str | Path | None) -> MiraManifest:
     """Load and validate a MIRA YAML manifest.
 
@@ -186,6 +194,7 @@ def load_manifest(path: str | Path | None) -> MiraManifest:
     )
 
 
+@nvtx.annotate()
 def build_pipeline_config(metadata: MiraModelMetadata) -> MiraPipelineConfig:
     """Build a native pipeline config from validated demo metadata.
 
@@ -220,6 +229,7 @@ def build_pipeline_config(metadata: MiraModelMetadata) -> MiraPipelineConfig:
     )
 
 
+@nvtx.annotate()
 def load_demo_config(
     manifest_path: str | Path | None,
     demo_name: str | None,

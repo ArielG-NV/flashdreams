@@ -21,6 +21,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import nvtx
 import numpy as np
 import torch
 from einops import rearrange
@@ -111,6 +112,7 @@ class MiraPipeline(
         assert isinstance(transformer, MiraTransformer)
         return transformer
 
+    @nvtx.annotate("MiraPipeline._load_weights")
     def _load_weights(self) -> None:
         """Resolve and restore the checkpoint into all native components once."""
         if self._weights_loaded:
@@ -127,6 +129,7 @@ class MiraPipeline(
         self._bundle = bundle
         self._weights_loaded = True
 
+    @nvtx.annotate("MiraPipeline._context_file")
     def _context_file(self) -> Path:
         """Return the configured bootstrap context file after bundle resolution."""
         assert self._bundle is not None
@@ -136,6 +139,7 @@ class MiraPipeline(
             raise FileNotFoundError(f"MIRA bootstrap context does not exist: {path}")
         return path
 
+    @nvtx.annotate("MiraPipeline.initialize_cache")
     def initialize_cache(
         self, *, n_diffusion_steps: int = 2, context: str = "default"
     ) -> MiraCache:
@@ -143,53 +147,57 @@ class MiraPipeline(
         if context != "default":
             raise ValueError("MIRA checkpoint bundles provide the default context only")
         self._load_weights()
-        data = np.load(self._context_file(), allow_pickle=False)
-        frames = torch.from_numpy(data["frames"][:, -40:]).to(
-            device=self.device, dtype=torch.uint8
-        )
-        actions = torch.from_numpy(data["actions"][:, -40:]).to(
-            device=self.device, dtype=torch.int32
-        )
+        with nvtx.annotate("MiraPipeline.initialize_cache.load_context"):
+            data = np.load(self._context_file(), allow_pickle=False)
+            frames = torch.from_numpy(data["frames"][:, -40:]).to(
+                device=self.device, dtype=torch.uint8
+            )
+            actions = torch.from_numpy(data["actions"][:, -40:]).to(
+                device=self.device, dtype=torch.int32
+            )
         autocast = (
             torch.autocast(device_type="cuda", dtype=torch.bfloat16)
             if self.device.type == "cuda"
             else nullcontext()
         )
-        with torch.no_grad(), autocast:
-            latent_window = self.bootstrap_encoder(frames)
-        latent_window = latent_window[:, :, -20:].to(
-            dtype=self.transformer.config.dtype
-        )
-        tiled_latent_window = (
-            rearrange(
-                latent_window,
-                "(b p) c t h w -> b c t (p h) w",
-                p=self.config.n_players,
+        with nvtx.annotate("MiraPipeline.initialize_cache.bootstrap_encode"):
+            with torch.no_grad(), autocast:
+                latent_window = self.bootstrap_encoder(frames)
+            latent_window = latent_window[:, :, -20:].to(
+                dtype=self.transformer.config.dtype
             )
-            if self.config.n_players > 1
-            else latent_window
-        )
+            tiled_latent_window = (
+                rearrange(
+                    latent_window,
+                    "(b p) c t h w -> b c t (p h) w",
+                    p=self.config.n_players,
+                )
+                if self.config.n_players > 1
+                else latent_window
+            )
 
         scheduler = self.diffusion_model.scheduler
         assert isinstance(scheduler, MiraFlowScheduler)
         scheduler.set_num_inference_steps(n_diffusion_steps)
-        return StreamInferencePipelineCache(
-            encoder_cache=self.encoder.initialize_autoregressive_cache(
-                previous_row=actions[:, -1:]
-            ),
-            transformer_cache=self.transformer.initialize_autoregressive_cache(
-                context_latents=tiled_latent_window[:, :, 1:],
-                context_action_rows=actions[:, -37:-1],
-            ),
-            decoder_cache=self.decoder.initialize_autoregressive_cache(
-                context_latents=latent_window
-            ),
-        )
+        with nvtx.annotate("MiraPipeline.initialize_cache.streaming_caches"):
+            return StreamInferencePipelineCache(
+                encoder_cache=self.encoder.initialize_autoregressive_cache(
+                    previous_row=actions[:, -1:]
+                ),
+                transformer_cache=self.transformer.initialize_autoregressive_cache(
+                    context_latents=tiled_latent_window[:, :, 1:],
+                    context_action_rows=actions[:, -37:-1],
+                ),
+                decoder_cache=self.decoder.initialize_autoregressive_cache(
+                    context_latents=latent_window
+                ),
+            )
 
     def close(self) -> None:
         """Release rollout caches owned by the caller."""
 
     @torch.no_grad()
+    @nvtx.annotate("MiraPipeline.generate")
     def generate(
         self,
         autoregressive_index: int,

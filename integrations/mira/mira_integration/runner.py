@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Any
 
+import nvtx
 import torch
 import tyro
 from loguru import logger
@@ -64,11 +65,13 @@ class MiraDemoRunnerConfig(RunnerConfig):
     fps: int = 60
     """Output video frame rate."""
 
+    @nvtx.annotate("MiraDemoRunnerConfig._load_selected_demo")
     def _load_selected_demo(self) -> MiraWebRTCModelConfig:
         from mira_integration.configs.manifest import load_demo_config
 
         return load_demo_config(self.manifest, self.demo)
 
+    @nvtx.annotate("MiraDemoRunnerConfig.resolve")
     def resolve(self) -> MiraDemoRunnerConfig:
         """Return a copy with its manifest-selected pipeline generated."""
         selected = self._load_selected_demo()
@@ -99,6 +102,7 @@ class MiraDemoRunner(Runner[MiraDemoRunnerConfig, MiraPipeline]):
         self.is_rank_zero = True
         self.pipeline = config.pipeline.setup().to(device=config.device).eval()
 
+    @nvtx.annotate("MiraDemoRunner.run")
     def run(self) -> None:
         """Run the scripted demo and write a tiled MP4 plus timing JSON."""
         controls = parse_action_script(
@@ -114,21 +118,23 @@ class MiraDemoRunner(Runner[MiraDemoRunnerConfig, MiraPipeline]):
         stats_history: list[dict[str, float | int]] = []
         try:
             for ar_idx, held in enumerate(controls):
-                output = self.pipeline.generate(
-                    ar_idx,
-                    cache,
-                    input=_player_one_controls(
-                        held,
-                        n_players=self.config.pipeline.n_players,
-                    ),
-                ).cpu()
+                with nvtx.annotate("MiraDemoRunner.run.generate_frame"):
+                    output = self.pipeline.generate(
+                        ar_idx,
+                        cache,
+                        input=_player_one_controls(
+                            held,
+                            n_players=self.config.pipeline.n_players,
+                        ),
+                    ).cpu()
                 chunks.append(
                     _normalize_player_chunk(
                         output,
                         n_players=self.config.pipeline.n_players,
                     )
                 )
-                stats = self.pipeline.finalize(ar_idx, cache)
+                with nvtx.annotate("MiraDemoRunner.run.finalize_frame"):
+                    stats = self.pipeline.finalize(ar_idx, cache)
                 if stats is not None:
                     stats_history.append({"autoregressive_index": ar_idx, **stats})
         finally:
@@ -158,6 +164,7 @@ class MiraDemoRunner(Runner[MiraDemoRunnerConfig, MiraPipeline]):
         )
 
 
+@nvtx.annotate("mira.runner._player_one_controls")
 def _player_one_controls(held: list[str], *, n_players: int) -> list[list[str] | None]:
     """Apply held keys to player one and leave the other players inactive."""
     if n_players <= 0:
@@ -165,6 +172,7 @@ def _player_one_controls(held: list[str], *, n_players: int) -> list[list[str] |
     return [held] + [None] * (n_players - 1)
 
 
+@nvtx.annotate("mira.runner._normalize_player_chunk")
 def _normalize_player_chunk(output: torch.Tensor, *, n_players: int) -> torch.Tensor:
     """Return a generated chunk in ``[N,T,C,H,W]`` layout."""
     if output.ndim == 4:
@@ -176,6 +184,7 @@ def _normalize_player_chunk(output: torch.Tensor, *, n_players: int) -> torch.Te
     return output
 
 
+@nvtx.annotate("mira.runner._tile_player_video")
 def _tile_player_video(video: torch.Tensor) -> torch.Tensor:
     """Tile ``[N,T,C,H,W]`` player views into ``[T,C,grid_H,grid_W]``."""
     if video.ndim != 5:
@@ -193,6 +202,7 @@ def _tile_player_video(video: torch.Tensor) -> torch.Tensor:
     )
 
 
+@nvtx.annotate("mira.runner._configure_media_ffmpeg")
 def _configure_media_ffmpeg(media: Any) -> None:
     """Use PATH FFmpeg or imageio's bundled binary for portable MP4 output."""
     if media.video_is_available():
@@ -209,6 +219,7 @@ def _configure_media_ffmpeg(media: Any) -> None:
         raise RuntimeError("The imageio-ffmpeg executable could not be located.")
 
 
+@nvtx.annotate("mira.runner.parse_action_script")
 def parse_action_script(
     value: str,
     *,

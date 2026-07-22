@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import nvtx
 import torch
 from einops import rearrange
 from torch import Tensor
@@ -50,11 +51,13 @@ class MiraTransformerCache(TransformerAutoregressiveCache):
     autoregressive_index: int = -1
     """Current AR index; ``-1`` before generation starts."""
 
+    @nvtx.annotate("MiraTransformerCache.start")
     def start(self, autoregressive_index: int) -> None:
         """Prepare every temporal KV cache for the current AR step."""
         self.autoregressive_index = autoregressive_index
         self.network_cache.before_update(autoregressive_index)
 
+    @nvtx.annotate("MiraTransformerCache.finalize")
     def finalize(self, autoregressive_index: int) -> None:
         """Commit KV bookkeeping and advance clean-past conditioning."""
         self.network_cache.after_update(autoregressive_index)
@@ -108,6 +111,7 @@ class MiraTransformer(Transformer[MiraTransformerCache]):
         self._cuda_graph_capture_ar_idx = 1
         self._cuda_graph_dispatch: CUDAGraphDispatch | None = None
 
+    @nvtx.annotate("MiraTransformer.finish_loading")
     def finish_loading(self) -> None:
         """Compile the network after checkpoint restoration when requested."""
         if self.config.compile_network:
@@ -127,6 +131,7 @@ class MiraTransformer(Transformer[MiraTransformerCache]):
             self.config.network.latent_dim,
         )
 
+    @nvtx.annotate("MiraTransformer.patchify_and_maybe_split_cp")
     def patchify_and_maybe_split_cp(self, x: Tensor) -> Tensor:
         """Flatten video latents or encode a two-row keyboard payload."""
         if x.ndim == 3 and x.shape[-1] == self.config.network.num_action_keys:
@@ -136,11 +141,13 @@ class MiraTransformer(Transformer[MiraTransformerCache]):
         )
         return rearrange(x, "b c 1 h w -> b (h w) c")
 
+    @nvtx.annotate("MiraTransformer.unpatchify_and_maybe_gather_cp")
     def unpatchify_and_maybe_gather_cp(self, x: Tensor) -> Tensor:
         """Restore flattened current-frame tokens to ``[B,C,1,H,W]``."""
         assert self._height is not None and self._width is not None
         return rearrange(x, "b (h w) c -> b c 1 h w", h=self._height, w=self._width)
 
+    @nvtx.annotate("MiraTransformer.initialize_autoregressive_cache")
     def initialize_autoregressive_cache(
         self,
         *,
@@ -177,6 +184,7 @@ class MiraTransformer(Transformer[MiraTransformerCache]):
             clean_past=clean_past,
         )
 
+    @nvtx.annotate("MiraTransformer.predict_flow")
     def predict_flow(
         self,
         noisy_latent: Tensor,
@@ -202,6 +210,7 @@ class MiraTransformer(Transformer[MiraTransformerCache]):
             clean_past=cache.clean_past,
         )
 
+    @nvtx.annotate("MiraTransformer.postprocess_clean_latent")
     def postprocess_clean_latent(
         self,
         clean_latent: Tensor,

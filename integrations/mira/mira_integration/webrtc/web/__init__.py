@@ -14,3 +14,7 @@
 # limitations under the License.
 
 """Packaged browser assets for the MIRA WebRTC controller."""
+
+import nvtx
+
+_NVTX_ANNOTATE = nvtx.annotate
