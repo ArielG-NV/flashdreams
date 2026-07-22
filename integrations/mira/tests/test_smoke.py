@@ -28,12 +28,11 @@ from mira_integration.config import (
     load_demo_config,
 )
 from mira_integration.pipeline import MiraPipelineConfig
-from mira_integration.runner import (
-    _configure_media_ffmpeg,
-    _normalize_player_chunk,
-    _player_one_controls,
-    _tile_player_video,
-    parse_action_script,
+from mira_integration.scripted import parse_action_script, player_one_browser_controls
+from mira_integration.webrtc.media import (
+    configure_media_ffmpeg,
+    normalize_player_chunk,
+    tile_player_video,
 )
 
 from flashdreams.infra.config import derive_config
@@ -71,7 +70,7 @@ def test_configure_media_ffmpeg_uses_bundled_binary(
         "imageio_ffmpeg",
         SimpleNamespace(get_ffmpeg_exe=lambda: "bundled-ffmpeg"),
     )
-    _configure_media_ffmpeg(media)
+    configure_media_ffmpeg(media)
     assert media.ffmpeg == "bundled-ffmpeg"
 
 
@@ -90,21 +89,26 @@ def test_parse_action_script_uses_100ms_duration_units() -> None:
     assert parse_action_script("A@2", fps=30, frames_per_chunk=4) == [["A"]] * 2
 
 
-def test_scripted_controls_only_target_player_one() -> None:
+def test_scripted_browser_controls_only_target_player_one() -> None:
     held = ["W", "D"]
-    assert _player_one_controls(held, n_players=1) == [held]
-    assert _player_one_controls(held, n_players=4) == [held, None, None, None]
+    metadata = load_demo_config(MANIFEST_PATH, "mira-mini-4p").metadata
+    assert player_one_browser_controls(held, metadata=metadata) == (
+        frozenset({"w", "d"}),
+        None,
+        None,
+        None,
+    )
 
 
 def test_scripted_video_normalizes_and_tiles_dynamic_player_count() -> None:
-    single = _normalize_player_chunk(torch.zeros(2, 3, 4, 5), n_players=1)
+    single = normalize_player_chunk(torch.zeros(2, 3, 4, 5), n_players=1)
     assert single.shape == (1, 2, 3, 4, 5)
 
     players = torch.stack(
         tuple(torch.full((2, 3, 4, 5), float(index)) for index in range(3))
     )
-    normalized = _normalize_player_chunk(players, n_players=3)
-    tiled = _tile_player_video(normalized)
+    normalized = normalize_player_chunk(players, n_players=3)
+    tiled = tile_player_video(normalized)
     assert normalized.shape == (3, 2, 3, 4, 5)
     assert tiled.shape == (2, 3, 8, 10)
     assert torch.equal(tiled[:, :, :4, :5], players[0])
@@ -115,7 +119,7 @@ def test_scripted_video_normalizes_and_tiles_dynamic_player_count() -> None:
 
 def test_scripted_video_rejects_wrong_player_count() -> None:
     with pytest.raises(ValueError, match=r"Expected \[4,T,C,H,W\]"):
-        _normalize_player_chunk(torch.zeros(3, 2, 3, 4, 5), n_players=4)
+        normalize_player_chunk(torch.zeros(3, 2, 3, 4, 5), n_players=4)
 
 
 @pytest.mark.parametrize("value", ("", "W", "W@0", "NotAKey@1", "W@wat"))

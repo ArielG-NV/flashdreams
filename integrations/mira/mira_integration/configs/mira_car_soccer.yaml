@@ -74,7 +74,7 @@ demos:
     latent_width: 16
     video_width: 512
     video_height: 288
-    frames_per_chunk: 1
+    frames_per_chunk: 2
     display_name: MIRA Mini 1B
   mira-mini-4p:
     checkpoint-hugging-face: alakazamworld/mira-mini-4p
@@ -85,5 +85,5 @@ demos:
     latent_width: 16
     video_width: 512
     video_height: 288
-    frames_per_chunk: 1
+    frames_per_chunk: 2
     display_name: MIRA Mini 4P

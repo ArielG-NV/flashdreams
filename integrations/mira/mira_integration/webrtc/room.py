@@ -39,7 +39,10 @@ from mira_integration.configs.schema import preview_grid_dimensions
 from mira_integration.webrtc.session import (
     MiraInferenceRuntime,
     MiraRuntimeConfig,
+)
+from mira_integration.webrtc.media import (
     tile_player_video,
+    video_chunk_to_rgb_frames,
 )
 
 
@@ -205,6 +208,7 @@ class MiraMultiplayerSessionManager:
             track = BufferedVideoTrack(
                 fps=self.runtime_config.fps,
                 maxsize=self.runtime_config.frames_per_chunk,
+                frame_converter=video_chunk_to_rgb_frames,
             )
             peer.addTrack(track)
             session_id = uuid4().hex

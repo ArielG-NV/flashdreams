@@ -35,12 +35,11 @@ from mira_integration.webrtc.room import (
 )
 from mira_integration.webrtc.server import build_runtime_config, create_app, parse_args
 from mira_integration.webrtc.session import (
-    MIRA_VIDEO_HEIGHT,
-    MIRA_VIDEO_WIDTH,
     MiraInferenceRuntime,
     MiraRuntimeConfig,
     checkpoint_keys,
 )
+from mira_integration.webrtc.media import video_chunk_to_rgb_frames
 
 from flashdreams.serving.webrtc.server import PACKAGE_RESOURCE_STACK_KEY
 
@@ -124,9 +123,11 @@ def test_checkpoint_keys_follow_mira_vocabulary_order() -> None:
     ]
 
 
-def test_runtime_config_rejects_non_native_resolution() -> None:
-    with pytest.raises(ValueError, match="fixed at 512x288"):
-        MiraRuntimeConfig(model_config=DEMO_4P, video_width=640)
+def test_runtime_config_derives_media_shape_from_manifest() -> None:
+    config = MiraRuntimeConfig(model_config=DEMO_4P)
+    assert config.video_width == DEMO_4P.metadata.video_width
+    assert config.video_height == DEMO_4P.metadata.video_height
+    assert config.frames_per_chunk == DEMO_4P.metadata.frames_per_chunk
 
 
 @pytest.mark.parametrize(
@@ -201,7 +202,7 @@ def test_webrtc_runtime_config_can_disable_cuda_graphs() -> None:
 
 
 @pytest.mark.asyncio
-async def test_runtime_translates_latest_keys_and_emits_uint8_chunk() -> None:
+async def test_runtime_translates_latest_keys_and_keeps_chunk_in_model_range() -> None:
     pipeline = _FakePipeline()
     runtime = MiraInferenceRuntime(
         config=MiraRuntimeConfig(
@@ -228,12 +229,20 @@ async def test_runtime_translates_latest_keys_and_emits_uint8_chunk() -> None:
         ]
         assert result.chunk_index == 0
         assert result.num_frames == 2
-        assert result.video_chunk.dtype == torch.uint8
+        assert result.video_chunk.dtype == torch.float32
         assert result.video_chunk.shape == (4, 2, 3, 2, 2)
-        assert result.video_chunk[:, :, 0].unique().item() == 0
-        assert result.video_chunk[:, :, 1].unique().item() == 128
-        assert result.video_chunk[:, :, 2].unique().item() == 255
+        assert result.video_chunk[:, :, 0].unique().item() == 0.0
+        assert result.video_chunk[:, :, 1].unique().item() == 0.5
+        assert result.video_chunk[:, :, 2].unique().item() == 1.0
         assert result.stats == {"total_ms": 4.0}
+
+        frames = video_chunk_to_rgb_frames(result.video_chunk[0])
+        assert len(frames) == 2
+        assert frames[0].dtype == "uint8"
+        assert frames[0].shape == (2, 2, 3)
+        assert frames[0][:, :, 0].max().item() == 0
+        assert frames[0][:, :, 1].max().item() == 128
+        assert frames[0][:, :, 2].max().item() == 255
     finally:
         await runtime.close()
     assert pipeline.closed
@@ -353,9 +362,10 @@ def test_packaged_app_keeps_web_resource_alive() -> None:
 def test_runtime_config_reports_native_output_shape() -> None:
     config = MiraRuntimeConfig(model_config=DEMO_4P)
     assert (config.video_height, config.video_width) == (
-        MIRA_VIDEO_HEIGHT,
-        MIRA_VIDEO_WIDTH,
+        DEMO_4P.metadata.video_height,
+        DEMO_4P.metadata.video_width,
     )
+    assert config.frames_per_chunk == DEMO_4P.metadata.frames_per_chunk
 
 
 def test_model_metadata_drives_player_count_and_checkpoint_keys() -> None:

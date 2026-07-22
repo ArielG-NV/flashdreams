@@ -26,24 +26,14 @@ from typing import Any, TypeVar
 
 import nvtx
 import torch
-from torch import Tensor
 
 from flashdreams.serving.webrtc.runtime import WebRTCStepResult
 from mira_integration.configs.schema import (
     MiraModelMetadata,
     MiraWebRTCModelConfig,
-    preview_grid_dimensions,
 )
 from mira_integration.pipeline import MiraCache, MiraPipeline, MiraPipelineConfig
-
-MIRA_VIDEO_HEIGHT = 288
-"""Pixel height emitted by the published 9-token MIRA latent grid."""
-
-MIRA_VIDEO_WIDTH = 512
-"""Pixel width emitted by the published 16-token MIRA latent grid."""
-
-MIRA_FRAMES_PER_CHUNK = 2
-"""Pixel frames decoded from each MIRA autoregressive latent."""
+from mira_integration.webrtc.media import normalize_player_chunk
 
 _T = TypeVar("_T")
 
@@ -64,15 +54,6 @@ class MiraRuntimeConfig:
     fps: int = 60
     """WebRTC playback and keyboard-resampling frame rate."""
 
-    video_height: int | None = None
-    """Fixed MIRA output height reported to the browser."""
-
-    video_width: int | None = None
-    """Fixed MIRA output width reported to the browser."""
-
-    frames_per_chunk: int | None = None
-    """Pixel frames expected from each generated chunk."""
-
     n_diffusion_steps: int = 2
     """Sampler steps used for each generated latent frame."""
 
@@ -83,34 +64,31 @@ class MiraRuntimeConfig:
     """Maximum time allowed for the loopback warmup session."""
 
     def __post_init__(self) -> None:
-        metadata = self.model_config.metadata
-        if self.video_height is None:
-            self.video_height = metadata.video_height
-        if self.video_width is None:
-            self.video_width = metadata.video_width
-        if self.frames_per_chunk is None:
-            self.frames_per_chunk = metadata.frames_per_chunk
-        if (self.video_height, self.video_width) != (
-            metadata.video_height,
-            metadata.video_width,
-        ):
-            raise ValueError(
-                f"{metadata.display_name} output is fixed at "
-                f"{metadata.video_width}x{metadata.video_height}."
-            )
-        if self.frames_per_chunk != metadata.frames_per_chunk:
-            raise ValueError(
-                f"{metadata.display_name} emits {metadata.frames_per_chunk} "
-                "frames per chunk."
-            )
         if self.fps <= 0:
             raise ValueError("fps must be > 0")
+        if self.video_height <= 0 or self.video_width <= 0:
+            raise ValueError("MIRA video dimensions must be > 0")
         if self.frames_per_chunk <= 0:
-            raise ValueError("frames_per_chunk must be > 0")
+            raise ValueError("MIRA frames_per_chunk must be > 0")
         if self.n_diffusion_steps <= 0:
             raise ValueError("n_diffusion_steps must be > 0")
         if self.warmup_chunks < 0:
             raise ValueError("warmup_chunks must be >= 0")
+
+    @property
+    def video_height(self) -> int:
+        """Pixel height emitted by the selected manifest demo."""
+        return self.model_config.metadata.video_height
+
+    @property
+    def video_width(self) -> int:
+        """Pixel width emitted by the selected manifest demo."""
+        return self.model_config.metadata.video_width
+
+    @property
+    def frames_per_chunk(self) -> int:
+        """Pixel frames emitted by each selected-demo autoregressive chunk."""
+        return self.model_config.metadata.frames_per_chunk
 
 
 @nvtx.annotate()
@@ -120,57 +98,6 @@ def checkpoint_keys(
 ) -> list[str]:
     """Translate normalized browser keys into MIRA checkpoint names."""
     return metadata.checkpoint_keys(keys)
-
-
-@nvtx.annotate()
-def normalize_player_chunk(video: Tensor, *, n_players: int) -> Tensor:
-    """Return a generated chunk in ``[P,T,C,H,W]`` layout."""
-    if video.ndim == 4:
-        video = video.unsqueeze(0)
-    if video.ndim != 5 or video.shape[0] != n_players:
-        raise ValueError(
-            f"Expected [{n_players},T,C,H,W] MIRA output, got {tuple(video.shape)}"
-        )
-    return video
-
-
-@nvtx.annotate()
-def tile_player_video(video: Tensor) -> Tensor:
-    """Tile per-player video into one near-square preview image stream."""
-    if video.ndim != 5 or video.shape[0] <= 0:
-        raise ValueError(f"Expected [P,T,C,H,W] player video, got {tuple(video.shape)}")
-    players, frames, channels, height, width = video.shape
-    rows, columns = preview_grid_dimensions(players)
-    preview = torch.zeros(
-        frames,
-        channels,
-        rows * height,
-        columns * width,
-        dtype=video.dtype,
-        device=video.device,
-    )
-    for player in range(players):
-        row, column = divmod(player, columns)
-        preview[
-            :,
-            :,
-            row * height : (row + 1) * height,
-            column * width : (column + 1) * width,
-        ] = video[player]
-    return preview
-
-
-@nvtx.annotate()
-def video_to_uint8_image(video: Tensor) -> Tensor:
-    """Convert ``[0,1]`` RGB video to a GPU-resident ``uint8`` image tensor."""
-    return (
-        video.detach()
-        .float()
-        .clamp(0, 1)
-        .mul(255)
-        .round()
-        .to(torch.uint8)
-    )
 
 
 class MiraInferenceRuntime:
@@ -356,19 +283,17 @@ class MiraInferenceRuntime:
                 )
             with nvtx.annotate("MiraInferenceRuntime.pipeline_finalize"):
                 stats = self._pipeline.finalize(chunk_index, self._cache)
-            with nvtx.annotate("MiraInferenceRuntime.materialize_uint8_image"):
-                video_uint8 = video_to_uint8_image(
-                    normalize_player_chunk(
-                        video,
-                        n_players=self.model_config.metadata.player_count,
-                    )
+            with nvtx.annotate("MiraInferenceRuntime.normalize_player_chunk"):
+                video = normalize_player_chunk(
+                    video,
+                    n_players=self.model_config.metadata.player_count,
                 )
 
         self._autoregressive_index += 1
         return WebRTCStepResult(
             chunk_index=chunk_index,
-            num_frames=int(video_uint8.shape[1]),
-            video_chunk=video_uint8,
+            num_frames=int(video.shape[1]),
+            video_chunk=video,
             stats=stats,
         )
 
@@ -422,13 +347,7 @@ class MiraInferenceRuntime:
 
 
 __all__ = [
-    "MIRA_FRAMES_PER_CHUNK",
-    "MIRA_VIDEO_HEIGHT",
-    "MIRA_VIDEO_WIDTH",
     "MiraInferenceRuntime",
     "MiraRuntimeConfig",
     "checkpoint_keys",
-    "normalize_player_chunk",
-    "tile_player_video",
-    "video_to_uint8_image",
 ]
