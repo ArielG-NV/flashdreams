@@ -18,11 +18,34 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 import nvtx
 import torch
 import torch.nn as nn
 from torch import Tensor
+
+
+@dataclass(frozen=True, slots=True)
+class MiraActionInput:
+    """Raw aligned action rows and explicit per-player autopilot state."""
+
+    rows: Tensor
+    """Keyboard rows ``[B, T, K]`` containing only binary values."""
+
+    autopilot_mask: Tensor
+    """Boolean player mask ``[B]`` selecting learned action dropout."""
+
+
+@dataclass(frozen=True, slots=True)
+class MiraActionCondition:
+    """Conditional and optional dropped-action embeddings for one AR step."""
+
+    conditional: Tensor
+    """Combined action embedding ``[B, 1, D]``."""
+
+    dropped: Tensor | None = None
+    """All-player-dropout embedding used by action guidance."""
 
 
 @nvtx.annotate("mira.action._symlog_normalize")
@@ -91,16 +114,32 @@ class MiraActionEncoder(nn.Module):
         nn.init.normal_(self.initial_action_token, std=0.02)
 
     @nvtx.annotate("MiraActionEncoder.forward")
-    def forward(self, key_presses: Tensor) -> Tensor:
+    def forward(
+        self,
+        key_presses: Tensor,
+        *,
+        drop_mask: Tensor | None = None,
+    ) -> Tensor:
         """Encode keyboard rows ``[B,T,K]`` into action tokens."""
         batch, steps, _ = key_presses.shape
         assert steps % self.temporal_downsampling == 0, (
             f"action row count {steps} must be divisible by "
             f"{self.temporal_downsampling}"
         )
+        if drop_mask is None:
+            drop_mask = torch.zeros(
+                batch,
+                device=key_presses.device,
+                dtype=torch.bool,
+            )
+        if drop_mask.shape != (batch,) or drop_mask.dtype != torch.bool:
+            raise ValueError(
+                "drop_mask must be a bool tensor with shape "
+                f"({batch},), got {drop_mask.dtype} {tuple(drop_mask.shape)}"
+            )
+        if ((key_presses < 0) | (key_presses > 1)).any():
+            raise ValueError("MIRA key presses must contain only binary values")
         dtype = self.mouse_mlp.weight.dtype
-        autopilot_mask = (key_presses[:, -1] < 0).all(dim=-1)
-        key_presses = key_presses.clamp_min(0)
         mouse = torch.zeros(batch, steps, 2, device=key_presses.device, dtype=dtype)
         mouse = self.mouse_mlp(_symlog_normalize(mouse))
         sensitivity = torch.ones(batch, 1, 1, device=key_presses.device, dtype=dtype)
@@ -114,7 +153,7 @@ class MiraActionEncoder(nn.Module):
             self._embed_key(
                 key_presses=key_presses,
                 key_index=index,
-                autopilot_mask=autopilot_mask,
+                drop_mask=drop_mask,
             )
             for index in range(key_presses.shape[-1])
         ]
@@ -130,8 +169,8 @@ class MiraActionEncoder(nn.Module):
         keyboard = self.keyboard_temporal_pool(
             keyboard.unflatten(1, (-1, stride)).flatten(2)
         )
-        if autopilot_mask.any():
-            mask = autopilot_mask[:, None, None]
+        if drop_mask.any():
+            mask = drop_mask[:, None, None]
             mouse = torch.where(
                 mask,
                 self.mouse_dropout_token.to(dtype=mouse.dtype),
@@ -155,7 +194,7 @@ class MiraActionEncoder(nn.Module):
         *,
         key_presses: Tensor,
         key_index: int,
-        autopilot_mask: Tensor,
+        drop_mask: Tensor,
     ) -> Tensor:
         embedded = self.keyboard_embedding_dict[str(key_index)](
             key_presses[..., key_index].to(dtype=torch.long)
@@ -163,4 +202,11 @@ class MiraActionEncoder(nn.Module):
         if self.key_dropout_embed is None:
             return embedded
         token = self.key_dropout_embed[key_index].to(dtype=embedded.dtype)
-        return torch.where(autopilot_mask[:, None, None], token, embedded)
+        return torch.where(drop_mask[:, None, None], token, embedded)
+
+
+__all__ = [
+    "MiraActionCondition",
+    "MiraActionEncoder",
+    "MiraActionInput",
+]

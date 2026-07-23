@@ -29,7 +29,6 @@ from torch import Tensor
 
 from flashdreams.core.attention import BlockKVCache
 from flashdreams.infra.config import InstantiateConfig
-
 from mira_integration.action import MiraActionEncoder
 from mira_integration.modules import (
     AdaptiveLayerNorm,
@@ -359,9 +358,14 @@ class MiraDiT(nn.Module):
         nn.init.normal_(self.bos, std=0.02)
 
     @nvtx.annotate("MiraDiT.encode_actions")
-    def encode_actions(self, rows: Tensor) -> Tensor:
+    def encode_actions(
+        self,
+        rows: Tensor,
+        *,
+        drop_mask: Tensor | None = None,
+    ) -> Tensor:
         """Encode raw action rows and return the final latent-frame token."""
-        actions = self.action_encoder(rows)
+        actions = self.action_encoder(rows, drop_mask=drop_mask)
         if self.config.n_players > 1:
             actions = rearrange(
                 actions,

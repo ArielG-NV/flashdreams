@@ -145,6 +145,9 @@ def _load_demos(
             player_count=_positive_int(
                 demo.get("player_count"), f"{location}.player_count"
             ),
+            n_context_frames=_positive_int(
+                demo.get("n_context_frames"), f"{location}.n_context_frames"
+            ),
             steps=_positive_int(demo.get("steps"), f"{location}.steps"),
             latent_height=_positive_int(
                 demo.get("latent_height"), f"{location}.latent_height"
@@ -205,7 +208,9 @@ def build_pipeline_config(metadata: MiraModelMetadata) -> MiraPipelineConfig:
         Pipeline configuration matching the demo checkpoint and player layout.
     """
     player_count = metadata.player_count
-    checkpoint_keys = tuple(binding.checkpoint_key for binding in metadata.input_key_map)
+    checkpoint_keys = tuple(
+        binding.checkpoint_key for binding in metadata.input_key_map
+    )
     return MiraPipelineConfig(
         name=metadata.name,
         enable_sync_and_profile=True,
@@ -216,7 +221,8 @@ def build_pipeline_config(metadata: MiraModelMetadata) -> MiraPipelineConfig:
                     latent_width=metadata.latent_width,
                     n_players=player_count,
                     num_action_keys=metadata.num_action_keys,
-                )
+                ),
+                action_guidance_scale=4.0 if player_count > 1 else 1.0,
             ),
             scheduler=MiraFlowSchedulerConfig(),
             seed=0,
@@ -226,6 +232,7 @@ def build_pipeline_config(metadata: MiraModelMetadata) -> MiraPipelineConfig:
         decoder=MiraDecoderConfig(n_players=player_count),
         model_repo=metadata.checkpoint,
         n_players=player_count,
+        n_context_frames=metadata.n_context_frames,
     )
 
 

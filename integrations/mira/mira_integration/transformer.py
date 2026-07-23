@@ -31,7 +31,7 @@ from flashdreams.infra.diffusion.transformer import (
     TransformerAutoregressiveCache,
     TransformerConfig,
 )
-
+from mira_integration.action import MiraActionCondition, MiraActionInput
 from mira_integration.network import MiraDiT, MiraDiTCache, MiraDiTConfig
 
 
@@ -87,6 +87,9 @@ class MiraTransformerConfig(TransformerConfig):
     cuda_graph_warmup_iters: int = 2
     """Eager calls before CUDA graph capture for a stable input signature."""
 
+    action_guidance_scale: float = 1.0
+    """Dropped-action guidance strength; ``1`` disables the second branch."""
+
 
 class MiraTransformer(Transformer[MiraTransformerCache]):
     """Adapt MIRA's single-latent AR model to FlashDreams diffusion contracts."""
@@ -96,6 +99,8 @@ class MiraTransformer(Transformer[MiraTransformerCache]):
 
     def __init__(self, config: MiraTransformerConfig) -> None:
         super().__init__(config)
+        if config.action_guidance_scale < 1.0:
+            raise ValueError("action_guidance_scale must be at least 1")
         if (
             torch.distributed.is_initialized()
             and torch.distributed.get_world_size() != 1
@@ -132,8 +137,30 @@ class MiraTransformer(Transformer[MiraTransformerCache]):
         )
 
     @nvtx.annotate("MiraTransformer.patchify_and_maybe_split_cp")
-    def patchify_and_maybe_split_cp(self, x: Tensor) -> Tensor:
+    def patchify_and_maybe_split_cp(
+        self,
+        x: Tensor | MiraActionInput,
+    ) -> Tensor | MiraActionCondition:
         """Flatten video latents or encode a two-row keyboard payload."""
+        if isinstance(x, MiraActionInput):
+            conditional = self.network.encode_actions(
+                x.rows,
+                drop_mask=x.autopilot_mask,
+            )
+            dropped = None
+            if (
+                self.config.action_guidance_scale != 1.0
+                and self.config.network.n_players > 1
+                and (~x.autopilot_mask).any()
+            ):
+                dropped = self.network.encode_actions(
+                    x.rows,
+                    drop_mask=torch.ones_like(x.autopilot_mask),
+                )
+            return MiraActionCondition(
+                conditional=conditional,
+                dropped=dropped,
+            )
         if x.ndim == 3 and x.shape[-1] == self.config.network.num_action_keys:
             return self.network.encode_actions(x)
         assert x.ndim == 5 and x.shape[2] == 1, (
@@ -190,23 +217,60 @@ class MiraTransformer(Transformer[MiraTransformerCache]):
         noisy_latent: Tensor,
         timestep: Tensor,
         cache: MiraTransformerCache,
-        input: Tensor | None = None,
+        input: Tensor | MiraActionCondition | None = None,
     ) -> Tensor:
         """Predict current-frame flow using action and clean-past conditioning."""
         assert input is not None, "MIRA requires encoded keyboard actions"
+        condition = (
+            input
+            if isinstance(input, MiraActionCondition)
+            else MiraActionCondition(conditional=input)
+        )
+
+        dropped_flow = None
+        if condition.dropped is not None:
+            dropped_flow = self._predict_branch(
+                noisy_latent,
+                timestep,
+                cache,
+                action_embedding=condition.dropped,
+                uncond=True,
+            )
+        conditional_flow = self._predict_branch(
+            noisy_latent,
+            timestep,
+            cache,
+            action_embedding=condition.conditional,
+            uncond=False,
+        )
+        if dropped_flow is None:
+            return conditional_flow
+        scale = self.config.action_guidance_scale
+        return dropped_flow + scale * (conditional_flow - dropped_flow)
+
+    def _predict_branch(
+        self,
+        noisy_latent: Tensor,
+        timestep: Tensor,
+        cache: MiraTransformerCache,
+        *,
+        action_embedding: Tensor,
+        uncond: bool,
+    ) -> Tensor:
+        """Run one action-conditioning branch without advancing cache bookkeeping."""
         network = (
             self.network
             if self._cuda_graph_dispatch is None
             else self._cuda_graph_dispatch.select(
                 cache.autoregressive_index,
-                uncond=False,
+                uncond=uncond,
             )
         )
         return network(
             noisy_latent,
             timesteps=timestep,
             cache=cache.network_cache,
-            action_embedding=input,
+            action_embedding=action_embedding,
             clean_past=cache.clean_past,
         )
 
@@ -215,7 +279,7 @@ class MiraTransformer(Transformer[MiraTransformerCache]):
         self,
         clean_latent: Tensor,
         cache: MiraTransformerCache,
-        input: Tensor | None = None,
+        input: Tensor | MiraActionCondition | None = None,
     ) -> Tensor:
         """Stage the clean latent for next-step past conditioning."""
         _ = input

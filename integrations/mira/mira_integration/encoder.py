@@ -33,6 +33,7 @@ from flashdreams.infra.encoder import (
     StreamingEncoder,
     StreamingEncoderCache,
 )
+from mira_integration.action import MiraActionInput
 
 MIRA_KEYS = ("W", "A", "S", "D", "Q", "E", "Space", "LShiftKey", "LControlKey")
 """Ordered keyboard vocabulary stored in the published checkpoint."""
@@ -80,11 +81,16 @@ class MiraControlEncoder(StreamingEncoder[MiraControlEncoderCache]):
         input: list[str] | tuple[str, ...] | list[list[str] | None],
         autoregressive_index: int = 0,
         cache: MiraControlEncoderCache | None = None,
-    ) -> Tensor:
-        """Return ``[previous, current]`` multi-hot rows for one latent step."""
+    ) -> MiraActionInput:
+        """Return aligned rows and explicit autopilot state for one latent step."""
         _ = autoregressive_index
         assert cache is not None, "MIRA controls require an initialized encoder cache"
         current = torch.zeros_like(cache.previous_row)
+        autopilot_mask = torch.zeros(
+            current.shape[0],
+            device=current.device,
+            dtype=torch.bool,
+        )
         if input and (isinstance(input[0], list) or input[0] is None):
             per_player = input
         else:
@@ -96,7 +102,7 @@ class MiraControlEncoder(StreamingEncoder[MiraControlEncoderCache]):
             )
         for player, keys in enumerate(per_player):
             if keys is None:
-                current[player].fill_(-1)
+                autopilot_mask[player] = True
                 continue
             for key in keys:
                 if key not in self._key_index:
@@ -104,7 +110,7 @@ class MiraControlEncoder(StreamingEncoder[MiraControlEncoderCache]):
                 current[player, ..., self._key_index[key]] = 1
         rows = torch.cat((cache.previous_row, current), dim=1)
         cache.previous_row = current
-        return rows
+        return MiraActionInput(rows=rows, autopilot_mask=autopilot_mask)
 
 
 @dataclass(kw_only=True)

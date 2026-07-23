@@ -28,6 +28,8 @@ import torch
 from aiohttp.test_utils import TestClient, TestServer
 from mira_integration.configs.manifest import load_demo_config, load_manifest
 from mira_integration.configs.schema import preview_grid_dimensions
+from mira_integration.transformer import MiraTransformerConfig
+from mira_integration.webrtc.media import video_chunk_to_rgb_frames
 from mira_integration.webrtc.room import (
     MiraBrowserSession,
     MiraMultiplayerSessionManager,
@@ -39,7 +41,6 @@ from mira_integration.webrtc.session import (
     MiraRuntimeConfig,
     checkpoint_keys,
 )
-from mira_integration.webrtc.media import video_chunk_to_rgb_frames
 
 from flashdreams.serving.webrtc.server import PACKAGE_RESOURCE_STACK_KEY
 
@@ -385,6 +386,14 @@ def test_manifest_generates_mira_test_pipeline() -> None:
     assert DEMO_1P.pipeline.name == "mira-mini-1p"
     assert DEMO_1P.pipeline.model_repo == metadata.checkpoint
     assert DEMO_1P.pipeline.n_players == metadata.player_count == 1
+    assert DEMO_1P.pipeline.n_context_frames == metadata.n_context_frames == 39
+    assert DEMO_4P.pipeline.n_context_frames == DEMO_4P.metadata.n_context_frames == 78
+    one_player_transformer = DEMO_1P.pipeline.diffusion_model.transformer
+    four_player_transformer = DEMO_4P.pipeline.diffusion_model.transformer
+    assert isinstance(one_player_transformer, MiraTransformerConfig)
+    assert isinstance(four_player_transformer, MiraTransformerConfig)
+    assert one_player_transformer.action_guidance_scale == 1.0
+    assert four_player_transformer.action_guidance_scale == 4.0
 
 
 def test_manifest_and_demo_selection_are_required() -> None:
@@ -417,6 +426,23 @@ demos:
 """.strip()
     )
     with pytest.raises(ValueError, match="unknown map 'missing'"):
+        load_manifest(manifest_path)
+
+
+def test_manifest_requires_context_frame_count(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "missing-context.yaml"
+    manifest_path.write_text(
+        MANIFEST_PATH.read_text(encoding="utf-8").replace(
+            "    n_context_frames: 39\n",
+            "",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        ValueError,
+        match=r"demos\.mira-mini-1p\.n_context_frames must be a positive integer",
+    ):
         load_manifest(manifest_path)
 
 

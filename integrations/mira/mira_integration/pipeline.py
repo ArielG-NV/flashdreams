@@ -21,8 +21,8 @@ from contextlib import nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import nvtx
 import numpy as np
+import nvtx
 import torch
 from einops import rearrange
 from torch import Tensor
@@ -55,6 +55,22 @@ DEFAULT_MODEL_REPO = "alakazamworld/mira-mini"
 """Published MIRA Mini 1B checkpoint bundle used by the demo runner."""
 
 
+def _context_layout(
+    n_context_frames: int,
+    *,
+    temporal_downsampling: int,
+) -> tuple[int, int, int]:
+    """Return encoded frames, latent context, and aligned action-row counts."""
+    if temporal_downsampling <= 0:
+        raise ValueError("temporal_downsampling must be positive")
+    context_latents = n_context_frames // temporal_downsampling
+    if context_latents < 2:
+        raise ValueError("MIRA context must contain at least two latent frames")
+    encoded_frames = (context_latents + 1) * temporal_downsampling
+    action_rows = (context_latents - 1) * temporal_downsampling
+    return encoded_frames, context_latents, action_rows
+
+
 @dataclass(kw_only=True)
 class MiraPipelineConfig(StreamInferencePipelineConfig):
     """Config for the fully native MIRA FlashDreams pipeline."""
@@ -66,6 +82,9 @@ class MiraPipelineConfig(StreamInferencePipelineConfig):
 
     decoder: MiraDecoderConfig
     """Checkpoint-compatible causal video decoder."""
+
+    n_context_frames: int
+    """Checkpoint context length declared by the selected demo manifest."""
 
     bootstrap_encoder: MiraBootstrapEncoderConfig = field(
         default_factory=MiraBootstrapEncoderConfig
@@ -147,12 +166,29 @@ class MiraPipeline(
         if context != "default":
             raise ValueError("MIRA checkpoint bundles provide the default context only")
         self._load_weights()
+        temporal_downsampling = self.bootstrap_encoder.mira_config.temporal_stride
+        encoded_frames, context_latents, context_action_rows = _context_layout(
+            self.config.n_context_frames,
+            temporal_downsampling=temporal_downsampling,
+        )
         with nvtx.annotate("MiraPipeline.initialize_cache.load_context"):
             data = np.load(self._context_file(), allow_pickle=False)
-            frames = torch.from_numpy(data["frames"][:, -40:]).to(
+            raw_frames = data["frames"]
+            raw_actions = data["actions"]
+            if raw_frames.shape[1] < encoded_frames:
+                raise ValueError(
+                    f"MIRA context contains {raw_frames.shape[1]} frames, "
+                    f"but the checkpoint requires {encoded_frames}"
+                )
+            if raw_actions.shape[1] < context_action_rows + 1:
+                raise ValueError(
+                    f"MIRA context contains {raw_actions.shape[1]} action rows, "
+                    f"but the checkpoint requires {context_action_rows + 1}"
+                )
+            frames = torch.from_numpy(raw_frames[:, -encoded_frames:]).to(
                 device=self.device, dtype=torch.uint8
             )
-            actions = torch.from_numpy(data["actions"][:, -40:]).to(
+            actions = torch.from_numpy(raw_actions).to(
                 device=self.device, dtype=torch.int32
             )
         autocast = (
@@ -163,7 +199,7 @@ class MiraPipeline(
         with nvtx.annotate("MiraPipeline.initialize_cache.bootstrap_encode"):
             with torch.no_grad(), autocast:
                 latent_window = self.bootstrap_encoder(frames)
-            latent_window = latent_window[:, :, -20:].to(
+            latent_window = latent_window[:, :, -(context_latents + 1) :].to(
                 dtype=self.transformer.config.dtype
             )
             tiled_latent_window = (
@@ -186,7 +222,7 @@ class MiraPipeline(
                 ),
                 transformer_cache=self.transformer.initialize_autoregressive_cache(
                     context_latents=tiled_latent_window[:, :, 1:],
-                    context_action_rows=actions[:, -37:-1],
+                    context_action_rows=actions[:, -(context_action_rows + 1) : -1],
                 ),
                 decoder_cache=self.decoder.initialize_autoregressive_cache(
                     context_latents=latent_window

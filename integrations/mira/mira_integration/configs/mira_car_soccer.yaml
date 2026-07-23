@@ -69,21 +69,23 @@ demos:
     checkpoint-hugging-face: alakazamworld/mira-mini
     input-map: car-soccer
     player_count: 1
+    n_context_frames: 39
     steps: 8
     latent_height: 9
     latent_width: 16
     video_width: 512
     video_height: 288
     frames_per_chunk: 2
-    display_name: MIRA Mini 1B
+    display_name: MIRA Mini 1B (1P)
   mira-mini-4p:
     checkpoint-hugging-face: alakazamworld/mira-mini-4p
     input-map: car-soccer
     player_count: 4
+    n_context_frames: 78
     steps: 8
     latent_height: 9
     latent_width: 16
     video_width: 512
     video_height: 288
     frames_per_chunk: 2
-    display_name: MIRA Mini 4P
+    display_name: MIRA Mini 1B (4P)

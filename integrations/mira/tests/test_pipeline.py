@@ -21,14 +21,19 @@ from typing import Any
 
 import pytest
 import torch
-
-from flashdreams.infra.acceleration import cuda_graph_dispatch
-from mira_integration.action import MiraActionEncoder
+from mira_integration.action import (
+    MiraActionCondition,
+    MiraActionEncoder,
+    MiraActionInput,
+)
 from mira_integration.decoder import MiraDecoderConfig
 from mira_integration.encoder import MiraControlEncoderConfig
 from mira_integration.network import MiraDiTConfig
+from mira_integration.pipeline import _context_layout
 from mira_integration.scheduler import MiraFlowSchedulerConfig
 from mira_integration.transformer import MiraTransformerConfig
+
+from flashdreams.infra.acceleration import cuda_graph_dispatch
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -40,10 +45,12 @@ def test_control_encoder_preserves_two_row_alignment() -> None:
     cache = encoder.initialize_autoregressive_cache(previous_row=previous)
     first = encoder(["W", "D"], cache=cache)
     second = encoder([], autoregressive_index=1, cache=cache)
-    assert torch.equal(first[:, :1], previous)
-    assert first[0, 1].tolist() == [1, 0, 0, 1, 0, 0, 0, 0, 0]
-    assert torch.equal(second[:, :1], first[:, 1:])
-    assert torch.count_nonzero(second[:, 1:]) == 0
+    assert torch.equal(first.rows[:, :1], previous)
+    assert first.rows[0, 1].tolist() == [1, 0, 0, 1, 0, 0, 0, 0, 0]
+    assert torch.equal(second.rows[:, :1], first.rows[:, 1:])
+    assert torch.count_nonzero(second.rows[:, 1:]) == 0
+    assert not first.autopilot_mask.any()
+    assert not second.autopilot_mask.any()
 
 
 def test_control_encoder_keeps_multiplayer_inputs_independent() -> None:
@@ -52,12 +59,13 @@ def test_control_encoder_keeps_multiplayer_inputs_independent() -> None:
         previous_row=torch.zeros(4, 1, 9, dtype=torch.int32)
     )
     rows = encoder([["W"], ["A"], [], ["Space", "LShiftKey"]], cache=cache)
-    assert rows[:, 1].tolist() == [
+    assert rows.rows[:, 1].tolist() == [
         [1, 0, 0, 0, 0, 0, 0, 0, 0],
         [0, 1, 0, 0, 0, 0, 0, 0, 0],
         [0, 0, 0, 0, 0, 0, 0, 0, 0],
         [0, 0, 0, 0, 0, 0, 1, 1, 0],
     ]
+    assert not rows.autopilot_mask.any()
 
 
 def test_control_encoder_marks_unclaimed_players_for_autopilot() -> None:
@@ -66,10 +74,11 @@ def test_control_encoder_marks_unclaimed_players_for_autopilot() -> None:
         previous_row=torch.zeros(4, 1, 9, dtype=torch.int32)
     )
     rows = encoder([None, ["W"], None, []], cache=cache)
-    assert torch.equal(rows[0, 1], torch.full((9,), -1, dtype=torch.int32))
-    assert rows[1, 1, 0].item() == 1
-    assert torch.equal(rows[2, 1], torch.full((9,), -1, dtype=torch.int32))
-    assert torch.count_nonzero(rows[3, 1]) == 0
+    assert torch.count_nonzero(rows.rows[0, 1]) == 0
+    assert rows.rows[1, 1, 0].item() == 1
+    assert torch.count_nonzero(rows.rows[2, 1]) == 0
+    assert torch.count_nonzero(rows.rows[3, 1]) == 0
+    assert rows.autopilot_mask.tolist() == [True, False, True, False]
 
 
 def test_action_encoder_uses_learned_dropout_for_autopilot_rows() -> None:
@@ -81,7 +90,29 @@ def test_action_encoder_uses_learned_dropout_for_autopilot_rows() -> None:
     ).eval()
     first = torch.tensor([[[1, 0], [-1, -1]]], dtype=torch.int32)
     second = torch.tensor([[[0, 1], [-1, -1]]], dtype=torch.int32)
-    assert torch.equal(encoder(first), encoder(second))
+    with pytest.raises(ValueError, match="binary values"):
+        encoder(first)
+    drop_mask = torch.ones(1, dtype=torch.bool)
+    first = first.clamp_min(0)
+    second = second.clamp_min(0)
+    assert torch.equal(
+        encoder(first, drop_mask=drop_mask),
+        encoder(second, drop_mask=drop_mask),
+    )
+
+
+@pytest.mark.parametrize(
+    ("context_frames", "expected"),
+    [
+        (39, (40, 19, 36)),
+        (78, (80, 39, 76)),
+    ],
+)
+def test_context_layout_matches_checkpoint_temporal_contract(
+    context_frames: int,
+    expected: tuple[int, int, int],
+) -> None:
+    assert _context_layout(context_frames, temporal_downsampling=2) == expected
 
 
 def test_flow_scheduler_integrates_in_increasing_time() -> None:
@@ -93,9 +124,14 @@ def test_flow_scheduler_integrates_in_increasing_time() -> None:
     assert torch.equal(result, torch.ones_like(initial))
 
 
-def _small_transformer_config() -> MiraTransformerConfig:
+def _small_transformer_config(
+    *,
+    n_players: int = 1,
+    action_guidance_scale: float = 1.0,
+) -> MiraTransformerConfig:
     return MiraTransformerConfig(
         dtype=torch.float32,
+        action_guidance_scale=action_guidance_scale,
         network=MiraDiTConfig(
             latent_dim=4,
             hidden_dim=32,
@@ -103,13 +139,88 @@ def _small_transformer_config() -> MiraTransformerConfig:
             num_kv_heads=2,
             num_layers=2,
             time_attention_every=1,
-            latent_height=2,
+            latent_height=2 * n_players,
             latent_width=2,
+            n_players=n_players,
             attention_gating=True,
             ada_attention=True,
             attention_backend="math",
         ),
     )
+
+
+def test_multiplayer_action_condition_is_sensitive_to_player_and_keys() -> None:
+    transformer = (
+        _small_transformer_config(
+            n_players=4,
+            action_guidance_scale=4.0,
+        )
+        .setup()
+        .eval()
+    )
+    rows = torch.zeros(4, 2, 9, dtype=torch.int32)
+    rows[0, 1, 0] = 1
+    first = transformer.patchify_and_maybe_split_cp(
+        MiraActionInput(
+            rows=rows,
+            autopilot_mask=torch.tensor([False, True, True, True]),
+        )
+    )
+    rows = torch.zeros(4, 2, 9, dtype=torch.int32)
+    rows[1, 1, 1] = 1
+    second = transformer.patchify_and_maybe_split_cp(
+        MiraActionInput(
+            rows=rows,
+            autopilot_mask=torch.tensor([True, False, True, True]),
+        )
+    )
+    assert isinstance(first, MiraActionCondition)
+    assert isinstance(second, MiraActionCondition)
+    assert first.dropped is not None
+    assert second.dropped is not None
+    assert not torch.equal(first.conditional, second.conditional)
+    torch.testing.assert_close(first.dropped, second.dropped)
+
+
+def test_action_guidance_combines_dropped_and_conditional_flows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transformer = (
+        _small_transformer_config(
+            n_players=4,
+            action_guidance_scale=4.0,
+        )
+        .setup()
+        .eval()
+    )
+    calls: list[bool] = []
+
+    def predict_branch(
+        noisy_latent: torch.Tensor,
+        timestep: torch.Tensor,
+        cache: Any,
+        *,
+        action_embedding: torch.Tensor,
+        uncond: bool,
+    ) -> torch.Tensor:
+        _ = timestep, cache, action_embedding
+        calls.append(uncond)
+        return torch.full_like(noisy_latent, 1.0 if uncond else 3.0)
+
+    monkeypatch.setattr(transformer, "_predict_branch", predict_branch)
+    noisy = torch.zeros(1, 8, 4)
+    condition = MiraActionCondition(
+        conditional=torch.zeros(1, 1, 32),
+        dropped=torch.ones(1, 1, 32),
+    )
+    result = transformer.predict_flow(
+        noisy,
+        torch.tensor(0.5),
+        object(),
+        input=condition,
+    )
+    assert calls == [True, False]
+    assert torch.equal(result, torch.full_like(noisy, 9.0))
 
 
 class _RecordingGraphWrapper:

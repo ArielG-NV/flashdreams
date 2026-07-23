@@ -82,6 +82,9 @@ class MiraModelMetadata:
     player_count: int
     """Number of synchronized player views produced by the checkpoint."""
 
+    n_context_frames: int
+    """Number of bootstrap context frames expected by the checkpoint."""
+
     steps: int
     """Default sampler steps used for each generated latent frame."""
 
