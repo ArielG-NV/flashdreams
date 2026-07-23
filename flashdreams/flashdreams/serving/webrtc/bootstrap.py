@@ -27,12 +27,12 @@ def patch_windows_webrtc_event_loop() -> None:
         from asyncio.windows_events import IocpProactor
 
         _original_poll = IocpProactor._poll
-        def _patched_poll(self: IocpProactor, timeout: float | None = None) -> list[object]:
+        def _patched_poll(self: IocpProactor, timeout: float | None = None) -> list[object] | None:
             try:
                 return _original_poll(self, timeout)
             except OSError as e:
                 if getattr(e, "winerror", None) == 0 or "WinError 0" in str(e):
-                    return
+                    return None
                 raise
         IocpProactor._poll = _patched_poll
 
