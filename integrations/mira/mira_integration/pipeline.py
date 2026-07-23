@@ -145,6 +145,7 @@ class MiraPipeline(
             decoder=self.decoder,
         )
         self.transformer.finish_loading()
+        self.decoder.finish_loading()
         self._bundle = bundle
         self._weights_loaded = True
 
@@ -231,6 +232,23 @@ class MiraPipeline(
 
     def close(self) -> None:
         """Release rollout caches owned by the caller."""
+
+    @torch.no_grad()
+    @nvtx.annotate("MiraPipeline.restore_cache")
+    def restore_cache(self, cache: MiraCache) -> None:
+        """Restore bootstrap rollout state without replacing captured graph storage."""
+        assert cache.encoder_cache is not None
+        assert cache.decoder_cache is not None
+        self.encoder.restore_autoregressive_cache(cache.encoder_cache)
+        self.transformer.restore_autoregressive_cache(cache.transformer_cache)
+        self.decoder.restore_autoregressive_cache(cache.decoder_cache)
+        cache.final_state = None
+        cache.autoregressive_index = None
+        cache.event_profiler = None
+        rng = self.diffusion_model.rng
+        seed = self.diffusion_model.config.seed
+        if rng is not None and seed is not None:
+            rng.manual_seed(seed)
 
     @torch.no_grad()
     @nvtx.annotate("MiraPipeline.generate")

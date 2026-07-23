@@ -39,7 +39,6 @@ from mira_integration.modules import (
 )
 
 
-@nvtx.annotate("mira.network.timestep_embedding")
 def timestep_embedding(timesteps: Tensor, dimension: int = 256) -> Tensor:
     """Build MIRA's sinusoidal diffusion-time embedding."""
     half = dimension // 2
@@ -59,7 +58,6 @@ class MiraDiffusionTimeEmbedding(nn.Module):
         super().__init__()
         self.mlp = nn.Sequential(nn.Linear(256, dim), nn.SiLU(), nn.Linear(dim, dim))
 
-    @nvtx.annotate("MiraDiffusionTimeEmbedding.forward")
     def forward(self, tau: Tensor) -> Tensor:
         """Encode ``[B,T,1,1,1]`` flow times into ``[B,T,1,1,D]``."""
         batch, frames = tau.shape[:2]
@@ -104,7 +102,6 @@ class MiraSTBlock(nn.Module):
         self.mlp_ln = AdaptiveLayerNorm(dim)
         self.mlp = SwiGLU(dim)
 
-    @nvtx.annotate("MiraSTBlock.forward")
     def forward(
         self,
         x: Tensor,
@@ -117,53 +114,51 @@ class MiraSTBlock(nn.Module):
     ) -> tuple[Tensor, tuple[Tensor, Tensor] | None]:
         """Apply one factorized spatiotemporal transformer block."""
         batch, frames, height, width, channels = x.shape
-        with nvtx.annotate("MiraSTBlock.spatial_attention"):
-            spatial_x = rearrange(x, "b t h w c -> (b t) (h w) c")
-            if self.ada_attention:
-                spatial_cond = rearrange(condition, "b t h w c -> (b t) (h w) c")
-                spatial_norm = self.space_attn_ln(spatial_x, spatial_cond)
-            else:
-                spatial_norm = self.space_attn_ln(spatial_x)
-            spatial_x = spatial_x + self.space_attn(
-                spatial_norm, rotary=spatial_frequencies
-            )
+        spatial_x = rearrange(x, "b t h w c -> (b t) (h w) c")
+        if self.ada_attention:
+            spatial_cond = rearrange(condition, "b t h w c -> (b t) (h w) c")
+            spatial_norm = self.space_attn_ln(spatial_x, spatial_cond)
+        else:
+            spatial_norm = self.space_attn_ln(spatial_x)
+        spatial_x = spatial_x + self.space_attn(
+            spatial_norm, rotary=spatial_frequencies
+        )
 
         cached: tuple[Tensor, Tensor] | None = None
         if self.time_attn is not None:
-            with nvtx.annotate("MiraSTBlock.temporal_attention"):
-                assert self.time_attn_ln is not None
-                temporal_x = rearrange(
-                    spatial_x,
-                    "(b t) (h w) c -> (b h w) t c",
-                    b=batch,
-                    t=frames,
-                    h=height,
-                    w=width,
-                )
-                if self.ada_attention:
-                    temporal_cond = rearrange(condition, "b t h w c -> (b h w) t c")
-                    temporal_norm = self.time_attn_ln(temporal_x, temporal_cond)
-                else:
-                    temporal_norm = self.time_attn_ln(temporal_x)
-                attended = self.time_attn(
-                    temporal_norm,
-                    rotary=temporal_frequencies,
-                    causal=True,
-                    kv_cache=kv_cache,
-                    return_kv=return_kv,
-                )
-                if return_kv:
-                    temporal_out, cached = attended
-                else:
-                    temporal_out = attended
-                temporal_x = temporal_x + temporal_out
-                x = rearrange(
-                    temporal_x,
-                    "(b h w) t c -> b t h w c",
-                    b=batch,
-                    h=height,
-                    w=width,
-                )
+            assert self.time_attn_ln is not None
+            temporal_x = rearrange(
+                spatial_x,
+                "(b t) (h w) c -> (b h w) t c",
+                b=batch,
+                t=frames,
+                h=height,
+                w=width,
+            )
+            if self.ada_attention:
+                temporal_cond = rearrange(condition, "b t h w c -> (b h w) t c")
+                temporal_norm = self.time_attn_ln(temporal_x, temporal_cond)
+            else:
+                temporal_norm = self.time_attn_ln(temporal_x)
+            attended = self.time_attn(
+                temporal_norm,
+                rotary=temporal_frequencies,
+                causal=True,
+                kv_cache=kv_cache,
+                return_kv=return_kv,
+            )
+            if return_kv:
+                temporal_out, cached = attended
+            else:
+                temporal_out = attended
+            temporal_x = temporal_x + temporal_out
+            x = rearrange(
+                temporal_x,
+                "(b h w) t c -> b t h w c",
+                b=batch,
+                h=height,
+                w=width,
+            )
         else:
             x = rearrange(
                 spatial_x,
@@ -173,8 +168,7 @@ class MiraSTBlock(nn.Module):
                 h=height,
                 w=width,
             )
-        with nvtx.annotate("MiraSTBlock.mlp"):
-            return x + self.mlp(self.mlp_ln(x, condition)), cached
+        return x + self.mlp(self.mlp_ln(x, condition)), cached
 
 
 @dataclass(kw_only=True)
@@ -277,7 +271,6 @@ class MiraDiffusionTransformer(nn.Module):
         )
         self.head = nn.Linear(dim, config.latent_dim)
 
-    @nvtx.annotate("MiraDiffusionTransformer.forward")
     def forward(
         self,
         latent: Tensor,
@@ -290,47 +283,43 @@ class MiraDiffusionTransformer(nn.Module):
     ) -> Tensor | tuple[Tensor, list[tuple[Tensor, Tensor] | None]]:
         """Predict flow and optionally return raw temporal keys/values for priming."""
         _, frames, height, width, _ = latent.shape
-        with nvtx.annotate("MiraDiffusionTransformer.input_projection"):
-            sequence = self.latent_tokens_proj(latent) + self.past_proj(clean_past)
-            condition = actions[:, :, None, None].expand(-1, -1, height, width, -1)
-            condition = condition + self.diffusion_time_embedding(tau).expand(
-                -1, -1, height, width, -1
+        sequence = self.latent_tokens_proj(latent) + self.past_proj(clean_past)
+        condition = actions[:, :, None, None].expand(-1, -1, height, width, -1)
+        condition = condition + self.diffusion_time_embedding(tau).expand(
+            -1, -1, height, width, -1
+        )
+        spatial_frequencies = spatial_rope(
+            height,
+            width,
+            self.config.hidden_dim // self.config.num_heads,
+            latent.device,
+        )
+        if cache is None:
+            temporal_length = frames
+        else:
+            temporal_length = next(
+                item.size for item in cache.temporal if item is not None
             )
-        with nvtx.annotate("MiraDiffusionTransformer.rope"):
-            spatial_frequencies = spatial_rope(
-                height,
-                width,
-                self.config.hidden_dim // self.config.num_heads,
-                latent.device,
-            )
-            if cache is None:
-                temporal_length = frames
-            else:
-                temporal_length = next(
-                    item.size for item in cache.temporal if item is not None
-                )
-            temporal_frequencies = temporal_rope(
-                temporal_length,
-                self.config.hidden_dim // self.config.num_heads,
-                latent.device,
-            )
+        temporal_frequencies = temporal_rope(
+            temporal_length,
+            self.config.hidden_dim // self.config.num_heads,
+            latent.device,
+        )
 
         returned: list[tuple[Tensor, Tensor] | None] = []
-        with nvtx.annotate("MiraDiffusionTransformer.blocks"):
-            for index, block in enumerate(self.transformer):
-                sequence, raw_kv = block(
-                    sequence,
-                    condition,
-                    spatial_frequencies=spatial_frequencies,
-                    temporal_frequencies=temporal_frequencies,
-                    kv_cache=cache.temporal[index] if cache is not None else None,
-                    return_kv=return_kv,
-                )
-                if return_kv:
-                    returned.append(raw_kv)
-        with nvtx.annotate("MiraDiffusionTransformer.output_projection"):
-            output = self.head(sequence)
-            return (output, returned) if return_kv else output
+        for index, block in enumerate(self.transformer):
+            sequence, raw_kv = block(
+                sequence,
+                condition,
+                spatial_frequencies=spatial_frequencies,
+                temporal_frequencies=temporal_frequencies,
+                kv_cache=cache.temporal[index] if cache is not None else None,
+                return_kv=return_kv,
+            )
+            if return_kv:
+                returned.append(raw_kv)
+        output = self.head(sequence)
+        return (output, returned) if return_kv else output
 
 
 class MiraDiT(nn.Module):
@@ -382,6 +371,88 @@ class MiraDiT(nn.Module):
         self, context_latents: Tensor, context_action_rows: Tensor
     ) -> MiraDiTCache:
         """Prime temporal caches from normalized context latents and action rows."""
+        frames, raw_caches = self._context_temporal_kv(
+            context_latents,
+            context_action_rows,
+        )
+        temporal: list[BlockKVCache | None] = []
+        with nvtx.annotate("MiraDiT.initialize_cache.materialize_kv_cache"):
+            for raw in raw_caches:
+                if raw is None:
+                    temporal.append(None)
+                    continue
+                raw_k, raw_v = raw
+                cache = BlockKVCache(
+                    k_shape=(
+                        raw_k.shape[0],
+                        frames + 1,
+                        raw_k.shape[2],
+                        raw_k.shape[3],
+                    ),
+                    v_shape=(
+                        raw_v.shape[0],
+                        frames + 1,
+                        raw_v.shape[2],
+                        raw_v.shape[3],
+                    ),
+                    seq_dim=1,
+                    chunk_size=1,
+                    window_size=frames + 1,
+                    device=raw_k.device,
+                    dtype=raw_k.dtype,
+                )
+                self._write_context_kv(cache, raw_k, raw_v)
+                temporal.append(cache)
+        return MiraDiTCache(temporal=temporal, context_length=frames)
+
+    @torch.no_grad()
+    @nvtx.annotate("MiraDiT.restore_cache")
+    def restore_cache(
+        self,
+        cache: MiraDiTCache,
+        context_latents: Tensor,
+        context_action_rows: Tensor,
+    ) -> None:
+        """Re-prime temporal KV buffers without changing their storage addresses."""
+        frames, raw_caches = self._context_temporal_kv(
+            context_latents,
+            context_action_rows,
+        )
+        if cache.context_length != frames or len(cache.temporal) != len(raw_caches):
+            raise ValueError("MIRA cache layout changed while restoring preload state")
+        with nvtx.annotate("MiraDiT.restore_cache.write_context"):
+            for target, raw in zip(cache.temporal, raw_caches, strict=True):
+                if target is None or raw is None:
+                    if target is not None or raw is not None:
+                        raise ValueError(
+                            "MIRA temporal cache topology changed while restoring"
+                        )
+                    continue
+                raw_k, raw_v = raw
+                self._write_context_kv(target, raw_k, raw_v)
+
+    @staticmethod
+    def _write_context_kv(
+        cache: BlockKVCache,
+        raw_k: Tensor,
+        raw_v: Tensor,
+    ) -> None:
+        """Overwrite a cache prefix through its pointer-preserving public API."""
+        frames = raw_k.shape[1]
+        if raw_v.shape[1] != frames or cache.k_shape[1] != frames + 1:
+            raise ValueError("MIRA context does not match the allocated KV cache")
+        cache.reset()
+        for index in range(frames):
+            cache.before_update(index)
+            cache.update(raw_k[:, index : index + 1], raw_v[:, index : index + 1])
+            cache.after_update(index)
+
+    def _context_temporal_kv(
+        self,
+        context_latents: Tensor,
+        context_action_rows: Tensor,
+    ) -> tuple[int, list[tuple[Tensor, Tensor] | None]]:
+        """Encode bootstrap context and return raw temporal keys and values."""
         latent = rearrange(context_latents, "b c t h w -> b t h w c")
         batch, frames, height, width, channels = latent.shape
         assert (height, width, channels) == (
@@ -417,42 +488,8 @@ class MiraDiT(nn.Module):
                 clean_past=clean_past,
                 return_kv=True,
             )
-        temporal: list[BlockKVCache | None] = []
-        with nvtx.annotate("MiraDiT.initialize_cache.materialize_kv_cache"):
-            for raw in raw_caches:
-                if raw is None:
-                    temporal.append(None)
-                    continue
-                raw_k, raw_v = raw
-                cache = BlockKVCache(
-                    k_shape=(
-                        raw_k.shape[0],
-                        frames + 1,
-                        raw_k.shape[2],
-                        raw_k.shape[3],
-                    ),
-                    v_shape=(
-                        raw_v.shape[0],
-                        frames + 1,
-                        raw_v.shape[2],
-                        raw_v.shape[3],
-                    ),
-                    seq_dim=1,
-                    chunk_size=1,
-                    window_size=frames + 1,
-                    device=raw_k.device,
-                    dtype=raw_k.dtype,
-                )
-                for index in range(frames):
-                    cache.before_update(index)
-                    cache.update(
-                        raw_k[:, index : index + 1], raw_v[:, index : index + 1]
-                    )
-                    cache.after_update(index)
-                temporal.append(cache)
-        return MiraDiTCache(temporal=temporal, context_length=frames)
+        return frames, raw_caches
 
-    @nvtx.annotate("MiraDiT.forward")
     def forward(
         self,
         noisy_tokens: Tensor,
@@ -464,24 +501,21 @@ class MiraDiT(nn.Module):
     ) -> Tensor:
         """Predict current-frame flow from flattened latent tokens."""
         batch = noisy_tokens.shape[0]
-        with nvtx.annotate("MiraDiT.forward.reshape_inputs"):
-            latent = noisy_tokens.reshape(
-                batch,
-                1,
-                self.config.latent_height,
-                self.config.latent_width,
-                self.config.latent_dim,
-            )
-            past = clean_past.reshape_as(latent)
-            tau = timesteps.reshape(1, 1, 1, 1, 1).expand(batch, 1, 1, 1, 1)
-        with nvtx.annotate("MiraDiT.forward.world_model"):
-            output = self.world_model(
-                latent,
-                action_embedding,
-                tau,
-                clean_past=past,
-                cache=cache,
-            )
-        with nvtx.annotate("MiraDiT.forward.reshape_output"):
-            assert isinstance(output, Tensor)
-            return output.reshape(batch, -1, self.config.latent_dim)
+        latent = noisy_tokens.reshape(
+            batch,
+            1,
+            self.config.latent_height,
+            self.config.latent_width,
+            self.config.latent_dim,
+        )
+        past = clean_past.reshape_as(latent)
+        tau = timesteps.reshape(1, 1, 1, 1, 1).expand(batch, 1, 1, 1, 1)
+        output = self.world_model(
+            latent,
+            action_embedding,
+            tau,
+            clean_past=past,
+            cache=cache,
+        )
+        assert isinstance(output, Tensor)
+        return output.reshape(batch, -1, self.config.latent_dim)

@@ -93,6 +93,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_false",
         help="Run the MIRA DiT eagerly.",
     )
+    decoder_compile_group = parser.add_mutually_exclusive_group()
+    decoder_compile_group.add_argument(
+        "--compile-decoder",
+        dest="compile_decoder",
+        action="store_true",
+        default=True,
+        help="Compile the MIRA decoder core (default).",
+    )
+    decoder_compile_group.add_argument(
+        "--no-compile-decoder",
+        dest="compile_decoder",
+        action="store_false",
+        help="Run the MIRA decoder core eagerly.",
+    )
     graph_group = parser.add_mutually_exclusive_group()
     graph_group.add_argument(
         "--cuda-graph",
@@ -108,7 +122,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Disable CUDA graph replay.",
     )
     parser.add_argument("--cuda-graph-warmup-iters", type=int, default=2)
-    parser.add_argument("--warmup-chunks", type=int, default=2)
+    parser.add_argument("--warmup-chunks", type=int, default=3)
     parser.add_argument("--warmup-timeout-s", type=float, default=600.0)
     return parser.parse_args(argv)
 
@@ -198,6 +212,11 @@ def build_runtime_config(args: argparse.Namespace) -> MiraRuntimeConfig:
                     cuda_graph_warmup_iters=args.cuda_graph_warmup_iters,
                 )
             ),
+            decoder=dict(
+                compile_core=args.compile_decoder,
+                use_cuda_graph=args.use_cuda_graph,
+                cuda_graph_warmup_iters=args.cuda_graph_warmup_iters,
+            ),
         ),
     )
     n_diffusion_steps = args.n_diffusion_steps
@@ -225,11 +244,14 @@ def main() -> None:
     configure_logging()
     args = parse_args()
     runtime_config = build_runtime_config(args)
-    transformer_config = runtime_config.model_config.pipeline.diffusion_model.transformer
+    transformer_config = (
+        runtime_config.model_config.pipeline.diffusion_model.transformer
+    )
     logger.info(
-        "MIRA acceleration: compile_network={} cuda_graph={} "
+        "MIRA acceleration: compile_network={} compile_decoder={} cuda_graph={} "
         "cuda_graph_warmup_iters={} n_diffusion_steps={} fps={}",
         transformer_config.compile_network,
+        runtime_config.model_config.pipeline.decoder.compile_core,
         transformer_config.use_cuda_graph,
         transformer_config.cuda_graph_warmup_iters,
         runtime_config.n_diffusion_steps,

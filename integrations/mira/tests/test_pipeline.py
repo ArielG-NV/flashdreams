@@ -265,6 +265,45 @@ def test_native_transformer_primes_and_advances_flashdreams_cache() -> None:
     assert all(item is None or item.size == 4 for item in cache.network_cache.temporal)
 
 
+def test_transformer_restore_preserves_kv_storage_and_graph_dispatch() -> None:
+    config = _small_transformer_config()
+    config.use_cuda_graph = True
+    transformer = config.setup().eval()
+    context = torch.randn(1, 4, 3, 2, 2)
+    action_rows = torch.zeros(1, 4, 9, dtype=torch.int32)
+    cache = transformer.initialize_autoregressive_cache(
+        context_latents=context,
+        context_action_rows=action_rows,
+    )
+    dispatch = transformer._cuda_graph_dispatch
+    kv_pointers = [
+        (item._k.data_ptr(), item._v.data_ptr())
+        for item in cache.network_cache.temporal
+        if item is not None
+    ]
+
+    cache.start(0)
+    cache.pending_clean = torch.randn_like(cache.clean_past)
+    transformer.restore_autoregressive_cache(cache)
+
+    assert transformer._cuda_graph_dispatch is dispatch
+    assert kv_pointers == [
+        (item._k.data_ptr(), item._v.data_ptr())
+        for item in cache.network_cache.temporal
+        if item is not None
+    ]
+    assert cache.autoregressive_index == -1
+    assert cache.pending_clean is None
+    assert all(
+        item is None or item.size == cache.network_cache.context_length
+        for item in cache.network_cache.temporal
+    )
+    torch.testing.assert_close(
+        cache.clean_past,
+        context[:, :, -1:].permute(0, 3, 4, 1, 2).reshape(1, 4, 4),
+    )
+
+
 def test_cuda_graph_dispatch_starts_after_mira_cache_fill(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

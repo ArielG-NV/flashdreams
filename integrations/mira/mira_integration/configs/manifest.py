@@ -213,7 +213,7 @@ def build_pipeline_config(metadata: MiraModelMetadata) -> MiraPipelineConfig:
     )
     return MiraPipelineConfig(
         name=metadata.name,
-        enable_sync_and_profile=True,
+        enable_sync_and_profile=False,
         diffusion_model=MiraDiffusionModelConfig(
             transformer=MiraTransformerConfig(
                 network=MiraDiTConfig(
@@ -223,13 +223,20 @@ def build_pipeline_config(metadata: MiraModelMetadata) -> MiraPipelineConfig:
                     num_action_keys=metadata.num_action_keys,
                 ),
                 action_guidance_scale=4.0 if player_count > 1 else 1.0,
+                compile_network=True,
+                use_cuda_graph=True,
             ),
             scheduler=MiraFlowSchedulerConfig(),
             seed=0,
             context_noise=0.8,
         ),
         encoder=MiraControlEncoderConfig(valid_keys=checkpoint_keys),
-        decoder=MiraDecoderConfig(n_players=player_count),
+        decoder=MiraDecoderConfig(
+            n_players=player_count,
+            compile_core=True,
+            causal_temporal_attention_backend="triton",
+            use_cuda_graph=True,
+        ),
         model_repo=metadata.checkpoint,
         n_players=player_count,
         n_context_frames=metadata.n_context_frames,

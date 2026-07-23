@@ -51,6 +51,12 @@ class MiraTransformerCache(TransformerAutoregressiveCache):
     autoregressive_index: int = -1
     """Current AR index; ``-1`` before generation starts."""
 
+    context_latents: Tensor
+    """Normalized bootstrap latents retained for pointer-safe cache restoration."""
+
+    context_action_rows: Tensor
+    """Aligned bootstrap actions retained for temporal KV re-priming."""
+
     @nvtx.annotate("MiraTransformerCache.start")
     def start(self, autoregressive_index: int) -> None:
         """Prepare every temporal KV cache for the current AR step."""
@@ -191,8 +197,10 @@ class MiraTransformer(Transformer[MiraTransformerCache]):
             cfg.latent_width,
         )
         self._batch_size, self._height, self._width = batch, height, width
+        context_latents = context_latents.to(dtype=self.config.dtype).detach()
+        context_action_rows = context_action_rows.detach()
         network_cache = self.network.initialize_cache(
-            context_latents.to(dtype=self.config.dtype),
+            context_latents,
             context_action_rows,
         )
         self._cuda_graph_dispatch = None
@@ -209,7 +217,25 @@ class MiraTransformer(Transformer[MiraTransformerCache]):
         return MiraTransformerCache(
             network_cache=network_cache,
             clean_past=clean_past,
+            context_latents=context_latents,
+            context_action_rows=context_action_rows,
         )
+
+    @torch.no_grad()
+    @nvtx.annotate("MiraTransformer.restore_autoregressive_cache")
+    def restore_autoregressive_cache(self, cache: MiraTransformerCache) -> None:
+        """Restore bootstrap transformer state while retaining graph-bound KV storage."""
+        self.network.restore_cache(
+            cache.network_cache,
+            cache.context_latents,
+            cache.context_action_rows,
+        )
+        cache.clean_past = rearrange(
+            cache.context_latents[:, :, -1:],
+            "b c 1 h w -> b (h w) c",
+        ).to(dtype=self.config.dtype)
+        cache.pending_clean = None
+        cache.autoregressive_index = -1
 
     @nvtx.annotate("MiraTransformer.predict_flow")
     def predict_flow(

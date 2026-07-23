@@ -36,13 +36,13 @@ from flashdreams.serving.webrtc.messages import (
 from flashdreams.serving.webrtc.server import SessionBusyError
 from flashdreams.serving.webrtc.warmup import wait_for_ice_gathering_complete
 from mira_integration.configs.schema import preview_grid_dimensions
-from mira_integration.webrtc.session import (
-    MiraInferenceRuntime,
-    MiraRuntimeConfig,
-)
 from mira_integration.webrtc.media import (
     tile_player_video,
     video_chunk_to_rgb_frames,
+)
+from mira_integration.webrtc.session import (
+    MiraInferenceRuntime,
+    MiraRuntimeConfig,
 )
 
 
@@ -159,7 +159,7 @@ class MiraMultiplayerSessionManager:
                 return
             await self._runtime.initialize()
             await self._runtime.reset_for_new_session()
-            idle = tuple(None for _ in range(self.metadata.player_count))
+            idle = (frozenset(),) + (None,) * (self.metadata.player_count - 1)
             for _ in range(self.runtime_config.warmup_chunks):
                 await self._runtime.generate_chunk(player_keys=idle)
             await self._runtime.reset_for_new_session()
@@ -371,9 +371,7 @@ class MiraMultiplayerSessionManager:
             while self._sessions:
                 started = loop.time()
                 try:
-                    with nvtx.annotate(
-                        "MiraMultiplayerSessionManager.render_chunk"
-                    ):
+                    with nvtx.annotate("MiraMultiplayerSessionManager.render_chunk"):
                         result = await self._runtime.render_next_chunk()
                 except Exception as exc:
                     logger.exception("MIRA multiplayer generation failed.")

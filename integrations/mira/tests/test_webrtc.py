@@ -57,6 +57,8 @@ class _FakePipeline:
     def __init__(self) -> None:
         self.generated_keys: list[list[list[str] | None]] = []
         self.closed = False
+        self.initialize_cache_calls = 0
+        self.restore_cache_calls = 0
 
     def to(self, **_kwargs: Any) -> _FakePipeline:
         return self
@@ -65,7 +67,12 @@ class _FakePipeline:
         return self
 
     def initialize_cache(self, *, n_diffusion_steps: int) -> dict[str, int]:
+        self.initialize_cache_calls += 1
         return {"n_diffusion_steps": n_diffusion_steps}
+
+    def restore_cache(self, cache: dict[str, int]) -> None:
+        del cache
+        self.restore_cache_calls += 1
 
     def generate(
         self,
@@ -280,6 +287,54 @@ async def test_runtime_render_uses_latest_published_input_state() -> None:
 
         assert pipeline.generated_keys == [[["D"], ["Space"], None, []]]
         assert result.chunk_index == 0
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_reset_restores_preloaded_cache_in_place() -> None:
+    pipeline = _FakePipeline()
+    runtime = MiraInferenceRuntime(
+        config=MiraRuntimeConfig(model_config=DEMO_4P, device="cpu"),
+        pipeline_factory=lambda _config: pipeline,  # ty: ignore[invalid-argument-type]
+    )
+    try:
+        await runtime.initialize()
+        await runtime.reset_for_new_session()
+        initial_cache = runtime._cache
+        await runtime.reset_for_new_session()
+
+        assert runtime._cache is initial_cache
+        assert pipeline.initialize_cache_calls == 1
+        assert pipeline.restore_cache_calls == 1
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_multiplayer_preload_warms_manual_branch_before_in_place_reset() -> None:
+    pipeline = _FakePipeline()
+    config = MiraRuntimeConfig(
+        model_config=DEMO_4P,
+        device="cpu",
+        warmup_chunks=3,
+    )
+    runtime = MiraInferenceRuntime(
+        config=config,
+        pipeline_factory=lambda _config: pipeline,  # ty: ignore[invalid-argument-type]
+    )
+    manager = MiraMultiplayerSessionManager(runtime=runtime)
+    try:
+        await manager.preload_runtime()
+
+        assert pipeline.initialize_cache_calls == 1
+        assert pipeline.restore_cache_calls == 1
+        assert pipeline.generated_keys == [
+            [[], None, None, None],
+            [[], None, None, None],
+            [[], None, None, None],
+        ]
+        assert manager.is_runtime_ready()
     finally:
         await runtime.close()
 

@@ -57,7 +57,7 @@ class MiraRuntimeConfig:
     n_diffusion_steps: int = 2
     """Sampler steps used for each generated latent frame."""
 
-    warmup_chunks: int = 2
+    warmup_chunks: int = 3
     """Synthetic chunks generated before accepting browser sessions."""
 
     warmup_timeout_s: float = 600.0
@@ -253,9 +253,12 @@ class MiraInferenceRuntime:
         torch.manual_seed(self.config.seed)
         if torch.device(self.config.device).type == "cuda":
             torch.cuda.manual_seed_all(self.config.seed)
-        self._cache = self._pipeline.initialize_cache(
-            n_diffusion_steps=self.config.n_diffusion_steps
-        )
+        if self._cache is None:
+            self._cache = self._pipeline.initialize_cache(
+                n_diffusion_steps=self.config.n_diffusion_steps
+            )
+        else:
+            self._pipeline.restore_cache(self._cache)
         self._autoregressive_index = 0
         self._reset_input_buffers()
 

@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -29,10 +30,9 @@ from torch import Tensor
 from flashdreams.infra.cuda_graph import CUDAGraphWrapper
 from flashdreams.infra.decoder import (
     DecoderConfig,
-    StreamingVideoDecoder,
     StreamingDecoderCache,
+    StreamingVideoDecoder,
 )
-
 from mira_integration.modules import LayerScale, MiraSelfAttention, SwiGLU, decoder_rope
 
 DecoderFrequencies = tuple[tuple[Tensor, Tensor], tuple[Tensor, Tensor]]
@@ -80,7 +80,6 @@ class MiraDecoderBlock(nn.Module):
         self.mlp = SwiGLU(dim)
         self.mlp_ls = LayerScale(dim)
 
-    @nvtx.annotate("MiraDecoderBlock.forward")
     def forward(
         self,
         x: Tensor,
@@ -89,40 +88,35 @@ class MiraDecoderBlock(nn.Module):
     ) -> Tensor:
         """Apply spatial attention, causal temporal attention, and SwiGLU."""
         batch, frames, height, width, _ = x.shape
-        with nvtx.annotate("MiraDecoderBlock.spatial_attention"):
-            spatial_x = rearrange(x, "b t h w c -> (b t) (h w) c")
-            spatial_x = self.space_ls.residual(
-                spatial_x,
-                self.space_attn(
-                    self.space_norm(spatial_x), rotary=spatial_frequencies
-                ),
-            )
-        with nvtx.annotate("MiraDecoderBlock.temporal_attention"):
-            temporal_x = rearrange(
-                spatial_x,
-                "(b t) (h w) c -> (b h w) t c",
-                b=batch,
-                t=frames,
-                h=height,
-                w=width,
-            )
-            temporal_x = self.time_ls.residual(
-                temporal_x,
-                self.time_attn(
-                    self.time_norm(temporal_x),
-                    rotary=temporal_frequencies,
-                    causal=True,
-                ),
-            )
-            x = rearrange(
-                temporal_x,
-                "(b h w) t c -> b t h w c",
-                b=batch,
-                h=height,
-                w=width,
-            )
-        with nvtx.annotate("MiraDecoderBlock.mlp"):
-            return self.mlp_ls.residual(x, self.mlp(self.mlp_norm(x)))
+        spatial_x = rearrange(x, "b t h w c -> (b t) (h w) c")
+        spatial_x = self.space_ls.residual(
+            spatial_x,
+            self.space_attn(self.space_norm(spatial_x), rotary=spatial_frequencies),
+        )
+        temporal_x = rearrange(
+            spatial_x,
+            "(b t) (h w) c -> (b h w) t c",
+            b=batch,
+            t=frames,
+            h=height,
+            w=width,
+        )
+        temporal_x = self.time_ls.residual(
+            temporal_x,
+            self.time_attn(
+                self.time_norm(temporal_x),
+                rotary=temporal_frequencies,
+                causal=True,
+            ),
+        )
+        x = rearrange(
+            temporal_x,
+            "(b h w) t c -> b t h w c",
+            b=batch,
+            h=height,
+            w=width,
+        )
+        return self.mlp_ls.residual(x, self.mlp(self.mlp_norm(x)))
 
 
 class MiraPatchUnembed(nn.Module):
@@ -133,7 +127,6 @@ class MiraPatchUnembed(nn.Module):
         self.patch_size = patch_size
         self.proj = nn.Linear(width, 3 * 2 * patch_size * patch_size)
 
-    @nvtx.annotate("MiraPatchUnembed.forward")
     def forward(self, x: Tensor) -> Tensor:
         """Fold projected tokens into ``[B,2T,3,H,W]`` video."""
         projected = self.proj(x)
@@ -154,6 +147,9 @@ class MiraDecoderCache(StreamingDecoderCache):
 
     latent_history: Tensor
     """Normalized codec latents ``[B,C,2,h,w]`` preceding the current latent."""
+
+    initial_latent_history: Tensor
+    """Bootstrap latent history restored before each browser session."""
 
 
 @dataclass(kw_only=True)
@@ -185,6 +181,9 @@ class MiraDecoderConfig(DecoderConfig):
 
     causal_temporal_attention_backend: Literal["torch", "triton"] = "triton"
     """Backend for decoder no-cache causal temporal attention."""
+
+    compile_core: bool = True
+    """Compile the stateless decoder core to fuse elementwise operations."""
 
     use_cuda_graph: bool = True
     """Replay fixed-shape decode-core calls through a CUDA graph on CUDA devices."""
@@ -227,6 +226,10 @@ class MiraVideoDecoder(StreamingVideoDecoder[MiraDecoderCache]):
         self.norm_out = nn.LayerNorm(config.width, eps=1e-6)
         self.patch_unembed = MiraPatchUnembed(config.width, config.patch_size)
         self._rope_cache: dict[tuple[int, int, int, int, str], DecoderFrequencies] = {}
+        self._decode_core_runner: Callable[
+            [Tensor, tuple[Tensor, Tensor], tuple[Tensor, Tensor]], Tensor
+        ] = self._decode_core
+        self._core_compiled = False
         self._decode_graph = (
             CUDAGraphWrapper(
                 self._decode_latent,
@@ -236,6 +239,15 @@ class MiraVideoDecoder(StreamingVideoDecoder[MiraDecoderCache]):
             else None
         )
         self.to(dtype=config.dtype).eval()
+
+    def finish_loading(self) -> None:
+        """Compile the stateless decoder core after checkpoint restoration."""
+        if self.mira_config.compile_core and not self._core_compiled:
+            self._decode_core_runner = torch.compile(
+                self._decode_core,
+                mode="max-autotune-no-cudagraphs",
+            )
+            self._core_compiled = True
 
     @property
     def spatial_compression_ratio(self) -> int:
@@ -270,7 +282,16 @@ class MiraVideoDecoder(StreamingVideoDecoder[MiraDecoderCache]):
     ) -> MiraDecoderCache:
         """Seed the decoder with the final two normalized context latents."""
         assert context_latents.shape[2] >= 2
-        return MiraDecoderCache(latent_history=context_latents[:, :, -2:].detach())
+        latent_history = context_latents[:, :, -2:].detach()
+        return MiraDecoderCache(
+            latent_history=latent_history,
+            initial_latent_history=latent_history.clone(),
+        )
+
+    @nvtx.annotate("MiraVideoDecoder.restore_autoregressive_cache")
+    def restore_autoregressive_cache(self, cache: MiraDecoderCache) -> None:
+        """Restore causal decoder history while retaining the captured graph."""
+        cache.latent_history = cache.initial_latent_history.clone()
 
     def _frequencies(
         self,
@@ -294,26 +315,38 @@ class MiraVideoDecoder(StreamingVideoDecoder[MiraDecoderCache]):
 
     @nvtx.annotate("MiraVideoDecoder._decode_latent")
     def _decode_latent(self, latent: Tensor) -> Tensor:
-        batch, frames = latent.shape[:2]
-        with nvtx.annotate("MiraVideoDecoder.from_latent"):
-            x = rearrange(latent, "b t c h w -> (b t) c h w")
-            x = self.from_latent(x)
-            x = rearrange(x, "(b t) c h w -> b t h w c", b=batch, t=frames)
-        _, _, height, width, _ = x.shape
+        height = latent.shape[-2] * self.from_latent.stride[0]
+        width = latent.shape[-1] * self.from_latent.stride[1]
         head_dim = self.mira_config.width // self.mira_config.num_heads
         spatial_frequencies, temporal_frequencies = self._frequencies(
-            frames=frames,
+            frames=latent.shape[1],
             height=height,
             width=width,
             head_dim=head_dim,
-            device=x.device,
+            device=latent.device,
         )
-        with nvtx.annotate("MiraVideoDecoder.blocks"):
-            for block in self.blocks:
-                x = block(x, spatial_frequencies, temporal_frequencies)
-        with nvtx.annotate("MiraVideoDecoder.output_projection"):
-            video = torch.tanh(self.patch_unembed(self.norm_out(x)))
-            return video[:, -2:].mul(0.5).add(0.5)
+        with nvtx.annotate("MiraVideoDecoder.compiled_core"):
+            return self._decode_core_runner(
+                latent,
+                spatial_frequencies,
+                temporal_frequencies,
+            )
+
+    def _decode_core(
+        self,
+        latent: Tensor,
+        spatial_frequencies: tuple[Tensor, Tensor],
+        temporal_frequencies: tuple[Tensor, Tensor],
+    ) -> Tensor:
+        """Decode one fixed-shape latent window without mutating streaming state."""
+        batch, frames = latent.shape[:2]
+        x = rearrange(latent, "b t c h w -> (b t) c h w")
+        x = self.from_latent(x)
+        x = rearrange(x, "(b t) c h w -> b t h w c", b=batch, t=frames)
+        for block in self.blocks:
+            x = block(x, spatial_frequencies, temporal_frequencies)
+        video = torch.tanh(self.patch_unembed(self.norm_out(x)))
+        return video[:, -2:].mul(0.5).add(0.5)
 
     @torch.no_grad()
     @nvtx.annotate("MiraVideoDecoder.forward")
@@ -336,8 +369,7 @@ class MiraVideoDecoder(StreamingVideoDecoder[MiraDecoderCache]):
             normalized = torch.cat((cache.latent_history, input), dim=2)
             cache.latent_history = normalized[:, :, -2:].detach()
             latent = (
-                self.mira_config.latent_std * normalized
-                + self.mira_config.latent_mean
+                self.mira_config.latent_std * normalized + self.mira_config.latent_mean
             )
             latent = rearrange(latent, "b c t h w -> b t c h w").to(
                 dtype=self.mira_config.dtype

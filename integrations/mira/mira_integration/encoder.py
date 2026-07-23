@@ -46,6 +46,9 @@ class MiraControlEncoderCache(StreamingEncoderCache):
     previous_row: Tensor
     """Multi-hot row ``[B, 1, 9]`` preceding the current control."""
 
+    initial_previous_row: Tensor
+    """Bootstrap action row restored before each browser session."""
+
 
 @dataclass(kw_only=True)
 class MiraControlEncoderConfig(EncoderConfig):
@@ -73,7 +76,16 @@ class MiraControlEncoder(StreamingEncoder[MiraControlEncoderCache]):
     ) -> MiraControlEncoderCache:
         """Seed the action alignment with the bootstrap context's final row."""
         assert previous_row.shape[-2:] == (1, len(self.mira_config.valid_keys))
-        return MiraControlEncoderCache(previous_row=previous_row.to(dtype=torch.int32))
+        previous_row = previous_row.to(dtype=torch.int32)
+        return MiraControlEncoderCache(
+            previous_row=previous_row,
+            initial_previous_row=previous_row.clone(),
+        )
+
+    @nvtx.annotate("MiraControlEncoder.restore_autoregressive_cache")
+    def restore_autoregressive_cache(self, cache: MiraControlEncoderCache) -> None:
+        """Restore the bootstrap action row without reallocating model state."""
+        cache.previous_row = cache.initial_previous_row.clone()
 
     @nvtx.annotate("MiraControlEncoder.forward")
     def forward(

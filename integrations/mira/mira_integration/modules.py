@@ -24,10 +24,9 @@ import nvtx
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch import Tensor
-
 import triton
 import triton.language as tl
+from torch import Tensor
 
 from flashdreams.core.attention import BlockKVCache, NativeAttention
 
@@ -81,6 +80,7 @@ def _mira_rotary_kernel(
     rotated = tl.where((d & 1) == 0, -pair, pair)
     tl.store(out_base + d * stride_od, value * cos + rotated * sin, mask=mask)
 
+
 @triton.jit
 def _mira_qk_norm_rope_kernel(
     x_ptr,
@@ -124,9 +124,7 @@ def _mira_qk_norm_rope_kernel(
     mean = tl.sum(tl.where(mask, value, 0.0), axis=0) / D
     centered = value - mean
     variance = tl.sum(tl.where(mask, centered * centered, 0.0), axis=0) / D
-    scale = tl.load(scale_base + d * stride_sd, mask=mask, other=0.0).to(
-        tl.float32
-    )
+    scale = tl.load(scale_base + d * stride_sd, mask=mask, other=0.0).to(tl.float32)
     normalized = centered * tl.rsqrt(variance + eps) * scale
 
     if APPLY_ROTARY:
@@ -318,7 +316,9 @@ def _qk_layer_norm_cuda(
             return None
         apply_rotary_frequencies = True
     out = torch.empty_like(x)
-    norm_dtype = 1 if x.dtype is torch.float16 else 2 if x.dtype is torch.bfloat16 else 0
+    norm_dtype = (
+        1 if x.dtype is torch.float16 else 2 if x.dtype is torch.bfloat16 else 0
+    )
     _mira_qk_norm_rope_kernel[(batch * length * heads,)](
         x,
         scale,
@@ -414,7 +414,6 @@ def _swiglu_gate_cuda(swish: Tensor, gate: Tensor) -> Tensor | None:
     return out
 
 
-@nvtx.annotate("mira.modules.qk_layer_norm")
 def qk_layer_norm(x: Tensor, scale: Tensor, eps: float) -> Tensor:
     fused = _qk_layer_norm_cuda(x, scale, eps)
     if fused is not None:
@@ -427,7 +426,6 @@ def qk_layer_norm(x: Tensor, scale: Tensor, eps: float) -> Tensor:
     return (value * scale.float()).to(dtype=dtype)
 
 
-@nvtx.annotate("mira.modules.qk_layer_norm_rotary")
 def qk_layer_norm_rotary(
     x: Tensor,
     scale: Tensor,
@@ -440,7 +438,6 @@ def qk_layer_norm_rotary(
     return apply_rotary(qk_layer_norm(x, scale, eps), frequencies)
 
 
-@nvtx.annotate("mira.modules.apply_rotary")
 def apply_rotary(x: Tensor, frequencies: tuple[Tensor, Tensor]) -> Tensor:
     """Apply pairwise rotary frequencies to ``[B, S, H, D]`` attention states."""
     fused = _apply_rotary_cuda(x, frequencies)
@@ -453,7 +450,6 @@ def apply_rotary(x: Tensor, frequencies: tuple[Tensor, Tensor]) -> Tensor:
     return (x.float() * cos + rotated * sin).to(dtype=x.dtype)
 
 
-@nvtx.annotate("mira.modules.temporal_rope")
 def temporal_rope(
     length: int, head_dim: int, device: torch.device
 ) -> tuple[Tensor, Tensor]:
@@ -465,7 +461,6 @@ def temporal_rope(
     return phase.cos().repeat_interleave(2, -1), phase.sin().repeat_interleave(2, -1)
 
 
-@nvtx.annotate("mira.modules.spatial_rope")
 def spatial_rope(
     height: int, width: int, head_dim: int, device: torch.device
 ) -> tuple[Tensor, Tensor]:
@@ -514,7 +509,6 @@ class QKLayerNorm(nn.Module):
         self.qk_scale = nn.Parameter(torch.ones(heads, head_dim))
         self.eps = eps
 
-    @nvtx.annotate("QKLayerNorm.forward")
     def forward(self, x: Tensor) -> Tensor:
         """Normalize the final channel in fp32 and restore the input dtype."""
         return qk_layer_norm(x, self.qk_scale, self.eps)
@@ -528,7 +522,6 @@ class AdaptiveLayerNorm(nn.Module):
         self.layer_norm = nn.LayerNorm(dim, elementwise_affine=False)
         self.gamma_beta = nn.Linear(dim, 2 * dim)
 
-    @nvtx.annotate("AdaptiveLayerNorm.forward")
     def forward(self, x: Tensor, condition: Tensor) -> Tensor:
         """Apply adaptive normalization using a shape-aligned condition."""
         gamma, beta = self.gamma_beta(condition).chunk(2, dim=-1)
@@ -546,7 +539,6 @@ class SwiGLU(nn.Module):
         self.gate_linear = nn.Linear(dim, hidden, bias=False)
         self.output_linear = nn.Linear(hidden, dim, bias=False)
 
-    @nvtx.annotate("SwiGLU.forward")
     def forward(self, x: Tensor) -> Tensor:
         """Apply the gated feed-forward projection."""
         swish = self.swish_linear(x)
@@ -588,12 +580,10 @@ class MiraSelfAttention(nn.Module):
         self.k_ln = QKLayerNorm(num_kv_heads, self.head_dim)
         self.attention = NativeAttention(qkv_format="bshd", backend=backend)
 
-    @nvtx.annotate("MiraSelfAttention._repeat_kv")
     def _repeat_kv(self, x: Tensor) -> Tensor:
         repeats = self.num_heads // self.num_kv_heads
         return x.repeat_interleave(repeats, dim=2) if repeats > 1 else x
 
-    @nvtx.annotate("MiraSelfAttention.forward")
     def forward(
         self,
         x: Tensor,
@@ -606,73 +596,54 @@ class MiraSelfAttention(nn.Module):
         """Run attention and optionally return raw temporal keys and values."""
         batch, length, _ = x.shape
         kv_dim = self.num_kv_heads * self.head_dim
-        with nvtx.annotate("MiraSelfAttention.wqkv"):
-            pieces = self.wqkv(x).split(
-                [self.dim, kv_dim, kv_dim] + ([self.dim] if self.gating else []),
-                dim=-1,
-            )
+        pieces = self.wqkv(x).split(
+            [self.dim, kv_dim, kv_dim] + ([self.dim] if self.gating else []),
+            dim=-1,
+        )
         q_in = pieces[0].view(batch, length, self.num_heads, self.head_dim)
         k_in = pieces[1].view(batch, length, self.num_kv_heads, self.head_dim)
         q_rotary = (
-            None
-            if rotary is None
-            else (rotary[0][-length:], rotary[1][-length:])
+            None if rotary is None else (rotary[0][-length:], rotary[1][-length:])
         )
         can_fuse_k_rotary = rotary is not None and kv_cache is None and not return_kv
-        with nvtx.annotate("MiraSelfAttention.q_norm_rotary"):
-            q = (
-                self.q_ln(q_in)
-                if q_rotary is None
-                else qk_layer_norm_rotary(
-                    q_in,
-                    self.q_ln.qk_scale,
-                    self.q_ln.eps,
-                    q_rotary,
-                )
+        q = (
+            self.q_ln(q_in)
+            if q_rotary is None
+            else qk_layer_norm_rotary(
+                q_in,
+                self.q_ln.qk_scale,
+                self.q_ln.eps,
+                q_rotary,
             )
-        with nvtx.annotate("MiraSelfAttention.k_norm_rotary"):
-            k = (
-                qk_layer_norm_rotary(
-                    k_in,
-                    self.k_ln.qk_scale,
-                    self.k_ln.eps,
-                    rotary,
-                )
-                if can_fuse_k_rotary
-                else self.k_ln(k_in)
+        )
+        k = (
+            qk_layer_norm_rotary(
+                k_in,
+                self.k_ln.qk_scale,
+                self.k_ln.eps,
+                rotary,
             )
-        with nvtx.annotate("MiraSelfAttention.value_view"):
-            v = pieces[2].view(batch, length, self.num_kv_heads, self.head_dim)
-            gate = pieces[3] if self.gating else None
-            raw_kv = (k, v)
+            if can_fuse_k_rotary
+            else self.k_ln(k_in)
+        )
+        v = pieces[2].view(batch, length, self.num_kv_heads, self.head_dim)
+        gate = pieces[3] if self.gating else None
+        raw_kv = (k, v)
 
-        with nvtx.annotate("MiraSelfAttention.kv_cache"):
-            if kv_cache is not None:
-                kv_cache.update(k, v)
-                k, v = kv_cache.cached_k(), kv_cache.cached_v()
-        with nvtx.annotate("MiraSelfAttention.rotary"):
-            if rotary is not None:
-                if q_rotary is None:
-                    with nvtx.annotate("MiraSelfAttention.rotary.q"):
-                        q = apply_rotary(q, (rotary[0][-length:], rotary[1][-length:]))
-                if not can_fuse_k_rotary:
-                    with nvtx.annotate("MiraSelfAttention.rotary.k"):
-                        k = apply_rotary(k, rotary)
-        with nvtx.annotate("MiraSelfAttention.repeat_kv"):
-            k, v = self._repeat_kv(k), self._repeat_kv(v)
+        if kv_cache is not None:
+            kv_cache.update(k, v)
+            k, v = kv_cache.cached_k(), kv_cache.cached_v()
+        if rotary is not None:
+            if q_rotary is None:
+                q = apply_rotary(q, (rotary[0][-length:], rotary[1][-length:]))
+            if not can_fuse_k_rotary:
+                k = apply_rotary(k, rotary)
+        k, v = self._repeat_kv(k), self._repeat_kv(v)
 
-        with nvtx.annotate("MiraSelfAttention.attention"):
-            if causal and kv_cache is None and length > 1:
-                if self.causal_attention_backend == "triton":
-                    out = _tiny_causal_attention_cuda(q, k, v)
-                    if out is None:
-                        out = F.scaled_dot_product_attention(
-                            q.transpose(1, 2),
-                            k.transpose(1, 2),
-                            v.transpose(1, 2),
-                            is_causal=True,
-                        ).transpose(1, 2)
-                else:
+        if causal and kv_cache is None and length > 1:
+            if self.causal_attention_backend == "triton":
+                out = _tiny_causal_attention_cuda(q, k, v)
+                if out is None:
                     out = F.scaled_dot_product_attention(
                         q.transpose(1, 2),
                         k.transpose(1, 2),
@@ -680,12 +651,18 @@ class MiraSelfAttention(nn.Module):
                         is_causal=True,
                     ).transpose(1, 2)
             else:
-                out = self.attention(q, k, v)
-        with nvtx.annotate("MiraSelfAttention.output_projection"):
-            out = out.reshape(batch, length, self.dim)
-            if gate is not None:
-                out = out * torch.sigmoid(gate)
-            out = self.wo(out)
+                out = F.scaled_dot_product_attention(
+                    q.transpose(1, 2),
+                    k.transpose(1, 2),
+                    v.transpose(1, 2),
+                    is_causal=True,
+                ).transpose(1, 2)
+        else:
+            out = self.attention(q, k, v)
+        out = out.reshape(batch, length, self.dim)
+        if gate is not None:
+            out = out * torch.sigmoid(gate)
+        out = self.wo(out)
         return (out, raw_kv) if return_kv else out
 
 
@@ -696,12 +673,10 @@ class LayerScale(nn.Module):
         super().__init__()
         self.gamma = nn.Parameter(initial * torch.ones(dim))
 
-    @nvtx.annotate("LayerScale.forward")
     def forward(self, x: Tensor) -> Tensor:
         """Scale a residual branch channel-wise."""
         return x * self.gamma
 
-    @nvtx.annotate("LayerScale.residual")
     def residual(self, residual: Tensor, branch: Tensor) -> Tensor:
         """Add a scaled residual branch using one fused multiply-add op."""
         return torch.addcmul(residual, branch, self.gamma)

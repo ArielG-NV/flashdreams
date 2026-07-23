@@ -21,19 +21,22 @@ import asyncio
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import nvtx
 import tyro
 
 from flashdreams.core.io.disk import preflight_runtime_write_paths
-from flashdreams.serving.webrtc.bootstrap import patch_windows_webrtc_event_loop
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.runner import Runner, RunnerConfig
+from flashdreams.serving.webrtc.bootstrap import patch_windows_webrtc_event_loop
 from mira_integration.configs.schema import MiraWebRTCModelConfig
 from mira_integration.pipeline import MiraPipeline, MiraPipelineConfig
-from mira_integration.scripted import DEFAULT_ACTION_SCRIPT, parse_action_script
-from mira_integration.scripted import run_action_script
+from mira_integration.scripted import (
+    DEFAULT_ACTION_SCRIPT,
+    parse_action_script,
+    run_action_script,
+)
 from mira_integration.webrtc.media import MiraMp4Writer
 from mira_integration.webrtc.session import (
     MiraInferenceRuntime,
@@ -62,6 +65,14 @@ class MiraDemoRunnerConfig(RunnerConfig):
     """Torch RNG seed used for the autoregressive noise stream."""
     fps: int = 60
     """Output video frame rate."""
+    compile_decoder: bool = True
+    """Compile the stateless decoder core."""
+    decoder_cuda_graph: bool = True
+    """Replay the fixed-shape decoder through a CUDA graph."""
+    decoder_attention_backend: Literal["torch", "triton"] = "triton"
+    """Backend for short-sequence causal temporal attention."""
+    decoder_warmup_chunks: int = 3
+    """Unmeasured chunks used to compile, autotune, and capture the decoder."""
 
     @nvtx.annotate("MiraDemoRunnerConfig._load_selected_demo")
     def _load_selected_demo(self) -> MiraWebRTCModelConfig:
@@ -76,9 +87,18 @@ class MiraDemoRunnerConfig(RunnerConfig):
         n_diffusion_steps = self.n_diffusion_steps
         if n_diffusion_steps is None:
             n_diffusion_steps = selected.metadata.steps
+        pipeline = derive_config(
+            selected.pipeline,
+            enable_sync_and_profile=True,
+            decoder=dict(
+                compile_core=self.compile_decoder,
+                use_cuda_graph=self.decoder_cuda_graph,
+                causal_temporal_attention_backend=self.decoder_attention_backend,
+            ),
+        )
         return derive_config(
             self,
-            pipeline=selected.pipeline,
+            pipeline=pipeline,
             n_diffusion_steps=n_diffusion_steps,
         )
 
@@ -129,11 +149,17 @@ class MiraDemoRunner(Runner[MiraDemoRunnerConfig, MiraPipeline]):
                 seed=self.config.seed,
                 fps=self.config.fps,
                 n_diffusion_steps=n_diffusion_steps,
-                warmup_chunks=0,
+                warmup_chunks=self.config.decoder_warmup_chunks,
             )
         )
         try:
             await runtime.initialize()
+            await runtime.reset_for_new_session()
+            warmup_controls = (frozenset(),) + (None,) * (
+                selected.metadata.player_count - 1
+            )
+            for _ in range(self.config.decoder_warmup_chunks):
+                await runtime.generate_chunk(player_keys=warmup_controls)
             await runtime.reset_for_new_session()
             async with MiraMp4Writer(
                 output_dir=self.config.output_dir,
