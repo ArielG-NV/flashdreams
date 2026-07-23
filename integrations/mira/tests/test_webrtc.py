@@ -443,12 +443,14 @@ def test_manifest_generates_mira_test_pipeline() -> None:
     assert DEMO_1P.pipeline.n_players == metadata.player_count == 1
     assert DEMO_1P.pipeline.n_context_frames == metadata.n_context_frames == 39
     assert DEMO_4P.pipeline.n_context_frames == DEMO_4P.metadata.n_context_frames == 78
-    one_player_transformer = DEMO_1P.pipeline.diffusion_model.transformer
-    four_player_transformer = DEMO_4P.pipeline.diffusion_model.transformer
-    assert isinstance(one_player_transformer, MiraTransformerConfig)
-    assert isinstance(four_player_transformer, MiraTransformerConfig)
-    assert one_player_transformer.action_guidance_scale == 1.0
-    assert four_player_transformer.action_guidance_scale == 4.0
+    assert isinstance(
+        DEMO_1P.pipeline.diffusion_model.transformer,
+        MiraTransformerConfig,
+    )
+    assert isinstance(
+        DEMO_4P.pipeline.diffusion_model.transformer,
+        MiraTransformerConfig,
+    )
 
 
 def test_manifest_and_demo_selection_are_required() -> None:

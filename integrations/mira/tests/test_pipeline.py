@@ -22,7 +22,6 @@ from typing import Any
 import pytest
 import torch
 from mira_integration.action import (
-    MiraActionCondition,
     MiraActionEncoder,
     MiraActionInput,
 )
@@ -127,11 +126,9 @@ def test_flow_scheduler_integrates_in_increasing_time() -> None:
 def _small_transformer_config(
     *,
     n_players: int = 1,
-    action_guidance_scale: float = 1.0,
 ) -> MiraTransformerConfig:
     return MiraTransformerConfig(
         dtype=torch.float32,
-        action_guidance_scale=action_guidance_scale,
         network=MiraDiTConfig(
             latent_dim=4,
             hidden_dim=32,
@@ -150,14 +147,7 @@ def _small_transformer_config(
 
 
 def test_multiplayer_action_condition_is_sensitive_to_player_and_keys() -> None:
-    transformer = (
-        _small_transformer_config(
-            n_players=4,
-            action_guidance_scale=4.0,
-        )
-        .setup()
-        .eval()
-    )
+    transformer = _small_transformer_config(n_players=4).setup().eval()
     rows = torch.zeros(4, 2, 9, dtype=torch.int32)
     rows[0, 1, 0] = 1
     first = transformer.patchify_and_maybe_split_cp(
@@ -174,53 +164,45 @@ def test_multiplayer_action_condition_is_sensitive_to_player_and_keys() -> None:
             autopilot_mask=torch.tensor([True, False, True, True]),
         )
     )
-    assert isinstance(first, MiraActionCondition)
-    assert isinstance(second, MiraActionCondition)
-    assert first.dropped is not None
-    assert second.dropped is not None
-    assert not torch.equal(first.conditional, second.conditional)
-    torch.testing.assert_close(first.dropped, second.dropped)
+    all_autopilot = transformer.patchify_and_maybe_split_cp(
+        MiraActionInput(
+            rows=torch.zeros(4, 2, 9, dtype=torch.int32),
+            autopilot_mask=torch.ones(4, dtype=torch.bool),
+        )
+    )
+    assert not torch.equal(first, second)
+    assert not torch.equal(first, all_autopilot)
+    assert not torch.equal(second, all_autopilot)
 
 
-def test_action_guidance_combines_dropped_and_conditional_flows(
+def test_predict_flow_runs_one_conditioned_model_forward(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    transformer = (
-        _small_transformer_config(
-            n_players=4,
-            action_guidance_scale=4.0,
-        )
-        .setup()
-        .eval()
-    )
-    calls: list[bool] = []
+    transformer = _small_transformer_config(n_players=4).setup().eval()
+    calls: list[torch.Tensor] = []
 
-    def predict_branch(
+    def predict_flow(
         noisy_latent: torch.Tensor,
         timestep: torch.Tensor,
         cache: Any,
         *,
         action_embedding: torch.Tensor,
-        uncond: bool,
     ) -> torch.Tensor:
-        _ = timestep, cache, action_embedding
-        calls.append(uncond)
-        return torch.full_like(noisy_latent, 1.0 if uncond else 3.0)
+        _ = timestep, cache
+        calls.append(action_embedding)
+        return torch.full_like(noisy_latent, 3.0)
 
-    monkeypatch.setattr(transformer, "_predict_branch", predict_branch)
+    monkeypatch.setattr(transformer, "_predict_flow", predict_flow)
     noisy = torch.zeros(1, 8, 4)
-    condition = MiraActionCondition(
-        conditional=torch.zeros(1, 1, 32),
-        dropped=torch.ones(1, 1, 32),
-    )
+    action_embedding = torch.zeros(1, 1, 32)
     result = transformer.predict_flow(
         noisy,
         torch.tensor(0.5),
         object(),
-        input=condition,
+        input=action_embedding,
     )
-    assert calls == [True, False]
-    assert torch.equal(result, torch.full_like(noisy, 9.0))
+    assert calls == [action_embedding]
+    assert torch.equal(result, torch.full_like(noisy, 3.0))
 
 
 class _RecordingGraphWrapper:

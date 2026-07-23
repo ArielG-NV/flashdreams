@@ -37,17 +37,6 @@ class MiraActionInput:
     """Boolean player mask ``[B]`` selecting learned action dropout."""
 
 
-@dataclass(frozen=True, slots=True)
-class MiraActionCondition:
-    """Conditional and optional dropped-action embeddings for one AR step."""
-
-    conditional: Tensor
-    """Combined action embedding ``[B, 1, D]``."""
-
-    dropped: Tensor | None = None
-    """All-player-dropout embedding used by action guidance."""
-
-
 @nvtx.annotate("mira.action._symlog_normalize")
 def _symlog_normalize(value: Tensor, maximum: float = 2048.0) -> Tensor:
     """Normalize signed mouse deltas with MIRA's logarithmic transform."""
@@ -206,7 +195,6 @@ class MiraActionEncoder(nn.Module):
 
 
 __all__ = [
-    "MiraActionCondition",
     "MiraActionEncoder",
     "MiraActionInput",
 ]

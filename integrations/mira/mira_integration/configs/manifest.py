@@ -222,7 +222,6 @@ def build_pipeline_config(metadata: MiraModelMetadata) -> MiraPipelineConfig:
                     n_players=player_count,
                     num_action_keys=metadata.num_action_keys,
                 ),
-                action_guidance_scale=4.0 if player_count > 1 else 1.0,
                 compile_network=True,
                 use_cuda_graph=True,
             ),
