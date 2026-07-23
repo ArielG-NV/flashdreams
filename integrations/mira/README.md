@@ -105,3 +105,9 @@ nsys profile \
     --demo mira-mini-1p \
     --action-script 'W@5,W+D@5,Space@6,W+A@5'
 ```
+
+## Troubleshooting
+
+> Automatically "disconnecting from preview", unable to view preview or join a session
+Likely due to browser or local network security. Try disabling WebRTC local IP hiding.
+Example: for firefox, change in `about:config`, `media.peerconnection.ice.obfuscate_host_addresses` to `false`.

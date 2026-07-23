@@ -85,7 +85,7 @@ def test_parse_action_script_expands_controls() -> None:
 
 
 def test_parse_action_script_uses_100ms_duration_units() -> None:
-    assert parse_action_script("W@1") == [["W"]] * 6
+    assert parse_action_script("W@1", fps=60, frames_per_chunk=1) == [["W"]] * 6
     assert parse_action_script("A@2", fps=30, frames_per_chunk=4) == [["A"]] * 2
 
 
@@ -125,4 +125,4 @@ def test_scripted_video_rejects_wrong_player_count() -> None:
 @pytest.mark.parametrize("value", ("", "W", "W@0", "NotAKey@1", "W@wat"))
 def test_parse_action_script_rejects_invalid_input(value: str) -> None:
     with pytest.raises(ValueError):
-        parse_action_script(value)
+        parse_action_script(value, fps=60, frames_per_chunk=1)

@@ -41,8 +41,8 @@ def parse_action_script(
     value: str,
     *,
     valid_keys: frozenset[str] = MIRA_KEYS,
-    fps: int = 60,
-    frames_per_chunk: int = 1,
+    fps: int,
+    frames_per_chunk: int,
 ) -> list[list[str]]:
     """Expand ``KEY+KEY@100MS`` segments into per-chunk held controls."""
     if not value.strip():

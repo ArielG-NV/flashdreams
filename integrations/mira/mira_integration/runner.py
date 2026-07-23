@@ -45,7 +45,8 @@ class MiraDemoRunnerConfig(RunnerConfig):
     """User-facing configuration for the MIRA Mini example rollout."""
 
     _target: type["MiraDemoRunner"] = field(default_factory=lambda: MiraDemoRunner)
-    pipeline: Annotated[MiraPipelineConfig, tyro.conf.Suppress]
+    pipeline: Annotated[MiraPipelineConfig | None, tyro.conf.Suppress] = None
+    """Manifest-selected pipeline generated during ``resolve``."""
     output_dir: Path = Path("artifacts/mira")
     """Directory for generated MIRA videos and timing data."""
     manifest: Path = tyro.MISSING
@@ -115,11 +116,12 @@ class MiraDemoRunner(Runner[MiraDemoRunnerConfig, MiraPipeline]):
         n_diffusion_steps = self.config.n_diffusion_steps
         if n_diffusion_steps is None:
             raise RuntimeError("MIRA demo config was not resolved.")
+        pipeline_config = self._pipeline_config()
         runtime = MiraInferenceRuntime(
             config=MiraRuntimeConfig(
                 model_config=MiraWebRTCModelConfig(
                     metadata=selected.metadata,
-                    pipeline=self.config.pipeline,
+                    pipeline=pipeline_config,
                 ),
                 device=self.config.device,
                 seed=self.config.seed,
@@ -135,7 +137,7 @@ class MiraDemoRunner(Runner[MiraDemoRunnerConfig, MiraPipeline]):
                 output_dir=self.config.output_dir,
                 runner_name=self.config.runner_name,
                 fps=self.config.fps,
-                n_players=self.config.pipeline.n_players,
+                n_players=pipeline_config.n_players,
             ) as writer:
                 await run_action_script(
                     runtime,
@@ -146,6 +148,13 @@ class MiraDemoRunner(Runner[MiraDemoRunnerConfig, MiraPipeline]):
                 )
         finally:
             await runtime.close()
+
+    def _pipeline_config(self) -> MiraPipelineConfig:
+        """Return the manifest-resolved pipeline config."""
+        pipeline = self.config.pipeline
+        if pipeline is None:
+            raise RuntimeError("MIRA demo config was not resolved.")
+        return pipeline
 
 
 @nvtx.annotate("mira.runner._resolve_action_script")

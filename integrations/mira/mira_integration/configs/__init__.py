@@ -32,25 +32,9 @@ from mira_integration.configs.schema import (
 )
 from mira_integration.runner import MiraDemoRunnerConfig
 
-_DISPATCH_METADATA = MiraModelMetadata(
-    name="mira",
-    display_name="MIRA manifest dispatch",
-    checkpoint="",
-    player_count=1,
-    steps=2,
-    latent_height=9,
-    latent_width=16,
-    video_width=512,
-    video_height=288,
-    frames_per_chunk=2,
-    input_key_map=(),
-)
-"""Non-runnable placeholder replaced after explicit manifest selection."""
-
 RUNNER_MIRA = MiraDemoRunnerConfig(
     runner_name="mira",
     description="Run a named MIRA demo from an explicit YAML manifest.",
-    pipeline=build_pipeline_config(_DISPATCH_METADATA),
 )
 """Manifest-selecting ``flashdreams-run mira`` dispatcher."""
 

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import sys
 import gc
 import logging
 import os
@@ -105,6 +106,22 @@ def run_webrtc_server(
     port: int,
 ) -> None:
     """Serve on rank 0, idle on worker ranks, then tear the runtime down."""
+    
+    # Handle Windows<->Python WebRTC event loop bug where a sucsess emits an exception which would 
+    # otherwise kill our `run_app` call.
+    if sys.platform == "win32":
+        from asyncio.windows_events import IocpProactor
+
+        _original_poll = IocpProactor._poll
+        def _patched_poll(self: IocpProactor, timeout: float | None = None) -> list[object]:
+            try:
+                return _original_poll(self, timeout)
+            except OSError as e:
+                if getattr(e, "winerror", None) == 0 or "WinError 0" in str(e):
+                    return
+                raise
+        IocpProactor._poll = _patched_poll
+
     if world_rank == 0:
         if app is None:
             raise ValueError("Rank 0 requires an aiohttp app to serve.")

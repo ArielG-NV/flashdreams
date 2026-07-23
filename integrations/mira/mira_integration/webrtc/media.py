@@ -96,6 +96,7 @@ def copy_tensor_to_host(tensor: Tensor) -> Tensor:
         return tensor.cpu()
 
     with torch.cuda.device(tensor.device):
+        producer_stream = torch.cuda.current_stream(tensor.device)
         host = torch.empty(
             tensor.shape,
             dtype=tensor.dtype,
@@ -103,6 +104,7 @@ def copy_tensor_to_host(tensor: Tensor) -> Tensor:
             pin_memory=True,
         )
         stream = torch.cuda.Stream(device=tensor.device)
+        stream.wait_stream(producer_stream)
         with torch.cuda.stream(stream):
             host.copy_(tensor, non_blocking=True)
         stream.synchronize()
