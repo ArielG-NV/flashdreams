@@ -27,6 +27,7 @@ import nvtx
 import tyro
 
 from flashdreams.core.io.disk import preflight_runtime_write_paths
+from flashdreams.serving.webrtc.bootstrap import patch_windows_webrtc_event_loop
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.runner import Runner, RunnerConfig
 from mira_integration.configs.schema import MiraWebRTCModelConfig
@@ -102,6 +103,7 @@ class MiraDemoRunner(Runner[MiraDemoRunnerConfig, MiraPipeline]):
     @nvtx.annotate("MiraDemoRunner.run")
     def run(self) -> None:
         """Run the scripted demo and write a tiled MP4 plus timing JSON."""
+        patch_windows_webrtc_event_loop()
         asyncio.run(self._run_async())
 
     @nvtx.annotate("MiraDemoRunner._run_async")
