@@ -35,9 +35,6 @@ from flashdreams.infra.encoder import (
 )
 from mira_integration.action import MiraActionInput
 
-MIRA_KEYS = ("W", "A", "S", "D", "Q", "E", "Space", "LShiftKey", "LControlKey")
-"""Ordered keyboard vocabulary stored in the published checkpoint."""
-
 
 @dataclass(kw_only=True)
 class MiraControlEncoderCache(StreamingEncoderCache):
@@ -58,8 +55,8 @@ class MiraControlEncoderConfig(EncoderConfig):
         default_factory=lambda: MiraControlEncoder
     )
 
-    valid_keys: tuple[str, ...] = MIRA_KEYS
-    """Checkpoint keyboard vocabulary in embedding-table order."""
+    checkpoint_keys: tuple[str, ...]
+    """Manifest-defined checkpoint keys in embedding-table order."""
 
 
 class MiraControlEncoder(StreamingEncoder[MiraControlEncoderCache]):
@@ -68,14 +65,19 @@ class MiraControlEncoder(StreamingEncoder[MiraControlEncoderCache]):
     def __init__(self, config: MiraControlEncoderConfig) -> None:
         super().__init__(config)
         self.mira_config = config
-        self._key_index = {name: index for index, name in enumerate(config.valid_keys)}
+        self._key_index = {
+            name: index for index, name in enumerate(config.checkpoint_keys)
+        }
 
     @nvtx.annotate("MiraControlEncoder.initialize_autoregressive_cache")
     def initialize_autoregressive_cache(
         self, *, previous_row: Tensor, **_context: Any
     ) -> MiraControlEncoderCache:
         """Seed the action alignment with the bootstrap context's final row."""
-        assert previous_row.shape[-2:] == (1, len(self.mira_config.valid_keys))
+        assert previous_row.shape[-2:] == (
+            1,
+            len(self.mira_config.checkpoint_keys),
+        )
         previous_row = previous_row.to(dtype=torch.int32)
         return MiraControlEncoderCache(
             previous_row=previous_row,

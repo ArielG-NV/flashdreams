@@ -44,6 +44,8 @@ pytestmark = pytest.mark.ci_cpu
 MANIFEST_PATH = (
     Path(__file__).parents[1] / "mira_integration" / "configs" / "mira_car_soccer.yaml"
 )
+DEMO_METADATA = load_demo_config(MANIFEST_PATH, "mira-mini-1p").metadata
+
 
 def test_runtime_has_no_alakazam_package_imports() -> None:
     package = Path(__file__).parents[1] / "mira_integration"
@@ -75,7 +77,12 @@ def test_configure_media_ffmpeg_uses_bundled_binary(
 
 
 def test_parse_action_script_expands_controls() -> None:
-    assert parse_action_script("W@2,W+D@1,A@2", fps=10, frames_per_chunk=1) == [
+    assert parse_action_script(
+        "W@2,W+D@1,A@2",
+        metadata=DEMO_METADATA,
+        fps=10,
+        frames_per_chunk=1,
+    ) == [
         ["W"],
         ["W"],
         ["W", "D"],
@@ -85,8 +92,24 @@ def test_parse_action_script_expands_controls() -> None:
 
 
 def test_parse_action_script_uses_100ms_duration_units() -> None:
-    assert parse_action_script("W@1", fps=60, frames_per_chunk=1) == [["W"]] * 6
-    assert parse_action_script("A@2", fps=30, frames_per_chunk=4) == [["A"]] * 2
+    assert (
+        parse_action_script(
+            "W@1",
+            metadata=DEMO_METADATA,
+            fps=60,
+            frames_per_chunk=1,
+        )
+        == [["W"]] * 6
+    )
+    assert (
+        parse_action_script(
+            "A@2",
+            metadata=DEMO_METADATA,
+            fps=30,
+            frames_per_chunk=4,
+        )
+        == [["A"]] * 2
+    )
 
 
 def test_scripted_browser_controls_only_target_player_one() -> None:
@@ -125,4 +148,9 @@ def test_scripted_video_rejects_wrong_player_count() -> None:
 @pytest.mark.parametrize("value", ("", "W", "W@0", "NotAKey@1", "W@wat"))
 def test_parse_action_script_rejects_invalid_input(value: str) -> None:
     with pytest.raises(ValueError):
-        parse_action_script(value, fps=60, frames_per_chunk=1)
+        parse_action_script(
+            value,
+            metadata=DEMO_METADATA,
+            fps=60,
+            frames_per_chunk=1,
+        )

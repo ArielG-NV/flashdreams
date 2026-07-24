@@ -229,7 +229,7 @@ def build_pipeline_config(metadata: MiraModelMetadata) -> MiraPipelineConfig:
             seed=0,
             context_noise=0.8,
         ),
-        encoder=MiraControlEncoderConfig(valid_keys=checkpoint_keys),
+        encoder=MiraControlEncoderConfig(checkpoint_keys=checkpoint_keys),
         decoder=MiraDecoderConfig(
             n_players=player_count,
             compile_core=True,

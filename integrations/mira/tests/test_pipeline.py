@@ -36,9 +36,21 @@ from flashdreams.infra.acceleration import cuda_graph_dispatch
 
 pytestmark = pytest.mark.ci_cpu
 
+CHECKPOINT_KEYS = (
+    "W",
+    "A",
+    "S",
+    "D",
+    "Q",
+    "E",
+    "Space",
+    "LShiftKey",
+    "LControlKey",
+)
+
 
 def test_control_encoder_preserves_two_row_alignment() -> None:
-    encoder = MiraControlEncoderConfig().setup()
+    encoder = MiraControlEncoderConfig(checkpoint_keys=CHECKPOINT_KEYS).setup()
     previous = torch.zeros(1, 1, 9, dtype=torch.int32)
     previous[..., 2] = 1
     cache = encoder.initialize_autoregressive_cache(previous_row=previous)
@@ -53,7 +65,7 @@ def test_control_encoder_preserves_two_row_alignment() -> None:
 
 
 def test_control_encoder_keeps_multiplayer_inputs_independent() -> None:
-    encoder = MiraControlEncoderConfig().setup()
+    encoder = MiraControlEncoderConfig(checkpoint_keys=CHECKPOINT_KEYS).setup()
     cache = encoder.initialize_autoregressive_cache(
         previous_row=torch.zeros(4, 1, 9, dtype=torch.int32)
     )
@@ -68,7 +80,7 @@ def test_control_encoder_keeps_multiplayer_inputs_independent() -> None:
 
 
 def test_control_encoder_marks_unclaimed_players_for_autopilot() -> None:
-    encoder = MiraControlEncoderConfig().setup()
+    encoder = MiraControlEncoderConfig(checkpoint_keys=CHECKPOINT_KEYS).setup()
     cache = encoder.initialize_autoregressive_cache(
         previous_row=torch.zeros(4, 1, 9, dtype=torch.int32)
     )

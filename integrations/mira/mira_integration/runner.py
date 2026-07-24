@@ -33,7 +33,6 @@ from flashdreams.serving.webrtc.bootstrap import patch_windows_webrtc_event_loop
 from mira_integration.configs.schema import MiraWebRTCModelConfig
 from mira_integration.pipeline import MiraPipeline, MiraPipelineConfig
 from mira_integration.scripted import (
-    DEFAULT_ACTION_SCRIPT,
     parse_action_script,
     run_action_script,
 )
@@ -57,7 +56,7 @@ class MiraDemoRunnerConfig(RunnerConfig):
     """YAML manifest path required by ``flashdreams-run mira``."""
     demo: str = tyro.MISSING
     """Name to select from the manifest's ``demos`` mapping."""
-    action_script: str = DEFAULT_ACTION_SCRIPT
+    action_script: str = tyro.MISSING
     """Comma-separated ``KEY+KEY@100MS`` segments controlling player one."""
     n_diffusion_steps: int | None = None
     """Sampler steps override; ``None`` uses the selected manifest demo."""
@@ -195,16 +194,13 @@ def _resolve_action_script(
     """Validate action script early so runner failures happen before setup."""
     parse_action_script(
         script,
-        valid_keys=frozenset(
-            binding.checkpoint_key for binding in selected.metadata.input_key_map
-        ),
+        metadata=selected.metadata,
         fps=fps,
         frames_per_chunk=selected.metadata.frames_per_chunk,
     )
 
 
 __all__ = [
-    "DEFAULT_ACTION_SCRIPT",
     "MiraDemoRunner",
     "MiraDemoRunnerConfig",
     "parse_action_script",

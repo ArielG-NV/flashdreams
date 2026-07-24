@@ -27,12 +27,6 @@ from flashdreams.serving.webrtc.runtime import WebRTCStepResult
 from mira_integration.configs.schema import MiraModelMetadata
 from mira_integration.webrtc.session import MiraInferenceRuntime
 
-MIRA_KEYS = frozenset(
-    {"W", "A", "S", "D", "Q", "E", "Space", "LShiftKey", "LControlKey"}
-)
-DEFAULT_ACTION_SCRIPT = "W@1,W+D@1,W@1,W+A@1"
-"""A short deterministic lap-like demonstration (400 ms of scripted controls)."""
-
 _T = TypeVar("_T")
 
 
@@ -40,7 +34,7 @@ _T = TypeVar("_T")
 def parse_action_script(
     value: str,
     *,
-    valid_keys: frozenset[str] = MIRA_KEYS,
+    metadata: MiraModelMetadata,
     fps: int,
     frames_per_chunk: int,
 ) -> list[list[str]]:
@@ -51,6 +45,7 @@ def parse_action_script(
         raise ValueError("fps must be > 0")
     if frames_per_chunk <= 0:
         raise ValueError("frames_per_chunk must be > 0")
+    checkpoint_keys = {binding.checkpoint_key for binding in metadata.input_key_map}
     timeline: list[list[str]] = []
     for raw_segment in value.split(","):
         segment = raw_segment.strip()
@@ -64,7 +59,7 @@ def parse_action_script(
         if duration_100ms <= 0:
             raise ValueError(f"action duration must be positive in {segment!r}")
         keys = [key.strip() for key in key_spec.split("+") if key.strip()]
-        unknown = sorted(set(keys) - valid_keys)
+        unknown = sorted(set(keys) - checkpoint_keys)
         if unknown:
             raise ValueError(f"unknown MIRA key(s) in {segment!r}: {unknown}")
         count = math.ceil(duration_100ms * fps / (10 * frames_per_chunk))
@@ -83,9 +78,7 @@ def player_one_browser_controls(
         binding.checkpoint_key: binding.browser_key
         for binding in metadata.input_key_map
     }
-    browser_keys = frozenset(
-        checkpoint_to_browser[key] for key in held_checkpoint_keys
-    )
+    browser_keys = frozenset(checkpoint_to_browser[key] for key in held_checkpoint_keys)
     return (browser_keys,) + (None,) * (metadata.player_count - 1)
 
 
@@ -101,9 +94,7 @@ async def run_action_script(
     """Publish scripted controls and notify ``on_chunk`` after each render."""
     controls = parse_action_script(
         script,
-        valid_keys=frozenset(
-            binding.checkpoint_key for binding in metadata.input_key_map
-        ),
+        metadata=metadata,
         fps=fps,
         frames_per_chunk=metadata.frames_per_chunk,
     )
@@ -115,8 +106,6 @@ async def run_action_script(
 
 
 __all__ = [
-    "DEFAULT_ACTION_SCRIPT",
-    "MIRA_KEYS",
     "parse_action_script",
     "player_one_browser_controls",
     "run_action_script",
