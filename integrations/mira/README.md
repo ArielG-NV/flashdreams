@@ -81,7 +81,7 @@ not import its package at runtime.
 
 ## Profile with NSight
 
-Use Nsight Systems to profile:
+Use Nsight Systems to profile, launch in an admin terminal (assuming git-bash):
 
 ```bash
 mkdir -p artifacts/mira/nsight
