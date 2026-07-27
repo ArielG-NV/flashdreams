@@ -85,7 +85,7 @@ demos:
     decoder_width: 1152
     decoder_depth: 28
     decoder_num_heads: 16
-    display_name: MIRA Mini 1B (1P)
+    display_name: MIRA Mini 1B High (1P)
   mira-mini-1p-low:
     checkpoint-hugging-face: alakazamworld/mira-mini
     input-map: car-soccer
@@ -106,7 +106,7 @@ demos:
     decoder_width: 1152
     decoder_depth: 28
     decoder_num_heads: 16
-    display_name: MIRA Mini 1B (1P)
+    display_name: MIRA Mini 1B Low (1P)
 
   mira-mini-364m-high:
     checkpoint-hugging-face: alakazamworld/mira-mini-364m
@@ -128,7 +128,7 @@ demos:
     decoder_width: 576
     decoder_depth: 14
     decoder_num_heads: 9
-    display_name: MIRA Mini 364M (1P)
+    display_name: MIRA Mini 364M High (1P)
   mira-mini-364m-low:
     checkpoint-hugging-face: alakazamworld/mira-mini-364m
     input-map: car-soccer
@@ -149,7 +149,7 @@ demos:
     decoder_width: 576
     decoder_depth: 14
     decoder_num_heads: 9
-    display_name: MIRA Mini 364M (1P)
+    display_name: MIRA Mini 364M Low (1P)
 
   mira-mini-4p:
     checkpoint-hugging-face: alakazamworld/mira-mini-4p
