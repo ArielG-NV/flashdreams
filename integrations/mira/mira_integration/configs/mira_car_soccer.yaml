@@ -65,7 +65,7 @@ input-map:
       group_description: Jump, boost, and powerslide.
 
 demos:
-  mira-mini-1p:
+  mira-mini-1p-high:
     checkpoint-hugging-face: alakazamworld/mira-mini
     input-map: car-soccer
     player_count: 1
@@ -86,7 +86,29 @@ demos:
     decoder_depth: 28
     decoder_num_heads: 16
     display_name: MIRA Mini 1B (1P)
-  mira-mini-364m:
+  mira-mini-1p-low:
+    checkpoint-hugging-face: alakazamworld/mira-mini
+    input-map: car-soccer
+    player_count: 1
+    n_context_frames: 39
+    steps: 4
+    latent_height: 9
+    latent_width: 16
+    video_width: 512
+    video_height: 288
+    frames_per_chunk: 2
+    hidden_dim: 2048
+    num_heads: 16
+    num_kv_heads: 4
+    num_layers: 16
+    psd_enabled: false
+    schedule_type: linear_quadratic
+    decoder_width: 1152
+    decoder_depth: 28
+    decoder_num_heads: 16
+    display_name: MIRA Mini 1B (1P)
+
+  mira-mini-364m-high:
     checkpoint-hugging-face: alakazamworld/mira-mini-364m
     input-map: car-soccer
     player_count: 1
@@ -107,6 +129,28 @@ demos:
     decoder_depth: 14
     decoder_num_heads: 9
     display_name: MIRA Mini 364M (1P)
+  mira-mini-364m-low:
+    checkpoint-hugging-face: alakazamworld/mira-mini-364m
+    input-map: car-soccer
+    player_count: 1
+    n_context_frames: 39
+    steps: 4
+    latent_height: 9
+    latent_width: 16
+    video_width: 512
+    video_height: 288
+    frames_per_chunk: 2
+    hidden_dim: 1280
+    num_heads: 10
+    num_kv_heads: 5
+    num_layers: 12
+    psd_enabled: true
+    schedule_type: linear
+    decoder_width: 576
+    decoder_depth: 14
+    decoder_num_heads: 9
+    display_name: MIRA Mini 364M (1P)
+
   mira-mini-4p:
     checkpoint-hugging-face: alakazamworld/mira-mini-4p
     input-map: car-soccer
