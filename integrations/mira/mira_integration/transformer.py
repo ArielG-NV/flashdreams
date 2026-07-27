@@ -244,6 +244,12 @@ class MiraTransformer(Transformer[MiraTransformerCache]):
         action_embedding: Tensor,
     ) -> Tensor:
         """Run one conditioned flow prediction without advancing cache bookkeeping."""
+        timestep_delta: Tensor | None = None
+        if self.config.network.psd_enabled:
+            if timestep.numel() == 2:
+                timestep, timestep_delta = timestep.unbind()
+            else:
+                timestep_delta = torch.zeros_like(timestep)
         network = (
             self.network
             if self._cuda_graph_dispatch is None
@@ -255,6 +261,7 @@ class MiraTransformer(Transformer[MiraTransformerCache]):
         return network(
             noisy_latent,
             timesteps=timestep,
+            timestep_delta=timestep_delta,
             cache=cache.network_cache,
             action_embedding=action_embedding,
             clean_past=cache.clean_past,

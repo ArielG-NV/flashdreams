@@ -24,12 +24,12 @@ import nvtx
 import torch
 from torch import Tensor
 
+from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler import (
     FlowPredictor,
     Scheduler,
     SchedulerConfig,
 )
-from flashdreams.infra.diffusion.model import DiffusionModelConfig
 
 
 @dataclass(kw_only=True)
@@ -53,6 +53,9 @@ class MiraFlowSchedulerConfig(SchedulerConfig):
 
     schedule_type: Literal["linear", "linear_quadratic"] = "linear_quadratic"
     """Spacing of integration points from noise ``tau=0`` to clean ``tau=1``."""
+
+    step_size_conditioning: bool = False
+    """Pass each integration delta to PSD-trained transformers."""
 
 
 class MiraFlowScheduler(Scheduler):
@@ -100,6 +103,10 @@ class MiraFlowScheduler(Scheduler):
         for tau, delta in zip(schedule[:-1], schedule.diff()):
             with nvtx.annotate("MiraFlowScheduler.sample.step"):
                 timestep = tau.to(dtype=initial_noise.dtype)
+                if self.config.step_size_conditioning:
+                    timestep = torch.stack(
+                        (timestep, delta.to(dtype=initial_noise.dtype))
+                    )
                 sample = sample + delta * predict_flow(sample, timestep)
         return sample.to(dtype=initial_noise.dtype)
 

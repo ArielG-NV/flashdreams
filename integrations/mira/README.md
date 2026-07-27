@@ -1,7 +1,7 @@
 # FlashDreams MIRA Mini
 
-This integration runs the 1B MIRA Mini car-soccer world model using native
-FlashDreams components. Its action encoder, diffusion transformer,
+This integration runs the 1B and 364M MIRA Mini car-soccer world models using
+native FlashDreams components. Its action encoder, diffusion transformer,
 `BlockKVCache` temporal state, flow scheduler, bootstrap encoder, and causal video decoder are implemented under `mira_integration`.
 
 ## Install
@@ -45,6 +45,12 @@ uv run mira-webrtc \
 uv run mira-webrtc \
   --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
   --demo mira-mini-1p \
+  --host 0.0.0.0 --port 8083
+
+  # launch 1 player 364m mira demo
+uv run mira-webrtc \
+  --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
+  --demo mira-mini-364m \
   --host 0.0.0.0 --port 8083
 ```
 

@@ -213,6 +213,9 @@ class MiraDiTConfig(InstantiateConfig):
     ada_attention: bool = True
     """Condition spatial and temporal LayerNorms with action/time embeddings."""
 
+    psd_enabled: bool = False
+    """Enable PSD integration-step conditioning."""
+
     attention_backend: Literal["math", "efficient", "cudnn", "flash"] = "cudnn"
     """FlashDreams native-attention backend."""
 
@@ -254,6 +257,9 @@ class MiraDiffusionTransformer(nn.Module):
         self.latent_tokens_proj = nn.Linear(config.latent_dim, dim)
         self.past_proj = nn.Linear(config.latent_dim, dim)
         self.diffusion_time_embedding = MiraDiffusionTimeEmbedding(dim)
+        self.diffusion_time_embedding_delta = (
+            MiraDiffusionTimeEmbedding(dim) if config.psd_enabled else None
+        )
         self.transformer = nn.ModuleList(
             [
                 MiraSTBlock(
@@ -277,6 +283,7 @@ class MiraDiffusionTransformer(nn.Module):
         actions: Tensor,
         tau: Tensor,
         *,
+        tau_delta: Tensor | None = None,
         clean_past: Tensor,
         cache: MiraDiTCache | None = None,
         return_kv: bool = False,
@@ -285,9 +292,14 @@ class MiraDiffusionTransformer(nn.Module):
         _, frames, height, width, _ = latent.shape
         sequence = self.latent_tokens_proj(latent) + self.past_proj(clean_past)
         condition = actions[:, :, None, None].expand(-1, -1, height, width, -1)
-        condition = condition + self.diffusion_time_embedding(tau).expand(
-            -1, -1, height, width, -1
-        )
+        time_condition = self.diffusion_time_embedding(tau)
+        if self.diffusion_time_embedding_delta is not None:
+            if tau_delta is None:
+                tau_delta = torch.zeros_like(tau)
+            time_condition = time_condition + self.diffusion_time_embedding_delta(
+                tau_delta
+            )
+        condition = condition + time_condition.expand(-1, -1, height, width, -1)
         spatial_frequencies = spatial_rope(
             height,
             width,
@@ -495,6 +507,7 @@ class MiraDiT(nn.Module):
         noisy_tokens: Tensor,
         *,
         timesteps: Tensor,
+        timestep_delta: Tensor | None = None,
         cache: MiraDiTCache,
         action_embedding: Tensor,
         clean_past: Tensor,
@@ -514,6 +527,11 @@ class MiraDiT(nn.Module):
             latent,
             action_embedding,
             tau,
+            tau_delta=(
+                None
+                if timestep_delta is None
+                else timestep_delta.reshape(1, 1, 1, 1, 1).expand(batch, 1, 1, 1, 1)
+            ),
             clean_past=past,
             cache=cache,
         )

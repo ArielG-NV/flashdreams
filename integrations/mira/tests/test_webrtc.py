@@ -28,6 +28,7 @@ import torch
 from aiohttp.test_utils import TestClient, TestServer
 from mira_integration.configs.manifest import load_demo_config, load_manifest
 from mira_integration.configs.schema import preview_grid_dimensions
+from mira_integration.scheduler import MiraFlowSchedulerConfig
 from mira_integration.transformer import MiraTransformerConfig
 from mira_integration.webrtc.media import video_chunk_to_rgb_frames
 from mira_integration.webrtc.room import (
@@ -451,6 +452,28 @@ def test_manifest_generates_mira_test_pipeline() -> None:
         DEMO_4P.pipeline.diffusion_model.transformer,
         MiraTransformerConfig,
     )
+
+
+def test_manifest_generates_364m_checkpoint_architecture() -> None:
+    selection = load_demo_config(MANIFEST_PATH, "mira-mini-364m")
+    transformer = selection.pipeline.diffusion_model.transformer
+    scheduler = selection.pipeline.diffusion_model.scheduler
+    decoder = selection.pipeline.decoder
+
+    assert selection.metadata.checkpoint == "alakazamworld/mira-mini-364m"
+    assert selection.metadata.steps == 2
+    assert isinstance(transformer, MiraTransformerConfig)
+    assert (
+        transformer.network.hidden_dim,
+        transformer.network.num_heads,
+        transformer.network.num_kv_heads,
+        transformer.network.num_layers,
+    ) == (1280, 10, 5, 12)
+    assert transformer.network.psd_enabled is True
+    assert isinstance(scheduler, MiraFlowSchedulerConfig)
+    assert scheduler.schedule_type == "linear"
+    assert scheduler.step_size_conditioning is True
+    assert (decoder.width, decoder.depth, decoder.num_heads) == (576, 14, 9)
 
 
 def test_manifest_and_demo_selection_are_required() -> None:

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import nvtx
 from omegaconf import OmegaConf
@@ -57,6 +57,21 @@ def _positive_int(value: Any, location: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise ValueError(f"{location} must be a positive integer")
     return value
+
+
+@nvtx.annotate()
+def _boolean(value: Any, location: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{location} must be a boolean")
+    return value
+
+
+@nvtx.annotate()
+def _schedule_type(value: Any, location: str) -> Literal["linear", "linear_quadratic"]:
+    schedule_type = _string(value, location)
+    if schedule_type not in {"linear", "linear_quadratic"}:
+        raise ValueError(f"{location} must be 'linear' or 'linear_quadratic'")
+    return schedule_type
 
 
 @nvtx.annotate()
@@ -165,6 +180,25 @@ def _load_demos(
             frames_per_chunk=_positive_int(
                 demo.get("frames_per_chunk"), f"{location}.frames_per_chunk"
             ),
+            hidden_dim=_positive_int(demo.get("hidden_dim"), f"{location}.hidden_dim"),
+            num_heads=_positive_int(demo.get("num_heads"), f"{location}.num_heads"),
+            num_kv_heads=_positive_int(
+                demo.get("num_kv_heads"), f"{location}.num_kv_heads"
+            ),
+            num_layers=_positive_int(demo.get("num_layers"), f"{location}.num_layers"),
+            psd_enabled=_boolean(demo.get("psd_enabled"), f"{location}.psd_enabled"),
+            schedule_type=_schedule_type(
+                demo.get("schedule_type"), f"{location}.schedule_type"
+            ),
+            decoder_width=_positive_int(
+                demo.get("decoder_width"), f"{location}.decoder_width"
+            ),
+            decoder_depth=_positive_int(
+                demo.get("decoder_depth"), f"{location}.decoder_depth"
+            ),
+            decoder_num_heads=_positive_int(
+                demo.get("decoder_num_heads"), f"{location}.decoder_num_heads"
+            ),
         )
     if not demos:
         raise ValueError("demos must contain at least one demo")
@@ -221,17 +255,28 @@ def build_pipeline_config(metadata: MiraModelMetadata) -> MiraPipelineConfig:
                     latent_width=metadata.latent_width,
                     n_players=player_count,
                     num_action_keys=metadata.num_action_keys,
+                    hidden_dim=metadata.hidden_dim,
+                    num_heads=metadata.num_heads,
+                    num_kv_heads=metadata.num_kv_heads,
+                    num_layers=metadata.num_layers,
+                    psd_enabled=metadata.psd_enabled,
                 ),
                 compile_network=True,
                 use_cuda_graph=True,
             ),
-            scheduler=MiraFlowSchedulerConfig(),
+            scheduler=MiraFlowSchedulerConfig(
+                schedule_type=metadata.schedule_type,
+                step_size_conditioning=metadata.psd_enabled,
+            ),
             seed=0,
             context_noise=0.8,
         ),
         encoder=MiraControlEncoderConfig(checkpoint_keys=checkpoint_keys),
         decoder=MiraDecoderConfig(
             n_players=player_count,
+            width=metadata.decoder_width,
+            depth=metadata.decoder_depth,
+            num_heads=metadata.decoder_num_heads,
             compile_core=True,
             causal_temporal_attention_backend="triton",
             use_cuda_graph=True,

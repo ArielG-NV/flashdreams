@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import nvtx
 
@@ -102,6 +102,33 @@ class MiraModelMetadata:
 
     frames_per_chunk: int
     """Pixel frames emitted by one autoregressive step."""
+
+    hidden_dim: int
+    """Diffusion-transformer residual width."""
+
+    num_heads: int
+    """Diffusion-transformer query head count."""
+
+    num_kv_heads: int
+    """Diffusion-transformer key/value head count."""
+
+    num_layers: int
+    """Diffusion-transformer block count."""
+
+    psd_enabled: bool
+    """Whether the checkpoint uses PSD integration-step conditioning."""
+
+    schedule_type: Literal["linear", "linear_quadratic"]
+    """Sampler schedule used by the checkpoint."""
+
+    decoder_width: int
+    """Decoder transformer residual width."""
+
+    decoder_depth: int
+    """Decoder transformer block count."""
+
+    decoder_num_heads: int
+    """Decoder attention head count."""
 
     input_key_map: tuple[MiraInputBinding, ...]
     """Ordered browser-to-checkpoint control map."""

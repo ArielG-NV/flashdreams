@@ -22,10 +22,12 @@ conditioning, flow matching, temporal ``BlockKVCache`` state, bootstrap video
 encoding, and causal video decoding all use FlashDreams contracts and
 primitives. The external ``alakazam-mira-mini`` package is not required.
 
-The example ``mira-mini-1p`` manifest entry uses the 1B single-player bundle from
-`alakazamworld/mira-mini <https://huggingface.co/alakazamworld/mira-mini>`_.
-Model loading and the roughly 12 GB download are deferred until a rollout is
-initialized, so config inspection remains CPU-safe.
+The manifest includes the 1B single-player bundle from
+`alakazamworld/mira-mini <https://huggingface.co/alakazamworld/mira-mini>`_
+and the two-step 364M variant from
+`alakazamworld/mira-mini-364m
+<https://huggingface.co/alakazamworld/mira-mini-364m>`_. Model loading is
+deferred until a rollout is initialized, so config inspection remains CPU-safe.
 
 Installation
 ------------
@@ -49,6 +51,14 @@ Inspect the config without loading weights:
    uv run flashdreams-run --no-instantiate mira \
        --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
        --demo mira-mini-1p
+
+Select the smaller two-step checkpoint with ``--demo mira-mini-364m``:
+
+.. code-block:: bash
+
+   uv run flashdreams-run --no-instantiate mira \
+       --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
+       --demo mira-mini-364m
 
 Run the default forward-and-steer sequence:
 

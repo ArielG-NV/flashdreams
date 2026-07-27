@@ -135,9 +135,27 @@ def test_flow_scheduler_integrates_in_increasing_time() -> None:
     assert torch.equal(result, torch.ones_like(initial))
 
 
+def test_psd_flow_scheduler_passes_step_size_conditioning() -> None:
+    scheduler = MiraFlowSchedulerConfig(
+        num_inference_steps=2,
+        schedule_type="linear",
+        step_size_conditioning=True,
+    ).setup()
+    timesteps: list[torch.Tensor] = []
+
+    def predict_flow(sample: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
+        timesteps.append(timestep)
+        return torch.zeros_like(sample)
+
+    scheduler.sample(torch.zeros(1, 2, 3), predict_flow)
+    torch.testing.assert_close(timesteps[0], torch.tensor([0.0, 0.5]))
+    torch.testing.assert_close(timesteps[1], torch.tensor([0.5, 0.5]))
+
+
 def _small_transformer_config(
     *,
     n_players: int = 1,
+    psd_enabled: bool = False,
 ) -> MiraTransformerConfig:
     return MiraTransformerConfig(
         dtype=torch.float32,
@@ -153,9 +171,26 @@ def _small_transformer_config(
             n_players=n_players,
             attention_gating=True,
             ada_attention=True,
+            psd_enabled=psd_enabled,
             attention_backend="math",
         ),
     )
+
+
+def test_psd_transformer_builds_delta_timestep_embedding() -> None:
+    transformer = _small_transformer_config(psd_enabled=True).setup()
+    delta_embedding = transformer.network.world_model.diffusion_time_embedding_delta
+    assert delta_embedding is not None
+    assert {
+        key
+        for key in transformer.network.state_dict()
+        if "diffusion_time_embedding_delta" in key
+    } == {
+        "world_model.diffusion_time_embedding_delta.mlp.0.weight",
+        "world_model.diffusion_time_embedding_delta.mlp.0.bias",
+        "world_model.diffusion_time_embedding_delta.mlp.2.weight",
+        "world_model.diffusion_time_embedding_delta.mlp.2.bias",
+    }
 
 
 def test_multiplayer_action_condition_is_sensitive_to_player_and_keys() -> None:
@@ -257,6 +292,26 @@ def test_native_transformer_primes_and_advances_flashdreams_cache() -> None:
     assert flow.shape == transformer.latent_shape
     assert torch.equal(cache.clean_past, noisy)
     assert all(item is None or item.size == 4 for item in cache.network_cache.temporal)
+
+
+def test_psd_transformer_accepts_tau_and_delta_pair() -> None:
+    transformer = _small_transformer_config(psd_enabled=True).setup().eval()
+    context = torch.randn(1, 4, 3, 2, 2)
+    cache = transformer.initialize_autoregressive_cache(
+        context_latents=context,
+        context_action_rows=torch.zeros(1, 4, 9, dtype=torch.int32),
+    )
+    encoded_action = transformer.patchify_and_maybe_split_cp(
+        torch.zeros(1, 2, 9, dtype=torch.int32)
+    )
+    cache.start(0)
+    output = transformer.predict_flow(
+        torch.randn(transformer.latent_shape),
+        torch.tensor([0.0, 0.5]),
+        cache,
+        input=encoded_action,
+    )
+    assert output.shape == transformer.latent_shape
 
 
 def test_transformer_restore_preserves_kv_storage_and_graph_dispatch() -> None:
