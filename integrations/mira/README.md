@@ -164,12 +164,7 @@ uv run flashdreams-run mira-results-viewer artifacts/mira/ \
 
 For each supplied folder, the viewer reads every direct child matching
 `<metrics-folder>/<slug>/metrics_mira.csv`. It writes the concatenated CSV,
-an HTML table, and bar charts for average FPS, 1% lows FPS, model
-VRAM footprint, and temporal instability under
-`artifacts/mira-results-viewer/`, then opens `mira_results.html` in the default
-web browser. Pandas is a Python data-analysis library rather than a native
-spreadsheet application, so the terminal prints the exact local file path and
-`file:` URL rendered by the browser. The report output directory is replaced
+an HTML table, and bar charts. The report output directory is replaced
 on every run so stale charts are removed.
 
 ## Troubleshooting

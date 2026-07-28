@@ -26,6 +26,7 @@ from mira_integration.results_viewer import (
     MiraResultsViewer,
     MiraResultsViewerConfig,
     _chart_gpu_name,
+    _group_chart_rows_by_runner,
     build_results_report,
     find_metrics_csvs,
     read_temporal_instability_metrics,
@@ -172,6 +173,29 @@ def test_chart_gpu_name_is_capped_at_four_words(
     expected: str,
 ) -> None:
     assert _chart_gpu_name(gpu_name) == expected
+
+
+def test_chart_rows_are_grouped_by_runner() -> None:
+    chart_data = pd.DataFrame(
+        [
+            {"Runner": "mira-a", "GPU": "B200"},
+            {"Runner": "mira-mini-1p-1b-high", "GPU": "B200"},
+            {"Runner": "mira-z", "GPU": "B200"},
+            {"Runner": "mira-mini-1p-1b-high", "GPU": "B200"},
+            {"Runner": "mira-mini-1p-1b-high", "GPU": "M1 Pro"},
+        ]
+    )
+
+    grouped = _group_chart_rows_by_runner(chart_data)
+
+    assert grouped["Runner"].tolist() == [
+        "mira-a",
+        "mira-mini-1p-1b-high",
+        "mira-mini-1p-1b-high",
+        "mira-mini-1p-1b-high",
+        "mira-z",
+    ]
+    assert grouped["GPU"].tolist()[1:4] == ["B200", "B200", "M1 Pro"]
 
 
 def test_read_temporal_instability_metrics_averages_repeated_runners(

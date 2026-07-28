@@ -49,6 +49,23 @@ _GPU_BAR_COLORS = (
 )
 """Green chart palette ordered from the first discovered GPU onward."""
 
+_ALAKAZAM_AVERAGE_FPS_ROWS = (
+    {
+        "Runner": "mira-mini-1p-1b-high",
+        "GPU": "B200",
+        "Average FPS": 25.7,
+    },
+    {
+        "Runner": "mira-mini-1p-1b-high",
+        "GPU": "M1 Pro",
+        "Average FPS": 1.4,
+    },
+)
+"""Published Alakazam reference results included in the average-FPS chart."""
+
+_ALAKAZAM_BAR_COLOR = "#FF0000"
+"""Bar color used to distinguish Alakazam reference results."""
+
 
 @dataclass(kw_only=True)
 class MiraResultsViewerConfig(RunnerConfig):
@@ -360,6 +377,7 @@ def build_results_report(
         ylabel="Average FPS",
         output_path=fps_chart_path,
         color="#76B900",
+        alakazam_average_fps=True,
     )
     _write_bar_chart(
         summary,
@@ -447,6 +465,7 @@ def _write_bar_chart(
     ylabel: str,
     output_path: Path,
     color: str,
+    alakazam_average_fps: bool = False,
 ) -> None:
     import matplotlib
 
@@ -455,13 +474,23 @@ def _write_bar_chart(
     from matplotlib.patches import Patch
 
     chart_data = summary.copy()
+    chart_data["_result_source"] = "Flashdreams"
+    if alakazam_average_fps:
+        alakazam_data = pd.DataFrame(_ALAKAZAM_AVERAGE_FPS_ROWS)
+        alakazam_data["_result_source"] = "Alakazam"
+        chart_data = pd.concat([chart_data, alakazam_data], ignore_index=True)
+        chart_data = _group_chart_rows_by_runner(chart_data)
+
     gpu_color_map: dict[str, str] = {}
     if category_column == "Runner + GPU":
         chart_data[category_column] = (
             chart_data["Runner"] + " | " + chart_data["GPU"].map(_chart_gpu_name)
         )
-        gpu_color_map = _gpu_color_map(chart_data["GPU"])
-    figure_width = max(25.0, len(summary) * 1.25)
+        flashdreams_gpus = chart_data.loc[
+            chart_data["_result_source"] == "Flashdreams", "GPU"
+        ]
+        gpu_color_map = _gpu_color_map(flashdreams_gpus)
+    figure_width = max(25.0, len(chart_data) * 1.25)
     axes = chart_data.plot.bar(
         x=category_column,
         y=value_column,
@@ -471,13 +500,31 @@ def _write_bar_chart(
         rot=25,
     )
     if gpu_color_map:
-        for bar, gpu_name in zip(axes.containers[0], chart_data["GPU"], strict=True):
-            bar.set_facecolor(gpu_color_map[gpu_name])
+        for bar, (_, row) in zip(
+            axes.containers[0], chart_data.iterrows(), strict=True
+        ):
+            bar.set_facecolor(
+                _ALAKAZAM_BAR_COLOR
+                if row["_result_source"] == "Alakazam"
+                else gpu_color_map[row["GPU"]]
+            )
+        legend_handles = [
+            Patch(
+                facecolor=gpu_color,
+                label=f"{_chart_gpu_name(gpu_name)} - Flashdreams",
+            )
+            for gpu_name, gpu_color in gpu_color_map.items()
+        ]
+        if alakazam_average_fps:
+            legend_handles.extend(
+                Patch(
+                    facecolor=_ALAKAZAM_BAR_COLOR,
+                    label=f"{_chart_gpu_name(str(row['GPU']))} - Alakazam",
+                )
+                for row in _ALAKAZAM_AVERAGE_FPS_ROWS
+            )
         axes.legend(
-            handles=[
-                Patch(facecolor=gpu_color, label=_chart_gpu_name(gpu_name))
-                for gpu_name, gpu_color in gpu_color_map.items()
-            ],
+            handles=legend_handles,
             title="GPU",
         )
     axes.set_title(title)
@@ -497,6 +544,11 @@ def _gpu_color_map(gpu_names: pd.Series) -> dict[str, str]:
         gpu_name: _GPU_BAR_COLORS[index % len(_GPU_BAR_COLORS)]
         for index, gpu_name in enumerate(unique_names)
     }
+
+
+def _group_chart_rows_by_runner(chart_data: pd.DataFrame) -> pd.DataFrame:
+    """Keep every result for the same runner adjacent in a chart."""
+    return chart_data.sort_values("Runner", kind="stable", ignore_index=True)
 
 
 def _chart_gpu_name(gpu_name: str) -> str:
