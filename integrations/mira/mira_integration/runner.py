@@ -71,8 +71,10 @@ class MiraDemoRunnerConfig(RunnerConfig):
     """Output video frame rate."""
     compile_decoder: bool = True
     """Compile the stateless decoder core."""
-    decoder_cuda_graph: bool = True
-    """Replay the fixed-shape decoder through a CUDA graph."""
+    cuda_graph: bool = True
+    """Replay the fixed-shape transformer and decoder through CUDA graphs."""
+    cuda_graph_warmup_iters: int = 2
+    """Warmup iterations before transformer and decoder CUDA graph capture."""
     decoder_attention_backend: Literal["torch", "triton"] = "triton"
     """Backend for short-sequence causal temporal attention."""
     decoder_warmup_chunks: int = 3
@@ -92,15 +94,24 @@ class MiraDemoRunnerConfig(RunnerConfig):
             return derive_config(self, pipeline=None)
 
         selected = self._load_selected_demo()
+        if self.cuda_graph_warmup_iters < 0:
+            raise ValueError("cuda_graph_warmup_iters must be >= 0")
         n_diffusion_steps = self.n_diffusion_steps
         if n_diffusion_steps is None:
             n_diffusion_steps = selected.metadata.steps
         pipeline = derive_config(
             selected.pipeline,
-            enable_sync_and_profile=True,
+            enable_sync_and_profile=False,
+            diffusion_model=dict(
+                transformer=dict(
+                    use_cuda_graph=self.cuda_graph,
+                    cuda_graph_warmup_iters=self.cuda_graph_warmup_iters,
+                )
+            ),
             decoder=dict(
                 compile_core=self.compile_decoder,
-                use_cuda_graph=self.decoder_cuda_graph,
+                use_cuda_graph=self.cuda_graph,
+                cuda_graph_warmup_iters=self.cuda_graph_warmup_iters,
                 causal_temporal_attention_backend=self.decoder_attention_backend,
             ),
         )

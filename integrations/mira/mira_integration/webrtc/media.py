@@ -22,7 +22,6 @@ import csv
 import io
 import json
 import math
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -35,6 +34,7 @@ from torch import Tensor
 
 from flashdreams.serving.webrtc.runtime import WebRTCStepResult
 from mira_integration.configs.schema import preview_grid_dimensions
+from mira_integration.timing import MiraFramePushTiming
 
 
 @nvtx.annotate("mira.webrtc.media.normalize_player_chunk")
@@ -157,13 +157,15 @@ def _format_runtime_metrics_csv(
     model_vram_bytes: int,
     gpu_name: str,
     action_script: str,
-    stats_history: list[dict[str, float | int]],
+    timing_history: list[MiraFramePushTiming],
 ) -> str:
-    profiled_chunks = [
-        stats
-        for stats in stats_history
-        if float(stats.get("total_ms", 0)) > 0
-        and int(stats.get("frames_per_chunk", 0)) > 0
+    completed = [
+        timing
+        for timing in timing_history
+        if timing.completed_frame_number is not None
+        and timing.media_push_finished_at_s is not None
+        and timing.completed_frame_number > timing.first_frame_number
+        and timing.media_push_finished_at_s > timing.requested_at_s
     ]
     gib = 1024**3
     metrics = {
@@ -174,42 +176,51 @@ def _format_runtime_metrics_csv(
         "model_load_vram_bytes": str(model_vram_bytes),
         "model_load_vram_gib": f"{model_vram_bytes / gib:.3f}",
     }
-    if profiled_chunks:
-        latencies = [float(stats["total_ms"]) for stats in profiled_chunks]
+    if completed:
+        latencies = [
+            (timing.media_push_finished_at_s - timing.requested_at_s) * 1000
+            for timing in completed
+            if timing.media_push_finished_at_s is not None
+        ]
+        frame_counts = [
+            timing.completed_frame_number - timing.first_frame_number
+            for timing in completed
+            if timing.completed_frame_number is not None
+        ]
         per_chunk_fps = [
-            1000 * int(stats["frames_per_chunk"]) / float(stats["total_ms"])
-            for stats in profiled_chunks
+            1000 * frame_count / latency
+            for frame_count, latency in zip(frame_counts, latencies, strict=True)
         ]
         per_frame_latencies = [
-            float(stats["total_ms"]) / int(stats["frames_per_chunk"])
-            for stats in profiled_chunks
+            latency / frame_count
+            for frame_count, latency in zip(frame_counts, latencies, strict=True)
         ]
-        frames_per_chunk = int(profiled_chunks[0]["frames_per_chunk"])
-        total_profiled_frames = sum(
-            int(stats["frames_per_chunk"]) for stats in profiled_chunks
+        first = completed[0]
+        last = completed[-1]
+        assert (
+            last.completed_frame_number is not None
+            and last.media_push_finished_at_s is not None
         )
-        runtime_average_fps = 1000 * total_profiled_frames / sum(latencies)
+        total_frames = last.completed_frame_number - first.first_frame_number
+        elapsed_ms = (last.media_push_finished_at_s - first.requested_at_s) * 1000
+        runtime_average_fps = 1000 * total_frames / elapsed_ms
         one_percent_count = max(1, math.ceil(len(per_chunk_fps) * 0.01))
         runtime_1_percent_lows_fps = float(
             np.mean(
                 np.partition(per_chunk_fps, one_percent_count - 1)[:one_percent_count]
             )
         )
-        model_p90_latency = np.percentile(latencies, 90)
+        media_push_p90_latency = np.percentile(latencies, 90)
         runtime_p90_latency = np.percentile(per_frame_latencies, 90)
 
         metrics.update(
-            frames_per_chunk=str(frames_per_chunk),
-            model_latency_p90_ms=f"{model_p90_latency:.3f}",
+            frames_per_chunk=str(frame_counts[0]),
+            runtime_elapsed_ms=f"{elapsed_ms:.3f}",
             runtime_average_fps=f"{runtime_average_fps:.3f}",
             runtime_1_percent_lows_fps=f"{runtime_1_percent_lows_fps:.3f}",
+            media_push_latency_p90_ms=f"{media_push_p90_latency:.3f}",
             runtime_latency_p90_ms=f"{runtime_p90_latency:.3f}",
         )
-    if stats_history:
-        latest = stats_history[-1]
-        for key in ("mem_alloc_gib", "mem_reserved_gib", "mem_peak_gib"):
-            if key in latest:
-                metrics[f"runtime_{key}"] = f"{float(latest[key]):.3f}"
 
     output = io.StringIO(newline="")
     writer = csv.DictWriter(
@@ -223,20 +234,28 @@ def _format_runtime_metrics_csv(
 
 
 def _average_runtime_fps(
-    stats_history: list[dict[str, float | int]],
+    timing_history: list[MiraFramePushTiming],
 ) -> float | None:
-    """Return generated frames per profiled model second."""
-    profiled = [
-        stats
-        for stats in stats_history
-        if float(stats.get("total_ms", 0)) > 0
-        and int(stats.get("frames_per_chunk", 0)) > 0
+    """Return completed frames per frame-request-to-media-push second."""
+    completed = [
+        timing
+        for timing in timing_history
+        if timing.completed_frame_number is not None
+        and timing.media_push_finished_at_s is not None
     ]
-    if not profiled:
+    if not completed:
         return None
-    total_frames = sum(int(stats["frames_per_chunk"]) for stats in profiled)
-    total_ms = sum(float(stats["total_ms"]) for stats in profiled)
-    return 1000 * total_frames / total_ms
+    first = completed[0]
+    last = completed[-1]
+    assert (
+        last.completed_frame_number is not None
+        and last.media_push_finished_at_s is not None
+    )
+    elapsed_s = last.media_push_finished_at_s - first.requested_at_s
+    if elapsed_s <= 0:
+        return None
+    total_frames = last.completed_frame_number - first.first_frame_number
+    return total_frames / elapsed_s
 
 
 @nvtx.annotate("mira.webrtc.media.materialize_average_fps_video")
@@ -295,10 +314,8 @@ class MiraMp4Writer:
     action_script: str
     """Unmodified action script supplied to the runner."""
 
-    stats_history: list[dict[str, float | int]] = field(default_factory=list)
+    timing_history: list[MiraFramePushTiming] = field(default_factory=list)
     _chunks: list[Tensor] = field(default_factory=list, init=False)
-    _recording_start_time: float = field(default=0.0, init=False)
-    """Monotonic clock origin used for runtime metrics."""
 
     @nvtx.annotate("MiraMp4Writer.__aenter__")
     async def __aenter__(self) -> MiraMp4Writer:
@@ -310,7 +327,6 @@ class MiraMp4Writer:
                 "run `uv sync --package flashdreams-mira`."
             ) from exc
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self._recording_start_time = time.perf_counter()
         return self
 
     @nvtx.annotate("MiraMp4Writer.__aexit__")
@@ -323,18 +339,14 @@ class MiraMp4Writer:
         await self.close(write_video=exc_type is None)
 
     @nvtx.annotate("MiraMp4Writer.push")
-    async def push(self, result: WebRTCStepResult) -> None:
+    async def push(
+        self,
+        result: WebRTCStepResult,
+        timing: MiraFramePushTiming,
+    ) -> None:
         """Retain a rendered chunk without copying or encoding it."""
-        ready_time_s = time.perf_counter() - self._recording_start_time
-        stats: dict[str, float | int] = {
-            "autoregressive_index": result.chunk_index,
-            "frames_per_chunk": result.num_frames,
-            "recording_elapsed_ms": ready_time_s * 1000,
-            "real_time_budget_ms": result.num_frames * 1000 / self.fps,
-        }
-        if result.stats is not None:
-            stats.update(result.stats)
-        self.stats_history.append(stats)
+        timing.real_time_budget_ms = result.num_frames * 1000 / self.fps
+        self.timing_history.append(timing)
         self._chunks.append(result.video_chunk.detach())
 
     @nvtx.annotate("MiraMp4Writer.close")
@@ -348,7 +360,7 @@ class MiraMp4Writer:
             video = materialize_average_fps_video(
                 chunks,
                 output_fps=self.fps,
-                average_fps=_average_runtime_fps(self.stats_history),
+                average_fps=_average_runtime_fps(self.timing_history),
             )
             video_path = self.output_dir / f"{self.runner_name}.mp4"
             await asyncio.to_thread(
@@ -361,7 +373,9 @@ class MiraMp4Writer:
                 f"[{self.runner_name}] wrote {video.shape} -> {video_path.resolve()}"
             )
         stats_path = self.output_dir / f"stats_{self.runner_name}.json"
-        stats_path.write_text(json.dumps(self.stats_history, indent=2))
+        stats_path.write_text(
+            json.dumps([timing.to_dict() for timing in self.timing_history], indent=2)
+        )
         logger.info(f"[{self.runner_name}] wrote timings -> {stats_path.resolve()}")
         metrics_path = self.output_dir / f"metrics_{self.runner_name}.csv"
         metrics_path.write_text(
@@ -371,7 +385,7 @@ class MiraMp4Writer:
                 model_vram_bytes=self.model_vram_bytes,
                 gpu_name=self.gpu_name,
                 action_script=self.action_script,
-                stats_history=self.stats_history,
+                timing_history=self.timing_history,
             )
         )
         logger.info(f"[{self.runner_name}] wrote metrics -> {metrics_path.resolve()}")

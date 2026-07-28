@@ -33,7 +33,12 @@ from mira_integration.runner import (
     _clear_demo_output_dir,
     _runner_demo_names,
 )
-from mira_integration.scripted import parse_action_script, player_one_browser_controls
+from mira_integration.scripted import (
+    parse_action_script,
+    player_one_browser_controls,
+    run_action_script,
+)
+from mira_integration.timing import MiraFramePushTiming
 from mira_integration.webrtc.media import (
     MiraMp4Writer,
     _format_runtime_metrics_csv,
@@ -90,11 +95,6 @@ async def test_mp4_writer_defers_frame_conversion_and_adds_average_fps_holds(
         assert fps == 60
         written.append(video.copy())
 
-    timestamps = iter((0.0, 10.0, 20.0))
-    monkeypatch.setattr(
-        "mira_integration.webrtc.media.time.perf_counter",
-        lambda: next(timestamps),
-    )
     monkeypatch.setattr(
         "mira_integration.webrtc.media._write_video",
         capture_video,
@@ -116,7 +116,13 @@ async def test_mp4_writer_defers_frame_conversion_and_adds_average_fps_holds(
                 num_frames=2,
                 video_chunk=torch.full((1, 2, 3, 2, 2), 0.25),
                 stats={"total_ms": 200 / 3},
-            )
+            ),
+            MiraFramePushTiming(
+                first_frame_number=0,
+                completed_frame_number=2,
+                requested_at_s=0.0,
+                media_push_finished_at_s=2 / 30,
+            ),
         )
         await writer.push(
             WebRTCStepResult(
@@ -124,7 +130,13 @@ async def test_mp4_writer_defers_frame_conversion_and_adds_average_fps_holds(
                 num_frames=1,
                 video_chunk=torch.full((1, 1, 3, 2, 2), 0.5),
                 stats={"total_ms": 100 / 3},
-            )
+            ),
+            MiraFramePushTiming(
+                first_frame_number=2,
+                completed_frame_number=3,
+                requested_at_s=2 / 30,
+                media_push_finished_at_s=0.1,
+            ),
         )
         assert written == []
         assert all(isinstance(chunk, torch.Tensor) for chunk in writer._chunks)
@@ -148,17 +160,19 @@ def test_runtime_metrics_are_rendered_as_csv() -> None:
         model_vram_bytes=3 * 1024**3,
         gpu_name="NVIDIA Test, GPU",
         action_script="W@5,W+D@5,Space@6,W+A@5",
-        stats_history=[
-            {
-                "total_ms": 40.0,
-                "frames_per_chunk": 2,
-                "mem_alloc_gib": 4.0,
-            },
-            {
-                "total_ms": 20.0,
-                "frames_per_chunk": 2,
-                "mem_alloc_gib": 4.0,
-            },
+        timing_history=[
+            MiraFramePushTiming(
+                first_frame_number=0,
+                completed_frame_number=2,
+                requested_at_s=0.0,
+                media_push_finished_at_s=0.04,
+            ),
+            MiraFramePushTiming(
+                first_frame_number=2,
+                completed_frame_number=4,
+                requested_at_s=0.04,
+                media_push_finished_at_s=0.06,
+            ),
         ],
     )
     rows = list(csv.DictReader(rendered.splitlines()))
@@ -168,11 +182,11 @@ def test_runtime_metrics_are_rendered_as_csv() -> None:
     assert rows[0]["gpu_name"] == "NVIDIA Test, GPU"
     assert rows[0]["action-script"] == "W@5,W+D@5,Space@6,W+A@5"
     assert rows[0]["frames_per_chunk"] == "2"
+    assert rows[0]["runtime_elapsed_ms"] == "60.000"
     assert rows[0]["runtime_average_fps"] == "66.667"
     assert rows[0]["runtime_1_percent_lows_fps"] == "50.000"
-    assert rows[0]["model_latency_p90_ms"] == "38.000"
+    assert rows[0]["media_push_latency_p90_ms"] == "38.000"
     assert rows[0]["runtime_latency_p90_ms"] == "19.000"
-    assert rows[0]["runtime_mem_alloc_gib"] == "4.000"
 
 
 def test_runner_all_selects_every_manifest_demo() -> None:
@@ -224,6 +238,58 @@ async def test_runner_all_runs_each_concrete_demo(
 
     assert selected == list(load_manifest(MANIFEST_PATH).demos)
     assert "all" not in selected
+
+
+@pytest.mark.asyncio
+async def test_action_script_updates_shared_frame_push_timing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    timestamps = iter((10.0, 10.1))
+    monkeypatch.setattr(
+        "mira_integration.scripted.time.perf_counter",
+        lambda: next(timestamps),
+    )
+    pushed: list[MiraFramePushTiming] = []
+
+    class FakeRuntime:
+        def publish_player_keys(
+            self,
+            player_keys: tuple[frozenset[str] | None, ...],
+        ) -> None:
+            assert player_keys == (frozenset({"w"}),)
+
+        async def render_next_chunk(self) -> WebRTCStepResult:
+            return WebRTCStepResult(
+                chunk_index=7,
+                num_frames=2,
+                video_chunk=torch.zeros((1, 2, 3, 2, 2)),
+                stats=None,
+            )
+
+    async def push(
+        result: WebRTCStepResult,
+        timing: MiraFramePushTiming,
+    ) -> None:
+        assert result.chunk_index == 7
+        assert timing.completed_frame_number is None
+        assert timing.media_push_finished_at_s is None
+        pushed.append(timing)
+
+    await run_action_script(
+        FakeRuntime(),
+        "W@1",
+        metadata=DEMO_METADATA,
+        fps=10,
+        on_chunk=push,
+    )
+
+    assert len(pushed) == 1
+    timing = pushed[0]
+    assert timing.first_frame_number == 0
+    assert timing.completed_frame_number == 2
+    assert timing.chunk_index == 7
+    assert timing.requested_at_s == 10.0
+    assert timing.media_push_finished_at_s == 10.1
 
 
 def test_parse_action_script_expands_controls() -> None:

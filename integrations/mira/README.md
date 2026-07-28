@@ -31,6 +31,9 @@ configured `fps` and the selected demo's `frames_per_chunk`.
 
 The runner writes `mira.mp4`, `stats_mira.json`, and `metrics_mira.csv` under
 `artifacts/mira/<mira-demo-name>/`. The CSV report summarizes model metrics.
+Average FPS uses monotonic frame-request and media-push completion timestamps.
+The cumulative completed-frame number is carried through the same timing
+record, so the runner does not enable synchronized pipeline profiling.
 
 Use the runner-only `--demo all` sentinel to execute every demo declared in
 the manifest sequentially:

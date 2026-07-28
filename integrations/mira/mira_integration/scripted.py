@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import math
+import time
 from collections.abc import Awaitable, Callable, Iterable
 from typing import TypeVar
 
@@ -25,6 +26,7 @@ import nvtx
 
 from flashdreams.serving.webrtc.runtime import WebRTCStepResult
 from mira_integration.configs.schema import MiraModelMetadata
+from mira_integration.timing import MiraFramePushTiming
 from mira_integration.webrtc.session import MiraInferenceRuntime
 
 _T = TypeVar("_T")
@@ -89,20 +91,34 @@ async def run_action_script(
     *,
     metadata: MiraModelMetadata,
     fps: int,
-    on_chunk: Callable[[WebRTCStepResult], Awaitable[None]],
+    on_chunk: Callable[
+        [WebRTCStepResult, MiraFramePushTiming],
+        Awaitable[None],
+    ],
 ) -> None:
-    """Publish scripted controls and notify ``on_chunk`` after each render."""
+    """Run scripted controls and record frame-request-to-push timing."""
     controls = parse_action_script(
         script,
         metadata=metadata,
         fps=fps,
         frames_per_chunk=metadata.frames_per_chunk,
     )
+    next_frame_number = 0
     for held in controls:
+        timing = MiraFramePushTiming(
+            first_frame_number=next_frame_number,
+            requested_at_s=time.perf_counter(),
+        )
         runtime.publish_player_keys(
             player_one_browser_controls(held, metadata=metadata)
         )
-        await on_chunk(await runtime.render_next_chunk())
+        result = await runtime.render_next_chunk()
+        completed_frame_number = next_frame_number + result.num_frames
+        timing.chunk_index = result.chunk_index
+        await on_chunk(result, timing)
+        timing.completed_frame_number = completed_frame_number
+        timing.media_push_finished_at_s = time.perf_counter()
+        next_frame_number = completed_frame_number
 
 
 __all__ = [
