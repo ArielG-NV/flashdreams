@@ -18,7 +18,11 @@
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import json
+import math
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -76,14 +80,7 @@ def video_to_uint8_image(video: Tensor) -> Tensor:
     """Convert ``[0,1]`` RGB video to uint8 while preserving device placement."""
     if video.dtype == torch.uint8:
         return video.detach()
-    return (
-        video.detach()
-        .float()
-        .clamp(0, 1)
-        .mul(255)
-        .round()
-        .to(torch.uint8)
-    )
+    return video.detach().float().clamp(0, 1).mul(255).round().to(torch.uint8)
 
 
 @nvtx.annotate("mira.webrtc.media.copy_tensor_to_host")
@@ -125,7 +122,9 @@ def video_chunk_to_thwc_uint8(video_chunk: Tensor) -> np.ndarray:
 @nvtx.annotate("mira.webrtc.media.video_chunk_to_rgb_frames")
 def video_chunk_to_rgb_frames(video_chunk: Tensor) -> list[np.ndarray]:
     """Convert one ``[T,C,H,W]`` chunk to host frames for WebRTC."""
-    return [np.ascontiguousarray(frame) for frame in video_chunk_to_thwc_uint8(video_chunk)]
+    return [
+        np.ascontiguousarray(frame) for frame in video_chunk_to_thwc_uint8(video_chunk)
+    ]
 
 
 @nvtx.annotate("mira.webrtc.media.configure_media_ffmpeg")
@@ -145,6 +144,104 @@ def configure_media_ffmpeg(media: Any) -> None:
         raise RuntimeError("The imageio-ffmpeg executable could not be located.")
 
 
+@nvtx.annotate("mira.webrtc.media.materialize_realtime_video")
+def materialize_realtime_video(
+    chunks: list[tuple[np.ndarray, float]],
+    *,
+    fps: int,
+) -> np.ndarray:
+    """Place generated chunks on their wall-clock playback timeline.
+
+    Args:
+        chunks: ``(frames, ready_time_s)`` pairs where frames use
+            ``[T,H,W,C]`` layout and readiness is relative to recording start.
+        fps: Output video frame rate.
+
+    Returns:
+        Contiguous RGB video in ``[T,H,W,C]`` layout. The most recently
+        available frame is repeated whenever inference misses a deadline;
+        blank frames represent the wait for the first chunk.
+
+    Raises:
+        ValueError: ``fps`` is not positive or ``chunks`` is empty.
+    """
+    if fps <= 0:
+        raise ValueError("fps must be > 0")
+    if not chunks:
+        raise ValueError("chunks must not be empty")
+
+    output_frames: list[np.ndarray] = []
+    for frames, ready_time_s in chunks:
+        ready_frame = max(0, math.ceil(ready_time_s * fps))
+        if ready_frame > len(output_frames):
+            hold_frame = (
+                output_frames[-1] if output_frames else np.zeros_like(frames[0])
+            )
+            output_frames.extend(
+                hold_frame.copy() for _ in range(ready_frame - len(output_frames))
+            )
+        output_frames.extend(frames)
+    return np.ascontiguousarray(np.stack(output_frames))
+
+
+def _format_runtime_metrics_csv(
+    *,
+    runner_name: str,
+    fps: int,
+    model_vram_bytes: int,
+    gpu_name: str,
+    stats_history: list[dict[str, float | int]],
+) -> str:
+    profiled_chunks = [
+        stats
+        for stats in stats_history
+        if float(stats.get("total_ms", 0)) > 0
+        and int(stats.get("frames_per_chunk", 0)) > 0
+    ]
+    gib = 1024**3
+    metrics = {
+        "runner": runner_name,
+        "target_cap_fps": str(fps),
+        "gpu_name": gpu_name,
+        "model_load_vram_bytes": str(model_vram_bytes),
+        "model_load_vram_gib": f"{model_vram_bytes / gib:.3f}",
+    }
+    if profiled_chunks:
+        latencies = [float(stats["total_ms"]) for stats in profiled_chunks]
+        frames_per_chunk = int(profiled_chunks[0]["frames_per_chunk"])
+        model_median_latency = np.median(latencies)
+        model_p90_latency = np.percentile(latencies, 90)
+        runtime_median_latency = model_median_latency / frames_per_chunk
+        runtime_p90_latency = model_p90_latency / frames_per_chunk
+        runtime_median_fps = 1000 / runtime_median_latency
+        runtime_p90_fps = 1000 / runtime_p90_latency
+
+        metrics.update(
+            frames_per_chunk=str(frames_per_chunk),
+            model_latency_median_ms=f"{model_median_latency:.3f}",
+            model_latency_p90_ms=f"{model_p90_latency:.3f}",
+            runtime_latency_median_ms=f"{runtime_median_latency:.3f}",
+            runtime_latency_p90_ms=f"{runtime_p90_latency:.3f}",
+            runtime_median_fps=f"{runtime_median_fps:.3f}",
+            runtime_p90_fps=f"{runtime_p90_fps:.3f}",
+        )
+    if stats_history:
+        latest = stats_history[-1]
+        for key in ("mem_alloc_gib", "mem_reserved_gib", "mem_peak_gib"):
+            if key in latest:
+                metrics[f"runtime_{key}"] = f"{float(latest[key]):.3f}"
+
+    output = io.StringIO(newline="")
+    writer = csv.DictWriter(
+        output,
+        fieldnames=list(metrics),
+        lineterminator="\n",
+    )
+    writer.writeheader()
+    writer.writerow(metrics)
+    return output.getvalue()
+
+
 @dataclass(kw_only=True)
 class MiraMp4Writer:
     """Async sink that copies generated GPU chunks and writes one MP4."""
@@ -153,11 +250,19 @@ class MiraMp4Writer:
     runner_name: str
     fps: int
     n_players: int
+    model_vram_bytes: int
+    """CUDA allocator growth caused by loading the model."""
+
+    gpu_name: str
+    """Name reported by the configured CUDA device."""
+
     stats_history: list[dict[str, float | int]] = field(default_factory=list)
-    _frames: list[np.ndarray] = field(default_factory=list, init=False)
-    _queue: asyncio.Queue[WebRTCStepResult | None] = field(init=False)
+    _chunks: list[tuple[np.ndarray, float]] = field(default_factory=list, init=False)
+    _queue: asyncio.Queue[tuple[WebRTCStepResult, float] | None] = field(init=False)
     _worker: asyncio.Task[None] | None = field(default=None, init=False)
     _media: Any = field(default=None, init=False)
+    _recording_start_time: float = field(default=0.0, init=False)
+    """Monotonic clock origin used to reproduce frame readiness."""
 
     @nvtx.annotate("MiraMp4Writer.__aenter__")
     async def __aenter__(self) -> MiraMp4Writer:
@@ -172,6 +277,7 @@ class MiraMp4Writer:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._media = media
         self._queue = asyncio.Queue()
+        self._recording_start_time = time.perf_counter()
         self._worker = asyncio.create_task(self._consume())
         return self
 
@@ -187,11 +293,17 @@ class MiraMp4Writer:
     @nvtx.annotate("MiraMp4Writer.push")
     async def push(self, result: WebRTCStepResult) -> None:
         """Queue a rendered chunk for asynchronous MP4 materialization."""
+        ready_time_s = time.perf_counter() - self._recording_start_time
+        stats: dict[str, float | int] = {
+            "autoregressive_index": result.chunk_index,
+            "frames_per_chunk": result.num_frames,
+            "recording_elapsed_ms": ready_time_s * 1000,
+            "real_time_budget_ms": result.num_frames * 1000 / self.fps,
+        }
         if result.stats is not None:
-            self.stats_history.append(
-                {"autoregressive_index": result.chunk_index, **result.stats}
-            )
-        await self._queue.put(result)
+            stats.update(result.stats)
+        self.stats_history.append(stats)
+        await self._queue.put((result, ready_time_s))
 
     @nvtx.annotate("MiraMp4Writer.close")
     async def close(self, *, write_video: bool = True) -> None:
@@ -201,8 +313,8 @@ class MiraMp4Writer:
             await self._queue.put(None)
             await worker
             self._worker = None
-        if write_video and self._frames:
-            video = np.concatenate(self._frames, axis=0)
+        if write_video and self._chunks:
+            video = materialize_realtime_video(self._chunks, fps=self.fps)
             video_path = self.output_dir / f"{self.runner_name}.mp4"
             await asyncio.to_thread(
                 self._media.write_video,
@@ -216,15 +328,27 @@ class MiraMp4Writer:
         stats_path = self.output_dir / f"stats_{self.runner_name}.json"
         stats_path.write_text(json.dumps(self.stats_history, indent=2))
         logger.info(f"[{self.runner_name}] wrote timings -> {stats_path.resolve()}")
+        metrics_path = self.output_dir / f"metrics_{self.runner_name}.csv"
+        metrics_path.write_text(
+            _format_runtime_metrics_csv(
+                runner_name=self.runner_name,
+                fps=self.fps,
+                model_vram_bytes=self.model_vram_bytes,
+                gpu_name=self.gpu_name,
+                stats_history=self.stats_history,
+            )
+        )
+        logger.info(f"[{self.runner_name}] wrote metrics -> {metrics_path.resolve()}")
 
     @nvtx.annotate("MiraMp4Writer._consume")
     async def _consume(self) -> None:
         while True:
-            result = await self._queue.get()
-            if result is None:
+            item = await self._queue.get()
+            if item is None:
                 return
+            result, ready_time_s = item
             frames = await asyncio.to_thread(self._prepare_chunk, result.video_chunk)
-            self._frames.append(frames)
+            self._chunks.append((frames, ready_time_s))
 
     @nvtx.annotate("MiraMp4Writer._prepare_chunk")
     def _prepare_chunk(self, video_chunk: Tensor) -> np.ndarray:
@@ -238,6 +362,7 @@ __all__ = [
     "MiraMp4Writer",
     "configure_media_ffmpeg",
     "copy_tensor_to_host",
+    "materialize_realtime_video",
     "normalize_player_chunk",
     "tile_player_video",
     "video_chunk_to_rgb_frames",

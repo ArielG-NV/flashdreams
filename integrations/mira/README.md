@@ -13,15 +13,16 @@ uv pip install imageio-ffmpeg
 
 `huggingface_hub` reads `HF_TOKEN` from the environment. Ensure the token exists and has premissions to access DINOv3.
 
-## Demo
+## Headless Demo
 
-Run the demo with a custom action sequence. Generated videos and timing data are written to `artifacts/mira/` by default:
+Run the demo with a custom action sequence. Generated videos and timing data
+are written to `artifacts/mira/<mira-demo-name>/` by default:
 
 ```bash
 # W for 1.0s, then W+D for 0.6s, then Space for 0.2s, then W+A for 0.6s
-uv run flashdreams-run mira \
+LOGURU_LEVEL="WARNING" uv run flashdreams-run mira \
   --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
-  --demo mira-mini-1p \
+  --demo mira-mini-1p-high \
   --action-script 'W@5,W+D@5,Space@6,W+A@5'
 ```
 
@@ -29,8 +30,23 @@ Each action-script suffix is a duration in 100 ms units, so `W@3` holds `W`
 for 300 ms. The runner converts that duration to generated chunks using the
 configured `fps` and the selected demo's `frames_per_chunk`.
 
+The runner writes `mira.mp4`, `stats_mira.json`, and `metrics_mira.csv` under
+`artifacts/mira/<mira-demo-name>/`. The CSV report summarizes model metrics.
+
+Use the runner-only `--demo all` sentinel to execute every demo declared in
+the manifest sequentially:
+
+```bash
+LOGURU_LEVEL="WARNING" uv run flashdreams-run mira \
+  --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
+  --demo all \
+  --action-script 'W@5,W+D@5,Space@6,W+A@5'
+```
+
 For multiplayer demos, the action script controls player 1 and leaves the
 remaining players inactive. The output MP4 tiles all configured player views.
+
+## WebRTC Demo
 
 Launch the browser UI to host MIRA. Browser will print the `<IP>/request_session` URL to join the play session through:
 
@@ -44,13 +60,13 @@ uv run mira-webrtc \
 # launch 1 player mira demo
 uv run mira-webrtc \
   --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
-  --demo mira-mini-1p \
+  --demo mira-mini-1p-high \
   --host 0.0.0.0 --port 8083
 
   # launch 1 player 364m mira demo
 uv run mira-webrtc \
   --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
-  --demo mira-mini-364m \
+  --demo mira-mini-364m-high \
   --host 0.0.0.0 --port 8083
 ```
 
@@ -108,7 +124,7 @@ nsys profile \
   --gpu-metrics-frequency=1000 \
   uv run flashdreams-run mira \
     --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
-    --demo mira-mini-1p \
+    --demo mira-mini-1p-high \
     --action-script 'W@5,W+D@5,Space@6,W+A@5'
 ```
 

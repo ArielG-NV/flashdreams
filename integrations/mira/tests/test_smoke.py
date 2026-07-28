@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import csv
 import sys
 from importlib.metadata import entry_points
 from pathlib import Path
@@ -24,12 +25,17 @@ from types import SimpleNamespace
 
 import pytest
 import torch
-from mira_integration.config import (
-    load_demo_config,
-)
+from mira_integration.config import load_demo_config, load_manifest
 from mira_integration.pipeline import MiraPipelineConfig
+from mira_integration.runner import (
+    MiraDemoRunner,
+    MiraDemoRunnerConfig,
+    _clear_demo_output_dir,
+    _runner_demo_names,
+)
 from mira_integration.scripted import parse_action_script, player_one_browser_controls
 from mira_integration.webrtc.media import (
+    _format_runtime_metrics_csv,
     configure_media_ffmpeg,
     normalize_player_chunk,
     tile_player_video,
@@ -44,7 +50,7 @@ pytestmark = pytest.mark.ci_cpu
 MANIFEST_PATH = (
     Path(__file__).parents[1] / "mira_integration" / "configs" / "mira_car_soccer.yaml"
 )
-DEMO_METADATA = load_demo_config(MANIFEST_PATH, "mira-mini-1p").metadata
+DEMO_METADATA = load_demo_config(MANIFEST_PATH, "mira-mini-1p-high").metadata
 
 
 def test_runtime_has_no_alakazam_package_imports() -> None:
@@ -74,6 +80,81 @@ def test_configure_media_ffmpeg_uses_bundled_binary(
     )
     configure_media_ffmpeg(media)
     assert media.ffmpeg == "bundled-ffmpeg"
+
+
+def test_runtime_metrics_are_rendered_as_csv() -> None:
+    rendered = _format_runtime_metrics_csv(
+        runner_name="mira",
+        fps=60,
+        model_vram_bytes=3 * 1024**3,
+        gpu_name="NVIDIA Test, GPU",
+        stats_history=[
+            {
+                "total_ms": 40.0,
+                "frames_per_chunk": 2,
+                "mem_alloc_gib": 4.0,
+            }
+        ],
+    )
+    rows = list(csv.DictReader(rendered.splitlines()))
+
+    assert len(rows) == 1
+    assert rows[0]["gpu_name"] == "NVIDIA Test, GPU"
+    assert rows[0]["frames_per_chunk"] == "2"
+    assert rows[0]["runtime_latency_median_ms"] == "20.000"
+    assert rows[0]["runtime_median_fps"] == "50.000"
+    assert rows[0]["runtime_mem_alloc_gib"] == "4.000"
+
+
+def test_runner_all_selects_every_manifest_demo() -> None:
+    assert _runner_demo_names(MANIFEST_PATH, "all") == tuple(
+        load_manifest(MANIFEST_PATH).demos
+    )
+    with pytest.raises(ValueError, match="Unknown MIRA demo 'all'"):
+        load_demo_config(MANIFEST_PATH, "all")
+
+
+def test_runner_clears_only_concrete_demo_output(tmp_path: Path) -> None:
+    output_base = tmp_path / "mira"
+    demo_output = output_base / "mira-mini-1p-high"
+    demo_output.mkdir(parents=True)
+    (demo_output / "old.mp4").write_bytes(b"old")
+    sibling = output_base / "keep"
+    sibling.mkdir()
+    (sibling / "marker.txt").write_text("keep")
+
+    resolved = _clear_demo_output_dir(output_base, "mira-mini-1p-high")
+
+    assert resolved == demo_output.resolve()
+    assert not demo_output.exists()
+    assert (sibling / "marker.txt").read_text() == "keep"
+    with pytest.raises(ValueError, match="must be a direct child"):
+        _clear_demo_output_dir(output_base, "../escaped")
+
+
+@pytest.mark.asyncio
+async def test_runner_all_runs_each_concrete_demo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = MiraDemoRunnerConfig(
+        runner_name="mira",
+        manifest=MANIFEST_PATH,
+        demo="all",
+        action_script="W@1",
+    ).resolve()
+    runner = object.__new__(MiraDemoRunner)
+    runner.config = config
+    selected: list[str] = []
+
+    async def record_demo(demo_config: MiraDemoRunnerConfig) -> None:
+        assert demo_config.pipeline is not None
+        selected.append(demo_config.demo)
+
+    monkeypatch.setattr(runner, "_run_demo_async", record_demo)
+    await runner._run_async()
+
+    assert selected == list(load_manifest(MANIFEST_PATH).demos)
+    assert "all" not in selected
 
 
 def test_parse_action_script_expands_controls() -> None:

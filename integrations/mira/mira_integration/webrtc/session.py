@@ -114,6 +114,7 @@ class MiraInferenceRuntime:
         self._pipeline_factory = pipeline_factory or self._setup_pipeline
         self._pipeline: MiraPipeline | None = None
         self._cache: MiraCache | None = None
+        self._model_vram_bytes: int | None = None
         self._autoregressive_index = 0
         self._closed = False
         player_count = self.model_config.metadata.player_count
@@ -161,6 +162,20 @@ class MiraInferenceRuntime:
     def peek_next_chunk_num_frames(self) -> int:
         """Return the frame count expected from the next MIRA step."""
         return self.config.frames_per_chunk
+
+    def model_vram_footprint_bytes(self) -> int:
+        """Return CUDA allocator growth caused by loading the model.
+
+        Returns:
+            Allocated bytes added while constructing and moving the pipeline to
+            its configured device. CPU runtimes return zero.
+
+        Raises:
+            RuntimeError: The runtime has not been initialized.
+        """
+        if self._model_vram_bytes is None:
+            raise RuntimeError("MIRA runtime is not initialized.")
+        return self._model_vram_bytes
 
     @nvtx.annotate()
     async def generate_chunk(
@@ -240,11 +255,19 @@ class MiraInferenceRuntime:
 
     @nvtx.annotate()
     def _initialize_sync(self) -> None:
+        device = torch.device(self.config.device)
+        allocated_before = (
+            torch.cuda.memory_allocated(device) if device.type == "cuda" else 0
+        )
         self._pipeline = (
             self._pipeline_factory(self.model_config.pipeline)
             .to(device=self.config.device)
             .eval()
         )
+        allocated_after = (
+            torch.cuda.memory_allocated(device) if device.type == "cuda" else 0
+        )
+        self._model_vram_bytes = max(0, allocated_after - allocated_before)
 
     @nvtx.annotate()
     def _reset_sync(self) -> None:

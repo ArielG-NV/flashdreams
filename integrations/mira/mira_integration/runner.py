@@ -19,11 +19,13 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Literal
 
 import nvtx
+import torch
 import tyro
 
 from flashdreams.core.io.disk import preflight_runtime_write_paths
@@ -42,6 +44,9 @@ from mira_integration.webrtc.session import (
     MiraRuntimeConfig,
 )
 
+_ALL_DEMOS = "all"
+"""Runner-only sentinel that executes every manifest demo sequentially."""
+
 
 @dataclass(kw_only=True)
 class MiraDemoRunnerConfig(RunnerConfig):
@@ -51,7 +56,7 @@ class MiraDemoRunnerConfig(RunnerConfig):
     pipeline: Annotated[MiraPipelineConfig | None, tyro.conf.Suppress] = None
     """Manifest-selected pipeline generated during ``resolve``."""
     output_dir: Path = Path("artifacts/mira")
-    """Directory for generated MIRA videos and timing data."""
+    """Directory for generated MIRA videos, latency data, and VRAM reports."""
     manifest: Path = tyro.MISSING
     """YAML manifest path required by ``flashdreams-run mira``."""
     demo: str = tyro.MISSING
@@ -82,6 +87,10 @@ class MiraDemoRunnerConfig(RunnerConfig):
     @nvtx.annotate("MiraDemoRunnerConfig.resolve")
     def resolve(self) -> MiraDemoRunnerConfig:
         """Return a copy with its manifest-selected pipeline generated."""
+        if self.demo == _ALL_DEMOS:
+            _runner_demo_names(self.manifest, self.demo)
+            return derive_config(self, pipeline=None)
+
         selected = self._load_selected_demo()
         n_diffusion_steps = self.n_diffusion_steps
         if n_diffusion_steps is None:
@@ -103,7 +112,7 @@ class MiraDemoRunnerConfig(RunnerConfig):
 
 
 class MiraDemoRunner(Runner[MiraDemoRunnerConfig, MiraPipeline]):
-    """Generate a fixed-action MIRA Mini rollout and persist MP4 + timings."""
+    """Generate a fixed-action MIRA Mini rollout and persist runtime artifacts."""
 
     config: MiraDemoRunnerConfig
     pipeline: MiraPipeline | None
@@ -112,7 +121,12 @@ class MiraDemoRunner(Runner[MiraDemoRunnerConfig, MiraPipeline]):
         config = config.resolve()
         if int(os.environ.get("WORLD_SIZE", "1")) != 1:
             raise RuntimeError(f"{config.runner_name} supports one GPU only")
-        preflight_runtime_write_paths(output_dir=config.output_dir)
+        output_dir = (
+            config.output_dir
+            if config.demo == _ALL_DEMOS
+            else config.output_dir / config.demo
+        )
+        preflight_runtime_write_paths(output_dir=output_dir)
         self.config = config
         self.local_rank = self.global_rank = 0
         self.world_size = 1
@@ -121,34 +135,51 @@ class MiraDemoRunner(Runner[MiraDemoRunnerConfig, MiraPipeline]):
 
     @nvtx.annotate("MiraDemoRunner.run")
     def run(self) -> None:
-        """Run the scripted demo and write a tiled MP4 plus timing JSON."""
+        """Run the scripted demo and write its MP4 and runtime metrics."""
         patch_windows_webrtc_event_loop()
         asyncio.run(self._run_async())
 
     @nvtx.annotate("MiraDemoRunner._run_async")
     async def _run_async(self) -> None:
         """Run the scripted demo through the shared MIRA runtime path."""
-        selected = self.config._load_selected_demo()
+        if self.config.demo == _ALL_DEMOS:
+            for demo_name in _runner_demo_names(
+                self.config.manifest,
+                self.config.demo,
+            ):
+                demo_config = derive_config(
+                    self.config,
+                    demo=demo_name,
+                    pipeline=None,
+                ).resolve()
+                await self._run_demo_async(demo_config)
+            return
+        await self._run_demo_async(self.config)
+
+    @nvtx.annotate("MiraDemoRunner._run_demo_async")
+    async def _run_demo_async(self, config: MiraDemoRunnerConfig) -> None:
+        """Run one manifest-selected demo and release its runtime."""
+        selected = config._load_selected_demo()
         _resolve_action_script(
-            self.config.action_script,
+            config.action_script,
             selected=selected,
-            fps=self.config.fps,
+            fps=config.fps,
         )
-        n_diffusion_steps = self.config.n_diffusion_steps
+        n_diffusion_steps = config.n_diffusion_steps
         if n_diffusion_steps is None:
             raise RuntimeError("MIRA demo config was not resolved.")
-        pipeline_config = self._pipeline_config()
+        pipeline_config = self._pipeline_config(config)
         runtime = MiraInferenceRuntime(
             config=MiraRuntimeConfig(
                 model_config=MiraWebRTCModelConfig(
                     metadata=selected.metadata,
                     pipeline=pipeline_config,
                 ),
-                device=self.config.device,
-                seed=self.config.seed,
-                fps=self.config.fps,
+                device=config.device,
+                seed=config.seed,
+                fps=config.fps,
                 n_diffusion_steps=n_diffusion_steps,
-                warmup_chunks=self.config.decoder_warmup_chunks,
+                warmup_chunks=config.decoder_warmup_chunks,
             )
         )
         try:
@@ -157,31 +188,91 @@ class MiraDemoRunner(Runner[MiraDemoRunnerConfig, MiraPipeline]):
             warmup_controls = (frozenset(),) + (None,) * (
                 selected.metadata.player_count - 1
             )
-            for _ in range(self.config.decoder_warmup_chunks):
+            for _ in range(config.decoder_warmup_chunks):
                 await runtime.generate_chunk(player_keys=warmup_controls)
             await runtime.reset_for_new_session()
+            device = torch.device(config.device)
+            gpu_name = (
+                torch.cuda.get_device_name(device)
+                if device.type == "cuda"
+                else "N/A (CPU)"
+            )
+            output_dir = _clear_demo_output_dir(
+                config.output_dir,
+                selected.metadata.name,
+            )
             async with MiraMp4Writer(
-                output_dir=self.config.output_dir,
-                runner_name=self.config.runner_name,
-                fps=self.config.fps,
+                output_dir=output_dir,
+                runner_name=config.runner_name,
+                fps=config.fps,
                 n_players=pipeline_config.n_players,
+                model_vram_bytes=runtime.model_vram_footprint_bytes(),
+                gpu_name=gpu_name,
             ) as writer:
                 await run_action_script(
                     runtime,
-                    self.config.action_script,
+                    config.action_script,
                     metadata=selected.metadata,
-                    fps=self.config.fps,
+                    fps=config.fps,
                     on_chunk=writer.push,
                 )
         finally:
             await runtime.close()
 
-    def _pipeline_config(self) -> MiraPipelineConfig:
+    def _pipeline_config(self, config: MiraDemoRunnerConfig) -> MiraPipelineConfig:
         """Return the manifest-resolved pipeline config."""
-        pipeline = self.config.pipeline
+        pipeline = config.pipeline
         if pipeline is None:
             raise RuntimeError("MIRA demo config was not resolved.")
         return pipeline
+
+
+@nvtx.annotate("mira.runner._clear_demo_output_dir")
+def _clear_demo_output_dir(output_base: Path, demo_slug: str) -> Path:
+    """Clear and return one concrete demo's output directory.
+
+    Args:
+        output_base: Configured parent directory for all MIRA artifacts.
+        demo_slug: Concrete manifest demo name.
+
+    Returns:
+        Resolved demo output path, ready for the writer to create.
+
+    Raises:
+        ValueError: The demo path escapes ``output_base`` or is not a directory.
+    """
+    resolved_base = output_base.resolve()
+    resolved_output = (resolved_base / demo_slug).resolve()
+    if resolved_output.parent != resolved_base:
+        raise ValueError(
+            f"MIRA demo output must be a direct child of {resolved_base}, "
+            f"got {resolved_output}."
+        )
+    if resolved_output.exists():
+        if not resolved_output.is_dir():
+            raise ValueError(
+                f"MIRA demo output exists and is not a directory: {resolved_output}."
+            )
+        shutil.rmtree(resolved_output)
+    return resolved_output
+
+
+@nvtx.annotate("mira.runner._runner_demo_names")
+def _runner_demo_names(manifest_path: Path, demo: str) -> tuple[str, ...]:
+    """Return concrete demo names selected by the MIRA runner.
+
+    Args:
+        manifest_path: Manifest containing the available demos.
+        demo: Requested demo slug or the runner-only ``all`` sentinel.
+
+    Returns:
+        One requested slug, or every manifest slug in declaration order.
+    """
+    if demo != _ALL_DEMOS:
+        return (demo,)
+    from mira_integration.configs.manifest import load_manifest
+
+    return tuple(load_manifest(manifest_path).demos)
 
 
 @nvtx.annotate("mira.runner._resolve_action_script")

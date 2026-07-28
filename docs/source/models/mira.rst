@@ -68,8 +68,14 @@ Run the default forward-and-steer sequence:
        --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
        --demo mira-mini-1p
 
-The runner writes ``mira.mp4`` and ``stats_mira.json`` under
-``artifacts/mira/`` by default. Controls use
+The runner writes ``mira.mp4``, ``stats_mira.json``, and
+``metrics_mira.csv`` under
+``artifacts/mira/<mira-demo-name>/`` by default. The runner clears that
+concrete demo directory immediately before saving new artifacts. The CSV
+report summarizes CUDA-synchronized model latency, the per-chunk real-time
+budget, and model-load plus runtime VRAM usage. The MP4 follows wall-clock
+chunk readiness and holds the latest frame when inference misses the playback
+deadline, making rendering stalls visible. Controls use
 ``KEY+KEY@100MS`` segments, where ``@N`` holds the listed keys for
 ``N * 100 ms``:
 
@@ -79,6 +85,19 @@ The runner writes ``mira.mp4`` and ``stats_mira.json`` under
        --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
        --demo mira-mini-1p \
        --action-script 'W@10,W+D@6,Space@2,W+A@6'
+
+Use the runner-only ``--demo all`` sentinel to execute every manifest demo
+sequentially:
+
+.. code-block:: bash
+
+   uv run flashdreams-run mira \
+       --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
+       --demo all \
+       --action-script 'W@10,W+D@6,Space@2,W+A@6'
+
+Each run writes under its concrete demo slug; the runner does not create an
+``artifacts/mira/all/`` directory. The WebRTC CLI does not accept ``all``.
 
 For multiplayer demos, the action script controls player 1 and leaves all
 other players inactive. The output MP4 tiles every configured player view in
