@@ -127,21 +127,27 @@ def video_chunk_to_rgb_frames(video_chunk: Tensor) -> list[np.ndarray]:
     ]
 
 
-@nvtx.annotate("mira.webrtc.media.configure_media_ffmpeg")
-def configure_media_ffmpeg(media: Any) -> None:
-    """Use PATH FFmpeg or imageio's bundled binary for portable MP4 output."""
-    if media.video_is_available():
-        return
-    try:
-        import imageio_ffmpeg
-    except ModuleNotFoundError as exc:
-        raise RuntimeError(
-            "Writing the MIRA demo requires FFmpeg. Install a system FFmpeg or "
-            "run `uv pip install imageio-ffmpeg`."
-        ) from exc
-    media.set_ffmpeg(imageio_ffmpeg.get_ffmpeg_exe())
-    if not media.video_is_available():
-        raise RuntimeError("The imageio-ffmpeg executable could not be located.")
+@nvtx.annotate("mira.webrtc.media.write_video")
+def _write_video(path: Path, video: np.ndarray, *, fps: int) -> None:
+    """Encode contiguous ``[T,H,W,3]`` RGB frames as an H.264 MP4 with PyAV."""
+    import av
+
+    if video.ndim != 4 or video.shape[-1] != 3 or video.dtype != np.uint8:
+        raise ValueError(
+            f"Expected uint8 video in [T,H,W,3] layout, got {video.shape} "
+            f"with dtype {video.dtype}"
+        )
+
+    _, height, width, _ = video.shape
+    with av.open(str(path), mode="w") as container:
+        stream = container.add_stream("libx264", rate=fps)
+        stream.width = width
+        stream.height = height
+        stream.pix_fmt = "yuv420p"
+        for frame_array in video:
+            frame = av.VideoFrame.from_ndarray(frame_array, format="rgb24")
+            container.mux(stream.encode(frame))
+        container.mux(stream.encode())
 
 
 @nvtx.annotate("mira.webrtc.media.materialize_realtime_video")
@@ -265,22 +271,19 @@ class MiraMp4Writer:
     _chunks: list[tuple[np.ndarray, float]] = field(default_factory=list, init=False)
     _queue: asyncio.Queue[tuple[WebRTCStepResult, float] | None] = field(init=False)
     _worker: asyncio.Task[None] | None = field(default=None, init=False)
-    _media: Any = field(default=None, init=False)
     _recording_start_time: float = field(default=0.0, init=False)
     """Monotonic clock origin used to reproduce frame readiness."""
 
     @nvtx.annotate("MiraMp4Writer.__aenter__")
     async def __aenter__(self) -> MiraMp4Writer:
         try:
-            import mediapy as media
+            import av  # noqa: F401, PLC0415
         except ModuleNotFoundError as exc:
             raise ImportError(
-                "Writing the MIRA demo requires the FlashDreams runners extra: "
-                "run `uv sync --extra runners`."
+                "Writing the MIRA demo requires PyAV: "
+                "run `uv sync --package flashdreams-mira`."
             ) from exc
-        configure_media_ffmpeg(media)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self._media = media
         self._queue = asyncio.Queue()
         self._recording_start_time = time.perf_counter()
         self._worker = asyncio.create_task(self._consume())
@@ -322,8 +325,8 @@ class MiraMp4Writer:
             video = materialize_realtime_video(self._chunks, fps=self.fps)
             video_path = self.output_dir / f"{self.runner_name}.mp4"
             await asyncio.to_thread(
-                self._media.write_video,
-                str(video_path),
+                _write_video,
+                video_path,
                 video,
                 fps=self.fps,
             )
@@ -366,7 +369,6 @@ class MiraMp4Writer:
 
 __all__ = [
     "MiraMp4Writer",
-    "configure_media_ffmpeg",
     "copy_tensor_to_host",
     "materialize_realtime_video",
     "normalize_player_chunk",

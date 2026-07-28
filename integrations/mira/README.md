@@ -8,7 +8,6 @@ native FlashDreams components. Its action encoder, diffusion transformer,
 
 ```bash
 uv sync --package flashdreams-mira --extra dev --extra runners
-uv pip install imageio-ffmpeg
 ```
 
 `huggingface_hub` reads `HF_TOKEN` from the environment. Ensure the token exists and has premissions to access DINOv3.
@@ -135,7 +134,10 @@ report AFTER running `mira` with the `--demo all` slug:
 
 ```bash
 uv run flashdreams-run mira-results-viewer \
-  metrics_folder_1 metrics_folder_2 ...
+  mira_metrics_folder_1 mira_metrics_folder_2 ...
+
+# Example:
+uv run flashdreams-run mira-results-viewer artifacts/mira/
 ```
 
 For each supplied folder, the viewer reads every direct child matching

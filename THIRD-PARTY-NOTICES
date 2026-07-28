@@ -104,6 +104,7 @@ opencv-python-headless Apache-2.0   https://github.com/opencv/opencv-python
 Optional integration: integrations/mira
 ================================================================================
 
+av                      BSD-3-Clause https://github.com/PyAV-Org/PyAV
 MIRA architecture       Apache-2.0   https://github.com/mira-wm/mira
 DINOv3 architecture     Apache-2.0   https://github.com/facebookresearch/dinov3
 

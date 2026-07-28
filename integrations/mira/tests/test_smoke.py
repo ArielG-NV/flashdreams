@@ -18,11 +18,11 @@
 from __future__ import annotations
 
 import csv
-import sys
 from importlib.metadata import entry_points
 from pathlib import Path
-from types import SimpleNamespace
 
+import av
+import numpy as np
 import pytest
 import torch
 from mira_integration.config import load_demo_config, load_manifest
@@ -36,7 +36,7 @@ from mira_integration.runner import (
 from mira_integration.scripted import parse_action_script, player_one_browser_controls
 from mira_integration.webrtc.media import (
     _format_runtime_metrics_csv,
-    configure_media_ffmpeg,
+    _write_video,
     normalize_player_chunk,
     tile_player_video,
 )
@@ -60,26 +60,20 @@ def test_runtime_has_no_alakazam_package_imports() -> None:
     assert not [name for name in forbidden if name in source]
 
 
-def test_configure_media_ffmpeg_uses_bundled_binary(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class _FakeMedia:
-        ffmpeg: str | None = None
+def test_write_video_uses_pyav(tmp_path: Path) -> None:
+    path = tmp_path / "sample.mp4"
+    video = np.zeros((2, 4, 6, 3), dtype=np.uint8)
+    video[1, :, :, 1] = 255
 
-        def video_is_available(self) -> bool:
-            return self.ffmpeg is not None
+    _write_video(path, video, fps=12)
 
-        def set_ffmpeg(self, value: str) -> None:
-            self.ffmpeg = value
-
-    media = _FakeMedia()
-    monkeypatch.setitem(
-        sys.modules,
-        "imageio_ffmpeg",
-        SimpleNamespace(get_ffmpeg_exe=lambda: "bundled-ffmpeg"),
-    )
-    configure_media_ffmpeg(media)
-    assert media.ffmpeg == "bundled-ffmpeg"
+    with av.open(path) as container:
+        stream = container.streams.video[0]
+        decoded = list(container.decode(stream))
+    assert stream.codec_context.name == "h264"
+    assert stream.average_rate == 12
+    assert len(decoded) == 2
+    assert (decoded[0].width, decoded[0].height) == (6, 4)
 
 
 def test_runtime_metrics_are_rendered_as_csv() -> None:
