@@ -65,7 +65,7 @@ input-map:
       group_description: Jump, boost, and powerslide.
 
 demos:
-  mira-mini-1p-high:
+  mira-mini-1p-1b-high:
     checkpoint-hugging-face: alakazamworld/mira-mini
     input-map: car-soccer
     player_count: 1
@@ -86,7 +86,7 @@ demos:
     decoder_depth: 28
     decoder_num_heads: 16
     display_name: MIRA Mini 1B High (1P)
-  mira-mini-1p-low:
+  mira-mini-1p-1b-low:
     checkpoint-hugging-face: alakazamworld/mira-mini
     input-map: car-soccer
     player_count: 1
@@ -108,8 +108,8 @@ demos:
     decoder_num_heads: 16
     display_name: MIRA Mini 1B Low (1P)
 
-  mira-mini-364m-high:
-    checkpoint-hugging-face: alakazamworld/mira-mini-364m
+  mira-mini-1p-364m-high:
+    checkpoint-hugging-face: alakazamworld/mira-mini-1p-364m
     input-map: car-soccer
     player_count: 1
     n_context_frames: 39
@@ -129,8 +129,8 @@ demos:
     decoder_depth: 14
     decoder_num_heads: 9
     display_name: MIRA Mini 364M High (1P)
-  mira-mini-364m-low:
-    checkpoint-hugging-face: alakazamworld/mira-mini-364m
+  mira-mini-1p-364m-low:
+    checkpoint-hugging-face: alakazamworld/mira-mini-1p-364m
     input-map: car-soccer
     player_count: 1
     n_context_frames: 39

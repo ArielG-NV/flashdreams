@@ -190,6 +190,7 @@ def _format_runtime_metrics_csv(
     fps: int,
     model_vram_bytes: int,
     gpu_name: str,
+    action_script: str,
     stats_history: list[dict[str, float | int]],
 ) -> str:
     profiled_chunks = [
@@ -203,6 +204,7 @@ def _format_runtime_metrics_csv(
         "runner": runner_name,
         "target_cap_fps": str(fps),
         "gpu_name": gpu_name,
+        "action-script": action_script,
         "model_load_vram_bytes": str(model_vram_bytes),
         "model_load_vram_gib": f"{model_vram_bytes / gib:.3f}",
     }
@@ -255,6 +257,9 @@ class MiraMp4Writer:
 
     gpu_name: str
     """Name reported by the configured CUDA device."""
+
+    action_script: str
+    """Unmodified action script supplied to the runner."""
 
     stats_history: list[dict[str, float | int]] = field(default_factory=list)
     _chunks: list[tuple[np.ndarray, float]] = field(default_factory=list, init=False)
@@ -331,10 +336,11 @@ class MiraMp4Writer:
         metrics_path = self.output_dir / f"metrics_{self.runner_name}.csv"
         metrics_path.write_text(
             _format_runtime_metrics_csv(
-                runner_name=self.runner_name,
+                runner_name=self.output_dir.name,
                 fps=self.fps,
                 model_vram_bytes=self.model_vram_bytes,
                 gpu_name=self.gpu_name,
+                action_script=self.action_script,
                 stats_history=self.stats_history,
             )
         )

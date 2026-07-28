@@ -208,6 +208,7 @@ class MiraDemoRunner(Runner[MiraDemoRunnerConfig, MiraPipeline]):
                 n_players=pipeline_config.n_players,
                 model_vram_bytes=runtime.model_vram_footprint_bytes(),
                 gpu_name=gpu_name,
+                action_script=config.action_script,
             ) as writer:
                 await run_action_script(
                     runtime,

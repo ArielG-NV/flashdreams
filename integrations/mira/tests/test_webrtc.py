@@ -50,7 +50,7 @@ pytestmark = pytest.mark.ci_cpu
 MANIFEST_PATH = (
     Path(__file__).parents[1] / "mira_integration" / "configs" / "mira_car_soccer.yaml"
 )
-DEMO_1P = load_demo_config(MANIFEST_PATH, "mira-mini-1p")
+DEMO_1P = load_demo_config(MANIFEST_PATH, "mira-mini-1b")
 DEMO_4P = load_demo_config(MANIFEST_PATH, "mira-mini-4p")
 
 
@@ -142,7 +142,7 @@ def test_runtime_config_derives_media_shape_from_manifest() -> None:
 @pytest.mark.parametrize(
     "argv,missing",
     [
-        (["--demo", "mira-mini-1p"], "--manifest"),
+        (["--demo", "mira-mini-1b"], "--manifest"),
         (["--manifest", str(MANIFEST_PATH)], "--demo"),
     ],
 )
@@ -165,7 +165,7 @@ def test_server_rejects_asset_path_overrides(
         "--manifest",
         str(MANIFEST_PATH),
         "--demo",
-        "mira-mini-1p",
+        "mira-mini-1b",
         removed_option,
         "unused",
     ]
@@ -180,7 +180,7 @@ def test_webrtc_runtime_config_enables_fast_transformer_path() -> None:
             "--manifest",
             str(MANIFEST_PATH),
             "--demo",
-            "mira-mini-1p",
+            "mira-mini-1b",
         ]
     )
     config = build_runtime_config(args)
@@ -196,7 +196,7 @@ def test_webrtc_runtime_config_can_disable_cuda_graphs() -> None:
             "--manifest",
             str(MANIFEST_PATH),
             "--demo",
-            "mira-mini-1p",
+            "mira-mini-1b",
             "--no-compile-network",
             "--no-cuda-graph",
             "--cuda-graph-warmup-iters",
@@ -436,10 +436,10 @@ def test_model_metadata_drives_player_count_and_checkpoint_keys() -> None:
 
 def test_manifest_generates_mira_test_pipeline() -> None:
     manifest = load_manifest(MANIFEST_PATH)
-    metadata = manifest.demos["mira-mini-1p"]
+    metadata = manifest.demos["mira-mini-1b"]
     assert metadata.checkpoint == "alakazamworld/mira-mini"
     assert metadata.input_key_map is manifest.input_maps["car-soccer"]
-    assert DEMO_1P.pipeline.name == "mira-mini-1p"
+    assert DEMO_1P.pipeline.name == "mira-mini-1b"
     assert DEMO_1P.pipeline.model_repo == metadata.checkpoint
     assert DEMO_1P.pipeline.n_players == metadata.player_count == 1
     assert DEMO_1P.pipeline.n_context_frames == metadata.n_context_frames == 39
@@ -455,12 +455,12 @@ def test_manifest_generates_mira_test_pipeline() -> None:
 
 
 def test_manifest_generates_364m_checkpoint_architecture() -> None:
-    selection = load_demo_config(MANIFEST_PATH, "mira-mini-364m")
+    selection = load_demo_config(MANIFEST_PATH, "mira-mini-1p-364m")
     transformer = selection.pipeline.diffusion_model.transformer
     scheduler = selection.pipeline.diffusion_model.scheduler
     decoder = selection.pipeline.decoder
 
-    assert selection.metadata.checkpoint == "alakazamworld/mira-mini-364m"
+    assert selection.metadata.checkpoint == "alakazamworld/mira-mini-1p-364m"
     assert selection.metadata.steps == 2
     assert isinstance(transformer, MiraTransformerConfig)
     assert (
@@ -498,7 +498,7 @@ input-map:
       action: Forward
       group: Movement
 demos:
-  mira-mini-1p:
+  mira-mini-1b:
     checkpoint-hugging-face: example/model
     input-map: missing
     player_count: 1
@@ -521,7 +521,7 @@ def test_manifest_requires_context_frame_count(tmp_path: Path) -> None:
     )
     with pytest.raises(
         ValueError,
-        match=r"demos\.mira-mini-1p\.n_context_frames must be a positive integer",
+        match=r"demos\.mira-mini-1b\.n_context_frames must be a positive integer",
     ):
         load_manifest(manifest_path)
 

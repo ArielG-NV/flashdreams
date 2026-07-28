@@ -22,7 +22,7 @@ are written to `artifacts/mira/<mira-demo-name>/` by default:
 # W for 1.0s, then W+D for 0.6s, then Space for 0.2s, then W+A for 0.6s
 LOGURU_LEVEL="WARNING" uv run flashdreams-run mira \
   --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
-  --demo mira-mini-1p-high \
+  --demo mira-mini-1p-1b-high \
   --action-script 'W@5,W+D@5,Space@6,W+A@5'
 ```
 
@@ -60,13 +60,13 @@ uv run mira-webrtc \
 # launch 1 player mira demo
 uv run mira-webrtc \
   --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
-  --demo mira-mini-1p-high \
+  --demo mira-mini-1p-1b-high \
   --host 0.0.0.0 --port 8083
 
   # launch 1 player 364m mira demo
 uv run mira-webrtc \
   --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
-  --demo mira-mini-364m-high \
+  --demo mira-mini-1p-364m-high \
   --host 0.0.0.0 --port 8083
 ```
 
@@ -84,7 +84,7 @@ The manifests in this folder are your `<manifest_slug>` for argument `--manifest
 ```python
 from mira_integration.config import load_demo_config
 
-selection = load_demo_config("path/to/manifest.yaml", "mira-mini-1p")
+selection = load_demo_config("path/to/manifest.yaml", "mira-mini-1b")
 pipeline = selection.pipeline.setup().to("cuda").eval()
 cache = pipeline.initialize_cache(n_diffusion_steps=selection.metadata.steps)
 frames = pipeline.generate(0, cache, input=["W", "D"])
@@ -124,7 +124,7 @@ nsys profile \
   --gpu-metrics-frequency=1000 \
   uv run flashdreams-run mira \
     --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
-    --demo mira-mini-1p-high \
+    --demo mira-mini-1p-1b-high \
     --action-script 'W@5,W+D@5,Space@6,W+A@5'
 ```
 

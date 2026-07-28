@@ -50,7 +50,7 @@ pytestmark = pytest.mark.ci_cpu
 MANIFEST_PATH = (
     Path(__file__).parents[1] / "mira_integration" / "configs" / "mira_car_soccer.yaml"
 )
-DEMO_METADATA = load_demo_config(MANIFEST_PATH, "mira-mini-1p-high").metadata
+DEMO_METADATA = load_demo_config(MANIFEST_PATH, "mira-mini-1p-1b-high").metadata
 
 
 def test_runtime_has_no_alakazam_package_imports() -> None:
@@ -84,10 +84,11 @@ def test_configure_media_ffmpeg_uses_bundled_binary(
 
 def test_runtime_metrics_are_rendered_as_csv() -> None:
     rendered = _format_runtime_metrics_csv(
-        runner_name="mira",
+        runner_name="mira-mini-1p-1b-high",
         fps=60,
         model_vram_bytes=3 * 1024**3,
         gpu_name="NVIDIA Test, GPU",
+        action_script="W@5,W+D@5,Space@6,W+A@5",
         stats_history=[
             {
                 "total_ms": 40.0,
@@ -99,7 +100,9 @@ def test_runtime_metrics_are_rendered_as_csv() -> None:
     rows = list(csv.DictReader(rendered.splitlines()))
 
     assert len(rows) == 1
+    assert rows[0]["runner"] == "mira-mini-1p-1b-high"
     assert rows[0]["gpu_name"] == "NVIDIA Test, GPU"
+    assert rows[0]["action-script"] == "W@5,W+D@5,Space@6,W+A@5"
     assert rows[0]["frames_per_chunk"] == "2"
     assert rows[0]["runtime_latency_median_ms"] == "20.000"
     assert rows[0]["runtime_median_fps"] == "50.000"
@@ -116,14 +119,14 @@ def test_runner_all_selects_every_manifest_demo() -> None:
 
 def test_runner_clears_only_concrete_demo_output(tmp_path: Path) -> None:
     output_base = tmp_path / "mira"
-    demo_output = output_base / "mira-mini-1p-high"
+    demo_output = output_base / "mira-mini-1p-1b-high"
     demo_output.mkdir(parents=True)
     (demo_output / "old.mp4").write_bytes(b"old")
     sibling = output_base / "keep"
     sibling.mkdir()
     (sibling / "marker.txt").write_text("keep")
 
-    resolved = _clear_demo_output_dir(output_base, "mira-mini-1p-high")
+    resolved = _clear_demo_output_dir(output_base, "mira-mini-1p-1b-high")
 
     assert resolved == demo_output.resolve()
     assert not demo_output.exists()
