@@ -30,6 +30,7 @@ from mira_integration.configs.schema import (
     MiraWebRTCModelConfig,
     preview_grid_dimensions,
 )
+from mira_integration.quality import MiraQualityRunnerConfig
 from mira_integration.results_viewer import MiraResultsViewerConfig
 from mira_integration.runner import MiraDemoRunnerConfig
 
@@ -45,6 +46,12 @@ RUNNER_MIRA_RESULTS_VIEWER = MiraResultsViewerConfig(
 )
 """Pandas-backed ``flashdreams-run mira-results-viewer`` dispatcher."""
 
+RUNNER_CALCULATE_MIRA_QUALITY = MiraQualityRunnerConfig(
+    runner_name="calculate-mira-quality",
+    description="Measure temporal instability across generated MIRA demos.",
+)
+"""``flashdreams-run calculate-mira-quality`` quality-suite dispatcher."""
+
 _NVTX_ANNOTATE = nvtx.annotate
 
 __all__ = [
@@ -57,6 +64,7 @@ __all__ = [
     "load_manifest",
     "load_mira_manifest",
     "preview_grid_dimensions",
+    "RUNNER_CALCULATE_MIRA_QUALITY",
     "RUNNER_MIRA",
     "RUNNER_MIRA_RESULTS_VIEWER",
 ]

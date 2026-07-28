@@ -22,7 +22,7 @@ are written to `artifacts/mira/<mira-demo-name>/` by default:
 LOGURU_LEVEL="WARNING" uv run flashdreams-run mira \
   --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
   --demo mira-mini-1p-1b-high \
-  --action-script 'W@5,W+D@5,Space@6,W+A@5'
+  --action-script 'W+D@5,W+A@5,Space@6,W@5'
 ```
 
 Each action-script suffix is a duration in 100 ms units, so `W@3` holds `W`
@@ -39,7 +39,7 @@ the manifest sequentially:
 LOGURU_LEVEL="WARNING" uv run flashdreams-run mira \
   --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
   --demo all \
-  --action-script 'W@5,W+D@5,Space@6,W+A@5'
+  --action-script 'W+D@5,W+A@5,Space@6,W@5'
 ```
 
 For multiplayer demos, the action script controls player 1 and leaves the
@@ -124,8 +124,21 @@ nsys profile \
   uv run flashdreams-run mira \
     --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
     --demo mira-mini-1p-1b-high \
-    --action-script 'W@5,W+D@5,Space@6,W+A@5'
+    --action-script 'W+D@5,W+A@5,Space@6,W@5'
 ```
+
+## Quality Evaluation
+
+After generating every demo in the packaged car-soccer manifest (i.e. use slug `--demo all` in the headless-demo), calculate quality of the generated videos with:
+
+```bash
+uv run flashdreams-run calculate-mira-quality
+```
+
+The command first requires an MP4 under every
+`artifacts/mira/<demo-slug>/` directory. It then writes under `artifacts/mira/**` additional metrics in a `result.csv` per quality evaluation:
+* `temporal_instability_metric`: motion-compensated pixel-boiling score
+* ...
 
 ## Results Viewer
 

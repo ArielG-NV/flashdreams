@@ -48,6 +48,7 @@ dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
 mira-webrtc = "mira_integration.webrtc.server:main"
 
 [project.entry-points."flashdreams.runner_configs"]
+calculate-mira-quality = "mira_integration.configs:RUNNER_CALCULATE_MIRA_QUALITY"
 mira = "mira_integration.configs:RUNNER_MIRA"
 mira-results-viewer = "mira_integration.configs:RUNNER_MIRA_RESULTS_VIEWER"
 
