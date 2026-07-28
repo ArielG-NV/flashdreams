@@ -147,16 +147,18 @@ report AFTER running `mira` with the `--demo all` slug:
 
 ```bash
 uv run flashdreams-run mira-results-viewer \
-  mira_metrics_folder_1 mira_metrics_folder_2 ...
+  mira_metrics_folder_1 mira_metrics_folder_2 ... \
+  --temporal-instability-mira-folder <mira_folder>
 
 # Example:
-uv run flashdreams-run mira-results-viewer artifacts/mira/
+uv run flashdreams-run mira-results-viewer artifacts/mira/ \
+  --temporal-instability-mira-folder artifacts/mira/
 ```
 
 For each supplied folder, the viewer reads every direct child matching
 `<metrics-folder>/<slug>/metrics_mira.csv`. It writes the concatenated CSV,
-an HTML table, and bar charts for average FPS, 90th-percentile FPS, and model
-VRAM footprint under
+an HTML table, and bar charts for average FPS, 90th-percentile FPS, model
+VRAM footprint, and temporal instability under
 `artifacts/mira-results-viewer/`, then opens `mira_results.html` in the default
 web browser. Pandas is a Python data-analysis library rather than a native
 spreadsheet application, so the terminal prints the exact local file path and

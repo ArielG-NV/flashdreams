@@ -32,6 +32,9 @@ from flashdreams.infra.runner import Runner, RunnerConfig
 _METRICS_FILENAME = "metrics_mira.csv"
 """Conventional MIRA metrics filename emitted below each demo slug."""
 
+_TEMPORAL_INSTABILITY_RESULTS_PATH = Path("temporal-instability/results.csv")
+"""Quality-suite results path relative to a MIRA artifact folder."""
+
 _SOURCE_COLUMN = "source_csv"
 """Merged-table column that identifies the CSV supplying each row."""
 
@@ -48,6 +51,9 @@ class MiraResultsViewerConfig(RunnerConfig):
 
     metrics_folders: Annotated[tuple[Path, ...], tyro.conf.Positional] = tyro.MISSING
     """Folders containing ``<slug>/metrics_mira.csv`` results."""
+
+    temporal_instability_mira_folder: Path | None = None
+    """MIRA folder containing ``temporal-instability/results.csv``."""
 
     output_dir: Path = Path("artifacts/mira-results-viewer")
     """Directory for the merged CSV, charts, and local HTML report."""
@@ -75,6 +81,9 @@ class MiraResultsReport:
     model_vram_chart_path: Path
     """Model-VRAM-footprint SVG chart."""
 
+    temporal_instability_chart_path: Path | None = None
+    """Temporal-instability SVG chart, when quality results were supplied."""
+
 
 class MiraResultsViewer(Runner[MiraResultsViewerConfig, Any]):
     """Build and open a local pandas report without loading a model."""
@@ -90,6 +99,9 @@ class MiraResultsViewer(Runner[MiraResultsViewerConfig, Any]):
         report = build_results_report(
             self.config.metrics_folders,
             output_dir=self.config.output_dir,
+            temporal_instability_mira_folder=(
+                self.config.temporal_instability_mira_folder
+            ),
         )
         report_uri = report.html_path.as_uri()
         print(f"Combined CSV: {report.csv_path}")
@@ -226,16 +238,79 @@ def summarize_runner_gpu_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
     return summary
 
 
+def read_temporal_instability_metrics(mira_folder: Path) -> pd.DataFrame:
+    """Read and validate temporal-instability metrics below a MIRA folder.
+
+    Args:
+        mira_folder: MIRA artifact root containing quality-suite results.
+
+    Returns:
+        One row per runner with a numeric temporal-instability metric.
+
+    Raises:
+        ValueError: The MIRA folder or required columns are invalid.
+        FileNotFoundError: The quality-suite results CSV is missing.
+    """
+    resolved_folder = mira_folder.expanduser().resolve()
+    if not resolved_folder.is_dir():
+        raise ValueError(
+            f"Temporal-instability MIRA folder is not a directory: {resolved_folder}"
+        )
+
+    results_path = resolved_folder / _TEMPORAL_INSTABILITY_RESULTS_PATH
+    if not results_path.is_file():
+        raise FileNotFoundError(
+            f"No temporal-instability results found at {results_path}."
+        )
+
+    metrics = pd.read_csv(results_path)
+    required = {"runner", "temporal_instability_metric"}
+    missing = sorted(required.difference(metrics.columns))
+    if missing:
+        raise ValueError(
+            f"Temporal-instability results are missing required columns: {missing}"
+        )
+
+    chart_data = metrics.loc[:, ["runner", "temporal_instability_metric"]].copy()
+    chart_data["temporal_instability_metric"] = pd.to_numeric(
+        chart_data["temporal_instability_metric"],
+        errors="coerce",
+    )
+    chart_data = chart_data.dropna(subset=["runner", "temporal_instability_metric"])
+    if chart_data.empty:
+        raise ValueError("Temporal-instability results contain no numeric metric rows.")
+
+    summary = (
+        chart_data.groupby("runner", as_index=False, sort=True)
+        .agg(
+            temporal_instability_metric=(
+                "temporal_instability_metric",
+                "mean",
+            )
+        )
+        .rename(
+            columns={
+                "runner": "Runner",
+                "temporal_instability_metric": "Temporal Instability",
+            }
+        )
+    )
+    return summary
+
+
 def build_results_report(
     metrics_folders: tuple[Path, ...],
     *,
     output_dir: Path,
+    temporal_instability_mira_folder: Path | None = None,
 ) -> MiraResultsReport:
     """Build the merged CSV, pandas charts, and local HTML report.
 
     Args:
         metrics_folders: Parent folders whose direct children contain metrics.
         output_dir: Destination for all generated report artifacts.
+        temporal_instability_mira_folder: Optional MIRA artifact root containing
+            ``temporal-instability/results.csv``.
 
     Returns:
         Absolute paths to the generated artifacts.
@@ -243,6 +318,11 @@ def build_results_report(
     csv_paths = find_metrics_csvs(metrics_folders)
     combined = concatenate_metrics(csv_paths)
     summary = summarize_runner_gpu_metrics(combined)
+    temporal_instability = (
+        read_temporal_instability_metrics(temporal_instability_mira_folder)
+        if temporal_instability_mira_folder is not None
+        else None
+    )
 
     resolved_output = output_dir.expanduser().resolve()
     resolved_output.mkdir(parents=True, exist_ok=True)
@@ -250,6 +330,11 @@ def build_results_report(
     fps_chart_path = resolved_output / "average_fps_by_runner_gpu.svg"
     p90_fps_chart_path = resolved_output / "p90_fps_by_runner_gpu.svg"
     model_vram_chart_path = resolved_output / "model_vram_footprint_by_runner_gpu.svg"
+    temporal_instability_chart_path = (
+        resolved_output / "temporal_instability_by_runner.svg"
+        if temporal_instability is not None
+        else None
+    )
     html_path = resolved_output / "mira_results.html"
 
     combined.to_csv(csv_path, index=False)
@@ -277,14 +362,26 @@ def build_results_report(
         output_path=model_vram_chart_path,
         color="#F6BD16",
     )
+    if temporal_instability is not None and temporal_instability_chart_path is not None:
+        _write_bar_chart(
+            temporal_instability,
+            category_column="Runner",
+            value_column="Temporal Instability",
+            title="Temporal Instability by Runner",
+            ylabel="Temporal instability",
+            output_path=temporal_instability_chart_path,
+            color="#E8684A",
+        )
     html_path.write_text(
         _render_html_report(
             combined,
             summary,
+            temporal_instability=temporal_instability,
             csv_path=csv_path,
             fps_chart_path=fps_chart_path,
             p90_fps_chart_path=p90_fps_chart_path,
             model_vram_chart_path=model_vram_chart_path,
+            temporal_instability_chart_path=temporal_instability_chart_path,
         ),
         encoding="utf-8",
     )
@@ -294,12 +391,14 @@ def build_results_report(
         fps_chart_path=fps_chart_path,
         p90_fps_chart_path=p90_fps_chart_path,
         model_vram_chart_path=model_vram_chart_path,
+        temporal_instability_chart_path=temporal_instability_chart_path,
     )
 
 
 def _write_bar_chart(
     summary: pd.DataFrame,
     *,
+    category_column: str = "Runner + GPU",
     value_column: str,
     title: str,
     ylabel: str,
@@ -312,12 +411,13 @@ def _write_bar_chart(
     import matplotlib.pyplot as plt
 
     chart_data = summary.copy()
-    chart_data["Runner + GPU"] = (
-        chart_data["Runner"] + " | " + chart_data["GPU"].map(_chart_gpu_name)
-    )
+    if category_column == "Runner + GPU":
+        chart_data[category_column] = (
+            chart_data["Runner"] + " | " + chart_data["GPU"].map(_chart_gpu_name)
+        )
     figure_width = max(25.0, len(summary) * 1.25)
     axes = chart_data.plot.bar(
-        x="Runner + GPU",
+        x=category_column,
         y=value_column,
         color=color,
         figsize=(figure_width, 8),
@@ -343,10 +443,12 @@ def _render_html_report(
     combined: pd.DataFrame,
     summary: pd.DataFrame,
     *,
+    temporal_instability: pd.DataFrame | None,
     csv_path: Path,
     fps_chart_path: Path,
     p90_fps_chart_path: Path,
     model_vram_chart_path: Path,
+    temporal_instability_chart_path: Path | None,
 ) -> str:
     table = combined.to_html(
         index=False,
@@ -361,6 +463,19 @@ def _render_html_report(
         classes="metrics-table",
         float_format=lambda value: f"{value:.3f}",
     )
+    temporal_instability_section = ""
+    if temporal_instability is not None and temporal_instability_chart_path is not None:
+        temporal_instability_table = temporal_instability.to_html(
+            index=False,
+            border=0,
+            classes="metrics-table",
+            float_format=lambda value: f"{value:.3f}",
+        )
+        temporal_instability_section = f"""
+  <h2>Temporal Instability</h2>
+  <img src="{html.escape(temporal_instability_chart_path.name)}"
+       alt="Temporal instability bar chart">
+  <div class="table-wrap">{temporal_instability_table}</div>"""
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -394,6 +509,7 @@ def _render_html_report(
   <h2>VRAM Footprint Of Model Config</h2>
   <img src="{html.escape(model_vram_chart_path.name)}"
        alt="Model VRAM footprint bar chart">
+{temporal_instability_section}
   <h2>Runner + GPU averages</h2>
   <div class="table-wrap">{summary_table}</div>
   <h2>Concatenated metrics ({len(combined)} rows)</h2>
@@ -410,5 +526,6 @@ __all__ = [
     "build_results_report",
     "concatenate_metrics",
     "find_metrics_csvs",
+    "read_temporal_instability_metrics",
     "summarize_runner_gpu_metrics",
 ]

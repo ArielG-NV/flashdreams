@@ -28,6 +28,7 @@ from mira_integration.results_viewer import (
     _chart_gpu_name,
     build_results_report,
     find_metrics_csvs,
+    read_temporal_instability_metrics,
     summarize_runner_gpu_metrics,
 )
 
@@ -56,6 +57,16 @@ def _write_metrics(
             }
         ]
     ).to_csv(output, index=False)
+    return output.resolve()
+
+
+def _write_temporal_instability_metrics(
+    mira_folder: Path,
+    rows: list[dict[str, str | float]],
+) -> Path:
+    output = mira_folder / "temporal-instability" / "results.csv"
+    output.parent.mkdir(parents=True)
+    pd.DataFrame(rows).to_csv(output, index=False)
     return output.resolve()
 
 
@@ -92,6 +103,20 @@ def test_viewer_config_parses_metrics_folders_positionally() -> None:
         Path("metrics_folder_1"),
         Path("metrics_folder_2"),
     )
+
+
+def test_viewer_config_parses_temporal_instability_mira_folder() -> None:
+    config = tyro.cli(
+        MiraResultsViewerConfig,
+        args=[
+            "metrics_folder",
+            "--temporal-instability-mira-folder",
+            "mira_folder",
+        ],
+        default=MiraResultsViewerConfig(runner_name="mira-results-viewer"),
+    )
+
+    assert config.temporal_instability_mira_folder == Path("mira_folder")
 
 
 def test_summarize_runner_gpu_metrics_averages_repeated_configs() -> None:
@@ -147,6 +172,24 @@ def test_chart_gpu_name_is_capped_at_four_words(
     assert _chart_gpu_name(gpu_name) == expected
 
 
+def test_read_temporal_instability_metrics_averages_repeated_runners(
+    tmp_path: Path,
+) -> None:
+    _write_temporal_instability_metrics(
+        tmp_path,
+        [
+            {"runner": "mira-b", "temporal_instability_metric": "4.5"},
+            {"runner": "mira-a", "temporal_instability_metric": "2.0"},
+            {"runner": "mira-a", "temporal_instability_metric": "4.0"},
+        ],
+    )
+
+    summary = read_temporal_instability_metrics(tmp_path)
+
+    assert summary["Runner"].tolist() == ["mira-a", "mira-b"]
+    assert summary["Temporal Instability"].tolist() == [3.0, 4.5]
+
+
 def test_build_results_report_writes_csv_html_and_charts(tmp_path: Path) -> None:
     metrics_folder = tmp_path / "metrics"
     first = _write_metrics(
@@ -165,14 +208,27 @@ def test_build_results_report_writes_csv_html_and_charts(tmp_path: Path) -> None
         p90_fps=60,
         model_vram_gib=12,
     )
+    _write_temporal_instability_metrics(
+        tmp_path / "mira",
+        [
+            {"runner": "mira-a", "temporal_instability_metric": 2.5},
+            {"runner": "mira-b", "temporal_instability_metric": 3.5},
+        ],
+    )
 
-    report = build_results_report((metrics_folder,), output_dir=tmp_path / "report")
+    report = build_results_report(
+        (metrics_folder,),
+        output_dir=tmp_path / "report",
+        temporal_instability_mira_folder=tmp_path / "mira",
+    )
 
     assert report.csv_path.is_file()
     assert report.html_path.is_file()
     assert report.fps_chart_path.is_file()
     assert report.p90_fps_chart_path.is_file()
     assert report.model_vram_chart_path.is_file()
+    assert report.temporal_instability_chart_path is not None
+    assert report.temporal_instability_chart_path.is_file()
     combined = pd.read_csv(report.csv_path)
     assert len(combined) == 2
     assert combined.loc[0, "source_csv"] == str(first)
@@ -182,8 +238,10 @@ def test_build_results_report_writes_csv_html_and_charts(tmp_path: Path) -> None
     assert report.fps_chart_path.name in rendered
     assert report.p90_fps_chart_path.name in rendered
     assert report.model_vram_chart_path.name in rendered
+    assert report.temporal_instability_chart_path.name in rendered
     assert "90th Percentile FPS" in rendered
     assert "VRAM Footprint Of Model Config" in rendered
+    assert "Temporal Instability" in rendered
 
 
 def test_viewer_prints_and_opens_local_report(
