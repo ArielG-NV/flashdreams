@@ -382,7 +382,7 @@ def build_results_report(
             temporal_instability,
             category_column="Runner",
             value_column="Temporal Instability",
-            title="Temporal Instability by Runner",
+            title="Temporal Instability by Runner - Lower is better - EXPERIMENTAL",
             ylabel="Temporal instability",
             output_path=temporal_instability_chart_path,
             color="#E8684A",

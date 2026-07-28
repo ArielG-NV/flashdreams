@@ -21,19 +21,25 @@ import csv
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
+from statistics import fmean
 from typing import Annotated, Any
 
 import tyro
 
 from flashdreams.infra.pipeline import StreamInferencePipelineConfig
 from flashdreams.infra.runner import Runner, RunnerConfig
-from mira_integration.configs.manifest import load_manifest
+from mira_integration.configs.manifest import load_demo_config, load_manifest
+from mira_integration.runner import MiraDemoRunner, MiraDemoRunnerConfig
+from mira_integration.scripted import parse_action_script
 
 _DEFAULT_MANIFEST = Path(__file__).parent / "configs" / "mira_car_soccer.yaml"
 """Packaged car-soccer manifest whose demos make up the quality suite."""
 
 _RESULTS_FILENAME = "results.csv"
 """Machine-readable quality-suite output filename."""
+
+_QUALITY_RENDER_COUNT = 3
+"""Number of independently seeded renders scored for each manifest demo."""
 
 
 @dataclass(kw_only=True)
@@ -47,17 +53,26 @@ class MiraQualityRunnerConfig(RunnerConfig):
     """Unused pipeline slot retained for the shared runner interface."""
 
     manifest: Path = _DEFAULT_MANIFEST
-    """Manifest whose demo slugs must have generated videos."""
+    """Manifest whose demos make up the quality suite."""
 
     artifacts_dir: Path = Path("artifacts/mira")
-    """Parent directory containing one generated-artifact folder per demo."""
+    """Parent directory containing generated quality artifacts."""
 
     output_dir: Path = Path("artifacts/mira/temporal-instability")
-    """Directory replaced with the temporal-instability CSV."""
+    """Directory replaced with quality renders and the result CSV."""
+
+    action_script: str = tyro.MISSING
+    """Comma-separated ``KEY+KEY@100MS`` segments used for all renders."""
+
+    seed: int = 0
+    """Base seed; the three renders use this seed and the next two."""
+
+    fps: int = 60
+    """Output video frame rate."""
 
 
 class MiraQualityRunner(Runner[MiraQualityRunnerConfig, Any]):
-    """Measure quality for every generated MIRA manifest demo."""
+    """Render and measure quality for every MIRA manifest demo."""
 
     config: MiraQualityRunnerConfig
     pipeline = None
@@ -66,58 +81,78 @@ class MiraQualityRunner(Runner[MiraQualityRunnerConfig, Any]):
         self.config = config
 
     def run(self) -> None:
-        """Run the quality suite after validating all required MP4 inputs."""
-        videos = find_demo_videos(self.config.manifest, self.config.artifacts_dir)
+        """Render three trials per demo and report their average score."""
+        render_configs = build_quality_render_configs(self.config)
         output_dir = clear_quality_output_dir(
             self.config.output_dir,
             artifacts_dir=self.config.artifacts_dir,
         )
-        rows = [
-            {
+        videos = render_quality_videos(render_configs)
+        rows: list[dict[str, str | float]] = []
+        for runner, video_paths in videos.items():
+            scores = [measure_pixel_boiling(video) for video in video_paths]
+            row: dict[str, str | float] = {
                 "runner": runner,
-                "temporal_instability_metric": measure_pixel_boiling(video),
+                "temporal_instability_metric": fmean(scores),
             }
-            for runner, video in videos.items()
-        ]
+            for trial_index, score in enumerate(scores, start=1):
+                row[f"temporal_instability_trial_{trial_index}"] = score
+            rows.append(row)
         results_path = write_temporal_instability_results(rows, output_dir)
         print(f"MIRA temporal-instability results: {results_path}")
 
-        # ADD NEXT TEST METHOD HERE
 
+def build_quality_render_configs(
+    config: MiraQualityRunnerConfig,
+) -> dict[str, tuple[MiraDemoRunnerConfig, ...]]:
+    """Build three validated render configurations for each manifest demo."""
+    if config.fps <= 0:
+        raise ValueError(f"fps must be positive, got {config.fps}")
 
-def find_demo_videos(manifest_path: Path, artifacts_dir: Path) -> dict[str, Path]:
-    """Find one MP4 for every demo in a MIRA manifest.
-
-    Args:
-        manifest_path: YAML manifest defining the required demo slugs.
-        artifacts_dir: Parent directory containing demo artifact folders.
-
-    Returns:
-        Demo slugs mapped to deterministic MP4 paths in manifest order.
-
-    Raises:
-        FileNotFoundError: Any demo folder or MP4 is missing.
-    """
-    manifest = load_manifest(manifest_path)
-    videos: dict[str, Path] = {}
-    missing: list[str] = []
-    for slug in manifest.demos:
-        demo_dir = artifacts_dir / slug
-        candidates = sorted(demo_dir.glob("*.mp4")) if demo_dir.is_dir() else []
-        if not candidates:
-            missing.append(str(demo_dir / "*.mp4"))
-            continue
-        conventional = demo_dir / "mira.mp4"
-        videos[slug] = (
-            conventional if conventional in candidates else candidates[0]
-        ).resolve()
-
-    if missing:
-        rendered = "\n  - ".join(missing)
-        raise FileNotFoundError(
-            "MIRA quality checks require an MP4 for every manifest demo. "
-            f"Missing:\n  - {rendered}"
+    manifest = load_manifest(config.manifest)
+    render_configs: dict[str, tuple[MiraDemoRunnerConfig, ...]] = {}
+    for runner_name in manifest.demos:
+        selected = load_demo_config(config.manifest, runner_name)
+        parse_action_script(
+            config.action_script,
+            metadata=selected.metadata,
+            fps=config.fps,
+            frames_per_chunk=selected.metadata.frames_per_chunk,
         )
+        render_configs[runner_name] = tuple(
+            MiraDemoRunnerConfig(
+                runner_name="mira",
+                manifest=config.manifest,
+                demo=runner_name,
+                action_script=config.action_script,
+                output_dir=(
+                    config.output_dir / "renders" / f"trial-{trial_index + 1}"
+                ),
+                device=config.device,
+                seed=config.seed + trial_index,
+                fps=config.fps,
+            )
+            for trial_index in range(_QUALITY_RENDER_COUNT)
+        )
+    return render_configs
+
+
+def render_quality_videos(
+    render_configs: dict[str, tuple[MiraDemoRunnerConfig, ...]],
+) -> dict[str, tuple[Path, ...]]:
+    """Render each concrete demo and return its three generated video paths."""
+    videos: dict[str, tuple[Path, ...]] = {}
+    for runner_name, configs in render_configs.items():
+        generated: list[Path] = []
+        for config in configs:
+            MiraDemoRunner(config).run()
+            video_path = config.output_dir.resolve() / runner_name / "mira.mp4"
+            if not video_path.is_file():
+                raise FileNotFoundError(
+                    f"MIRA quality render did not produce {video_path}"
+                )
+            generated.append(video_path)
+        videos[runner_name] = tuple(generated)
     return videos
 
 
@@ -269,7 +304,14 @@ def write_temporal_instability_results(
     with results_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(
             handle,
-            fieldnames=["runner", "temporal_instability_metric"],
+            fieldnames=[
+                "runner",
+                "temporal_instability_metric",
+                *[
+                    f"temporal_instability_trial_{trial_index}"
+                    for trial_index in range(1, _QUALITY_RENDER_COUNT + 1)
+                ],
+            ],
         )
         writer.writeheader()
         writer.writerows(rows)
@@ -279,7 +321,10 @@ def write_temporal_instability_results(
 __all__ = [
     "MiraQualityRunner",
     "MiraQualityRunnerConfig",
-    "find_demo_videos",
+    "build_quality_render_configs",
+    "clear_quality_output_dir",
     "measure_pixel_boiling",
+    "render_quality_videos",
     "warp_previous_to_current",
+    "write_temporal_instability_results",
 ]

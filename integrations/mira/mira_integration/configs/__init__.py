@@ -48,7 +48,7 @@ RUNNER_MIRA_RESULTS_VIEWER = MiraResultsViewerConfig(
 
 RUNNER_CALCULATE_MIRA_QUALITY = MiraQualityRunnerConfig(
     runner_name="calculate-mira-quality",
-    description="Measure temporal instability across generated MIRA demos.",
+    description="Render MIRA demos three times and average temporal instability.",
 )
 """``flashdreams-run calculate-mira-quality`` quality-suite dispatcher."""
 

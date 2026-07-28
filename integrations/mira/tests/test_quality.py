@@ -25,40 +25,16 @@ from mira_integration.configs.manifest import load_manifest
 from mira_integration.quality import (
     MiraQualityRunner,
     MiraQualityRunnerConfig,
+    build_quality_render_configs,
     clear_quality_output_dir,
-    find_demo_videos,
 )
+from mira_integration.runner import MiraDemoRunnerConfig
 
 pytestmark = pytest.mark.ci_cpu
 
 MANIFEST_PATH = (
     Path(__file__).parents[1] / "mira_integration" / "configs" / "mira_car_soccer.yaml"
 )
-
-
-def _write_demo_videos(artifacts_dir: Path) -> dict[str, Path]:
-    videos = {}
-    for slug in load_manifest(MANIFEST_PATH).demos:
-        video = artifacts_dir / slug / "mira.mp4"
-        video.parent.mkdir(parents=True)
-        video.write_bytes(slug.encode())
-        videos[slug] = video.resolve()
-    return videos
-
-
-def test_find_demo_videos_requires_every_manifest_demo(tmp_path: Path) -> None:
-    videos = _write_demo_videos(tmp_path)
-    missing_slug = next(iter(videos))
-    videos[missing_slug].unlink()
-
-    with pytest.raises(FileNotFoundError, match=missing_slug):
-        find_demo_videos(MANIFEST_PATH, tmp_path)
-
-
-def test_find_demo_videos_returns_manifest_order(tmp_path: Path) -> None:
-    expected = _write_demo_videos(tmp_path)
-
-    assert find_demo_videos(MANIFEST_PATH, tmp_path) == expected
 
 
 def test_clear_quality_output_only_clears_direct_child(tmp_path: Path) -> None:
@@ -74,17 +50,57 @@ def test_clear_quality_output_only_clears_direct_child(tmp_path: Path) -> None:
         clear_quality_output_dir(tmp_path, artifacts_dir=tmp_path)
 
 
+def test_quality_render_configs_use_three_trials_without_all(
+    tmp_path: Path,
+) -> None:
+    config = MiraQualityRunnerConfig(
+        runner_name="calculate-mira-quality",
+        manifest=MANIFEST_PATH,
+        artifacts_dir=tmp_path,
+        output_dir=tmp_path / "temporal-instability",
+        action_script="W@1",
+        seed=17,
+    )
+
+    render_configs = build_quality_render_configs(config)
+
+    assert list(render_configs) == list(load_manifest(MANIFEST_PATH).demos)
+    assert all(len(configs) == 3 for configs in render_configs.values())
+    assert all(
+        render.demo != "all"
+        for configs in render_configs.values()
+        for render in configs
+    )
+    assert [render.seed for render in next(iter(render_configs.values()))] == [
+        17,
+        18,
+        19,
+    ]
+
+
 def test_runner_writes_one_temporal_instability_row_per_demo(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    expected = _write_demo_videos(tmp_path)
+    expected = load_manifest(MANIFEST_PATH).demos
     output_dir = tmp_path / "temporal-instability"
     output_dir.mkdir()
     (output_dir / "stale.csv").write_text("stale")
+
+    class FakeDemoRunner:
+        def __init__(self, config: MiraDemoRunnerConfig) -> None:
+            self.config = config
+
+        def run(self) -> None:
+            config = self.config
+            video = config.output_dir / config.demo / "mira.mp4"
+            video.parent.mkdir(parents=True)
+            video.write_bytes(config.demo.encode())
+
+    monkeypatch.setattr("mira_integration.quality.MiraDemoRunner", FakeDemoRunner)
     monkeypatch.setattr(
         "mira_integration.quality.measure_pixel_boiling",
-        lambda video: float(len(video.parent.name)),
+        lambda video: float(int(video.parents[1].name.removeprefix("trial-"))),
     )
     runner = MiraQualityRunner(
         MiraQualityRunnerConfig(
@@ -92,6 +108,7 @@ def test_runner_writes_one_temporal_instability_row_per_demo(
             manifest=MANIFEST_PATH,
             artifacts_dir=tmp_path,
             output_dir=output_dir,
+            action_script="W@1",
         )
     )
 
@@ -100,11 +117,16 @@ def test_runner_writes_one_temporal_instability_row_per_demo(
     with (output_dir / "results.csv").open(newline="") as handle:
         rows = list(csv.DictReader(handle))
     assert [row["runner"] for row in rows] == list(expected)
-    assert all(float(row["temporal_instability_metric"]) > 0 for row in rows)
+    assert all(float(row["temporal_instability_metric"]) == 2.0 for row in rows)
+    assert all(float(row["temporal_instability_trial_1"]) == 1.0 for row in rows)
+    assert all(float(row["temporal_instability_trial_2"]) == 2.0 for row in rows)
+    assert all(float(row["temporal_instability_trial_3"]) == 3.0 for row in rows)
     assert not (output_dir / "stale.csv").exists()
 
 
-def test_runner_does_not_clear_results_when_preflight_fails(tmp_path: Path) -> None:
+def test_runner_does_not_clear_results_when_action_is_invalid(
+    tmp_path: Path,
+) -> None:
     output_dir = tmp_path / "temporal-instability"
     output_dir.mkdir()
     stale = output_dir / "results.csv"
@@ -115,10 +137,11 @@ def test_runner_does_not_clear_results_when_preflight_fails(tmp_path: Path) -> N
             manifest=MANIFEST_PATH,
             artifacts_dir=tmp_path,
             output_dir=output_dir,
+            action_script="UNKNOWN@1",
         )
     )
 
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(ValueError, match="unknown MIRA key"):
         runner.run()
 
     assert stale.read_text() == "keep"

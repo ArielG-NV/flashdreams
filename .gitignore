@@ -52,6 +52,7 @@ coverage.xml
 *.cover
 .hypothesis/
 .pytest*
+.tmp*
 
 # Translations
 *.mo

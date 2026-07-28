@@ -132,21 +132,25 @@ nsys profile \
 
 ## Quality Evaluation
 
-After generating every demo in the packaged car-soccer manifest (i.e. use slug `--demo all` in the headless-demo), calculate quality of the generated videos with:
+Render and evaluate every demo in the packaged car-soccer manifest with:
 
 ```bash
-uv run flashdreams-run calculate-mira-quality
+uv run flashdreams-run calculate-mira-quality \
+  --action-script 'W+D@5,W+A@5,Space@6,W@5'
 ```
 
-The command first requires an MP4 under every
-`artifacts/mira/<demo-slug>/` directory. It then writes under `artifacts/mira/**` additional metrics in a `result.csv` per quality evaluation:
-* `temporal_instability_metric`: motion-compensated pixel-boiling score
-* ...
+The command renders each concrete demo three times using the supplied action
+script and consecutive seeds.
+It writes the videos and `results.csv` under
+`artifacts/mira/temporal-instability/`. The CSV includes:
+* `temporal_instability_metric`: average motion-compensated pixel-boiling score
+  across the three renders
+* `temporal_instability_trial_1`, `_2`, and `_3`: individual render scores
 
 ## Results Viewer
 
 Combine metrics from any number of result folders and open a pandas-generated
-report **AFTER** running `mira` with the `--demo all` slug & `Quality Evaluation` suite:
+report after running the MIRA demo and Quality Evaluation suite:
 
 ```bash
 uv run flashdreams-run mira-results-viewer \
