@@ -109,7 +109,7 @@ demos:
     display_name: MIRA Mini 1B Low (1P)
 
   mira-mini-1p-364m-high:
-    checkpoint-hugging-face: alakazamworld/mira-mini-1p-364m
+    checkpoint-hugging-face: alakazamworld/mira-mini-364m
     input-map: car-soccer
     player_count: 1
     n_context_frames: 39
@@ -130,7 +130,7 @@ demos:
     decoder_num_heads: 9
     display_name: MIRA Mini 364M High (1P)
   mira-mini-1p-364m-low:
-    checkpoint-hugging-face: alakazamworld/mira-mini-1p-364m
+    checkpoint-hugging-face: alakazamworld/mira-mini-364m
     input-map: car-soccer
     player_count: 1
     n_context_frames: 39
