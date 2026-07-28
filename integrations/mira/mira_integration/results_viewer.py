@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import html
+import shutil
 import webbrowser
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -37,6 +38,16 @@ _TEMPORAL_INSTABILITY_RESULTS_PATH = Path("temporal-instability/results.csv")
 
 _SOURCE_COLUMN = "source_csv"
 """Merged-table column that identifies the CSV supplying each row."""
+
+_GPU_BAR_COLORS = (
+    "#176B3A",
+    "#86D17A",
+    "#2E8B57",
+    "#B7E4C7",
+    "#52B788",
+    "#D8F3DC",
+)
+"""Green chart palette ordered from the first discovered GPU onward."""
 
 
 @dataclass(kw_only=True)
@@ -229,7 +240,7 @@ def summarize_runner_gpu_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
                 "runner": "Runner",
                 "gpu_name": "GPU",
                 "average_fps": "Average FPS",
-                "one_percent_lows_fps": "1% Lows FPS",
+                "one_percent_lows_fps": "Average FPS 1% Lows",
                 "model_vram_footprint_gib": "Model VRAM Footprint (GiB)",
             }
         )
@@ -324,8 +335,10 @@ def build_results_report(
         else None
     )
 
-    resolved_output = output_dir.expanduser().resolve()
-    resolved_output.mkdir(parents=True, exist_ok=True)
+    resolved_output = _replace_results_output_dir(
+        output_dir,
+        input_csv_paths=csv_paths,
+    )
     csv_path = resolved_output / "metrics_mira_combined.csv"
     fps_chart_path = resolved_output / "average_fps_by_runner_gpu.svg"
     one_percent_lows_fps_chart_path = (
@@ -343,16 +356,16 @@ def build_results_report(
     _write_bar_chart(
         summary,
         value_column="Average FPS",
-        title="Average FPS by Runner + GPU",
+        title="Average FPS (Mean) by Runner + GPU",
         ylabel="Average FPS",
         output_path=fps_chart_path,
         color="#76B900",
     )
     _write_bar_chart(
         summary,
-        value_column="1% Lows FPS",
-        title="1% Lows FPS by Runner + GPU",
-        ylabel="1% lows FPS",
+        value_column="Average FPS 1% Lows",
+        title="Average FPS 1% Lows (Mean) by Runner + GPU",
+        ylabel="Average FPS 1% Lows",
         output_path=one_percent_lows_fps_chart_path,
         color="#5B8FF9",
     )
@@ -397,6 +410,34 @@ def build_results_report(
     )
 
 
+def _replace_results_output_dir(
+    output_dir: Path,
+    *,
+    input_csv_paths: tuple[Path, ...],
+) -> Path:
+    """Replace the report output directory without deleting report inputs."""
+    resolved_output = output_dir.expanduser().resolve()
+    resolved_workspace = Path.cwd().resolve()
+    if resolved_workspace.is_relative_to(resolved_output):
+        raise ValueError(
+            "MIRA results output must not be the workspace or its parent: "
+            f"{resolved_output}"
+        )
+    if any(csv_path.is_relative_to(resolved_output) for csv_path in input_csv_paths):
+        raise ValueError(
+            "MIRA results output must not contain an input metrics CSV: "
+            f"{resolved_output}"
+        )
+    if resolved_output.exists():
+        if not resolved_output.is_dir():
+            raise ValueError(
+                f"MIRA results output exists and is not a directory: {resolved_output}"
+            )
+        shutil.rmtree(resolved_output)
+    resolved_output.mkdir(parents=True)
+    return resolved_output
+
+
 def _write_bar_chart(
     summary: pd.DataFrame,
     *,
@@ -411,12 +452,15 @@ def _write_bar_chart(
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch
 
     chart_data = summary.copy()
+    gpu_color_map: dict[str, str] = {}
     if category_column == "Runner + GPU":
         chart_data[category_column] = (
             chart_data["Runner"] + " | " + chart_data["GPU"].map(_chart_gpu_name)
         )
+        gpu_color_map = _gpu_color_map(chart_data["GPU"])
     figure_width = max(25.0, len(summary) * 1.25)
     axes = chart_data.plot.bar(
         x=category_column,
@@ -426,6 +470,16 @@ def _write_bar_chart(
         legend=False,
         rot=25,
     )
+    if gpu_color_map:
+        for bar, gpu_name in zip(axes.containers[0], chart_data["GPU"], strict=True):
+            bar.set_facecolor(gpu_color_map[gpu_name])
+        axes.legend(
+            handles=[
+                Patch(facecolor=gpu_color, label=_chart_gpu_name(gpu_name))
+                for gpu_name, gpu_color in gpu_color_map.items()
+            ],
+            title="GPU",
+        )
     axes.set_title(title)
     axes.set_xlabel("")
     axes.set_ylabel(ylabel)
@@ -434,6 +488,15 @@ def _write_bar_chart(
     axes.figure.tight_layout()
     axes.figure.savefig(output_path, format="svg", bbox_inches="tight")
     plt.close(axes.figure)
+
+
+def _gpu_color_map(gpu_names: pd.Series) -> dict[str, str]:
+    """Assign stable green shades in GPU discovery order."""
+    unique_names = list(dict.fromkeys(gpu_names.astype(str)))
+    return {
+        gpu_name: _GPU_BAR_COLORS[index % len(_GPU_BAR_COLORS)]
+        for index, gpu_name in enumerate(unique_names)
+    }
 
 
 def _chart_gpu_name(gpu_name: str) -> str:
@@ -485,16 +548,22 @@ def _render_html_report(
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MIRA Results Viewer</title>
   <style>
-    body {{ color: #1f2937; font: 15px system-ui, sans-serif; margin: 2rem; }}
-    h1, h2 {{ color: #111827; }}
-    .note {{ background: #eef6ff; border-left: 4px solid #5b8ff9; padding: 1rem; }}
+    body {{ background: #f4fbf6; color: #17351f;
+            font: 15px system-ui, sans-serif; margin: 2rem; }}
+    h1, h2 {{ color: #14532d; }}
+    .note {{ background: #e8f5eb; border-left: 4px solid #2f855a;
+             padding: 1rem; }}
     .table-wrap {{ max-height: 36rem; overflow: auto; }}
     .metrics-table {{ border-collapse: collapse; min-width: 100%; white-space: nowrap; }}
-    .metrics-table th {{ background: #111827; color: white; position: sticky; top: 0; }}
-    .metrics-table th, .metrics-table td {{ border: 1px solid #d1d5db; padding: .45rem; }}
-    .metrics-table tbody tr:nth-child(even) {{ background: #f3f4f6; }}
-    img {{ height: auto; max-width: 100%; }}
-    code {{ overflow-wrap: anywhere; white-space: normal; }}
+    .metrics-table th {{ background: #166534; color: white;
+                         position: sticky; top: 0; }}
+    .metrics-table th, .metrics-table td {{ border: 1px solid #b7d6c0;
+                                            padding: .45rem; }}
+    .metrics-table tbody tr:nth-child(even) {{ background: #eaf6ed; }}
+    img {{ background: white; border: 1px solid #b7d6c0;
+           height: auto; max-width: 100%; }}
+    code {{ background: #e6f2e9; color: #14532d; overflow-wrap: anywhere;
+            white-space: normal; }}
   </style>
 </head>
 <body>
@@ -503,14 +572,14 @@ def _render_html_report(
   web browser from files on this computer; no server or native pandas window
   is running.</p>
   <p>Combined CSV: <code>{html.escape(str(csv_path))}</code></p>
-  <h2>Average FPS</h2>
-  <img src="{html.escape(fps_chart_path.name)}" alt="Average FPS bar chart">
-  <h2>1% Lows FPS</h2>
+  <h2>Average FPS (Mean)</h2>
+  <img src="{html.escape(fps_chart_path.name)}" alt="Average FPS (Mean) Bar Chart">
+  <h2>Average FPS 1% Lows (Mean)</h2>
   <img src="{html.escape(one_percent_lows_fps_chart_path.name)}"
-       alt="1% lows FPS bar chart">
+       alt="Average FPS 1% Lows (Mean) Bar Chart">
   <h2>VRAM Footprint Of Model Config</h2>
   <img src="{html.escape(model_vram_chart_path.name)}"
-       alt="Model VRAM footprint bar chart">
+       alt="Model VRAM footprint Bar Chart">
 {temporal_instability_section}
   <h2>Runner + GPU averages</h2>
   <div class="table-wrap">{summary_table}</div>

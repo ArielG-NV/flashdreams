@@ -162,7 +162,8 @@ VRAM footprint, and temporal instability under
 `artifacts/mira-results-viewer/`, then opens `mira_results.html` in the default
 web browser. Pandas is a Python data-analysis library rather than a native
 spreadsheet application, so the terminal prints the exact local file path and
-`file:` URL rendered by the browser.
+`file:` URL rendered by the browser. The report output directory is replaced
+on every run so stale charts are removed.
 
 ## Troubleshooting
 
