@@ -28,6 +28,8 @@ dependencies = [
     "ftfy",
     "nvtx",
     "omegaconf",
+    "matplotlib>=3.7",
+    "pandas>=2.0",
     "regex",
     "scikit-learn",
     "submitit",
@@ -46,6 +48,7 @@ mira-webrtc = "mira_integration.webrtc.server:main"
 
 [project.entry-points."flashdreams.runner_configs"]
 mira = "mira_integration.configs:RUNNER_MIRA"
+mira-results-viewer = "mira_integration.configs:RUNNER_MIRA_RESULTS_VIEWER"
 
 [tool.setuptools.packages.find]
 include = ["mira_integration*"]

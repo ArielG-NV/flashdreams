@@ -128,6 +128,25 @@ nsys profile \
     --action-script 'W@5,W+D@5,Space@6,W+A@5'
 ```
 
+## Results Viewer
+
+Combine metrics from any number of result folders and open a pandas-generated
+report AFTER running `mira` with the `--demo all` slug:
+
+```bash
+uv run flashdreams-run mira-results-viewer \
+  metrics_folder_1 metrics_folder_2 ...
+```
+
+For each supplied folder, the viewer reads every direct child matching
+`<metrics-folder>/<slug>/metrics_mira.csv`. It writes the concatenated CSV,
+an HTML table, and bar charts for average FPS, 90th-percentile FPS, and model
+VRAM footprint under
+`artifacts/mira-results-viewer/`, then opens `mira_results.html` in the default
+web browser. Pandas is a Python data-analysis library rather than a native
+spreadsheet application, so the terminal prints the exact local file path and
+`file:` URL rendered by the browser.
+
 ## Troubleshooting
 
 > Automatically "disconnecting from preview", unable to view preview or join a session

@@ -30,6 +30,7 @@ from mira_integration.configs.schema import (
     MiraWebRTCModelConfig,
     preview_grid_dimensions,
 )
+from mira_integration.results_viewer import MiraResultsViewerConfig
 from mira_integration.runner import MiraDemoRunnerConfig
 
 RUNNER_MIRA = MiraDemoRunnerConfig(
@@ -37,6 +38,12 @@ RUNNER_MIRA = MiraDemoRunnerConfig(
     description="Run a named MIRA demo from an explicit YAML manifest.",
 )
 """Manifest-selecting ``flashdreams-run mira`` dispatcher."""
+
+RUNNER_MIRA_RESULTS_VIEWER = MiraResultsViewerConfig(
+    runner_name="mira-results-viewer",
+    description="Combine and chart MIRA metrics in a local browser report.",
+)
+"""Pandas-backed ``flashdreams-run mira-results-viewer`` dispatcher."""
 
 _NVTX_ANNOTATE = nvtx.annotate
 
@@ -50,4 +57,6 @@ __all__ = [
     "load_manifest",
     "load_mira_manifest",
     "preview_grid_dimensions",
+    "RUNNER_MIRA",
+    "RUNNER_MIRA_RESULTS_VIEWER",
 ]
