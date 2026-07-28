@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 import math
-from typing import Literal
+from typing import Literal, Protocol
 
 import nvtx
 import torch
@@ -28,7 +28,20 @@ import triton
 import triton.language as tl
 from torch import Tensor
 
-from flashdreams.core.attention import BlockKVCache, NativeAttention
+from flashdreams.core.attention import NativeAttention
+
+
+class KVCache(Protocol):
+    """Minimal key/value cache interface consumed by MIRA attention."""
+
+    def update(self, k: Tensor, v: Tensor) -> None:
+        """Write the current key/value tensors."""
+
+    def cached_k(self) -> Tensor:
+        """Return keys visible to the current attention call."""
+
+    def cached_v(self) -> Tensor:
+        """Return values visible to the current attention call."""
 
 
 @triton.jit
@@ -522,9 +535,14 @@ class AdaptiveLayerNorm(nn.Module):
         self.layer_norm = nn.LayerNorm(dim, elementwise_affine=False)
         self.gamma_beta = nn.Linear(dim, 2 * dim)
 
-    def forward(self, x: Tensor, condition: Tensor) -> Tensor:
-        """Apply adaptive normalization using a shape-aligned condition."""
+    def modulation(self, condition: Tensor) -> tuple[Tensor, Tensor]:
+        """Project a broadcastable condition into scale and bias tensors."""
         gamma, beta = self.gamma_beta(condition).chunk(2, dim=-1)
+        return gamma, beta
+
+    def forward(self, x: Tensor, condition: Tensor) -> Tensor:
+        """Apply adaptive normalization using a broadcastable condition."""
+        gamma, beta = self.modulation(condition)
         return (1.0 + gamma) * self.layer_norm(x) + beta
 
 
@@ -590,7 +608,7 @@ class MiraSelfAttention(nn.Module):
         *,
         rotary: tuple[Tensor, Tensor] | None = None,
         causal: bool = False,
-        kv_cache: BlockKVCache | None = None,
+        kv_cache: KVCache | None = None,
         return_kv: bool = False,
     ) -> Tensor | tuple[Tensor, tuple[Tensor, Tensor]]:
         """Run attention and optionally return raw temporal keys and values."""

@@ -116,7 +116,7 @@ class MiraSTBlock(nn.Module):
         batch, frames, height, width, channels = x.shape
         spatial_x = rearrange(x, "b t h w c -> (b t) (h w) c")
         if self.ada_attention:
-            spatial_cond = rearrange(condition, "b t h w c -> (b t) (h w) c")
+            spatial_cond = rearrange(condition, "b t 1 1 c -> (b t) 1 c")
             spatial_norm = self.space_attn_ln(spatial_x, spatial_cond)
         else:
             spatial_norm = self.space_attn_ln(spatial_x)
@@ -136,8 +136,21 @@ class MiraSTBlock(nn.Module):
                 w=width,
             )
             if self.ada_attention:
-                temporal_cond = rearrange(condition, "b t h w c -> (b h w) t c")
-                temporal_norm = self.time_attn_ln(temporal_x, temporal_cond)
+                assert isinstance(self.time_attn_ln, AdaptiveLayerNorm)
+                temporal_norm = self.time_attn_ln.layer_norm(temporal_x)
+                gamma, beta = self.time_attn_ln.modulation(condition)
+                temporal_norm = rearrange(
+                    temporal_norm,
+                    "(b h w) t c -> b t h w c",
+                    b=batch,
+                    h=height,
+                    w=width,
+                )
+                temporal_norm = (1.0 + gamma) * temporal_norm + beta
+                temporal_norm = rearrange(
+                    temporal_norm,
+                    "b t h w c -> (b h w) t c",
+                )
             else:
                 temporal_norm = self.time_attn_ln(temporal_x)
             attended = self.time_attn(
@@ -291,7 +304,7 @@ class MiraDiffusionTransformer(nn.Module):
         """Predict flow and optionally return raw temporal keys/values for priming."""
         _, frames, height, width, _ = latent.shape
         sequence = self.latent_tokens_proj(latent) + self.past_proj(clean_past)
-        condition = actions[:, :, None, None].expand(-1, -1, height, width, -1)
+        condition = actions[:, :, None, None]
         time_condition = self.diffusion_time_embedding(tau)
         if self.diffusion_time_embedding_delta is not None:
             if tau_delta is None:
@@ -299,7 +312,7 @@ class MiraDiffusionTransformer(nn.Module):
             time_condition = time_condition + self.diffusion_time_embedding_delta(
                 tau_delta
             )
-        condition = condition + time_condition.expand(-1, -1, height, width, -1)
+        condition = condition + time_condition
         spatial_frequencies = spatial_rope(
             height,
             width,

@@ -33,9 +33,71 @@ from flashdreams.infra.decoder import (
     StreamingDecoderCache,
     StreamingVideoDecoder,
 )
-from mira_integration.modules import LayerScale, MiraSelfAttention, SwiGLU, decoder_rope
+from mira_integration.modules import (
+    KVCache,
+    LayerScale,
+    MiraSelfAttention,
+    SwiGLU,
+    decoder_rope,
+)
 
 DecoderFrequencies = tuple[tuple[Tensor, Tensor], tuple[Tensor, Tensor]]
+
+
+@dataclass
+class MiraDecoderBlockCache:
+    """Fixed three-frame temporal K/V cache for one decoder block."""
+
+    k: Tensor
+    """Raw temporal keys with two history slots and one current slot."""
+
+    v: Tensor
+    """Temporal values with two history slots and one current slot."""
+
+    initial_k: Tensor
+    """Two-frame key prefix restored before each browser session."""
+
+    initial_v: Tensor
+    """Two-frame value prefix restored before each browser session."""
+
+    @classmethod
+    def from_context(cls, k: Tensor, v: Tensor) -> MiraDecoderBlockCache:
+        """Build a three-slot cache from a two-frame context prefix."""
+        assert k.shape[1] == 2 and v.shape[1] == 2
+        k_buffer = k.new_empty((k.shape[0], 3, *k.shape[2:]))
+        v_buffer = v.new_empty((v.shape[0], 3, *v.shape[2:]))
+        k_buffer[:, :2].copy_(k)
+        v_buffer[:, :2].copy_(v)
+        return cls(
+            k=k_buffer,
+            v=v_buffer,
+            initial_k=k.detach().clone(),
+            initial_v=v.detach().clone(),
+        )
+
+    def update(self, k: Tensor, v: Tensor) -> None:
+        """Write one current-frame key/value pair into the final slot."""
+        assert k.shape[1] == 1 and v.shape[1] == 1
+        self.k[:, -1:].copy_(k)
+        self.v[:, -1:].copy_(v)
+
+    def cached_k(self) -> Tensor:
+        """Return all temporal keys visible to the current frame."""
+        return self.k
+
+    def cached_v(self) -> Tensor:
+        """Return all temporal values visible to the current frame."""
+        return self.v
+
+    def advance(self) -> None:
+        """Roll the two newest entries into the history slots."""
+        self.k[:, :2].copy_(self.k[:, 1:].clone())
+        self.v[:, :2].copy_(self.v[:, 1:].clone())
+
+    def restore(self) -> None:
+        """Restore the bootstrap prefix without replacing cache storage."""
+        self.k[:, :2].copy_(self.initial_k)
+        self.v[:, :2].copy_(self.initial_v)
 
 
 @nvtx.annotate("mira.decoder._spatial_decoder_rope")
@@ -85,7 +147,10 @@ class MiraDecoderBlock(nn.Module):
         x: Tensor,
         spatial_frequencies: tuple[Tensor, Tensor],
         temporal_frequencies: tuple[Tensor, Tensor],
-    ) -> Tensor:
+        *,
+        temporal_cache: KVCache | None = None,
+        return_temporal_kv: bool = False,
+    ) -> Tensor | tuple[Tensor, tuple[Tensor, Tensor]]:
         """Apply spatial attention, causal temporal attention, and SwiGLU."""
         batch, frames, height, width, _ = x.shape
         spatial_x = rearrange(x, "b t h w c -> (b t) (h w) c")
@@ -101,14 +166,20 @@ class MiraDecoderBlock(nn.Module):
             h=height,
             w=width,
         )
-        temporal_x = self.time_ls.residual(
-            temporal_x,
-            self.time_attn(
-                self.time_norm(temporal_x),
-                rotary=temporal_frequencies,
-                causal=True,
-            ),
+        attended = self.time_attn(
+            self.time_norm(temporal_x),
+            rotary=temporal_frequencies,
+            causal=True,
+            kv_cache=temporal_cache,
+            return_kv=return_temporal_kv,
         )
+        raw_kv: tuple[Tensor, Tensor] | None = None
+        if return_temporal_kv:
+            temporal_out, raw_kv = attended
+        else:
+            assert isinstance(attended, Tensor)
+            temporal_out = attended
+        temporal_x = self.time_ls.residual(temporal_x, temporal_out)
         x = rearrange(
             temporal_x,
             "(b h w) t c -> b t h w c",
@@ -116,7 +187,11 @@ class MiraDecoderBlock(nn.Module):
             h=height,
             w=width,
         )
-        return self.mlp_ls.residual(x, self.mlp(self.mlp_norm(x)))
+        output = self.mlp_ls.residual(x, self.mlp(self.mlp_norm(x)))
+        if return_temporal_kv:
+            assert raw_kv is not None
+            return output, raw_kv
+        return output
 
 
 class MiraPatchUnembed(nn.Module):
@@ -143,13 +218,30 @@ class MiraPatchUnembed(nn.Module):
 
 @dataclass(kw_only=True)
 class MiraDecoderCache(StreamingDecoderCache):
-    """Two-latent causal context carried between decoder calls."""
+    """Causal decoder state carried between autoregressive calls."""
 
     latent_history: Tensor
-    """Normalized codec latents ``[B,C,2,h,w]`` preceding the current latent."""
+    """Normalized codec history used by the full-window reference path."""
 
     initial_latent_history: Tensor
     """Bootstrap latent history restored before each browser session."""
+
+    temporal: list[MiraDecoderBlockCache]
+    """Per-block temporal caches used by the streaming path."""
+
+    autoregressive_index: int = -1
+    """Most recently decoded chunk index; ``-1`` before generation starts."""
+
+    def prepare(self, autoregressive_index: int) -> None:
+        """Prepare temporal buffers for the next ordered decoder call."""
+        assert autoregressive_index == self.autoregressive_index + 1
+        if self.autoregressive_index >= 0:
+            for block_cache in self.temporal:
+                block_cache.advance()
+
+    def finalize(self, autoregressive_index: int) -> None:
+        """Commit the most recently decoded chunk index."""
+        self.autoregressive_index = autoregressive_index
 
 
 @dataclass(kw_only=True)
@@ -183,10 +275,13 @@ class MiraDecoderConfig(DecoderConfig):
     """Backend for decoder no-cache causal temporal attention."""
 
     compile_core: bool = True
-    """Compile the stateless decoder core to fuse elementwise operations."""
+    """Compile the fixed-shape decoder core to fuse elementwise operations."""
 
     use_cuda_graph: bool = True
     """Replay fixed-shape decode-core calls through a CUDA graph on CUDA devices."""
+
+    use_streaming_cache: bool = True
+    """Process only the newest latent using per-block temporal K/V caches."""
 
     cuda_graph_warmup_iters: int = 2
     """Eager decode-core calls before CUDA graph capture."""
@@ -226,18 +321,9 @@ class MiraVideoDecoder(StreamingVideoDecoder[MiraDecoderCache]):
         self.norm_out = nn.LayerNorm(config.width, eps=1e-6)
         self.patch_unembed = MiraPatchUnembed(config.width, config.patch_size)
         self._rope_cache: dict[tuple[int, int, int, int, str], DecoderFrequencies] = {}
-        self._decode_core_runner: Callable[
-            [Tensor, tuple[Tensor, Tensor], tuple[Tensor, Tensor]], Tensor
-        ] = self._decode_core
+        self._decode_core_runner: Callable[..., Tensor] = self._decode_core
         self._core_compiled = False
-        self._decode_graph = (
-            CUDAGraphWrapper(
-                self._decode_latent,
-                warmup_iters=config.cuda_graph_warmup_iters,
-            )
-            if config.use_cuda_graph
-            else None
-        )
+        self._decode_graph: CUDAGraphWrapper | None = None
         self.to(dtype=config.dtype).eval()
 
     def finish_loading(self) -> None:
@@ -280,18 +366,82 @@ class MiraVideoDecoder(StreamingVideoDecoder[MiraDecoderCache]):
     def initialize_autoregressive_cache(
         self, *, context_latents: Tensor, **_context: Any
     ) -> MiraDecoderCache:
-        """Seed the decoder with the final two normalized context latents."""
+        """Prime decoder history and temporal caches from bootstrap latents."""
         assert context_latents.shape[2] >= 2
         latent_history = context_latents[:, :, -2:].detach()
-        return MiraDecoderCache(
+        temporal = (
+            self._initialize_temporal_caches(latent_history)
+            if self.mira_config.use_streaming_cache
+            else []
+        )
+        cache = MiraDecoderCache(
             latent_history=latent_history,
             initial_latent_history=latent_history.clone(),
+            temporal=temporal,
         )
+        self._decode_graph = (
+            CUDAGraphWrapper(
+                self._decode_latent,
+                warmup_iters=self.mira_config.cuda_graph_warmup_iters,
+            )
+            if self.mira_config.use_cuda_graph
+            else None
+        )
+        return cache
 
     @nvtx.annotate("MiraVideoDecoder.restore_autoregressive_cache")
     def restore_autoregressive_cache(self, cache: MiraDecoderCache) -> None:
-        """Restore causal decoder history while retaining the captured graph."""
+        """Restore decoder history while retaining graph-bound cache storage."""
         cache.latent_history = cache.initial_latent_history.clone()
+        for block_cache in cache.temporal:
+            block_cache.restore()
+        cache.autoregressive_index = -1
+
+    def _latent_tokens(self, latent: Tensor) -> Tensor:
+        """Lift channel-first latents into channel-last decoder tokens."""
+        batch, frames = latent.shape[:2]
+        x = rearrange(latent, "b t c h w -> (b t) c h w")
+        x = self.from_latent(x)
+        return rearrange(x, "(b t) c h w -> b t h w c", b=batch, t=frames)
+
+    @torch.no_grad()
+    @nvtx.annotate("MiraVideoDecoder.initialize_temporal_caches")
+    def _initialize_temporal_caches(
+        self,
+        context_latents: Tensor,
+    ) -> list[MiraDecoderBlockCache]:
+        """Prime every decoder block from two normalized context latents."""
+        latent = (
+            self.mira_config.latent_std * context_latents
+            + self.mira_config.latent_mean
+        )
+        latent = rearrange(latent, "b c t h w -> b t c h w").to(
+            dtype=self.mira_config.dtype
+        )
+        height = latent.shape[-2] * self.from_latent.stride[0]
+        width = latent.shape[-1] * self.from_latent.stride[1]
+        head_dim = self.mira_config.width // self.mira_config.num_heads
+        spatial_frequencies, temporal_frequencies = self._frequencies(
+            frames=2,
+            height=height,
+            width=width,
+            head_dim=head_dim,
+            device=latent.device,
+        )
+
+        x = self._latent_tokens(latent)
+        temporal: list[MiraDecoderBlockCache] = []
+        for block in self.blocks:
+            result = block(
+                x,
+                spatial_frequencies,
+                temporal_frequencies,
+                return_temporal_kv=True,
+            )
+            assert isinstance(result, tuple)
+            x, (raw_k, raw_v) = result
+            temporal.append(MiraDecoderBlockCache.from_context(raw_k, raw_v))
+        return temporal
 
     def _frequencies(
         self,
@@ -314,12 +464,18 @@ class MiraVideoDecoder(StreamingVideoDecoder[MiraDecoderCache]):
         return cached
 
     @nvtx.annotate("MiraVideoDecoder._decode_latent")
-    def _decode_latent(self, latent: Tensor) -> Tensor:
+    def _decode_latent(
+        self,
+        latent: Tensor,
+        temporal: list[MiraDecoderBlockCache] | None = None,
+    ) -> Tensor:
+        """Decode a full latent window or one cache-backed current latent."""
         height = latent.shape[-2] * self.from_latent.stride[0]
         width = latent.shape[-1] * self.from_latent.stride[1]
         head_dim = self.mira_config.width // self.mira_config.num_heads
+        temporal_frames = latent.shape[1] if temporal is None else 3
         spatial_frequencies, temporal_frequencies = self._frequencies(
-            frames=latent.shape[1],
+            frames=temporal_frames,
             height=height,
             width=width,
             head_dim=head_dim,
@@ -330,6 +486,7 @@ class MiraVideoDecoder(StreamingVideoDecoder[MiraDecoderCache]):
                 latent,
                 spatial_frequencies,
                 temporal_frequencies,
+                temporal,
             )
 
     def _decode_core(
@@ -337,16 +494,21 @@ class MiraVideoDecoder(StreamingVideoDecoder[MiraDecoderCache]):
         latent: Tensor,
         spatial_frequencies: tuple[Tensor, Tensor],
         temporal_frequencies: tuple[Tensor, Tensor],
+        temporal: list[MiraDecoderBlockCache] | None,
     ) -> Tensor:
-        """Decode one fixed-shape latent window without mutating streaming state."""
-        batch, frames = latent.shape[:2]
-        x = rearrange(latent, "b t c h w -> (b t) c h w")
-        x = self.from_latent(x)
-        x = rearrange(x, "(b t) c h w -> b t h w c", b=batch, t=frames)
-        for block in self.blocks:
-            x = block(x, spatial_frequencies, temporal_frequencies)
-        video = torch.tanh(self.patch_unembed(self.norm_out(x)))
-        return video[:, -2:].mul(0.5).add(0.5)
+        """Decode a fixed-shape latent input and emit its newest RGB pair."""
+        x = self._latent_tokens(latent)
+        for index, block in enumerate(self.blocks):
+            x = block(
+                x,
+                spatial_frequencies,
+                temporal_frequencies,
+                temporal_cache=None if temporal is None else temporal[index],
+            )
+            assert isinstance(x, Tensor)
+        newest = x[:, -1:]
+        video = torch.tanh(self.patch_unembed(self.norm_out(newest)))
+        return video.mul(0.5).add(0.5)
 
     @torch.no_grad()
     @nvtx.annotate("MiraVideoDecoder.forward")
@@ -357,7 +519,6 @@ class MiraVideoDecoder(StreamingVideoDecoder[MiraDecoderCache]):
         cache: MiraDecoderCache | None = None,
     ) -> Tensor:
         """Decode one normalized latent and return two new RGB frames."""
-        _ = autoregressive_index
         assert cache is not None
         with nvtx.annotate("MiraVideoDecoder.prepare_latents"):
             if self.mira_config.n_players > 1:
@@ -366,8 +527,14 @@ class MiraVideoDecoder(StreamingVideoDecoder[MiraDecoderCache]):
                     "b c t (p h) w -> (b p) c t h w",
                     p=self.mira_config.n_players,
                 )
-            normalized = torch.cat((cache.latent_history, input), dim=2)
-            cache.latent_history = normalized[:, :, -2:].detach()
+            if self.mira_config.use_streaming_cache:
+                normalized = input
+                cache.prepare(autoregressive_index)
+                temporal: list[MiraDecoderBlockCache] | None = cache.temporal
+            else:
+                normalized = torch.cat((cache.latent_history, input), dim=2)
+                cache.latent_history = normalized[:, :, -2:].detach()
+                temporal = None
             latent = (
                 self.mira_config.latent_std * normalized + self.mira_config.latent_mean
             )
@@ -375,5 +542,8 @@ class MiraVideoDecoder(StreamingVideoDecoder[MiraDecoderCache]):
                 dtype=self.mira_config.dtype
             )
         if self._decode_graph is not None and latent.is_cuda:
-            return self._decode_graph(latent)
-        return self._decode_latent(latent)
+            output = self._decode_graph(latent, temporal)
+        else:
+            output = self._decode_latent(latent, temporal)
+        cache.finalize(autoregressive_index)
+        return output
