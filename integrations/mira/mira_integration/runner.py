@@ -69,6 +69,8 @@ class MiraDemoRunnerConfig(RunnerConfig):
     """Torch RNG seed used for the autoregressive noise stream."""
     fps: int = 60
     """Output video frame rate."""
+    compile_network: bool = True
+    """Compile the checkpoint-compatible transformer network."""
     compile_decoder: bool = True
     """Compile the stateless decoder core."""
     cuda_graph: bool = True
@@ -104,6 +106,7 @@ class MiraDemoRunnerConfig(RunnerConfig):
             enable_sync_and_profile=False,
             diffusion_model=dict(
                 transformer=dict(
+                    compile_network=self.compile_network,
                     use_cuda_graph=self.cuda_graph,
                     cuda_graph_warmup_iters=self.cuda_graph_warmup_iters,
                 )
