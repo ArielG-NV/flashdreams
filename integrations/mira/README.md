@@ -143,7 +143,7 @@ The command first requires an MP4 under every
 ## Results Viewer
 
 Combine metrics from any number of result folders and open a pandas-generated
-report AFTER running `mira` with the `--demo all` slug:
+report **AFTER** running `mira` with the `--demo all` slug & `Quality Evaluation` suite:
 
 ```bash
 uv run flashdreams-run mira-results-viewer \
@@ -157,7 +157,7 @@ uv run flashdreams-run mira-results-viewer artifacts/mira/ \
 
 For each supplied folder, the viewer reads every direct child matching
 `<metrics-folder>/<slug>/metrics_mira.csv`. It writes the concatenated CSV,
-an HTML table, and bar charts for average FPS, 90th-percentile FPS, model
+an HTML table, and bar charts for average FPS, 1% lows FPS, model
 VRAM footprint, and temporal instability under
 `artifacts/mira-results-viewer/`, then opens `mira_results.html` in the default
 web browser. Pandas is a Python data-analysis library rather than a native

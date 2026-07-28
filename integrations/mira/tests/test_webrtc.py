@@ -23,6 +23,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pytest
 import torch
 from aiohttp.test_utils import TestClient, TestServer
@@ -30,7 +31,10 @@ from mira_integration.configs.manifest import load_demo_config, load_manifest
 from mira_integration.configs.schema import preview_grid_dimensions
 from mira_integration.scheduler import MiraFlowSchedulerConfig
 from mira_integration.transformer import MiraTransformerConfig
-from mira_integration.webrtc.media import video_chunk_to_rgb_frames
+from mira_integration.webrtc.media import (
+    materialize_average_fps_video,
+    video_chunk_to_rgb_frames,
+)
 from mira_integration.webrtc.room import (
     MiraBrowserSession,
     MiraMultiplayerSessionManager,
@@ -52,6 +56,21 @@ MANIFEST_PATH = (
 )
 DEMO_1P = load_demo_config(MANIFEST_PATH, "mira-mini-1b")
 DEMO_4P = load_demo_config(MANIFEST_PATH, "mira-mini-4p")
+
+
+def test_materialize_average_fps_video_holds_last_frame_across_gaps() -> None:
+    chunks = [
+        np.array([[[1]], [[2]]], dtype=np.uint8),
+        np.array([[[3]], [[4]]], dtype=np.uint8),
+    ]
+
+    video = materialize_average_fps_video(
+        chunks,
+        output_fps=4,
+        average_fps=2,
+    )
+
+    assert video[:, 0, 0].tolist() == [1, 2, 2, 2, 3, 4, 4, 4]
 
 
 class _FakePipeline:

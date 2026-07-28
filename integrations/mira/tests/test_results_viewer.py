@@ -41,7 +41,7 @@ def _write_metrics(
     *,
     gpu: str,
     fps: float,
-    p90_fps: float,
+    one_percent_lows_fps: float,
     model_vram_gib: float,
 ) -> Path:
     output = folder / slug / "metrics_mira.csv"
@@ -51,8 +51,8 @@ def _write_metrics(
             {
                 "runner": slug,
                 "gpu_name": gpu,
-                "runtime_median_fps": fps,
-                "runtime_p90_fps": p90_fps,
+                "runtime_average_fps": fps,
+                "runtime_1_percent_lows_fps": one_percent_lows_fps,
                 "model_load_vram_gib": model_vram_gib,
             }
         ]
@@ -74,18 +74,20 @@ def test_find_metrics_csvs_searches_each_direct_slug(tmp_path: Path) -> None:
     first = tmp_path / "first"
     second = tmp_path / "second"
     csv_b = _write_metrics(
-        first, "b", gpu="GPU 1", fps=20, p90_fps=18, model_vram_gib=8
+        first, "b", gpu="GPU 1", fps=20, one_percent_lows_fps=18, model_vram_gib=8
     )
-    csv_a = _write_metrics(first, "a", gpu="GPU 1", fps=10, p90_fps=8, model_vram_gib=7)
+    csv_a = _write_metrics(
+        first, "a", gpu="GPU 1", fps=10, one_percent_lows_fps=8, model_vram_gib=7
+    )
     csv_c = _write_metrics(
-        second, "c", gpu="GPU 2", fps=30, p90_fps=27, model_vram_gib=9
+        second, "c", gpu="GPU 2", fps=30, one_percent_lows_fps=27, model_vram_gib=9
     )
     _write_metrics(
         first / "nested",
         "ignored",
         gpu="GPU 3",
         fps=40,
-        p90_fps=35,
+        one_percent_lows_fps=35,
         model_vram_gib=6,
     )
 
@@ -125,22 +127,22 @@ def test_summarize_runner_gpu_metrics_averages_repeated_configs() -> None:
             {
                 "runner": "mira-a",
                 "gpu_name": "GPU 1",
-                "runtime_median_fps": "40",
-                "runtime_p90_fps": "35",
+                "runtime_average_fps": "40",
+                "runtime_1_percent_lows_fps": "35",
                 "model_load_vram_gib": "7",
             },
             {
                 "runner": "mira-a",
                 "gpu_name": "GPU 1",
-                "runtime_median_fps": "60",
-                "runtime_p90_fps": "50",
+                "runtime_average_fps": "60",
+                "runtime_1_percent_lows_fps": "50",
                 "model_load_vram_gib": "9",
             },
             {
                 "runner": "mira-a",
                 "gpu_name": "GPU 2",
-                "runtime_median_fps": "70",
-                "runtime_p90_fps": "60",
+                "runtime_average_fps": "70",
+                "runtime_1_percent_lows_fps": "60",
                 "model_load_vram_gib": "10",
             },
         ]
@@ -153,7 +155,7 @@ def test_summarize_runner_gpu_metrics_averages_repeated_configs() -> None:
         "mira-a | GPU 2",
     ]
     assert summary["Average FPS"].tolist() == [50.0, 70.0]
-    assert summary["90th Percentile FPS"].tolist() == [42.5, 60.0]
+    assert summary["1% Lows FPS"].tolist() == [42.5, 60.0]
     assert summary["Model VRAM Footprint (GiB)"].tolist() == [8.0, 10.0]
 
 
@@ -197,7 +199,7 @@ def test_build_results_report_writes_csv_html_and_charts(tmp_path: Path) -> None
         "mira-a",
         gpu="NVIDIA Test GPU",
         fps=50,
-        p90_fps=45,
+        one_percent_lows_fps=45,
         model_vram_gib=9,
     )
     _write_metrics(
@@ -205,7 +207,7 @@ def test_build_results_report_writes_csv_html_and_charts(tmp_path: Path) -> None
         "mira-b",
         gpu="NVIDIA Test GPU",
         fps=70,
-        p90_fps=60,
+        one_percent_lows_fps=60,
         model_vram_gib=12,
     )
     _write_temporal_instability_metrics(
@@ -225,7 +227,7 @@ def test_build_results_report_writes_csv_html_and_charts(tmp_path: Path) -> None
     assert report.csv_path.is_file()
     assert report.html_path.is_file()
     assert report.fps_chart_path.is_file()
-    assert report.p90_fps_chart_path.is_file()
+    assert report.one_percent_lows_fps_chart_path.is_file()
     assert report.model_vram_chart_path.is_file()
     assert report.temporal_instability_chart_path is not None
     assert report.temporal_instability_chart_path.is_file()
@@ -236,10 +238,10 @@ def test_build_results_report_writes_csv_html_and_charts(tmp_path: Path) -> None
     assert "Pandas generated this local report" in rendered
     assert "Average FPS" in rendered
     assert report.fps_chart_path.name in rendered
-    assert report.p90_fps_chart_path.name in rendered
+    assert report.one_percent_lows_fps_chart_path.name in rendered
     assert report.model_vram_chart_path.name in rendered
     assert report.temporal_instability_chart_path.name in rendered
-    assert "90th Percentile FPS" in rendered
+    assert "1% Lows FPS" in rendered
     assert "VRAM Footprint Of Model Config" in rendered
     assert "Temporal Instability" in rendered
 
@@ -255,7 +257,7 @@ def test_viewer_prints_and_opens_local_report(
         "mira-a",
         gpu="NVIDIA Test GPU",
         fps=50,
-        p90_fps=45,
+        one_percent_lows_fps=45,
         model_vram_gib=9,
     )
     opened: list[str] = []

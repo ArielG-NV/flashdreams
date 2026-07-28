@@ -35,6 +35,7 @@ from mira_integration.runner import (
 )
 from mira_integration.scripted import parse_action_script, player_one_browser_controls
 from mira_integration.webrtc.media import (
+    MiraMp4Writer,
     _format_runtime_metrics_csv,
     _write_video,
     normalize_player_chunk,
@@ -43,6 +44,7 @@ from mira_integration.webrtc.media import (
 
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.runner import RunnerConfig
+from flashdreams.serving.webrtc.runtime import WebRTCStepResult
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -76,6 +78,69 @@ def test_write_video_uses_pyav(tmp_path: Path) -> None:
     assert (decoded[0].width, decoded[0].height) == (6, 4)
 
 
+@pytest.mark.asyncio
+async def test_mp4_writer_defers_frame_conversion_and_adds_average_fps_holds(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    written: list[np.ndarray] = []
+
+    def capture_video(path: Path, video: np.ndarray, *, fps: int) -> None:
+        assert path == tmp_path / "mira.mp4"
+        assert fps == 60
+        written.append(video.copy())
+
+    timestamps = iter((0.0, 10.0, 20.0))
+    monkeypatch.setattr(
+        "mira_integration.webrtc.media.time.perf_counter",
+        lambda: next(timestamps),
+    )
+    monkeypatch.setattr(
+        "mira_integration.webrtc.media._write_video",
+        capture_video,
+    )
+    writer = MiraMp4Writer(
+        output_dir=tmp_path,
+        runner_name="mira",
+        fps=60,
+        n_players=1,
+        model_vram_bytes=0,
+        gpu_name="N/A (CPU)",
+        action_script="W@1",
+    )
+
+    async with writer:
+        await writer.push(
+            WebRTCStepResult(
+                chunk_index=0,
+                num_frames=2,
+                video_chunk=torch.full((1, 2, 3, 2, 2), 0.25),
+                stats={"total_ms": 200 / 3},
+            )
+        )
+        await writer.push(
+            WebRTCStepResult(
+                chunk_index=1,
+                num_frames=1,
+                video_chunk=torch.full((1, 1, 3, 2, 2), 0.5),
+                stats={"total_ms": 100 / 3},
+            )
+        )
+        assert written == []
+        assert all(isinstance(chunk, torch.Tensor) for chunk in writer._chunks)
+
+    assert len(written) == 1
+    assert written[0].shape == (6, 2, 2, 3)
+    assert [int(frame[0, 0, 0]) for frame in written[0]] == [
+        64,
+        64,
+        64,
+        64,
+        128,
+        128,
+    ]
+
+
 def test_runtime_metrics_are_rendered_as_csv() -> None:
     rendered = _format_runtime_metrics_csv(
         runner_name="mira-mini-1p-1b-high",
@@ -88,7 +153,12 @@ def test_runtime_metrics_are_rendered_as_csv() -> None:
                 "total_ms": 40.0,
                 "frames_per_chunk": 2,
                 "mem_alloc_gib": 4.0,
-            }
+            },
+            {
+                "total_ms": 20.0,
+                "frames_per_chunk": 2,
+                "mem_alloc_gib": 4.0,
+            },
         ],
     )
     rows = list(csv.DictReader(rendered.splitlines()))
@@ -98,8 +168,10 @@ def test_runtime_metrics_are_rendered_as_csv() -> None:
     assert rows[0]["gpu_name"] == "NVIDIA Test, GPU"
     assert rows[0]["action-script"] == "W@5,W+D@5,Space@6,W+A@5"
     assert rows[0]["frames_per_chunk"] == "2"
-    assert rows[0]["runtime_latency_median_ms"] == "20.000"
-    assert rows[0]["runtime_median_fps"] == "50.000"
+    assert rows[0]["runtime_average_fps"] == "66.667"
+    assert rows[0]["runtime_1_percent_lows_fps"] == "50.000"
+    assert rows[0]["model_latency_p90_ms"] == "38.000"
+    assert rows[0]["runtime_latency_p90_ms"] == "19.000"
     assert rows[0]["runtime_mem_alloc_gib"] == "4.000"
 
 

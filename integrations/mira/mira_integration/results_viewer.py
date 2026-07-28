@@ -75,8 +75,8 @@ class MiraResultsReport:
     fps_chart_path: Path
     """Average-FPS SVG chart."""
 
-    p90_fps_chart_path: Path
-    """90th-percentile-FPS SVG chart."""
+    one_percent_lows_fps_chart_path: Path
+    """One-percent-lows-FPS SVG chart."""
 
     model_vram_chart_path: Path
     """Model-VRAM-footprint SVG chart."""
@@ -191,8 +191,8 @@ def summarize_runner_gpu_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
     required = {
         "runner",
         "gpu_name",
-        "runtime_median_fps",
-        "runtime_p90_fps",
+        "runtime_average_fps",
+        "runtime_1_percent_lows_fps",
         "model_load_vram_gib",
     }
     missing = sorted(required.difference(metrics.columns))
@@ -200,17 +200,17 @@ def summarize_runner_gpu_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
         raise ValueError(f"MIRA metrics are missing required columns: {missing}")
 
     chart_data = metrics.loc[:, sorted(required)].copy()
-    chart_data["runtime_median_fps"] = pd.to_numeric(
-        chart_data["runtime_median_fps"], errors="coerce"
+    chart_data["runtime_average_fps"] = pd.to_numeric(
+        chart_data["runtime_average_fps"], errors="coerce"
     )
-    for column in ("runtime_p90_fps", "model_load_vram_gib"):
+    for column in ("runtime_1_percent_lows_fps", "model_load_vram_gib"):
         chart_data[column] = pd.to_numeric(chart_data[column], errors="coerce")
     chart_data = chart_data.dropna(
         subset=[
             "runner",
             "gpu_name",
-            "runtime_median_fps",
-            "runtime_p90_fps",
+            "runtime_average_fps",
+            "runtime_1_percent_lows_fps",
             "model_load_vram_gib",
         ]
     )
@@ -220,8 +220,8 @@ def summarize_runner_gpu_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
     summary = (
         chart_data.groupby(["runner", "gpu_name"], as_index=False, sort=True)
         .agg(
-            average_fps=("runtime_median_fps", "mean"),
-            p90_fps=("runtime_p90_fps", "mean"),
+            average_fps=("runtime_average_fps", "mean"),
+            one_percent_lows_fps=("runtime_1_percent_lows_fps", "mean"),
             model_vram_footprint_gib=("model_load_vram_gib", "mean"),
         )
         .rename(
@@ -229,7 +229,7 @@ def summarize_runner_gpu_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
                 "runner": "Runner",
                 "gpu_name": "GPU",
                 "average_fps": "Average FPS",
-                "p90_fps": "90th Percentile FPS",
+                "one_percent_lows_fps": "1% Lows FPS",
                 "model_vram_footprint_gib": "Model VRAM Footprint (GiB)",
             }
         )
@@ -328,7 +328,9 @@ def build_results_report(
     resolved_output.mkdir(parents=True, exist_ok=True)
     csv_path = resolved_output / "metrics_mira_combined.csv"
     fps_chart_path = resolved_output / "average_fps_by_runner_gpu.svg"
-    p90_fps_chart_path = resolved_output / "p90_fps_by_runner_gpu.svg"
+    one_percent_lows_fps_chart_path = (
+        resolved_output / "one_percent_lows_fps_by_runner_gpu.svg"
+    )
     model_vram_chart_path = resolved_output / "model_vram_footprint_by_runner_gpu.svg"
     temporal_instability_chart_path = (
         resolved_output / "temporal_instability_by_runner.svg"
@@ -348,10 +350,10 @@ def build_results_report(
     )
     _write_bar_chart(
         summary,
-        value_column="90th Percentile FPS",
-        title="90th Percentile FPS by Runner + GPU",
-        ylabel="90th percentile FPS",
-        output_path=p90_fps_chart_path,
+        value_column="1% Lows FPS",
+        title="1% Lows FPS by Runner + GPU",
+        ylabel="1% lows FPS",
+        output_path=one_percent_lows_fps_chart_path,
         color="#5B8FF9",
     )
     _write_bar_chart(
@@ -379,7 +381,7 @@ def build_results_report(
             temporal_instability=temporal_instability,
             csv_path=csv_path,
             fps_chart_path=fps_chart_path,
-            p90_fps_chart_path=p90_fps_chart_path,
+            one_percent_lows_fps_chart_path=one_percent_lows_fps_chart_path,
             model_vram_chart_path=model_vram_chart_path,
             temporal_instability_chart_path=temporal_instability_chart_path,
         ),
@@ -389,7 +391,7 @@ def build_results_report(
         csv_path=csv_path,
         html_path=html_path,
         fps_chart_path=fps_chart_path,
-        p90_fps_chart_path=p90_fps_chart_path,
+        one_percent_lows_fps_chart_path=one_percent_lows_fps_chart_path,
         model_vram_chart_path=model_vram_chart_path,
         temporal_instability_chart_path=temporal_instability_chart_path,
     )
@@ -446,7 +448,7 @@ def _render_html_report(
     temporal_instability: pd.DataFrame | None,
     csv_path: Path,
     fps_chart_path: Path,
-    p90_fps_chart_path: Path,
+    one_percent_lows_fps_chart_path: Path,
     model_vram_chart_path: Path,
     temporal_instability_chart_path: Path | None,
 ) -> str:
@@ -503,9 +505,9 @@ def _render_html_report(
   <p>Combined CSV: <code>{html.escape(str(csv_path))}</code></p>
   <h2>Average FPS</h2>
   <img src="{html.escape(fps_chart_path.name)}" alt="Average FPS bar chart">
-  <h2>90th Percentile FPS</h2>
-  <img src="{html.escape(p90_fps_chart_path.name)}"
-       alt="90th Percentile FPS bar chart">
+  <h2>1% Lows FPS</h2>
+  <img src="{html.escape(one_percent_lows_fps_chart_path.name)}"
+       alt="1% lows FPS bar chart">
   <h2>VRAM Footprint Of Model Config</h2>
   <img src="{html.escape(model_vram_chart_path.name)}"
        alt="Model VRAM footprint bar chart">
