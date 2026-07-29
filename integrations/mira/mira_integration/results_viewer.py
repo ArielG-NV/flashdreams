@@ -358,7 +358,7 @@ def build_results_report(
     )
     csv_path = resolved_output / "metrics_mira_combined.csv"
     matrix_csv_path = resolved_output / "runner_gpu_quality.csv"
-    html_path = resolved_output / "mira_results.html"
+    html_path = resolved_output / "general_mira_performance_results.html"
 
     combined.to_csv(csv_path, index=False)
     runner_gpu_quality.to_csv(matrix_csv_path, index=False, float_format="%.3f")
@@ -607,7 +607,7 @@ def build_runner_gpu_quality_matrix(
 
 def _table_gpu_name(gpu_name: str) -> str:
     """Return at most the first five words of a table GPU name."""
-    return " ".join(gpu_name.split()[:5])
+    return " ".join(gpu_name.split()[:4])
 
 
 def _exclude_runner_slugs(

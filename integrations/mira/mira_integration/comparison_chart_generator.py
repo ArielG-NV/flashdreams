@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import re
 import webbrowser
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Any
@@ -328,6 +329,7 @@ def build_comparison_chart(
         rotation=20,
         ha="right",
     )
+    _bold_direct_comparison_labels(axes.get_xticklabels())
     axes.set_title(custom_title, pad=16)
     axes.set_xlabel("")
     axes.set_ylabel(custom_y_axis)
@@ -369,6 +371,12 @@ def _comparison_figure_height(runner_slugs: tuple[str, ...]) -> float:
     return max(9.5, 7.5 + longest_label * 0.05)
 
 
+def _bold_direct_comparison_labels(labels: Sequence[Any]) -> None:
+    """Bold the Competitor and direct FlashDreams runner labels."""
+    for label in labels[:2]:
+        label.set_fontweight("bold")
+
+
 def _resolve_output_path(target_file_name: str) -> Path:
     """Resolve a bare SVG filename below the fixed output directory.
 
@@ -396,7 +404,7 @@ def _resolve_output_path(target_file_name: str) -> Path:
 
 def _legend_gpu_name(gpu_name: str) -> str:
     """Return at most the first five words of a GPU name."""
-    return " ".join(gpu_name.split()[:5])
+    return " ".join(gpu_name.split()[:4])
 
 
 def _select_competitor_bar(

@@ -25,8 +25,10 @@ import pytest
 import tyro
 from mira_integration.comparison_chart_generator import (
     MiraComparisonChartGeneratorConfig,
+    _bold_direct_comparison_labels,
     _comparison_figure_height,
     _legend_gpu_name,
+    _resolve_output_path,
     build_comparison_chart,
     collect_comparison_bars,
     read_competition_reference,
@@ -95,6 +97,8 @@ def test_config_parses_repeated_other_runner_flags() -> None:
             "Average FPS",
             "--custom-title",
             "MIRA throughput comparison",
+            "--target-file-name",
+            "comparison.svg",
             "--flashdreams-gpu-other-runner",
             "other-a",
             "--flashdreams-gpu-other-runner",
@@ -108,6 +112,7 @@ def test_config_parses_repeated_other_runner_flags() -> None:
     assert config.flashdreams_gpu_other_runner == ("other-a", "other-b")
     assert config.custom_y_axis == "Average FPS"
     assert config.custom_title == "MIRA throughput comparison"
+    assert config.target_file_name == "comparison.svg"
 
 
 def test_config_requires_custom_y_axis_and_title() -> None:
@@ -124,6 +129,8 @@ def test_config_requires_custom_y_axis_and_title() -> None:
                 "RTX PRO 6000",
                 "--competitor-gpu-to-compare-with",
                 "B200",
+                "--target-file-name",
+                "comparison.svg",
             ],
             default=MiraComparisonChartGeneratorConfig(
                 runner_name="mira-comparison-chart-generator"
@@ -222,6 +229,10 @@ def test_build_comparison_chart_writes_ordered_colored_svg(
 
     monkeypatch.setattr(Axes, "legend", capture_legend_options)
     monkeypatch.setattr(Axes, "text", capture_citation_geometry)
+    monkeypatch.setattr(
+        "mira_integration.comparison_chart_generator._OUTPUT_DIR",
+        tmp_path,
+    )
     _write_metrics(tmp_path, _DIRECT_RUNNER)
     _write_metrics(tmp_path, "other-runner", values=(20.0,))
 
@@ -233,8 +244,8 @@ def test_build_comparison_chart_writes_ordered_colored_svg(
         competitor_gpu_to_compare_with="B200",
         custom_y_axis="Average FPS",
         custom_title="MIRA throughput comparison",
+        target_file_name="chart.svg",
         flashdreams_gpu_other_runners=("other-runner",),
-        output_path=tmp_path / "chart.svg",
     )
 
     rendered = output.read_text(encoding="utf-8")
@@ -265,6 +276,20 @@ def test_comparison_figure_height_grows_with_runner_label_length() -> None:
 
     assert short_height == 9.5
     assert long_height > short_height
+
+
+def test_direct_comparison_runner_labels_are_bold() -> None:
+    from matplotlib.text import Text
+
+    labels = [Text(text=f"runner-{index}") for index in range(3)]
+
+    _bold_direct_comparison_labels(labels)
+
+    assert [label.get_fontweight() for label in labels] == [
+        "bold",
+        "bold",
+        "normal",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -307,8 +332,40 @@ def test_build_comparison_chart_rejects_blank_presentation_text(
             competitor_gpu_to_compare_with="B200",
             custom_y_axis=custom_y_axis,
             custom_title=custom_title,
-            output_path=tmp_path / "chart.svg",
+            target_file_name="chart.svg",
         )
+
+
+@pytest.mark.parametrize(
+    "target_file_name",
+    [
+        "folder/chart.svg",
+        "../chart.svg",
+        r"C:\temp\chart.svg",
+        "chart.png",
+        "",
+    ],
+)
+def test_output_path_rejects_location_or_non_svg_name(
+    target_file_name: str,
+) -> None:
+    with pytest.raises(ValueError, match="--target-file-name"):
+        _resolve_output_path(target_file_name)
+
+
+def test_output_path_uses_fixed_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "mira_integration.comparison_chart_generator._OUTPUT_DIR",
+        tmp_path,
+    )
+
+    assert (
+        _resolve_output_path("comparison.svg")
+        == (tmp_path / "comparison.svg").resolve()
+    )
 
 
 @pytest.mark.parametrize(
