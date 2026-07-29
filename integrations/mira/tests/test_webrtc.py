@@ -373,6 +373,7 @@ async def test_packaged_app_serves_mira_control_ui() -> None:
         html = await response.text()
         assert response.status == 200
         assert manager.preload_calls == 1
+        assert 'src="/static/horizontal-dark.svg"' in html
         assert "MIRA Mini · FlashDreams" in html
         assert '<div class="playerGrid" id="playerGrid"></div>' in html
         assert '<div class="controlGrid" id="controlGrid"></div>' in html
@@ -420,6 +421,11 @@ async def test_packaged_app_serves_mira_control_ui() -> None:
         assert response.status == 200
         assert ".controlDeck" in stylesheet
         assert "body.has-video #remoteVideo" in stylesheet
+
+        response = await client.get("/static/horizontal-dark.svg")
+        logo = await response.text()
+        assert response.status == 200
+        assert logo.startswith("<svg")
     finally:
         await client.close()
 

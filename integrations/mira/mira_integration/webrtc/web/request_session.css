@@ -42,13 +42,14 @@ button { color: inherit; }
 
 .brand { display: flex; gap: 13px; align-items: center; color: inherit; text-decoration: none; }
 .brand > span:last-child { display: grid; gap: 2px; }
-.brand strong { font-size: 14px; letter-spacing: 0.22em; }
 .brand small { color: var(--muted); font-size: 9px; letter-spacing: 0.18em; }
 
-.brandMark { position: relative; display: block; width: 34px; height: 34px; transform: rotate(30deg); }
-.brandMark i { position: absolute; inset: 2px; border: 2px solid var(--violet); border-radius: 2px; }
-.brandMark i:nth-child(2) { inset: 7px; border-color: var(--cyan); }
-.brandMark i:nth-child(3) { inset: 12px; border-color: var(--lime); }
+.brandLogo {
+  display: block;
+  width: 190px;
+  height: auto;
+  filter: drop-shadow(0 4px 18px rgba(0, 0, 0, 0.55));
+}
 
 .serverState {
   display: flex;
