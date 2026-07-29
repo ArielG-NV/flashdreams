@@ -25,9 +25,12 @@ import tyro
 from mira_integration.results_viewer import (
     MiraResultsViewer,
     MiraResultsViewerConfig,
+    _calculate_image_fidelity,
     _chart_gpu_name,
     _group_chart_rows_by_runner,
+    _render_runner_gpu_quality_table,
     build_results_report,
+    build_runner_gpu_quality_matrix,
     find_metrics_csvs,
     read_temporal_instability_metrics,
     summarize_runner_gpu_metrics,
@@ -98,7 +101,12 @@ def test_find_metrics_csvs_searches_each_direct_slug(tmp_path: Path) -> None:
 def test_viewer_config_parses_metrics_folders_positionally() -> None:
     config = tyro.cli(
         MiraResultsViewerConfig,
-        args=["metrics_folder_1", "metrics_folder_2"],
+        args=[
+            "metrics_folder_1",
+            "metrics_folder_2",
+            "--temporal-instability-mira-folder",
+            "mira_folder",
+        ],
         default=MiraResultsViewerConfig(runner_name="mira-results-viewer"),
     )
 
@@ -120,6 +128,32 @@ def test_viewer_config_parses_temporal_instability_mira_folder() -> None:
     )
 
     assert config.temporal_instability_mira_folder == Path("mira_folder")
+
+
+def test_viewer_config_requires_temporal_instability_mira_folder() -> None:
+    with pytest.raises(SystemExit):
+        tyro.cli(
+            MiraResultsViewerConfig,
+            args=["metrics_folder"],
+            default=MiraResultsViewerConfig(runner_name="mira-results-viewer"),
+        )
+
+
+def test_viewer_config_parses_ignored_runner_slugs() -> None:
+    config = tyro.cli(
+        MiraResultsViewerConfig,
+        args=[
+            "metrics_folder",
+            "--temporal-instability-mira-folder",
+            "mira_folder",
+            "--ignore-runner-slug",
+            "mira-a",
+            "mira-b",
+        ],
+        default=MiraResultsViewerConfig(runner_name="mira-results-viewer"),
+    )
+
+    assert config.ignore_runner_slug == ("mira-a", "mira-b")
 
 
 def test_summarize_runner_gpu_metrics_averages_repeated_configs() -> None:
@@ -156,7 +190,7 @@ def test_summarize_runner_gpu_metrics_averages_repeated_configs() -> None:
         "mira-a | GPU 2",
     ]
     assert summary["Average FPS"].tolist() == [50.0, 70.0]
-    assert summary["1% Lows FPS"].tolist() == [42.5, 60.0]
+    assert summary["Average FPS 1% Lows"].tolist() == [42.5, 60.0]
     assert summary["Model VRAM Footprint (GiB)"].tolist() == [8.0, 10.0]
 
 
@@ -179,10 +213,10 @@ def test_chart_rows_are_grouped_by_runner() -> None:
     chart_data = pd.DataFrame(
         [
             {"Runner": "mira-a", "GPU": "B200"},
-            {"Runner": "mira-mini-1p-1b-high", "GPU": "B200"},
+            {"Runner": "mira-mini-1-player-1b-8-step", "GPU": "B200"},
             {"Runner": "mira-z", "GPU": "B200"},
-            {"Runner": "mira-mini-1p-1b-high", "GPU": "B200"},
-            {"Runner": "mira-mini-1p-1b-high", "GPU": "M1 Pro"},
+            {"Runner": "mira-mini-1-player-1b-8-step", "GPU": "B200"},
+            {"Runner": "mira-mini-1-player-1b-8-step", "GPU": "M1 Pro"},
         ]
     )
 
@@ -190,9 +224,9 @@ def test_chart_rows_are_grouped_by_runner() -> None:
 
     assert grouped["Runner"].tolist() == [
         "mira-a",
-        "mira-mini-1p-1b-high",
-        "mira-mini-1p-1b-high",
-        "mira-mini-1p-1b-high",
+        "mira-mini-1-player-1b-8-step",
+        "mira-mini-1-player-1b-8-step",
+        "mira-mini-1-player-1b-8-step",
         "mira-z",
     ]
     assert grouped["GPU"].tolist()[1:4] == ["B200", "B200", "M1 Pro"]
@@ -216,7 +250,91 @@ def test_read_temporal_instability_metrics_averages_repeated_runners(
     assert summary["Temporal Instability"].tolist() == [3.0, 4.5]
 
 
-def test_build_results_report_writes_csv_html_and_charts(tmp_path: Path) -> None:
+def test_image_fidelity_uses_minimum_as_baseline_and_sorts_descending() -> None:
+    temporal_instability = pd.DataFrame(
+        [
+            {"Runner": "mira-c", "Temporal Instability": 4.0},
+            {"Runner": "mira-a", "Temporal Instability": 2.0},
+            {"Runner": "mira-b", "Temporal Instability": 2.5},
+        ]
+    )
+
+    image_fidelity = _calculate_image_fidelity(temporal_instability)
+
+    assert image_fidelity["Runner"].tolist() == ["mira-a", "mira-b", "mira-c"]
+    assert image_fidelity["Image-Fidelity (%)"].tolist() == [100.0, 80.0, 50.0]
+
+
+def test_runner_gpu_quality_matrix_pivots_real_metrics_only() -> None:
+    metrics = pd.DataFrame(
+        [
+            {
+                "runner": "mira-a",
+                "gpu_name": "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+                "runtime_average_fps": 20.0,
+            },
+            {
+                "runner": "mira-a",
+                "gpu_name": "GPU 1",
+                "runtime_average_fps": 10.0,
+            },
+            {
+                "runner": "mira-a",
+                "gpu_name": "GPU 1",
+                "runtime_average_fps": 14.0,
+            },
+            {
+                "runner": "mira-b",
+                "gpu_name": "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+                "runtime_average_fps": 40.0,
+            },
+        ]
+    )
+    image_fidelity = pd.DataFrame(
+        [
+            {"Runner": "mira-a", "Image-Fidelity (%)": 50.0},
+            {"Runner": "mira-b", "Image-Fidelity (%)": 100.0},
+        ]
+    )
+
+    matrix = build_runner_gpu_quality_matrix(metrics, image_fidelity)
+
+    assert matrix.columns.tolist() == [
+        "Runner-Slug",
+        "GPU 1 Avg. FPS",
+        "NVIDIA RTX PRO 6000 Blackwell Avg. FPS",
+        "Quality",
+    ]
+    assert matrix["Runner-Slug"].tolist() == ["mira-b", "mira-a"]
+    assert pd.isna(matrix.loc[0, "GPU 1 Avg. FPS"])
+    assert matrix.loc[0, "NVIDIA RTX PRO 6000 Blackwell Avg. FPS"] == 40.0
+    assert matrix.loc[1, "GPU 1 Avg. FPS"] == 12.0
+    assert matrix.loc[1, "NVIDIA RTX PRO 6000 Blackwell Avg. FPS"] == 20.0
+    assert matrix["Quality"].tolist() == [100.0, 50.0]
+
+
+def test_runner_gpu_quality_table_colors_fps_thresholds() -> None:
+    matrix = pd.DataFrame(
+        [
+            {
+                "Runner-Slug": "mira-a",
+                "GPU 1 Avg. FPS": 14.99,
+                "GPU 2 Avg. FPS": 15.0,
+                "GPU 3 Avg. FPS": 30.01,
+                "Quality": 100.0,
+            }
+        ]
+    )
+
+    rendered = _render_runner_gpu_quality_table(matrix)
+
+    assert "#f8d7da" in rendered
+    assert "#fff3cd" in rendered
+    assert "#d9f2df" in rendered
+    assert "100.0%" in rendered
+
+
+def test_build_results_report_writes_csv_and_single_table_html(tmp_path: Path) -> None:
     metrics_folder = tmp_path / "metrics"
     first = _write_metrics(
         metrics_folder,
@@ -249,25 +367,100 @@ def test_build_results_report_writes_csv_html_and_charts(tmp_path: Path) -> None
     )
 
     assert report.csv_path.is_file()
+    assert report.matrix_csv_path.is_file()
     assert report.html_path.is_file()
-    assert report.fps_chart_path.is_file()
-    assert report.one_percent_lows_fps_chart_path.is_file()
-    assert report.model_vram_chart_path.is_file()
-    assert report.temporal_instability_chart_path is not None
-    assert report.temporal_instability_chart_path.is_file()
+    assert not list(report.html_path.parent.glob("*.svg"))
     combined = pd.read_csv(report.csv_path)
+    matrix = pd.read_csv(report.matrix_csv_path)
     assert len(combined) == 2
     assert combined.loc[0, "source_csv"] == str(first)
+    assert matrix.columns.tolist() == [
+        "Runner-Slug",
+        "NVIDIA Test GPU Avg. FPS",
+        "Quality",
+    ]
+    assert matrix["Runner-Slug"].tolist() == ["mira-a", "mira-b"]
+    assert matrix["Quality"].tolist() == pytest.approx([100.0, 71.429], abs=0.001)
     rendered = report.html_path.read_text(encoding="utf-8")
-    assert "Pandas generated this local report" in rendered
-    assert "Average FPS" in rendered
-    assert report.fps_chart_path.name in rendered
-    assert report.one_percent_lows_fps_chart_path.name in rendered
-    assert report.model_vram_chart_path.name in rendered
-    assert report.temporal_instability_chart_path.name in rendered
-    assert "1% Lows FPS" in rendered
-    assert "VRAM Footprint Of Model Config" in rendered
-    assert "Temporal Instability" in rendered
+    assert "Runner performance and quality" in rendered
+    assert "/commit/" in rendered
+    assert rendered.count("<table") == 1
+    assert "<img" not in rendered
+    assert "Runner + GPU averages" not in rendered
+    assert "Concatenated metrics" not in rendered
+
+
+def test_build_results_report_ignores_runner_before_quality_baseline(
+    tmp_path: Path,
+) -> None:
+    metrics_folder = tmp_path / "metrics"
+    _write_metrics(
+        metrics_folder,
+        "mira-a",
+        gpu="GPU 1",
+        fps=10,
+        one_percent_lows_fps=8,
+        model_vram_gib=7,
+    )
+    _write_metrics(
+        metrics_folder,
+        "mira-b",
+        gpu="GPU 1",
+        fps=20,
+        one_percent_lows_fps=18,
+        model_vram_gib=7,
+    )
+    _write_temporal_instability_metrics(
+        tmp_path / "mira",
+        [
+            {"runner": "mira-a", "temporal_instability_metric": 2.0},
+            {"runner": "mira-b", "temporal_instability_metric": 4.0},
+        ],
+    )
+
+    report = build_results_report(
+        (metrics_folder,),
+        output_dir=tmp_path / "report",
+        temporal_instability_mira_folder=tmp_path / "mira",
+        ignore_runner_slugs=("mira-a",),
+    )
+
+    matrix = pd.read_csv(report.matrix_csv_path)
+    assert matrix["Runner-Slug"].tolist() == ["mira-b"]
+    assert matrix["Quality"].tolist() == [100.0]
+
+
+def test_runner_gpu_quality_csv_excludes_alakazam_reference_rows(
+    tmp_path: Path,
+) -> None:
+    runner = "mira-mini-1-player-1b-8-step"
+    metrics_folder = tmp_path / "metrics"
+    _write_metrics(
+        metrics_folder,
+        runner,
+        gpu="Measured GPU",
+        fps=12,
+        one_percent_lows_fps=10,
+        model_vram_gib=7,
+    )
+    _write_temporal_instability_metrics(
+        tmp_path / "mira",
+        [{"runner": runner, "temporal_instability_metric": 2.0}],
+    )
+
+    report = build_results_report(
+        (metrics_folder,),
+        output_dir=tmp_path / "report",
+        temporal_instability_mira_folder=tmp_path / "mira",
+    )
+
+    matrix = pd.read_csv(report.matrix_csv_path)
+    assert matrix.columns.tolist() == [
+        "Runner-Slug",
+        "Measured GPU Avg. FPS",
+        "Quality",
+    ]
+    assert matrix.loc[0, "Measured GPU Avg. FPS"] == 12.0
 
 
 def test_viewer_prints_and_opens_local_report(
@@ -284,11 +477,16 @@ def test_viewer_prints_and_opens_local_report(
         one_percent_lows_fps=45,
         model_vram_gib=9,
     )
+    _write_temporal_instability_metrics(
+        tmp_path / "mira",
+        [{"runner": "mira-a", "temporal_instability_metric": 2.0}],
+    )
     opened: list[str] = []
     monkeypatch.setattr("webbrowser.open", lambda uri: opened.append(uri) or True)
     config = MiraResultsViewerConfig(
         runner_name="mira-results-viewer",
         metrics_folders=(metrics_folder,),
+        temporal_instability_mira_folder=tmp_path / "mira",
         output_dir=tmp_path / "report",
     )
     viewer = config.setup()
@@ -298,6 +496,7 @@ def test_viewer_prints_and_opens_local_report(
 
     output = capsys.readouterr().out
     assert "Combined CSV:" in output
+    assert "Runner/GPU/quality CSV:" in output
     assert "Rendered in your default web browser from:" in output
     assert opened == [(tmp_path / "report" / "mira_results.html").resolve().as_uri()]
 

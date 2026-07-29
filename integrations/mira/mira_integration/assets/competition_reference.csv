@@ -1,0 +1,4 @@
+runner,gpu_name,runtime_average_fps,reference
+mira-mini-1-player-1b-8-step,B200,25.7,https://huggingface.co/alakazamworld/mira-mini
+mira-mini-1-player-1b-8-step,M1 Pro,1.4,https://huggingface.co/alakazamworld/mira-mini
+mira-mini-1-player-1b-8-step,NVIDIA RTX PRO 6000 Blackwell,5.5,https://github.com/ArielG-NV/alakazam-mira-mini

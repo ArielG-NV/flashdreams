@@ -57,7 +57,7 @@ pytestmark = pytest.mark.ci_cpu
 MANIFEST_PATH = (
     Path(__file__).parents[1] / "mira_integration" / "configs" / "mira_car_soccer.yaml"
 )
-DEMO_METADATA = load_demo_config(MANIFEST_PATH, "mira-mini-1p-1b-high").metadata
+DEMO_METADATA = load_demo_config(MANIFEST_PATH, "mira-mini-1-player-1b-8-step").metadata
 
 
 def test_runtime_has_no_alakazam_package_imports() -> None:
@@ -155,7 +155,7 @@ async def test_mp4_writer_defers_frame_conversion_and_adds_average_fps_holds(
 
 def test_runtime_metrics_are_rendered_as_csv() -> None:
     rendered = _format_runtime_metrics_csv(
-        runner_name="mira-mini-1p-1b-high",
+        runner_name="mira-mini-1-player-1b-8-step",
         fps=60,
         model_vram_bytes=3 * 1024**3,
         gpu_name="NVIDIA Test, GPU",
@@ -178,7 +178,7 @@ def test_runtime_metrics_are_rendered_as_csv() -> None:
     rows = list(csv.DictReader(rendered.splitlines()))
 
     assert len(rows) == 1
-    assert rows[0]["runner"] == "mira-mini-1p-1b-high"
+    assert rows[0]["runner"] == "mira-mini-1-player-1b-8-step"
     assert rows[0]["gpu_name"] == "NVIDIA Test, GPU"
     assert rows[0]["action-script"] == "W@5,W+D@5,Space@6,W+A@5"
     assert rows[0]["frames_per_chunk"] == "2"
@@ -199,14 +199,14 @@ def test_runner_all_selects_every_manifest_demo() -> None:
 
 def test_runner_clears_only_concrete_demo_output(tmp_path: Path) -> None:
     output_base = tmp_path / "mira"
-    demo_output = output_base / "mira-mini-1p-1b-high"
+    demo_output = output_base / "mira-mini-1-player-1b-8-step"
     demo_output.mkdir(parents=True)
     (demo_output / "old.mp4").write_bytes(b"old")
     sibling = output_base / "keep"
     sibling.mkdir()
     (sibling / "marker.txt").write_text("keep")
 
-    resolved = _clear_demo_output_dir(output_base, "mira-mini-1p-1b-high")
+    resolved = _clear_demo_output_dir(output_base, "mira-mini-1-player-1b-8-step")
 
     assert resolved == demo_output.resolve()
     assert not demo_output.exists()
@@ -330,7 +330,7 @@ def test_parse_action_script_uses_100ms_duration_units() -> None:
 
 def test_scripted_browser_controls_only_target_player_one() -> None:
     held = ["W", "D"]
-    metadata = load_demo_config(MANIFEST_PATH, "mira-mini-4p").metadata
+    metadata = load_demo_config(MANIFEST_PATH, "mira-mini-4-player-1b-8-step").metadata
     assert player_one_browser_controls(held, metadata=metadata) == (
         frozenset({"w", "d"}),
         None,

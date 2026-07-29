@@ -55,7 +55,7 @@ MANIFEST_PATH = (
     Path(__file__).parents[1] / "mira_integration" / "configs" / "mira_car_soccer.yaml"
 )
 DEMO_1P = load_demo_config(MANIFEST_PATH, "mira-mini-1b")
-DEMO_4P = load_demo_config(MANIFEST_PATH, "mira-mini-4p")
+DEMO_4P = load_demo_config(MANIFEST_PATH, "mira-mini-4-player-1b-8-step")
 
 
 def test_materialize_average_fps_video_holds_last_frame_across_gaps() -> None:
@@ -474,7 +474,7 @@ def test_manifest_generates_mira_test_pipeline() -> None:
 
 
 def test_manifest_generates_364m_checkpoint_architecture() -> None:
-    selection = load_demo_config(MANIFEST_PATH, "mira-mini-1p-364m")
+    selection = load_demo_config(MANIFEST_PATH, "mira-mini-1-player-364m")
     transformer = selection.pipeline.diffusion_model.transformer
     scheduler = selection.pipeline.diffusion_model.scheduler
     decoder = selection.pipeline.decoder

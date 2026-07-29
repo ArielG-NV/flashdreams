@@ -65,7 +65,7 @@ input-map:
       group_description: Jump, boost, and powerslide.
 
 demos:
-  mira-mini-1p-1b-high:
+  mira-mini-1-player-1b-8-step:
     checkpoint-hugging-face: alakazamworld/mira-mini
     input-map: car-soccer
     player_count: 1
@@ -85,8 +85,8 @@ demos:
     decoder_width: 1152
     decoder_depth: 28
     decoder_num_heads: 16
-    display_name: MIRA Mini 1B High (1P)
-  mira-mini-1p-1b-low:
+    display_name: MIRA Mini 1B 8-Step (1P)
+  mira-mini-1-player-1b-4-step:
     checkpoint-hugging-face: alakazamworld/mira-mini
     input-map: car-soccer
     player_count: 1
@@ -106,9 +106,9 @@ demos:
     decoder_width: 1152
     decoder_depth: 28
     decoder_num_heads: 16
-    display_name: MIRA Mini 1B Low (1P)
+    display_name: MIRA Mini 1B 4-Step (1P)
 
-  mira-mini-1p-364m-high:
+  mira-mini-1-player-364m-8-step:
     checkpoint-hugging-face: alakazamworld/mira-mini-364m
     input-map: car-soccer
     player_count: 1
@@ -128,8 +128,8 @@ demos:
     decoder_width: 576
     decoder_depth: 14
     decoder_num_heads: 9
-    display_name: MIRA Mini 364M High (1P)
-  mira-mini-1p-364m-low:
+    display_name: MIRA Mini 364M 8-Step (1P)
+  mira-mini-1-player-364m-4-step:
     checkpoint-hugging-face: alakazamworld/mira-mini-364m
     input-map: car-soccer
     player_count: 1
@@ -149,9 +149,9 @@ demos:
     decoder_width: 576
     decoder_depth: 14
     decoder_num_heads: 9
-    display_name: MIRA Mini 364M Low (1P)
+    display_name: MIRA Mini 364M 4-Step (1P)
 
-  mira-mini-4p:
+  mira-mini-4-player-1b-8-step:
     checkpoint-hugging-face: alakazamworld/mira-mini-4p
     input-map: car-soccer
     player_count: 4

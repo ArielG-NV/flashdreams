@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import html
 import shutil
+import subprocess
 import webbrowser
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -49,19 +50,10 @@ _GPU_BAR_COLORS = (
 )
 """Green chart palette ordered from the first discovered GPU onward."""
 
-_ALAKAZAM_AVERAGE_FPS_ROWS = (
-    {
-        "Runner": "mira-mini-1p-1b-high",
-        "GPU": "B200",
-        "Average FPS": 25.7,
-    },
-    {
-        "Runner": "mira-mini-1p-1b-high",
-        "GPU": "M1 Pro",
-        "Average FPS": 1.4,
-    },
+_COMPETITION_REFERENCE_PATH = (
+    Path(__file__).resolve().parent / "assets" / "competition_reference.csv"
 )
-"""Published Alakazam reference results included in the average-FPS chart."""
+"""Packaged competitor measurements included in the average-FPS chart."""
 
 _ALAKAZAM_BAR_COLOR = "#FF0000"
 """Bar color used to distinguish Alakazam reference results."""
@@ -80,11 +72,14 @@ class MiraResultsViewerConfig(RunnerConfig):
     metrics_folders: Annotated[tuple[Path, ...], tyro.conf.Positional] = tyro.MISSING
     """Folders containing ``<slug>/metrics_mira.csv`` results."""
 
-    temporal_instability_mira_folder: Path | None = None
-    """MIRA folder containing ``temporal-instability/results.csv``."""
+    temporal_instability_mira_folder: Path = tyro.MISSING
+    """MIRA folder containing the required ``temporal-instability/results.csv``."""
+
+    ignore_runner_slug: tuple[str, ...] = ()
+    """Runner slugs to omit from every generated report artifact."""
 
     output_dir: Path = Path("artifacts/mira-results-viewer")
-    """Directory for the merged CSV, charts, and local HTML report."""
+    """Directory for the generated CSV files and local HTML report."""
 
     open_browser: bool = True
     """Open the generated local report in the default browser."""
@@ -97,20 +92,11 @@ class MiraResultsReport:
     csv_path: Path
     """Concatenated metrics CSV."""
 
+    matrix_csv_path: Path
+    """Runner-by-GPU average-FPS and quality CSV."""
+
     html_path: Path
-    """Local HTML table and chart report."""
-
-    fps_chart_path: Path
-    """Average-FPS SVG chart."""
-
-    one_percent_lows_fps_chart_path: Path
-    """One-percent-lows-FPS SVG chart."""
-
-    model_vram_chart_path: Path
-    """Model-VRAM-footprint SVG chart."""
-
-    temporal_instability_chart_path: Path | None = None
-    """Temporal-instability SVG chart, when quality results were supplied."""
+    """Local runner performance and quality report."""
 
 
 class MiraResultsViewer(Runner[MiraResultsViewerConfig, Any]):
@@ -127,12 +113,12 @@ class MiraResultsViewer(Runner[MiraResultsViewerConfig, Any]):
         report = build_results_report(
             self.config.metrics_folders,
             output_dir=self.config.output_dir,
-            temporal_instability_mira_folder=(
-                self.config.temporal_instability_mira_folder
-            ),
+            temporal_instability_mira_folder=self.config.temporal_instability_mira_folder,
+            ignore_runner_slugs=self.config.ignore_runner_slug,
         )
         report_uri = report.html_path.as_uri()
         print(f"Combined CSV: {report.csv_path}")
+        print(f"Runner/GPU/quality CSV: {report.matrix_csv_path}")
         print(f"Pandas HTML report: {report.html_path}")
         print(f"Rendered in your default web browser from: {report_uri}")
         print(
@@ -330,101 +316,64 @@ def build_results_report(
     metrics_folders: tuple[Path, ...],
     *,
     output_dir: Path,
-    temporal_instability_mira_folder: Path | None = None,
+    temporal_instability_mira_folder: Path,
+    ignore_runner_slugs: tuple[str, ...] = (),
 ) -> MiraResultsReport:
     """Build the merged CSV, pandas charts, and local HTML report.
 
     Args:
         metrics_folders: Parent folders whose direct children contain metrics.
         output_dir: Destination for all generated report artifacts.
-        temporal_instability_mira_folder: Optional MIRA artifact root containing
+        temporal_instability_mira_folder: MIRA artifact root containing
             ``temporal-instability/results.csv``.
+        ignore_runner_slugs: Runner slugs to exclude before aggregation.
 
     Returns:
         Absolute paths to the generated artifacts.
     """
     csv_paths = find_metrics_csvs(metrics_folders)
     combined = concatenate_metrics(csv_paths)
-    summary = summarize_runner_gpu_metrics(combined)
-    temporal_instability = (
-        read_temporal_instability_metrics(temporal_instability_mira_folder)
-        if temporal_instability_mira_folder is not None
-        else None
+    combined = _exclude_runner_slugs(
+        combined,
+        runner_column="runner",
+        ignored=ignore_runner_slugs,
+        data_description="MIRA metrics",
     )
+    temporal_instability = _exclude_runner_slugs(
+        read_temporal_instability_metrics(temporal_instability_mira_folder),
+        runner_column="Runner",
+        ignored=ignore_runner_slugs,
+        data_description="temporal-instability results",
+    )
+    image_fidelity = _calculate_image_fidelity(temporal_instability)
+    runner_gpu_quality = build_runner_gpu_quality_matrix(
+        combined,
+        image_fidelity,
+    )
+    generated_via_url, generated_via_label = _repository_provenance()
 
     resolved_output = _replace_results_output_dir(
         output_dir,
         input_csv_paths=csv_paths,
     )
     csv_path = resolved_output / "metrics_mira_combined.csv"
-    fps_chart_path = resolved_output / "average_fps_by_runner_gpu.svg"
-    one_percent_lows_fps_chart_path = (
-        resolved_output / "one_percent_lows_fps_by_runner_gpu.svg"
-    )
-    model_vram_chart_path = resolved_output / "model_vram_footprint_by_runner_gpu.svg"
-    temporal_instability_chart_path = (
-        resolved_output / "temporal_instability_by_runner.svg"
-        if temporal_instability is not None
-        else None
-    )
+    matrix_csv_path = resolved_output / "runner_gpu_quality.csv"
     html_path = resolved_output / "mira_results.html"
 
     combined.to_csv(csv_path, index=False)
-    _write_bar_chart(
-        summary,
-        value_column="Average FPS",
-        title="Average FPS (Mean) by Runner + GPU",
-        ylabel="Average FPS",
-        output_path=fps_chart_path,
-        color="#76B900",
-        alakazam_average_fps=True,
-    )
-    _write_bar_chart(
-        summary,
-        value_column="Average FPS 1% Lows",
-        title="Average FPS 1% Lows (Mean) by Runner + GPU",
-        ylabel="Average FPS 1% Lows",
-        output_path=one_percent_lows_fps_chart_path,
-        color="#5B8FF9",
-    )
-    _write_bar_chart(
-        summary,
-        value_column="Model VRAM Footprint (GiB)",
-        title="VRAM Footprint Of Model Config by Runner + GPU",
-        ylabel="Model VRAM footprint (GiB)",
-        output_path=model_vram_chart_path,
-        color="#F6BD16",
-    )
-    if temporal_instability is not None and temporal_instability_chart_path is not None:
-        _write_bar_chart(
-            temporal_instability,
-            category_column="Runner",
-            value_column="Temporal Instability",
-            title="Temporal Instability by Runner - Lower is better - EXPERIMENTAL",
-            ylabel="Temporal instability",
-            output_path=temporal_instability_chart_path,
-            color="#E8684A",
-        )
+    runner_gpu_quality.to_csv(matrix_csv_path, index=False, float_format="%.3f")
     html_path.write_text(
         _render_html_report(
-            combined,
-            summary,
-            temporal_instability=temporal_instability,
-            csv_path=csv_path,
-            fps_chart_path=fps_chart_path,
-            one_percent_lows_fps_chart_path=one_percent_lows_fps_chart_path,
-            model_vram_chart_path=model_vram_chart_path,
-            temporal_instability_chart_path=temporal_instability_chart_path,
+            runner_gpu_quality=runner_gpu_quality,
+            generated_via_url=generated_via_url,
+            generated_via_label=generated_via_label,
         ),
         encoding="utf-8",
     )
     return MiraResultsReport(
         csv_path=csv_path,
+        matrix_csv_path=matrix_csv_path,
         html_path=html_path,
-        fps_chart_path=fps_chart_path,
-        one_percent_lows_fps_chart_path=one_percent_lows_fps_chart_path,
-        model_vram_chart_path=model_vram_chart_path,
-        temporal_instability_chart_path=temporal_instability_chart_path,
     )
 
 
@@ -476,7 +425,7 @@ def _write_bar_chart(
     chart_data = summary.copy()
     chart_data["_result_source"] = "Flashdreams"
     if alakazam_average_fps:
-        alakazam_data = pd.DataFrame(_ALAKAZAM_AVERAGE_FPS_ROWS)
+        alakazam_data = _read_alakazam_average_fps_rows()
         alakazam_data["_result_source"] = "Alakazam"
         chart_data = pd.concat([chart_data, alakazam_data], ignore_index=True)
         chart_data = _group_chart_rows_by_runner(chart_data)
@@ -521,7 +470,7 @@ def _write_bar_chart(
                     facecolor=_ALAKAZAM_BAR_COLOR,
                     label=f"{_chart_gpu_name(str(row['GPU']))} - Alakazam",
                 )
-                for row in _ALAKAZAM_AVERAGE_FPS_ROWS
+                for _, row in alakazam_data.iterrows()
             )
         axes.legend(
             handles=legend_handles,
@@ -535,6 +484,29 @@ def _write_bar_chart(
     axes.figure.tight_layout()
     axes.figure.savefig(output_path, format="svg", bbox_inches="tight")
     plt.close(axes.figure)
+
+
+def _read_alakazam_average_fps_rows() -> pd.DataFrame:
+    """Read published average-FPS rows from the competition reference CSV."""
+    reference = pd.read_csv(_COMPETITION_REFERENCE_PATH)
+    required = {"runner", "gpu_name", "runtime_average_fps"}
+    missing = sorted(required.difference(reference.columns))
+    if missing:
+        raise ValueError(
+            f"Competition reference CSV is missing required columns: {missing}"
+        )
+    rows = reference.loc[:, sorted(required)].rename(
+        columns={
+            "runner": "Runner",
+            "gpu_name": "GPU",
+            "runtime_average_fps": "Average FPS",
+        }
+    )
+    rows["Average FPS"] = pd.to_numeric(rows["Average FPS"], errors="coerce")
+    rows = rows.dropna(subset=["Runner", "GPU", "Average FPS"])
+    if rows.empty:
+        raise ValueError("Competition reference CSV contains no average-FPS rows.")
+    return rows
 
 
 def _gpu_color_map(gpu_names: pd.Series) -> dict[str, str]:
@@ -551,48 +523,168 @@ def _group_chart_rows_by_runner(chart_data: pd.DataFrame) -> pd.DataFrame:
     return chart_data.sort_values("Runner", kind="stable", ignore_index=True)
 
 
+def _calculate_image_fidelity(temporal_instability: pd.DataFrame) -> pd.DataFrame:
+    """Express temporal instability relative to the minimum-value baseline."""
+    image_fidelity = temporal_instability.loc[
+        :, ["Runner", "Temporal Instability"]
+    ].copy()
+    instability = image_fidelity["Temporal Instability"]
+    baseline = instability.min()
+    image_fidelity["Image-Fidelity (%)"] = baseline / instability * 100.0
+    image_fidelity.loc[
+        instability == baseline,
+        "Image-Fidelity (%)",
+    ] = 100.0
+    return image_fidelity.loc[:, ["Runner", "Image-Fidelity (%)"]].sort_values(
+        ["Image-Fidelity (%)", "Runner"],
+        ascending=[False, True],
+        kind="stable",
+        ignore_index=True,
+    )
+
+
+def build_runner_gpu_quality_matrix(
+    metrics: pd.DataFrame,
+    image_fidelity: pd.DataFrame,
+) -> pd.DataFrame:
+    """Build one runner row with dynamic GPU FPS columns and relative quality.
+
+    Args:
+        metrics: Concatenated raw MIRA metrics without synthetic reference rows.
+        image_fidelity: Runner quality percentages derived from temporal instability.
+
+    Returns:
+        Matrix ordered as ``Runner-Slug``, GPU average-FPS columns, and ``Quality``.
+
+    Raises:
+        ValueError: Required columns are missing or no numeric FPS rows exist.
+    """
+    required_metrics = {"runner", "gpu_name", "runtime_average_fps"}
+    missing_metrics = sorted(required_metrics.difference(metrics.columns))
+    if missing_metrics:
+        raise ValueError(f"MIRA metrics are missing matrix columns: {missing_metrics}")
+    required_quality = {"Runner", "Image-Fidelity (%)"}
+    missing_quality = sorted(required_quality.difference(image_fidelity.columns))
+    if missing_quality:
+        raise ValueError(
+            f"Image-fidelity results are missing matrix columns: {missing_quality}"
+        )
+
+    fps_rows = metrics.loc[:, sorted(required_metrics)].copy()
+    fps_rows["runtime_average_fps"] = pd.to_numeric(
+        fps_rows["runtime_average_fps"],
+        errors="coerce",
+    )
+    fps_rows = fps_rows.dropna(subset=["runner", "gpu_name", "runtime_average_fps"])
+    if fps_rows.empty:
+        raise ValueError("MIRA metrics contain no numeric average-FPS matrix rows.")
+    fps_rows["gpu_name"] = fps_rows["gpu_name"].astype(str).map(_table_gpu_name)
+
+    fps_matrix = (
+        fps_rows.groupby(["runner", "gpu_name"], sort=True)["runtime_average_fps"]
+        .mean()
+        .unstack("gpu_name")
+        .rename(columns=lambda gpu: f"{gpu} Avg. FPS")
+        .rename_axis(columns=None)
+        .reset_index()
+        .rename(columns={"runner": "Runner-Slug"})
+    )
+    quality = image_fidelity.loc[:, ["Runner", "Image-Fidelity (%)"]].rename(
+        columns={"Runner": "Runner-Slug", "Image-Fidelity (%)": "Quality"}
+    )
+    matrix = fps_matrix.merge(quality, on="Runner-Slug", how="outer", sort=True)
+    gpu_columns = sorted(
+        column for column in matrix.columns if column not in {"Runner-Slug", "Quality"}
+    )
+    return matrix.loc[:, ["Runner-Slug", *gpu_columns, "Quality"]].sort_values(
+        ["Quality", "Runner-Slug"],
+        ascending=[False, True],
+        kind="stable",
+        na_position="last",
+        ignore_index=True,
+    )
+
+
+def _table_gpu_name(gpu_name: str) -> str:
+    """Return at most the first five words of a table GPU name."""
+    return " ".join(gpu_name.split()[:5])
+
+
+def _exclude_runner_slugs(
+    data: pd.DataFrame,
+    *,
+    runner_column: str,
+    ignored: tuple[str, ...],
+    data_description: str,
+) -> pd.DataFrame:
+    """Remove ignored runner slugs and reject an empty result."""
+    if not ignored:
+        return data
+    if runner_column not in data.columns:
+        raise ValueError(
+            f"{data_description} are missing runner column: {runner_column}"
+        )
+    filtered = data.loc[~data[runner_column].astype(str).isin(ignored)].copy()
+    if filtered.empty:
+        raise ValueError(f"Ignoring runner slugs removed all {data_description} rows.")
+    return filtered.reset_index(drop=True)
+
+
+def _repository_provenance() -> tuple[str, str]:
+    """Return a web commit URL and label for the source repository."""
+    repository_root = Path(__file__).resolve().parents[3]
+    commit = _git_output(repository_root, "rev-parse", "HEAD")
+    remote_url = _git_output(repository_root, "remote", "get-url", "upstream")
+    if not remote_url:
+        remote_url = _git_output(repository_root, "remote", "get-url", "origin")
+    web_url = _repository_web_url(remote_url)
+    if web_url and commit:
+        return f"{web_url}/commit/{commit}", f"{web_url} @ {commit}"
+    return "", "repository provenance unavailable"
+
+
+def _git_output(repository_root: Path, *args: str) -> str:
+    """Run a read-only Git query and return an empty string when unavailable."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repository_root), *args],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _repository_web_url(remote_url: str) -> str:
+    """Normalize common HTTPS and SSH Git remotes to a web repository URL."""
+    normalized = remote_url.strip()
+    if normalized.startswith("git@") and ":" in normalized:
+        host, repository = normalized[4:].split(":", maxsplit=1)
+        normalized = f"https://{host}/{repository}"
+    return normalized.removesuffix(".git").rstrip("/")
+
+
 def _chart_gpu_name(gpu_name: str) -> str:
     """Return at most the first four words of a GPU name."""
     return " ".join(gpu_name.split()[:4])
 
 
 def _render_html_report(
-    combined: pd.DataFrame,
-    summary: pd.DataFrame,
     *,
-    temporal_instability: pd.DataFrame | None,
-    csv_path: Path,
-    fps_chart_path: Path,
-    one_percent_lows_fps_chart_path: Path,
-    model_vram_chart_path: Path,
-    temporal_instability_chart_path: Path | None,
+    runner_gpu_quality: pd.DataFrame,
+    generated_via_url: str,
+    generated_via_label: str,
 ) -> str:
-    table = combined.to_html(
-        index=False,
-        border=0,
-        classes="metrics-table",
-        na_rep="",
-        float_format=lambda value: f"{value:.3f}",
+    matrix_table = _render_runner_gpu_quality_table(runner_gpu_quality)
+    escaped_provenance_label = html.escape(generated_via_label)
+    generated_via = (
+        f'<a href="{html.escape(generated_via_url, quote=True)}">'
+        f"{escaped_provenance_label}</a>"
+        if generated_via_url
+        else escaped_provenance_label
     )
-    summary_table = summary.to_html(
-        index=False,
-        border=0,
-        classes="metrics-table",
-        float_format=lambda value: f"{value:.3f}",
-    )
-    temporal_instability_section = ""
-    if temporal_instability is not None and temporal_instability_chart_path is not None:
-        temporal_instability_table = temporal_instability.to_html(
-            index=False,
-            border=0,
-            classes="metrics-table",
-            float_format=lambda value: f"{value:.3f}",
-        )
-        temporal_instability_section = f"""
-  <h2>Temporal Instability</h2>
-  <img src="{html.escape(temporal_instability_chart_path.name)}"
-       alt="Temporal instability bar chart">
-  <div class="table-wrap">{temporal_instability_table}</div>"""
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -602,9 +694,7 @@ def _render_html_report(
   <style>
     body {{ background: #f4fbf6; color: #17351f;
             font: 15px system-ui, sans-serif; margin: 2rem; }}
-    h1, h2 {{ color: #14532d; }}
-    .note {{ background: #e8f5eb; border-left: 4px solid #2f855a;
-             padding: 1rem; }}
+    h1 {{ color: #14532d; }}
     .table-wrap {{ max-height: 36rem; overflow: auto; }}
     .metrics-table {{ border-collapse: collapse; min-width: 100%; white-space: nowrap; }}
     .metrics-table th {{ background: #166534; color: white;
@@ -612,34 +702,53 @@ def _render_html_report(
     .metrics-table th, .metrics-table td {{ border: 1px solid #b7d6c0;
                                             padding: .45rem; }}
     .metrics-table tbody tr:nth-child(even) {{ background: #eaf6ed; }}
-    img {{ background: white; border: 1px solid #b7d6c0;
-           height: auto; max-width: 100%; }}
-    code {{ background: #e6f2e9; color: #14532d; overflow-wrap: anywhere;
-            white-space: normal; }}
+    .runner-gpu-quality td {{ font-variant-numeric: tabular-nums; }}
+    .generated-via {{ color: #48624f; font-size: .9rem; }}
+    a {{ color: #166534; }}
   </style>
 </head>
 <body>
-  <h1>MIRA Results Viewer</h1>
-  <p class="note">Pandas generated this local report. It is rendered by your
-  web browser from files on this computer; no server or native pandas window
-  is running.</p>
-  <p>Combined CSV: <code>{html.escape(str(csv_path))}</code></p>
-  <h2>Average FPS (Mean)</h2>
-  <img src="{html.escape(fps_chart_path.name)}" alt="Average FPS (Mean) Bar Chart">
-  <h2>Average FPS 1% Lows (Mean)</h2>
-  <img src="{html.escape(one_percent_lows_fps_chart_path.name)}"
-       alt="Average FPS 1% Lows (Mean) Bar Chart">
-  <h2>VRAM Footprint Of Model Config</h2>
-  <img src="{html.escape(model_vram_chart_path.name)}"
-       alt="Model VRAM footprint Bar Chart">
-{temporal_instability_section}
-  <h2>Runner + GPU averages</h2>
-  <div class="table-wrap">{summary_table}</div>
-  <h2>Concatenated metrics ({len(combined)} rows)</h2>
-  <div class="table-wrap">{table}</div>
+  <h1>Runner performance and quality</h1>
+  <div class="table-wrap">{matrix_table}</div>
+  <p class="generated-via">Chart Generated via: {generated_via}</p>
 </body>
 </html>
 """
+
+
+def _render_runner_gpu_quality_table(matrix: pd.DataFrame) -> str:
+    """Render the runner matrix with threshold-colored average-FPS cells."""
+    fps_columns = [column for column in matrix.columns if column.endswith(" Avg. FPS")]
+    styler = matrix.style
+    styler.hide(axis="index")
+    for column in fps_columns:
+        styler.format(
+            "{:.2f}",
+            subset=[column],
+            na_rep="",
+            escape="html",
+        )
+    styler.format(
+        "{:.1f}%",
+        subset=["Quality"],
+        na_rep="",
+        escape="html",
+    )
+    if fps_columns:
+        styler.map(_average_fps_cell_style, subset=fps_columns)
+    return styler.to_html(table_attributes='class="metrics-table runner-gpu-quality"')
+
+
+def _average_fps_cell_style(value: Any) -> str:
+    """Return a soft threshold color for one average-FPS table cell."""
+    if pd.isna(value):
+        return ""
+    fps = float(value)
+    if fps < 15.0:
+        return "background-color: #f8d7da; color: #6b1d24;"
+    if fps > 30.0:
+        return "background-color: #d9f2df; color: #174d28;"
+    return "background-color: #fff3cd; color: #5f4b00;"
 
 
 __all__ = [
@@ -647,6 +756,7 @@ __all__ = [
     "MiraResultsViewer",
     "MiraResultsViewerConfig",
     "build_results_report",
+    "build_runner_gpu_quality_matrix",
     "concatenate_metrics",
     "find_metrics_csvs",
     "read_temporal_instability_metrics",

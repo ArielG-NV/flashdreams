@@ -38,7 +38,7 @@ _DEFAULT_MANIFEST = Path(__file__).parent / "configs" / "mira_car_soccer.yaml"
 _RESULTS_FILENAME = "results.csv"
 """Machine-readable quality-suite output filename."""
 
-_QUALITY_RENDER_COUNT = 3
+_QUALITY_RENDER_COUNT = 5
 """Number of independently seeded renders scored for each manifest demo."""
 
 

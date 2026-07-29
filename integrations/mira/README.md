@@ -21,7 +21,7 @@ are written to `artifacts/mira/<mira-demo-name>/` by default:
 # W for 1.0s, then W+D for 0.6s, then Space for 0.2s, then W+A for 0.6s
 LOGURU_LEVEL="WARNING" uv run flashdreams-run mira \
   --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
-  --demo mira-mini-1p-1b-high \
+  --demo mira-mini-1-player-1b-8-step \
   --action-script 'W+D@5,W+A@5,Space@6,W@5'
 ```
 
@@ -56,19 +56,19 @@ Launch the browser UI to host MIRA. Browser will print the `<IP>/request_session
 # launch 4 player mira demo
 uv run mira-webrtc \
   --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
-  --demo mira-mini-4p \
+  --demo mira-mini-4-player-1b-8-step \
   --host 0.0.0.0 --port 8083
 
 # launch 1 player mira demo
 uv run mira-webrtc \
   --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
-  --demo mira-mini-1p-1b-high \
+  --demo mira-mini-1-player-1b-8-step \
   --host 0.0.0.0 --port 8083
 
   # launch 1 player 364m mira demo
 uv run mira-webrtc \
   --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
-  --demo mira-mini-1p-364m-high \
+  --demo mira-mini-1-player-364m-8-step \
   --host 0.0.0.0 --port 8083
 ```
 
@@ -126,7 +126,7 @@ nsys profile \
   --gpu-metrics-frequency=1000 \
   uv run flashdreams-run mira \
     --manifest integrations/mira/mira_integration/configs/mira_car_soccer.yaml \
-    --demo mira-mini-1p-1b-high \
+    --demo mira-mini-1-player-1b-8-step \
     --action-script 'W+D@5,W+A@5,Space@6,W@5'
 ```
 
@@ -139,13 +139,10 @@ uv run flashdreams-run calculate-mira-quality \
   --action-script 'W+D@5,W+A@5,Space@6,W@5'
 ```
 
-The command renders each concrete demo three times using the supplied action
-script and consecutive seeds.
-It writes the videos and `results.csv` under
-`artifacts/mira/temporal-instability/`. The CSV includes:
+The command renders each concrete demo multiple times using the supplied action
+script and consecutive seeds; These values are used to compute quality metrics:
 * `temporal_instability_metric`: average motion-compensated pixel-boiling score
-  across the three renders
-* `temporal_instability_trial_1`, `_2`, and `_3`: individual render scores
+    * Stored in `artifacts/mira/temporal-instability/`
 
 ## Results Viewer
 
@@ -155,17 +152,50 @@ report after running the MIRA demo and Quality Evaluation suite:
 ```bash
 uv run flashdreams-run mira-results-viewer \
   mira_metrics_folder_1 mira_metrics_folder_2 ... \
-  --temporal-instability-mira-folder <mira_folder>
+  --temporal-instability-mira-folder <mira_folder> \
+  --ignore-runner-slug <runner_slug_to_skip>
 
 # Example:
 uv run flashdreams-run mira-results-viewer artifacts/mira/ \
-  --temporal-instability-mira-folder artifacts/mira/
+  --temporal-instability-mira-folder artifacts/mira/ \
+  --ignore-runner-slug mira-mini-4-player-1b-8-step
 ```
 
 For each supplied folder, the viewer reads every direct child matching
-`<metrics-folder>/<slug>/metrics_mira.csv`. It writes the concatenated CSV,
-an HTML table, and bar charts. The report output directory is replaced
-on every run so stale charts are removed.
+`<metrics-folder>/<slug>/metrics_mira.csv`. The temporal-instability folder is
+required. It writes `runner_gpu_quality.csv` and a single HTML table with one
+row per runner and one average-FPS column per discovered GPU.
+
+Pass one or more names after `--ignore-runner-slug` to remove
+runner slugs before aggregation.
+
+The HTML report color-codes FPS below 15 red,
+15 through 30 yellow, and above 30 green, and records the source repository
+commit below the table. Rows are ordered by relative quality, with 100% first.
+
+## Comparison Chart Generator
+
+Generate a focused comparison from one MIRA result folder:
+
+```bash
+uv run flashdreams-run mira-comparison-chart-generator artifacts/mira/ \
+  --metric-to-compare runtime_average_fps \
+  --runner-slug-direct-compare mira-mini-1-player-1b-8-step \
+  --flashdreams-gpu-to-compare-with "NVIDIA RTX PRO 6000 Blackwell.*" \
+  --competitor-gpu-to-compare-with "NVIDIA RTX PRO 6000 Blackwell" \
+  --custom-y-axis "Average FPS" \
+  --custom-title "MIRA Mini Comparison [Workstation]" \
+  --flashdreams-gpu-other-runner mira-mini-1-player-1b-4-step \
+  --flashdreams-gpu-other-runner mira-mini-1-player-364m-4-step
+```
+
+The Competitor bar is red and leftmost. The matching direct FlashDreams bar
+and any repeated `--flashdreams-gpu-other-runner` bars are green and appear to
+its right. Both `--custom-y-axis` and `--custom-title` are required. The
+Competitor legend entry carries an Oxford-style superscript citation to the
+source URL printed below the chart. The chart, stacked legend, and citation use
+relative layout rows, and the figure height grows with rotated runner-label
+length so content is not clipped.
 
 ## Troubleshooting
 

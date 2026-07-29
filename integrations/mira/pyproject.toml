@@ -50,6 +50,7 @@ mira-webrtc = "mira_integration.webrtc.server:main"
 [project.entry-points."flashdreams.runner_configs"]
 calculate-mira-quality = "mira_integration.configs:RUNNER_CALCULATE_MIRA_QUALITY"
 mira = "mira_integration.configs:RUNNER_MIRA"
+mira-comparison-chart-generator = "mira_integration.configs:RUNNER_MIRA_COMPARISON_CHART_GENERATOR"
 mira-results-viewer = "mira_integration.configs:RUNNER_MIRA_RESULTS_VIEWER"
 
 [tool.setuptools.packages.find]
@@ -57,5 +58,6 @@ include = ["mira_integration*"]
 exclude = ["tests"]
 
 [tool.setuptools.package-data]
+"mira_integration" = ["assets/*.csv"]
 "mira_integration.configs" = ["*.yaml"]
 "mira_integration.webrtc.web" = ["*.html", "*.css", "*.js"]

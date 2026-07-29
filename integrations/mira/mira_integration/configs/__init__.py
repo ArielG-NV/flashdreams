@@ -17,6 +17,9 @@
 
 import nvtx
 
+from mira_integration.comparison_chart_generator import (
+    MiraComparisonChartGeneratorConfig,
+)
 from mira_integration.configs.manifest import (
     build_pipeline_config,
     load_demo_config,
@@ -42,9 +45,15 @@ RUNNER_MIRA = MiraDemoRunnerConfig(
 
 RUNNER_MIRA_RESULTS_VIEWER = MiraResultsViewerConfig(
     runner_name="mira-results-viewer",
-    description="Combine and chart MIRA metrics in a local browser report.",
+    description="Combine MIRA performance and quality in a local browser report.",
 )
 """Pandas-backed ``flashdreams-run mira-results-viewer`` dispatcher."""
+
+RUNNER_MIRA_COMPARISON_CHART_GENERATOR = MiraComparisonChartGeneratorConfig(
+    runner_name="mira-comparison-chart-generator",
+    description="Compare one competitor result with selected MIRA metrics.",
+)
+"""``flashdreams-run mira-comparison-chart-generator`` dispatcher."""
 
 RUNNER_CALCULATE_MIRA_QUALITY = MiraQualityRunnerConfig(
     runner_name="calculate-mira-quality",
@@ -65,6 +74,7 @@ __all__ = [
     "load_mira_manifest",
     "preview_grid_dimensions",
     "RUNNER_CALCULATE_MIRA_QUALITY",
+    "RUNNER_MIRA_COMPARISON_CHART_GENERATOR",
     "RUNNER_MIRA",
     "RUNNER_MIRA_RESULTS_VIEWER",
 ]
