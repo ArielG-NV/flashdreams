@@ -37,6 +37,9 @@ _COMPETITION_REFERENCE_PATH = (
 )
 """Packaged competitor measurements and their source references."""
 
+_OUTPUT_DIR = Path("artifacts/mira-comparison-chart")
+"""Fixed directory for generated comparison charts."""
+
 _COMPETITOR_COLOR = "#D62728"
 """Red used for the leftmost competitor bar."""
 
@@ -80,8 +83,8 @@ class MiraComparisonChartGeneratorConfig(RunnerConfig):
     ] = ()
     """Additional runner slugs appended as FlashDreams bars."""
 
-    output_path: Path = Path("artifacts/mira-comparison-chart/comparison.svg")
-    """Destination SVG path."""
+    target_file_name: str = tyro.MISSING
+    """Required bare SVG filename below the fixed comparison-chart directory."""
 
     open_browser: bool = True
     """Open the generated SVG in the default browser."""
@@ -129,7 +132,7 @@ class MiraComparisonChartGenerator(Runner[MiraComparisonChartGeneratorConfig, An
             custom_y_axis=self.config.custom_y_axis,
             custom_title=self.config.custom_title,
             flashdreams_gpu_other_runners=(self.config.flashdreams_gpu_other_runner),
-            output_path=self.config.output_path,
+            target_file_name=self.config.target_file_name,
         )
         print(f"Comparison chart: {output_path}")
         print(f"Rendered from: {output_path.as_uri()}")
@@ -243,8 +246,8 @@ def build_comparison_chart(
     competitor_gpu_to_compare_with: str,
     custom_y_axis: str,
     custom_title: str,
+    target_file_name: str,
     flashdreams_gpu_other_runners: tuple[str, ...] = (),
-    output_path: Path,
     competition_reference_path: Path = _COMPETITION_REFERENCE_PATH,
 ) -> Path:
     """Generate an SVG bar chart for one competitor-to-FlashDreams comparison.
@@ -257,8 +260,8 @@ def build_comparison_chart(
         competitor_gpu_to_compare_with: Regex selecting one reference GPU.
         custom_y_axis: Text displayed on the chart's y-axis.
         custom_title: Text displayed as the chart title.
+        target_file_name: Bare SVG filename below the fixed output directory.
         flashdreams_gpu_other_runners: Additional measured runner slugs.
-        output_path: Destination SVG path.
         competition_reference_path: Competition reference CSV path.
 
     Returns:
@@ -288,7 +291,7 @@ def build_comparison_chart(
     import matplotlib.pyplot as plt
     from matplotlib.patches import Patch
 
-    resolved_output = output_path.expanduser().resolve()
+    resolved_output = _resolve_output_path(target_file_name)
     if resolved_output.exists() and not resolved_output.is_file():
         raise ValueError(f"Comparison chart output is not a file: {resolved_output}")
     resolved_output.parent.mkdir(parents=True, exist_ok=True)
@@ -364,6 +367,31 @@ def _comparison_figure_height(runner_slugs: tuple[str, ...]) -> float:
     """Calculate figure height from the longest rotated runner label."""
     longest_label = max((len(slug) for slug in runner_slugs), default=0)
     return max(9.5, 7.5 + longest_label * 0.05)
+
+
+def _resolve_output_path(target_file_name: str) -> Path:
+    """Resolve a bare SVG filename below the fixed output directory.
+
+    Args:
+        target_file_name: Filename without parent directory components.
+
+    Returns:
+        Absolute output path.
+
+    Raises:
+        ValueError: The value is not a bare filename ending in ``.svg``.
+    """
+    target = Path(target_file_name)
+    if (
+        not target_file_name.strip()
+        or target.is_absolute()
+        or bool(target.drive)
+        or len(target.parts) != 1
+    ):
+        raise ValueError("--target-file-name must be a filename without a directory.")
+    if target.suffix.lower() != ".svg":
+        raise ValueError("--target-file-name must end in .svg.")
+    return (_OUTPUT_DIR / target).resolve()
 
 
 def _legend_gpu_name(gpu_name: str) -> str:

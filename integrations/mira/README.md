@@ -185,6 +185,7 @@ uv run flashdreams-run mira-comparison-chart-generator artifacts/mira/ \
   --competitor-gpu-to-compare-with "NVIDIA RTX PRO 6000 Blackwell" \
   --custom-y-axis "Average FPS" \
   --custom-title "MIRA Mini Comparison [Workstation]" \
+  --target-file-name "mira-mini-throughput.svg" \
   --flashdreams-gpu-other-runner mira-mini-1-player-1b-4-step \
   --flashdreams-gpu-other-runner mira-mini-1-player-364m-4-step
 ```
@@ -195,7 +196,9 @@ its right. Both `--custom-y-axis` and `--custom-title` are required. The
 Competitor legend entry carries an Oxford-style superscript citation to the
 source URL printed below the chart. The chart, stacked legend, and citation use
 relative layout rows, and the figure height grows with rotated runner-label
-length so content is not clipped.
+length so content is not clipped. `--target-file-name` is required, accepts
+only a bare `.svg` filename, and writes it below
+`artifacts/mira-comparison-chart/`.
 
 ## Troubleshooting
 
