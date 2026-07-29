@@ -28,6 +28,7 @@ from mira_integration.results_viewer import (
     _calculate_image_fidelity,
     _chart_gpu_name,
     _group_chart_rows_by_runner,
+    _pareto_curve_points,
     _render_runner_gpu_quality_table,
     build_results_report,
     build_runner_gpu_quality_matrix,
@@ -263,6 +264,7 @@ def test_image_fidelity_uses_minimum_as_baseline_and_sorts_descending() -> None:
 
     assert image_fidelity["Runner"].tolist() == ["mira-a", "mira-b", "mira-c"]
     assert image_fidelity["Image-Fidelity (%)"].tolist() == [100.0, 80.0, 50.0]
+    assert image_fidelity["Temporal Instability"].tolist() == [2.0, 2.5, 4.0]
 
 
 def test_runner_gpu_quality_matrix_pivots_real_metrics_only() -> None:
@@ -292,8 +294,16 @@ def test_runner_gpu_quality_matrix_pivots_real_metrics_only() -> None:
     )
     image_fidelity = pd.DataFrame(
         [
-            {"Runner": "mira-a", "Image-Fidelity (%)": 50.0},
-            {"Runner": "mira-b", "Image-Fidelity (%)": 100.0},
+            {
+                "Runner": "mira-a",
+                "Image-Fidelity (%)": 50.0,
+                "Temporal Instability": 4.0,
+            },
+            {
+                "Runner": "mira-b",
+                "Image-Fidelity (%)": 100.0,
+                "Temporal Instability": 2.0,
+            },
         ]
     )
 
@@ -302,15 +312,17 @@ def test_runner_gpu_quality_matrix_pivots_real_metrics_only() -> None:
     assert matrix.columns.tolist() == [
         "Runner-Slug",
         "GPU 1 Avg. FPS",
-        "NVIDIA RTX PRO 6000 Blackwell Avg. FPS",
+        "NVIDIA RTX PRO 6000 Avg. FPS",
         "Quality",
+        "Temporal Stability",
     ]
     assert matrix["Runner-Slug"].tolist() == ["mira-b", "mira-a"]
     assert pd.isna(matrix.loc[0, "GPU 1 Avg. FPS"])
-    assert matrix.loc[0, "NVIDIA RTX PRO 6000 Blackwell Avg. FPS"] == 40.0
+    assert matrix.loc[0, "NVIDIA RTX PRO 6000 Avg. FPS"] == 40.0
     assert matrix.loc[1, "GPU 1 Avg. FPS"] == 12.0
-    assert matrix.loc[1, "NVIDIA RTX PRO 6000 Blackwell Avg. FPS"] == 20.0
+    assert matrix.loc[1, "NVIDIA RTX PRO 6000 Avg. FPS"] == 20.0
     assert matrix["Quality"].tolist() == [100.0, 50.0]
+    assert matrix["Temporal Stability"].tolist() == [2.0, 4.0]
 
 
 def test_runner_gpu_quality_table_colors_fps_thresholds() -> None:
@@ -322,6 +334,7 @@ def test_runner_gpu_quality_table_colors_fps_thresholds() -> None:
                 "GPU 2 Avg. FPS": 15.0,
                 "GPU 3 Avg. FPS": 30.01,
                 "Quality": 100.0,
+                "Temporal Stability": 2.34567,
             }
         ]
     )
@@ -331,10 +344,79 @@ def test_runner_gpu_quality_table_colors_fps_thresholds() -> None:
     assert "#f8d7da" in rendered
     assert "#fff3cd" in rendered
     assert "#d9f2df" in rendered
-    assert "100.0%" in rendered
+    assert "Quality<sup>1</sup>" in rendered
+    assert "100.0% (2.34567)" in rendered
+    assert ">Temporal Stability<" not in rendered
 
 
-def test_build_results_report_writes_csv_and_single_table_html(tmp_path: Path) -> None:
+def test_pareto_curve_points_excludes_dominated_candidates() -> None:
+    matrix = pd.DataFrame(
+        [
+            {
+                "Runner-Slug": "quality",
+                "GPU 1 Avg. FPS": 10.0,
+                "Quality": 100.0,
+                "Temporal Stability": 2.0,
+            },
+            {
+                "Runner-Slug": "balanced",
+                "GPU 1 Avg. FPS": 20.0,
+                "Quality": 90.0,
+                "Temporal Stability": 2.2,
+            },
+            {
+                "Runner-Slug": "dominated",
+                "GPU 1 Avg. FPS": 15.0,
+                "Quality": 80.0,
+                "Temporal Stability": 2.5,
+            },
+            {
+                "Runner-Slug": "speed",
+                "GPU 1 Avg. FPS": 30.0,
+                "Quality": 70.0,
+                "Temporal Stability": 2.9,
+            },
+        ]
+    )
+
+    frontier = _pareto_curve_points(matrix, gpu="GPU 1")
+
+    assert frontier["Runner-Slug"].tolist() == ["quality", "balanced", "speed"]
+
+
+def test_pareto_curve_points_are_calculated_per_gpu() -> None:
+    matrix = pd.DataFrame(
+        [
+            {
+                "Runner-Slug": "gpu-1-frontier",
+                "GPU 1 Avg. FPS": 10.0,
+                "GPU 2 Avg. FPS": 40.0,
+                "Quality": 100.0,
+                "Temporal Stability": 2.0,
+            },
+            {
+                "Runner-Slug": "gpu-2-frontier",
+                "GPU 1 Avg. FPS": 20.0,
+                "GPU 2 Avg. FPS": 30.0,
+                "Quality": 90.0,
+                "Temporal Stability": 2.2,
+            },
+        ]
+    )
+
+    gpu_1_frontier = _pareto_curve_points(matrix, gpu="GPU 1")
+    gpu_2_frontier = _pareto_curve_points(matrix, gpu="GPU 2")
+
+    assert gpu_1_frontier["Runner-Slug"].tolist() == [
+        "gpu-1-frontier",
+        "gpu-2-frontier",
+    ]
+    assert gpu_2_frontier["Runner-Slug"].tolist() == ["gpu-1-frontier"]
+
+
+def test_build_results_report_writes_csv_table_and_pareto_svg(
+    tmp_path: Path,
+) -> None:
     metrics_folder = tmp_path / "metrics"
     first = _write_metrics(
         metrics_folder,
@@ -368,8 +450,14 @@ def test_build_results_report_writes_csv_and_single_table_html(tmp_path: Path) -
 
     assert report.csv_path.is_file()
     assert report.matrix_csv_path.is_file()
+    assert len(report.pareto_curve_paths) == 1
+    assert report.pareto_curve_paths[0].is_file()
+    assert (
+        report.pareto_curve_paths[0].name
+        == "pareto_curve_mira_mini_nvidia-test-gpu.svg"
+    )
     assert report.html_path.is_file()
-    assert not list(report.html_path.parent.glob("*.svg"))
+    assert list(report.html_path.parent.glob("*.svg")) == [report.pareto_curve_paths[0]]
     combined = pd.read_csv(report.csv_path)
     matrix = pd.read_csv(report.matrix_csv_path)
     assert len(combined) == 2
@@ -378,6 +466,7 @@ def test_build_results_report_writes_csv_and_single_table_html(tmp_path: Path) -
         "Runner-Slug",
         "NVIDIA Test GPU Avg. FPS",
         "Quality",
+        "Temporal Stability",
     ]
     assert matrix["Runner-Slug"].tolist() == ["mira-a", "mira-b"]
     assert matrix["Quality"].tolist() == pytest.approx([100.0, 71.429], abs=0.001)
@@ -386,8 +475,16 @@ def test_build_results_report_writes_csv_and_single_table_html(tmp_path: Path) -
     assert "/commit/" in rendered
     assert rendered.count("<table") == 1
     assert "<img" not in rendered
+    assert "pareto_curve_mira_mini" not in rendered
+    assert "Quality<sup>1</sup>" in rendered
+    assert "<sup>1</sup> Quality: defined as temporal stability." in rendered
+    assert "100.0% (2.5)" in rendered
     assert "Runner + GPU averages" not in rendered
     assert "Concatenated metrics" not in rendered
+    pareto_svg = report.pareto_curve_paths[0].read_text(encoding="utf-8")
+    assert "NVIDIA Test GPU" in pareto_svg
+    assert "Quality¹ (%)" in pareto_svg
+    assert "¹ Quality: defined as temporal stability." in pareto_svg
 
 
 def test_build_results_report_ignores_runner_before_quality_baseline(
@@ -459,6 +556,7 @@ def test_runner_gpu_quality_csv_excludes_alakazam_reference_rows(
         "Runner-Slug",
         "Measured GPU Avg. FPS",
         "Quality",
+        "Temporal Stability",
     ]
     assert matrix.loc[0, "Measured GPU Avg. FPS"] == 12.0
 
@@ -498,7 +596,11 @@ def test_viewer_prints_and_opens_local_report(
     assert "Combined CSV:" in output
     assert "Runner/GPU/quality CSV:" in output
     assert "Rendered in your default web browser from:" in output
-    assert opened == [(tmp_path / "report" / "mira_results.html").resolve().as_uri()]
+    assert opened == [
+        (tmp_path / "report" / "general_mira_performance_results.html")
+        .resolve()
+        .as_uri()
+    ]
 
 
 def test_find_metrics_csvs_rejects_missing_results(tmp_path: Path) -> None:

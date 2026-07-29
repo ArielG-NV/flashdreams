@@ -163,8 +163,11 @@ uv run flashdreams-run mira-results-viewer artifacts/mira/ \
 
 For each supplied folder, the viewer reads every direct child matching
 `<metrics-folder>/<slug>/metrics_mira.csv`. The temporal-instability folder is
-required. It writes `runner_gpu_quality.csv` and a single HTML table with one
-row per runner and one average-FPS column per discovered GPU.
+required. It writes `runner_gpu_quality.csv` and an HTML report with one table
+row per runner and one average-FPS column per discovered GPU. Separately, it
+writes one `pareto_curve_mira_mini_<gpu>.svg` per GPU. Each SVG contains only
+that GPU's non-dominated average-FPS/quality points and defines the superscripted
+Quality metric below the curve; the SVGs are not embedded in the HTML report.
 
 Pass one or more names after `--ignore-runner-slug` to remove
 runner slugs before aggregation.
@@ -172,6 +175,8 @@ runner slugs before aggregation.
 The HTML report color-codes FPS below 15 red,
 15 through 30 yellow, and above 30 green, and records the source repository
 commit below the table. Rows are ordered by relative quality, with 100% first.
+Quality is temporal stability expressed using relative distance; table values
+also show the underlying temporal-instability metric in parentheses.
 
 ## Comparison Chart Generator
 

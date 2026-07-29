@@ -95,6 +95,9 @@ class MiraResultsReport:
     matrix_csv_path: Path
     """Runner-by-GPU average-FPS and quality CSV."""
 
+    pareto_curve_paths: tuple[Path, ...]
+    """Per-GPU average-FPS/quality Pareto curve SVGs."""
+
     html_path: Path
     """Local runner performance and quality report."""
 
@@ -119,6 +122,8 @@ class MiraResultsViewer(Runner[MiraResultsViewerConfig, Any]):
         report_uri = report.html_path.as_uri()
         print(f"Combined CSV: {report.csv_path}")
         print(f"Runner/GPU/quality CSV: {report.matrix_csv_path}")
+        for pareto_curve_path in report.pareto_curve_paths:
+            print(f"Pareto curve SVG: {pareto_curve_path}")
         print(f"Pandas HTML report: {report.html_path}")
         print(f"Rendered in your default web browser from: {report_uri}")
         print(
@@ -362,6 +367,10 @@ def build_results_report(
 
     combined.to_csv(csv_path, index=False)
     runner_gpu_quality.to_csv(matrix_csv_path, index=False, float_format="%.3f")
+    pareto_curve_paths = _write_pareto_curves(
+        runner_gpu_quality,
+        output_dir=resolved_output,
+    )
     html_path.write_text(
         _render_html_report(
             runner_gpu_quality=runner_gpu_quality,
@@ -373,6 +382,7 @@ def build_results_report(
     return MiraResultsReport(
         csv_path=csv_path,
         matrix_csv_path=matrix_csv_path,
+        pareto_curve_paths=pareto_curve_paths,
         html_path=html_path,
     )
 
@@ -535,7 +545,9 @@ def _calculate_image_fidelity(temporal_instability: pd.DataFrame) -> pd.DataFram
         instability == baseline,
         "Image-Fidelity (%)",
     ] = 100.0
-    return image_fidelity.loc[:, ["Runner", "Image-Fidelity (%)"]].sort_values(
+    return image_fidelity.loc[
+        :, ["Runner", "Image-Fidelity (%)", "Temporal Instability"]
+    ].sort_values(
         ["Image-Fidelity (%)", "Runner"],
         ascending=[False, True],
         kind="stable",
@@ -563,7 +575,11 @@ def build_runner_gpu_quality_matrix(
     missing_metrics = sorted(required_metrics.difference(metrics.columns))
     if missing_metrics:
         raise ValueError(f"MIRA metrics are missing matrix columns: {missing_metrics}")
-    required_quality = {"Runner", "Image-Fidelity (%)"}
+    required_quality = {
+        "Runner",
+        "Image-Fidelity (%)",
+        "Temporal Instability",
+    }
     missing_quality = sorted(required_quality.difference(image_fidelity.columns))
     if missing_quality:
         raise ValueError(
@@ -589,14 +605,24 @@ def build_runner_gpu_quality_matrix(
         .reset_index()
         .rename(columns={"runner": "Runner-Slug"})
     )
-    quality = image_fidelity.loc[:, ["Runner", "Image-Fidelity (%)"]].rename(
-        columns={"Runner": "Runner-Slug", "Image-Fidelity (%)": "Quality"}
+    quality = image_fidelity.loc[
+        :, ["Runner", "Image-Fidelity (%)", "Temporal Instability"]
+    ].rename(
+        columns={
+            "Runner": "Runner-Slug",
+            "Image-Fidelity (%)": "Quality",
+            "Temporal Instability": "Temporal Stability",
+        }
     )
     matrix = fps_matrix.merge(quality, on="Runner-Slug", how="outer", sort=True)
     gpu_columns = sorted(
-        column for column in matrix.columns if column not in {"Runner-Slug", "Quality"}
+        column
+        for column in matrix.columns
+        if column not in {"Runner-Slug", "Quality", "Temporal Stability"}
     )
-    return matrix.loc[:, ["Runner-Slug", *gpu_columns, "Quality"]].sort_values(
+    return matrix.loc[
+        :, ["Runner-Slug", *gpu_columns, "Quality", "Temporal Stability"]
+    ].sort_values(
         ["Quality", "Runner-Slug"],
         ascending=[False, True],
         kind="stable",
@@ -671,6 +697,112 @@ def _chart_gpu_name(gpu_name: str) -> str:
     return " ".join(gpu_name.split()[:4])
 
 
+def _pareto_curve_points(
+    matrix: pd.DataFrame,
+    *,
+    gpu: str,
+) -> pd.DataFrame:
+    """Return one GPU's FPS/quality candidates on its maximizing frontier."""
+    fps_columns = [column for column in matrix.columns if column.endswith(" Avg. FPS")]
+    fps_column = f"{gpu} Avg. FPS"
+    if fps_column not in fps_columns:
+        raise ValueError(f"Runner/GPU matrix contains no FPS column for GPU: {gpu}")
+    candidates: list[dict[str, Any]] = []
+    for _, row in matrix.iterrows():
+        if pd.isna(row["Quality"]) or pd.isna(row[fps_column]):
+            continue
+        candidates.append(
+            {
+                "Runner-Slug": row["Runner-Slug"],
+                "GPU": gpu,
+                "Average FPS": float(row[fps_column]),
+                "Quality": float(row["Quality"]),
+            }
+        )
+    points = pd.DataFrame(candidates)
+    if points.empty:
+        raise ValueError(f"Runner/GPU matrix contains no Pareto candidates for {gpu}.")
+
+    on_frontier = []
+    for _, candidate in points.iterrows():
+        dominates = (
+            (points["Average FPS"] >= candidate["Average FPS"])
+            & (points["Quality"] >= candidate["Quality"])
+            & (
+                (points["Average FPS"] > candidate["Average FPS"])
+                | (points["Quality"] > candidate["Quality"])
+            )
+        )
+        on_frontier.append(not dominates.any())
+    return points.loc[on_frontier].sort_values(
+        ["Average FPS", "Quality", "Runner-Slug", "GPU"],
+        kind="stable",
+        ignore_index=True,
+    )
+
+
+def _write_pareto_curves(
+    matrix: pd.DataFrame,
+    *,
+    output_dir: Path,
+) -> tuple[Path, ...]:
+    """Write one standalone Pareto-frontier SVG for each measured GPU."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    matplotlib.rcParams["svg.fonttype"] = "none"
+    fps_columns = [column for column in matrix.columns if column.endswith(" Avg. FPS")]
+    output_paths: list[Path] = []
+    for fps_column in fps_columns:
+        gpu = fps_column.removesuffix(" Avg. FPS")
+        frontier = _pareto_curve_points(matrix, gpu=gpu)
+        output_path = output_dir / f"pareto_curve_mira_mini_{_filename_slug(gpu)}.svg"
+        figure, axes = plt.subplots(figsize=(9, 6))
+        axes.plot(
+            frontier["Average FPS"],
+            frontier["Quality"],
+            color="#176B3A",
+            marker="o",
+            linewidth=2,
+        )
+        for _, point in frontier.iterrows():
+            axes.annotate(
+                str(point["Runner-Slug"]),
+                (point["Average FPS"], point["Quality"]),
+                xytext=(5, 5),
+                textcoords="offset points",
+                fontsize=8,
+            )
+        axes.set_title(f"MIRA Mini FPS / Quality — {gpu}")
+        axes.set_xlabel("Average FPS")
+        axes.set_ylabel("Quality¹ (%)")
+        axes.grid(alpha=0.25)
+        axes.text(
+            0.5,
+            -0.18,
+            "¹ Quality: defined as temporal stability.",
+            transform=axes.transAxes,
+            ha="center",
+            va="top",
+            fontsize=9,
+        )
+        figure.tight_layout(rect=(0, 0.055, 1, 1))
+        figure.savefig(output_path, format="svg", bbox_inches="tight")
+        plt.close(figure)
+        output_paths.append(output_path)
+    return tuple(output_paths)
+
+
+def _filename_slug(value: str) -> str:
+    """Return a stable lowercase filename component."""
+    slug = "".join(
+        character.lower() if character.isalnum() else "-" for character in value
+    )
+    return "-".join(part for part in slug.split("-") if part)
+
+
 def _render_html_report(
     *,
     runner_gpu_quality: pd.DataFrame,
@@ -710,7 +842,8 @@ def _render_html_report(
 <body>
   <h1>Runner performance and quality</h1>
   <div class="table-wrap">{matrix_table}</div>
-  <p class="generated-via">Chart Generated via: {generated_via}</p>
+  <p><sup>1</sup> Quality: defined as temporal stability.</p>
+  <p>Generated via: {generated_via}</p>
 </body>
 </html>
 """
@@ -718,9 +851,26 @@ def _render_html_report(
 
 def _render_runner_gpu_quality_table(matrix: pd.DataFrame) -> str:
     """Render the runner matrix with threshold-colored average-FPS cells."""
+    display_matrix = matrix.drop(columns=["Temporal Stability"]).copy()
+    quality_values = matrix.apply(
+        lambda row: (
+            ""
+            if pd.isna(row["Quality"]) or pd.isna(row["Temporal Stability"])
+            else f"{row['Quality']:.1f}% ({row['Temporal Stability']:.6g})"
+        ),
+        axis=1,
+    )
+    display_matrix["Quality"] = quality_values
     fps_columns = [column for column in matrix.columns if column.endswith(" Avg. FPS")]
-    styler = matrix.style
+    styler = display_matrix.style
     styler.hide(axis="index")
+    styler.relabel_index(
+        [
+            "Quality<sup>1</sup>" if column == "Quality" else html.escape(column)
+            for column in display_matrix.columns
+        ],
+        axis="columns",
+    )
     for column in fps_columns:
         styler.format(
             "{:.2f}",
@@ -728,12 +878,6 @@ def _render_runner_gpu_quality_table(matrix: pd.DataFrame) -> str:
             na_rep="",
             escape="html",
         )
-    styler.format(
-        "{:.1f}%",
-        subset=["Quality"],
-        na_rep="",
-        escape="html",
-    )
     if fps_columns:
         styler.map(_average_fps_cell_style, subset=fps_columns)
     return styler.to_html(table_attributes='class="metrics-table runner-gpu-quality"')
