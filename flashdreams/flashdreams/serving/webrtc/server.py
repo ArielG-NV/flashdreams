@@ -56,6 +56,7 @@ def create_webrtc_app(
 
         sdp = payload.get("sdp")
         offer_type = payload.get("type")
+        player_id = payload.get("player_id")
         if not isinstance(sdp, str) or not sdp:
             raise web.HTTPBadRequest(
                 reason="Offer payload must include non-empty 'sdp'."
@@ -64,15 +65,31 @@ def create_webrtc_app(
             raise web.HTTPBadRequest(
                 reason="Offer payload must include non-empty 'type'."
             )
+        if player_id is not None and (
+            isinstance(player_id, bool) or not isinstance(player_id, int)
+        ):
+            raise web.HTTPBadRequest(reason="'player_id' must be an integer.")
 
         manager = request.app[SESSION_MANAGER_KEY]
         try:
-            answer_payload = await manager.create_answer(
-                offer_sdp=sdp,
-                offer_type=offer_type,
-            )
+            # Player routing is opt-in so single-session managers continue to
+            # receive the original two-argument call for legacy offers.
+            if player_id is None:
+                answer_payload = await manager.create_answer(
+                    offer_sdp=sdp,
+                    offer_type=offer_type,
+                )
+            else:
+                create_multiplayer_answer = getattr(manager, "create_answer")
+                answer_payload = await create_multiplayer_answer(
+                    offer_sdp=sdp,
+                    offer_type=offer_type,
+                    player_id=player_id,
+                )
         except SessionBusyError as exc:
             raise web.HTTPConflict(reason=str(exc)) from exc
+        except ValueError as exc:
+            raise web.HTTPBadRequest(reason=str(exc)) from exc
         except Exception as exc:
             logger.exception("Failed to process WebRTC offer.")
             raise web.HTTPInternalServerError(reason=str(exc)) from exc

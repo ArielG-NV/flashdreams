@@ -14,6 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pytest
 import torch
 from aiohttp import web
@@ -115,6 +116,54 @@ def _fake_runtime_factory(config: OmnidreamsRuntimeConfig) -> object:
     return object()
 
 
+def test_map_geometry_converts_renderer_rdf_to_orthographic_flu_ground_plane() -> None:
+    runtime = OmnidreamsInferenceRuntime.__new__(OmnidreamsInferenceRuntime)
+    runtime._scene_data = SimpleNamespace(
+        lane_lines=[
+            SimpleNamespace(
+                # RDF (right, down, forward) for FLU points
+                # (forward, left, up): (10, 20, 0), (30, 40, 0).
+                points=np.array([[-20.0, 0.0, 10.0], [-40.0, 0.0, 30.0]])
+            )
+        ],
+        lane_boundaries=[],
+        road_boundaries=[],
+        wait_lines=[],
+        crosswalks=[
+            SimpleNamespace(
+                vertices=np.array(
+                    [
+                        [-20.0, 0.0, 10.0],
+                        [-20.0, 0.0, 30.0],
+                        [-40.0, 0.0, 30.0],
+                    ]
+                )
+            )
+        ],
+        road_markings=[],
+        intersection_areas=[],
+        road_islands=[],
+    )
+
+    geometry = runtime.map_geometry()
+
+    assert geometry["lines"] == [
+        {"kind": "lane", "points": [[10.0, 20.0], [30.0, 40.0]]}
+    ]
+    assert geometry["polygons"] == [
+        {
+            "kind": "crosswalk",
+            "points": [[10.0, 20.0], [30.0, 20.0], [30.0, 40.0]],
+        }
+    ]
+    assert geometry["bounds"] == {
+        "min_x": 10.0,
+        "max_x": 30.0,
+        "min_y": 20.0,
+        "max_y": 40.0,
+    }
+
+
 def test_session_manager_hooks_are_wired() -> None:
     # Guards against the shared base-class attribute overrides being dropped
     # (e.g. losing their leading underscore), which silently reverts behaviour
@@ -151,6 +200,7 @@ class _FakeWrapper:
         self.calls: list[tuple[str, tuple[int, ...], list[int]]] = []
         self.finalized: list[dict[str, int]] = []
         self.skip_video_generation_flags: list[bool] = []
+        self.dynamic_actor_pools: list[Any] = []
 
     def start_generation(self, **kwargs: Any) -> _FakeOutput:
         poses = kwargs["camera_poses_per_view"]["camera_front_wide_120fov"]
@@ -158,6 +208,7 @@ class _FakeWrapper:
         self.calls.append(("start", tuple(poses.shape), timestamps))
         skip_video_generation = bool(kwargs.get("skip_video_generation", False))
         self.skip_video_generation_flags.append(skip_video_generation)
+        self.dynamic_actor_pools.append(kwargs.get("dynamic_actor_pool"))
         return _FakeOutput(
             state=SimpleNamespace(
                 pipeline_cache=None if skip_video_generation else object()
@@ -177,6 +228,7 @@ class _FakeWrapper:
         self.calls.append(("continue", tuple(poses.shape), timestamps))
         skip_video_generation = bool(kwargs.get("skip_video_generation", False))
         self.skip_video_generation_flags.append(skip_video_generation)
+        self.dynamic_actor_pools.append(kwargs.get("dynamic_actor_pool"))
         return _FakeOutput(
             state=kwargs["state"],
             condition_frames=torch.full((1, 1, 3, 3, 4, 5), 47, dtype=torch.uint8),
@@ -329,6 +381,27 @@ def test_generate_chunk_can_stream_debug_hdmaps_without_rgb_frames() -> None:
     assert result1.video_chunk.unique().tolist() == [47]
     assert wrapper.skip_video_generation_flags == [True, True]
     assert wrapper.finalized == []
+
+
+def test_generate_chunk_overlays_other_players_in_shared_hdmap_state() -> None:
+    runtime, wrapper = _build_fake_runtime()
+    runtime.config.player_count = 2
+    runtime.config.player_id = 1
+    other_pose = np.eye(4, dtype=np.float32)
+    other_pose[:3, 3] = [12.0, -3.0, 0.5]
+    runtime.set_world_pose_provider(
+        lambda: {1: np.eye(4, dtype=np.float32), 2: other_pose}
+    )
+
+    runtime._generate_one_chunk_sync(
+        segments=[(0.0, 2 / 30, frozenset())],
+        frame_times=[1 / 30, 2 / 30],
+    )
+
+    pool = wrapper.dynamic_actor_pools[0]
+    assert pool is not None
+    assert tuple(pool.translations.shape) == (2, 3)
+    assert pool.translations[0].tolist() == [12.0, -3.0, 0.5]
 
 
 def test_prepare_clipgt_dir_stages_unprefixed_parquets(
@@ -704,6 +777,33 @@ def test_parse_args_omits_scene_dir_by_default(
     assert args.scene_uuid is None
     assert args.debug_serve_hdmaps is True
     assert args.postprocess_preset == ""
+    assert args.player_count == 1
+
+
+def test_parse_args_accepts_positive_player_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["omnidreams.webrtc.server", "-player-count", "4"],
+    )
+
+    assert webrtc_server.parse_args().player_count == 4
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "not-an-int"])
+def test_parse_args_rejects_nonpositive_player_count(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["omnidreams.webrtc.server", "--player-count", value],
+    )
+
+    with pytest.raises(SystemExit):
+        webrtc_server.parse_args()
 
 
 def test_runtime_initialization_passes_manifest_pipeline_config(
@@ -963,6 +1063,21 @@ def test_webrtc_ui_posts_selected_postprocess_preset() -> None:
     assert "postprocessControlAvailable" in javascript
     assert "postprocessField.hidden = !postprocessControlAvailable" in javascript
     assert "postprocess_preset: postprocessPreset" in javascript
+
+
+def test_webrtc_ui_exposes_multiplayer_lobby_bev_and_scoped_join_overlay() -> None:
+    web_dir = files("omnidreams.webrtc").joinpath("web")
+    html = web_dir.joinpath("request_session.html").read_text(encoding="utf-8")
+    javascript = web_dir.joinpath("request_session.js").read_text(encoding="utf-8")
+    css = web_dir.joinpath("request_session.css").read_text(encoding="utf-8")
+
+    assert 'id="playerGrid"' in html
+    assert 'id="bevCanvas"' in html
+    assert 'id="bindingHeading"' in html
+    assert "Click To Join As ${player.label}" in javascript
+    assert "player_id: playerId" in javascript
+    assert 'fetch("/api/map"' in javascript
+    assert ".playerTile:hover .joinPlayerButton:not(:disabled)" in css
 
 
 @pytest.mark.asyncio

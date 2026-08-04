@@ -421,7 +421,15 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                 )
                 self._warmup_complete = True
 
-    async def create_answer(self, *, offer_sdp: str, offer_type: str) -> dict[str, str]:
+    async def create_answer(
+        self,
+        *,
+        offer_sdp: str,
+        offer_type: str,
+        player_id: int | None = None,
+    ) -> dict[str, str]:
+        if player_id not in (None, 1):
+            raise ValueError("This WebRTC runtime only exposes player 1.")
         if not self._runtime_ready or not self._warmup_complete:
             await self.preload_runtime()
 

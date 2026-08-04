@@ -16,6 +16,11 @@ const modelValue = document.getElementById("modelValue")
 const postprocessField = document.getElementById("postprocessField")
 const postprocessSelect = document.getElementById("postprocessSelect")
 const controlButtons = Array.from(document.querySelectorAll("[data-control-key]"))
+const playerGrid = document.getElementById("playerGrid")
+const bevCanvas = document.getElementById("bevCanvas")
+const lobbyStatus = document.getElementById("lobbyStatus")
+const driveStage = document.getElementById("driveStage")
+const gameManager = document.getElementById("gameManager")
 
 const allowedKeys = new Set(["w", "a", "s", "d"])
 const keyAliases = new Map([
@@ -42,6 +47,33 @@ let connected = false
 let disconnecting = false
 let heldKeySequence = 0
 let postprocessControlAvailable = false
+let selectedPlayerId = null
+let playerPollTimer = null
+let previewPollTimer = null
+let playerDescriptors = []
+let mapGeometry = null
+
+function enterDriveView(playerId) {
+  gameManager.classList.add("isHidden")
+  driveStage.classList.remove("isHidden")
+  document.body.classList.add("is-playing")
+  window.history.pushState(
+    { view: "drive", playerId },
+    "",
+    `#play/player/${playerId}`
+  )
+  driveStage.focus({ preventScroll: true })
+}
+
+function exitDriveView({ updateHistory = true } = {}) {
+  gameManager.classList.remove("isHidden")
+  driveStage.classList.add("isHidden")
+  document.body.classList.remove("is-playing")
+  if (updateHistory && window.location.hash.startsWith("#play/")) {
+    window.history.replaceState({}, "", window.location.pathname + window.location.search)
+  }
+  window.scrollTo({ top: 0, behavior: "instant" })
+}
 
 const metrics = {
   fps: null,
@@ -162,7 +194,10 @@ async function configureSessionInput() {
   const response = await fetch("/api/session/input", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ postprocess_preset: postprocessPreset }),
+    body: JSON.stringify({
+      postprocess_preset: postprocessPreset,
+      player_id: selectedPlayerId,
+    }),
   })
   if (!response.ok) {
     const text = await response.text()
@@ -172,6 +207,182 @@ async function configureSessionInput() {
     `post-process=${postprocessPreset || "off"}`,
     { source: "client" }
   )
+}
+
+function createPlayerTile(player) {
+  const tile = document.createElement("article")
+  tile.className = `playerTile${player.available ? "" : " isClaimed"}`
+  tile.style.setProperty("--player-color", player.color)
+  tile.dataset.playerId = String(player.id)
+
+  const preview = document.createElement("img")
+  preview.className = "playerPreview"
+  preview.alt = `${player.label} live perspective`
+  preview.src = `${player.preview_url}?t=${Date.now()}`
+
+  const shade = document.createElement("div")
+  shade.className = "playerShade"
+  const badge = document.createElement("span")
+  badge.className = "playerBadge"
+  badge.textContent = player.label
+  const state = document.createElement("span")
+  state.className = "playerState"
+  state.textContent = player.available ? "Available" : "In session"
+
+  const join = document.createElement("button")
+  join.className = "joinPlayerButton"
+  join.type = "button"
+  join.disabled = !player.available || selectedPlayerId !== null
+  join.textContent = player.available
+    ? `Click To Join As ${player.label}`
+    : `${player.label} is occupied`
+  join.addEventListener("click", () => void connectSession(player.id))
+
+  shade.append(badge, state, join)
+  tile.append(preview, shade)
+  return tile
+}
+
+function renderPlayers(players) {
+  const existingTiles = Array.from(playerGrid.querySelectorAll(".playerTile"))
+  const samePlayers = existingTiles.length === players.length && players.every(
+    (player, index) => existingTiles[index]?.dataset.playerId === String(player.id)
+  )
+  if (!samePlayers) {
+    playerGrid.replaceChildren(...players.map(createPlayerTile))
+  } else {
+    players.forEach((player, index) => {
+      const tile = existingTiles[index]
+      const button = tile.querySelector(".joinPlayerButton")
+      tile.classList.toggle("isClaimed", !player.available)
+      tile.style.setProperty("--player-color", player.color)
+      tile.querySelector(".playerState").textContent = player.available
+        ? "Available"
+        : "In session"
+      button.disabled = !player.available || selectedPlayerId !== null
+      button.textContent = player.available
+        ? `Click To Join As ${player.label}`
+        : `${player.label} is occupied`
+    })
+  }
+  const available = players.filter((player) => player.available).length
+  lobbyStatus.textContent = `${available} of ${players.length} available`
+}
+
+function drawBev(players) {
+  const context = bevCanvas.getContext("2d")
+  const width = bevCanvas.width
+  const height = bevCanvas.height
+  context.clearRect(0, 0, width, height)
+  const gradient = context.createLinearGradient(0, 0, width, height)
+  gradient.addColorStop(0, "#11191c")
+  gradient.addColorStop(1, "#070b0d")
+  context.fillStyle = gradient
+  context.fillRect(0, 0, width, height)
+
+  context.strokeStyle = "rgba(255,255,255,.055)"
+  context.lineWidth = 1
+  for (let x = 0; x < width; x += 48) {
+    context.beginPath(); context.moveTo(x, 0); context.lineTo(x, height); context.stroke()
+  }
+  for (let y = 0; y < height; y += 48) {
+    context.beginPath(); context.moveTo(0, y); context.lineTo(width, y); context.stroke()
+  }
+
+  const poses = players.map((player) => player.pose || { x: 0, y: 0, yaw: 0 })
+  const bounds = mapGeometry?.bounds || {
+    min_x: Math.min(...poses.map((pose) => Number(pose.x || 0))) - 25,
+    max_x: Math.max(...poses.map((pose) => Number(pose.x || 0))) + 25,
+    min_y: Math.min(...poses.map((pose) => Number(pose.y || 0))) - 25,
+    max_y: Math.max(...poses.map((pose) => Number(pose.y || 0))) + 25,
+  }
+  const padding = 34
+  const extentX = Math.max(1, bounds.max_x - bounds.min_x)
+  const extentY = Math.max(1, bounds.max_y - bounds.min_y)
+  const scale = Math.min((width - 2 * padding) / extentX, (height - 2 * padding) / extentY)
+  const offsetX = (width - extentX * scale) / 2
+  const offsetY = (height - extentY * scale) / 2
+  // True orthographic projection: use one world-to-pixel scale for both
+  // ground-plane axes, with no perspective/depth division.
+  const project = (point) => [
+    offsetX + (Number(point[0]) - bounds.min_x) * scale,
+    height - offsetY - (Number(point[1]) - bounds.min_y) * scale,
+  ]
+
+  context.lineJoin = "round"
+  context.lineCap = "round"
+  for (const polygon of mapGeometry?.polygons || []) {
+    if (!Array.isArray(polygon.points) || polygon.points.length < 3) continue
+    context.beginPath()
+    polygon.points.forEach((point, index) => {
+      const [x, y] = project(point)
+      if (index === 0) context.moveTo(x, y); else context.lineTo(x, y)
+    })
+    context.closePath()
+    context.fillStyle = polygon.kind === "crosswalk" ? "rgba(216,229,223,.12)" : "rgba(62,78,78,.28)"
+    context.fill()
+  }
+  for (const line of mapGeometry?.lines || []) {
+    if (!Array.isArray(line.points) || line.points.length < 2) continue
+    context.beginPath()
+    line.points.forEach((point, index) => {
+      const [x, y] = project(point)
+      if (index === 0) context.moveTo(x, y); else context.lineTo(x, y)
+    })
+    context.strokeStyle = line.kind === "road_boundary" ? "#51605d" : "rgba(213,225,220,.3)"
+    context.lineWidth = line.kind === "road_boundary" ? 2.4 : 1.2
+    context.stroke()
+  }
+
+  for (let index = 0; index < players.length; index += 1) {
+    const player = players[index]
+    const pose = poses[index]
+    const [x, y] = project([pose.x || 0, pose.y || 0])
+    context.save()
+    context.translate(x, y)
+    context.rotate(-Number(pose.yaw || 0))
+    context.shadowColor = player.color
+    context.shadowBlur = 18
+    context.fillStyle = player.color
+    context.fillRect(-30, -17, 60, 34)
+    context.shadowBlur = 0
+    context.fillStyle = "#071009"
+    context.font = "700 17px system-ui"
+    context.textAlign = "center"
+    context.textBaseline = "middle"
+    context.fillText(player.label, 0, 0)
+    context.restore()
+  }
+}
+
+async function loadMapGeometry() {
+  const response = await fetch("/api/map", { cache: "no-store" })
+  if (!response.ok) throw new Error(`map failed (${response.status})`)
+  mapGeometry = await response.json()
+  drawBev(playerDescriptors)
+}
+
+async function refreshPlayers() {
+  try {
+    const response = await fetch("/api/players", { cache: "no-store" })
+    if (!response.ok) throw new Error(`players failed (${response.status})`)
+    const payload = await response.json()
+    playerDescriptors = Array.isArray(payload.players) ? payload.players : []
+    renderPlayers(playerDescriptors)
+    drawBev(playerDescriptors)
+  } catch (error) {
+    lobbyStatus.textContent = "Lobby unavailable"
+    logEvent(error.message, { source: "server", level: "error" })
+  }
+}
+
+function refreshPreviewImages() {
+  for (const image of playerGrid.querySelectorAll(".playerPreview")) {
+    const playerId = image.closest(".playerTile")?.dataset.playerId
+    if (playerId) {
+      image.src = `/api/players/${playerId}/preview.jpg?t=${Date.now()}`
+    }
+  }
 }
 
 function renderMetrics() {
@@ -621,6 +832,12 @@ function resetPeerHandles(pc = peerConnection, channel = controlChannel) {
   if (controlChannel === channel) {
     controlChannel = null
   }
+  if (peerConnection === null && controlChannel === null) {
+    selectedPlayerId = null
+    remoteVideo.srcObject = null
+    exitDriveView()
+    void refreshPlayers()
+  }
 }
 
 async function dumpPeerStats(reason) {
@@ -712,11 +929,13 @@ function disconnectSession({ notify = true } = {}) {
   resetPeerHandles()
 }
 
-async function connectSession() {
+async function connectSession(playerId = selectedPlayerId || 1) {
   if (connected || peerConnection) {
     return
   }
 
+  selectedPlayerId = playerId
+  enterDriveView(playerId)
   connectButton.disabled = true
   setPostprocessDisabled(true)
   setStatus("Connecting", "connecting")
@@ -817,7 +1036,7 @@ async function connectSession() {
     const response = await fetch("/api/webrtc/offer", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(pc.localDescription),
+      body: JSON.stringify({ ...pc.localDescription.toJSON(), player_id: playerId }),
     })
     if (!response.ok) {
       const text = await response.text()
@@ -825,6 +1044,7 @@ async function connectSession() {
     }
     const answer = await response.json()
     await pc.setRemoteDescription(answer)
+    driveStage.style.setProperty("--player-color", playerDescriptors.find((p) => p.id === playerId)?.color || "#76b900")
     logEvent("remote answer applied", { source: "client" })
     setFlow("answer applied")
   } catch (error) {
@@ -835,6 +1055,7 @@ async function connectSession() {
     }
     resetPeerHandles()
     connected = false
+    selectedPlayerId = null
     setStatus("Error", "error")
     setFlow("failed")
     logEvent(`connect failed: ${error.message}`, { source: "client", level: "error" })
@@ -914,6 +1135,12 @@ function initialize() {
   attachPointerControls()
   window.requestAnimationFrame(drawIdleScene)
   startVideoFrameMonitor()
+  void refreshPlayers()
+  void loadMapGeometry().catch((error) => {
+    logEvent(`BEV map unavailable: ${error.message}`, { source: "server", level: "error" })
+  })
+  playerPollTimer = window.setInterval(refreshPlayers, 1000)
+  previewPollTimer = window.setInterval(refreshPreviewImages, 250)
   void loadPostprocessOptions().catch((error) => {
     logEvent(`post-process options unavailable: ${error.message}`, {
       source: "client",
@@ -923,7 +1150,7 @@ function initialize() {
 }
 
 connectButton.addEventListener("click", () => {
-  void connectSession()
+  void connectSession(selectedPlayerId || 1)
 })
 remoteVideo.addEventListener("loadedmetadata", updateMetricsFromVideo)
 remoteVideo.addEventListener("playing", () => {
@@ -936,7 +1163,14 @@ remoteVideo.addEventListener("emptied", () => {
 window.addEventListener("keydown", handleKeyDown)
 window.addEventListener("keyup", handleKeyUp)
 window.addEventListener("blur", releaseAllKeys)
+window.addEventListener("popstate", () => {
+  if (!window.location.hash.startsWith("#play/") && peerConnection) {
+    disconnectSession()
+  }
+})
 window.addEventListener("pagehide", () => {
+  if (playerPollTimer !== null) window.clearInterval(playerPollTimer)
+  if (previewPollTimer !== null) window.clearInterval(previewPollTimer)
   disconnectSession()
 })
 window.addEventListener("beforeunload", () => {

@@ -28,6 +28,7 @@ from omnidreams.interactive_drive.world_model.manifest import (
 )
 from omnidreams.transformer import CosmosTransformerConfig
 from omnidreams.webrtc.session import (
+    OmnidreamsMultiplayerSessionManager,
     OmnidreamsRuntimeConfig,
     OmnidreamsSessionInput,
     OmnidreamsWebRTCSessionManager,
@@ -58,12 +59,31 @@ from flashdreams.serving.webrtc.server import (
 WEB_DIR_RESOURCE = files("omnidreams.webrtc").joinpath("web")
 
 
+def _positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a positive integer") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 class _OmnidreamsSessionManager(WebRTCSessionManager, Protocol):
     runtime_config: OmnidreamsRuntimeConfig
 
     def set_pending_session_input(
-        self, session_input: OmnidreamsSessionInput
+        self,
+        session_input: OmnidreamsSessionInput,
+        *,
+        player_id: int | None = None,
     ) -> None: ...
+
+    def player_descriptors(self) -> list[dict[str, object]]: ...
+
+    def player_preview_jpeg(self, player_id: int) -> bytes | None: ...
+
+    def map_geometry(self) -> dict[str, object]: ...
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -123,6 +143,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--fps", type=int, default=30)
+    parser.add_argument(
+        "-player-count",
+        "--player-count",
+        "--player_count",
+        dest="player_count",
+        type=_positive_int,
+        default=1,
+        help="Number of atomically claimable player slots to expose.",
+    )
     parser.add_argument("--video_height", type=int, default=704)
     parser.add_argument("--video_width", type=int, default=1280)
     parser.add_argument(
@@ -206,21 +235,68 @@ async def _session_input(request: web.Request) -> web.StreamResponse:
             reason="Session input must include string 'postprocess_preset'."
         )
 
+    player_id = payload.get("player_id")
+    if player_id is not None and (
+        isinstance(player_id, bool) or not isinstance(player_id, int)
+    ):
+        raise web.HTTPBadRequest(reason="'player_id' must be an integer.")
+
     manager = _get_omnidreams_manager(request.app)
     try:
         manager.set_pending_session_input(
-            OmnidreamsSessionInput(postprocess_preset=preset)
+            OmnidreamsSessionInput(postprocess_preset=preset),
+            player_id=player_id,
         )
     except SessionBusyError as exc:
         raise web.HTTPConflict(reason=str(exc)) from exc
     except ValueError as exc:
         raise web.HTTPBadRequest(reason=str(exc)) from exc
-    return web.json_response({"postprocess_preset": preset})
+    return web.json_response(
+        {"postprocess_preset": preset, "player_id": player_id or 1}
+    )
+
+
+async def _players(request: web.Request) -> web.StreamResponse:
+    manager = _get_omnidreams_manager(request.app)
+    return web.json_response({"players": manager.player_descriptors()})
+
+
+async def _player_preview(request: web.Request) -> web.StreamResponse:
+    try:
+        player_id = int(request.match_info["player_id"])
+    except ValueError as exc:
+        raise web.HTTPBadRequest(reason="Invalid player id.") from exc
+    manager = _get_omnidreams_manager(request.app)
+    try:
+        jpeg = manager.player_preview_jpeg(player_id)
+    except ValueError as exc:
+        raise web.HTTPNotFound(reason=str(exc)) from exc
+    if jpeg is None:
+        raise web.HTTPServiceUnavailable(reason="Player preview is warming up.")
+    return web.Response(
+        body=jpeg,
+        content_type="image/jpeg",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+async def _map_geometry(request: web.Request) -> web.StreamResponse:
+    manager = _get_omnidreams_manager(request.app)
+    return web.json_response(manager.map_geometry())
+
+
+async def _game_manager(_: web.Request) -> web.StreamResponse:
+    raise web.HTTPFound("/request_session")
 
 
 def _configure_app(app: web.Application) -> None:
     app.router.add_get("/api/postprocess/options", _postprocess_options)
     app.router.add_post("/api/session/input", _session_input)
+    app.router.add_get("/api/players", _players)
+    app.router.add_get("/api/players/{player_id}/preview.jpg", _player_preview)
+    app.router.add_get("/api/map", _map_geometry)
+    app.router.add_get("/game-manager", _game_manager)
+    app.router.add_get("/", _game_manager)
 
 
 def create_app(
@@ -298,6 +374,7 @@ def build_runtime_config(
         video_height=video_height,
         video_width=video_width,
         fps=fps,
+        player_count=getattr(args, "player_count", 1),
         camera_name=args.camera_name,
         warmup_chunks=args.warmup_chunks,
         warmup_timeout_s=args.warmup_timeout_s,
@@ -349,17 +426,26 @@ def main() -> None:
         runtime_config.pipeline_config,
     )
 
-    runtime_device, world_rank, _ = initialize_distributed(
+    runtime_device, world_rank, world_size = initialize_distributed(
         default_device=runtime_config.device
     )
     runtime_config = replace(runtime_config, device=str(runtime_device))
-    session_manager = OmnidreamsWebRTCSessionManager(runtime_config=runtime_config)
+    if runtime_config.player_count > 1 and world_size > 1:
+        raise ValueError(
+            "Multiplayer WebRTC currently requires one server process; "
+            "launch without torchrun/context parallelism."
+        )
+    session_manager = (
+        OmnidreamsWebRTCSessionManager(runtime_config=runtime_config)
+        if runtime_config.player_count == 1
+        else OmnidreamsMultiplayerSessionManager(runtime_config=runtime_config)
+    )
     app = None
     if world_rank == 0:
         external_ip = get_external_ip()
         app = create_app(
             session_manager=session_manager,
-            request_session_url=f"http://{external_ip}:{args.port}/request_session",
+            request_session_url=f"http://{external_ip}:{args.port}/game-manager",
         )
         logger.info("Starting on external IP: {}", external_ip)
     run_webrtc_server(

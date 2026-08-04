@@ -29,6 +29,7 @@ class FakeSessionManager:
         self.raise_busy = False
         self.preload_calls = 0
         self.offers: list[tuple[str, str]] = []
+        self.player_ids: list[int | None] = []
         self.active = False
         self.runtime_ready = False
 
@@ -42,8 +43,15 @@ class FakeSessionManager:
         self.preload_calls += 1
         self.runtime_ready = True
 
-    async def create_answer(self, *, offer_sdp: str, offer_type: str) -> dict[str, str]:
+    async def create_answer(
+        self,
+        *,
+        offer_sdp: str,
+        offer_type: str,
+        player_id: int | None = None,
+    ) -> dict[str, str]:
         self.offers.append((offer_sdp, offer_type))
+        self.player_ids.append(player_id)
         if self.raise_busy:
             raise SessionBusyError("An Omnidreams session is already active.")
         self.active = True
@@ -52,6 +60,30 @@ class FakeSessionManager:
     async def shutdown(self) -> None:
         self.active = False
         self.runtime_ready = False
+
+    def player_descriptors(self) -> list[dict[str, object]]:
+        return [
+            {
+                "id": 1,
+                "label": "P1",
+                "color": "#76b900",
+                "available": not self.active,
+                "pose": {"x": 0.0, "y": 0.0, "yaw": 0.0},
+                "preview_url": "/api/players/1/preview.jpg",
+            }
+        ]
+
+    def player_preview_jpeg(self, player_id: int) -> bytes | None:
+        if player_id != 1:
+            raise ValueError("unknown player")
+        return b"jpeg"
+
+    def map_geometry(self) -> dict[str, object]:
+        return {
+            "lines": [{"kind": "lane", "points": [[0.0, 0.0], [1.0, 1.0]]}],
+            "polygons": [],
+            "bounds": {"min_x": 0.0, "max_x": 1.0, "min_y": 0.0, "max_y": 1.0},
+        }
 
 
 async def _build_client(manager: FakeSessionManager) -> TestClient:
@@ -133,6 +165,48 @@ async def test_request_session_serves_html() -> None:
         body = await response.text()
         assert response.status == 200
         assert "Omnidreams WebRTC Drive" in body
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_game_manager_redirects_to_the_multiplayer_lobby() -> None:
+    client = await _build_client(FakeSessionManager())
+    try:
+        response = await client.get("/game-manager", allow_redirects=False)
+        assert response.status == 302
+        assert response.headers["Location"] == "/request_session"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_players_api_exposes_claim_and_bev_metadata() -> None:
+    client = await _build_client(FakeSessionManager())
+    try:
+        response = await client.get("/api/players")
+        payload = await response.json()
+        assert response.status == 200
+        assert payload["players"][0]["label"] == "P1"
+        assert payload["players"][0]["available"] is True
+        assert payload["players"][0]["pose"] == {
+            "x": 0.0,
+            "y": 0.0,
+            "yaw": 0.0,
+        }
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_map_api_exposes_scene_geometry_for_orthographic_bev() -> None:
+    client = await _build_client(FakeSessionManager())
+    try:
+        response = await client.get("/api/map")
+        payload = await response.json()
+        assert response.status == 200
+        assert payload["lines"][0]["kind"] == "lane"
+        assert payload["bounds"]["max_x"] == 1.0
     finally:
         await client.close()
 
@@ -281,6 +355,43 @@ async def test_offer_returns_answer_payload() -> None:
         assert response.status == 200
         assert payload == manager.answer_payload
         assert manager.offers == [("offer-sdp", "offer")]
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_joining_a_player_routes_to_a_full_window_drive_view() -> None:
+    client = await _build_client(FakeSessionManager())
+    try:
+        js_response = await client.get("/static/request_session.js")
+        js = await js_response.text()
+        css_response = await client.get("/static/request_session.css")
+        css = await css_response.text()
+
+        assert js_response.status == 200
+        assert 'gameManager.classList.add("isHidden")' in js
+        assert 'document.body.classList.add("is-playing")' in js
+        assert '`#play/player/${playerId}`' in js
+        assert "enterDriveView(playerId)" in js
+        assert css_response.status == 200
+        assert "body.is-playing" in css
+        assert "position: fixed" in css
+        assert "inset: 0" in css
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_offer_routes_the_atomic_player_claim() -> None:
+    manager = FakeSessionManager()
+    client = await _build_client(manager)
+    try:
+        response = await client.post(
+            "/api/webrtc/offer",
+            json={"sdp": "offer-sdp", "type": "offer", "player_id": 3},
+        )
+        assert response.status == 200
+        assert manager.player_ids == [3]
     finally:
         await client.close()
 

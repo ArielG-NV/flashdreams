@@ -13,7 +13,57 @@ SPDX-License-Identifier: Apache-2.0
 </head>
 <body>
   <main class="appShell">
-    <section class="stage" aria-label="Omnidreams WebRTC Drive">
+    <section id="gameManager" class="gameManager" aria-label="Multiplayer game manager">
+      <header class="managerHeader">
+        <img class="managerLogo" src="/static/assets/horizontal-dark.svg" alt="FlashDreams">
+        <div>
+          <span class="eyebrow">Omnidreams · authoritative world server</span>
+          <h1>Choose your perspective</h1>
+          <p>Every driver shares one world. Pick an available car to take control.</p>
+        </div>
+        <span id="lobbyStatus" class="lobbyStatus">Loading players…</span>
+      </header>
+
+      <section class="playerSection" aria-labelledby="playerHeading">
+        <div class="sectionHeading">
+          <span>Live perspectives</span>
+          <h2 id="playerHeading">Player streams</h2>
+        </div>
+        <div id="playerGrid" class="playerGrid" aria-live="polite"></div>
+      </section>
+
+      <section class="bevSection" aria-labelledby="bevHeading">
+        <div class="sectionHeading">
+          <span>Shared world state</span>
+          <h2 id="bevHeading">Bird’s-eye map</h2>
+        </div>
+        <div class="bevFrame">
+          <canvas id="bevCanvas" width="1200" height="620" aria-label="Top-down map with player markers"></canvas>
+          <div class="bevLegend"><span></span> Live player position</div>
+        </div>
+      </section>
+
+      <section class="bindingSection" aria-labelledby="bindingHeading">
+        <div class="sectionHeading">
+          <span>Control bindings</span>
+          <h2 id="bindingHeading">Drive with WSAD</h2>
+        </div>
+        <div class="bindingPanel">
+          <div class="bindingKeys" aria-label="WSAD driving controls">
+            <kbd data-control-key="w">W</kbd>
+            <kbd data-control-key="a">A</kbd>
+            <kbd data-control-key="s">S</kbd>
+            <kbd data-control-key="d">D</kbd>
+          </div>
+          <div class="bindingCopy">
+            <strong>W / S</strong><span>Accelerate and brake</span>
+            <strong>A / D</strong><span>Steer left and right</span>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <section id="driveStage" class="stage isHidden" aria-label="Omnidreams WebRTC Drive" tabindex="-1">
       <h1 class="srOnly">Omnidreams WebRTC Drive</h1>
       <div class="stageBackdrop" aria-hidden="true"></div>
       <canvas id="idleCanvas" class="idleCanvas" aria-hidden="true"></canvas>

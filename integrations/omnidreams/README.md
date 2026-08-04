@@ -165,7 +165,7 @@ Sparge/SageAttention-3 hybrid schedule when the extension and GPU support it.
 From the workspace root, run:
 
 ```bash
-uv run --package flashdreams-omnidreams torchrun --nproc_per_node 1 -m omnidreams.webrtc.server --pipeline_config_name omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf --scene-uuid 0d404ff7-2b66-498c-b047-1ed8cded60d4 --port 8089
+uv run --package flashdreams-omnidreams torchrun --nproc_per_node 1 -m omnidreams.webrtc.server --pipeline_config_name omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf --scene-uuid 0d404ff7-2b66-498c-b047-1ed8cded60d4 --port 8089 -player-count 2
 ```
 
 When `--scene_dir` is omitted, the server downloads the selected scene from the
@@ -178,6 +178,12 @@ from the scene's first ground-truth camera frame
 (`clipgt/frames/<camera>/<ts>.jpeg`, falling back to `clipgt/first_image.*`) and
 the weather-matched `clipgt/prompt<N>.txt` (falling back to `clipgt/prompt.txt`).
 Pass `--scene_dir <path>` to use a pre-staged local scene instead.
+
+`-player-count` (also spelled `--player-count`) accepts a positive integer and
+defaults to one. Open `/game-manager` to see every player perspective, claim an
+available car, inspect the shared top-down map, and review the controls. Player
+claims are performed atomically with WebRTC offer creation; one car cannot be
+controlled by two browser sessions.
 
 To enable video post-processing by default, pass a registered preset such as
 `--postprocess-preset rtx-super-resolution`. RTX postprocess presets require the

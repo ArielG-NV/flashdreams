@@ -4,13 +4,14 @@
 from __future__ import annotations
 
 import asyncio
+import colorsys
 import os
 import shutil
 import tempfile
 import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 from typing import AbstractSet, Any, Callable, TypeVar
 
@@ -20,6 +21,7 @@ import torch
 import torch.distributed as dist
 from filelock import FileLock
 from loguru import logger
+from ludus_renderer import CUBE_FLAG_WIREFRAME, PRIM_OBSTACLE, CubePool
 from omnidreams.conditioning.conditioning_wrapper import (
     AV_POSITIVE_PROMPT,
     OmnidreamsConditioningState,
@@ -28,6 +30,7 @@ from omnidreams.conditioning.conditioning_wrapper import (
 )
 from omnidreams.conditioning.renderer import load_and_attach_ludus_scene
 from omnidreams.conditioning.world_scenario.data_loaders import load_scene
+from omnidreams.conditioning.world_scenario.data_utils import RDF_TO_FLU_MATRIX
 from omnidreams.conditioning.world_scenario.settings import SETTINGS
 from omnidreams.config import OMNIDREAMS_CONFIGS
 from omnidreams.scenes import (
@@ -443,6 +446,14 @@ class OmnidreamsRuntimeConfig:
     video_height: int = 704
     video_width: int = 1280
     fps: int = 30
+    player_count: int = 1
+    """Number of independently claimable player rollouts."""
+
+    player_id: int = 1
+    """One-based player slot represented by this runtime."""
+
+    player_spawn_spacing_m: float = 4.0
+    """Lateral distance in meters between adjacent initial player poses."""
     camera_name: str = "camera_front_wide_120fov"
     prompt_filename: str = SCENE_PROMPT_FILENAME
     clipgt_dirname: str = SCENE_CLIPGT_DIRNAME
@@ -517,6 +528,11 @@ class OmnidreamsInferenceRuntime:
         self._next_timestamp_us: int = 0
         self._postprocess_stream: VideoPostprocessStream | None = None
         self._postprocess_preset = self.config.postprocess.preset
+        self._latest_video_chunk: torch.Tensor | None = None
+        self._preview_jpeg_cache: bytes | None = None
+        self._preview_version = 0
+        self._encoded_preview_version = -1
+        self._world_pose_provider: Callable[[], dict[int, np.ndarray]] | None = None
         self._closed = False
         self._clipgt_temp_dir: tempfile.TemporaryDirectory[str] | None = None
         # Selected once at initialization; the concrete backend is chosen
@@ -559,6 +575,158 @@ class OmnidreamsInferenceRuntime:
             )
         return self._video_encoder
 
+    def player_pose(self) -> dict[str, float]:
+        """Return the current FLU pose for lobby/BEV telemetry."""
+        pose = self.pose_integrator.current_pose()
+        return {
+            "x": float(pose[0, 3]),
+            "y": float(pose[1, 3]),
+            "yaw": float(np.arctan2(pose[1, 0], pose[0, 0])),
+        }
+
+    def set_world_pose_provider(
+        self, provider: Callable[[], dict[int, np.ndarray]]
+    ) -> None:
+        """Set the shared player-pose source used for HDMap actor overlays."""
+        self._world_pose_provider = provider
+
+    def _dynamic_player_pool(self, frame_timestamps_us: list[int]) -> CubePool | None:
+        """Build the other-player car boxes for the current HDMap chunk."""
+        if self._world_pose_provider is None or self._device is None:
+            return None
+        world_poses = self._world_pose_provider()
+        other_poses = [
+            (player_id, pose)
+            for player_id, pose in sorted(world_poses.items())
+            if player_id != self.config.player_id
+        ]
+        if not other_poses:
+            return None
+
+        frame_count = len(frame_timestamps_us)
+        timestamps = torch.tensor(
+            frame_timestamps_us, dtype=torch.int64, device=self._device
+        )
+        translations = []
+        quaternions = []
+        colors = []
+        for player_id, pose in other_poses:
+            translations.append(
+                torch.as_tensor(pose[:3, 3], dtype=torch.float32, device=self._device)
+                .unsqueeze(0)
+                .repeat(frame_count, 1)
+            )
+            quaternion = torch.tensor(
+                _rotation_matrix_to_xyzw(pose[:3, :3]),
+                dtype=torch.float32,
+                device=self._device,
+            )
+            quaternions.append(quaternion.unsqueeze(0).repeat(frame_count, 1))
+            color = _hex_rgb(_player_color(player_id))
+            colors.append(torch.tensor([*color, *color], device=self._device))
+
+        track_lengths = torch.full(
+            (len(other_poses),), frame_count, dtype=torch.int32, device=self._device
+        )
+        return CubePool(
+            timestamps_us=timestamps,
+            cube_ts_prefix_sum=torch.cumsum(track_lengths, dim=0),
+            track_timestamps_us=timestamps.repeat(len(other_poses)),
+            translations=torch.cat(translations),
+            quaternions=torch.cat(quaternions),
+            scales=torch.tensor(
+                [[4.6, 1.9, 1.6]] * len(other_poses),
+                dtype=torch.float32,
+                device=self._device,
+            ),
+            colors=torch.stack(colors).to(dtype=torch.float32),
+            prim_type_id=PRIM_OBSTACLE,
+            render_flags=CUBE_FLAG_WIREFRAME,
+        )
+
+    def preview_jpeg(self) -> bytes | None:
+        """Encode the newest player frame for the game-manager preview grid."""
+        if (
+            self._preview_jpeg_cache is not None
+            and self._encoded_preview_version == self._preview_version
+        ):
+            return self._preview_jpeg_cache
+        frame: torch.Tensor | None = None
+        if self._latest_video_chunk is not None:
+            frame = self._latest_video_chunk[0, 0, -1]
+        elif self._initial_rgb_frames is not None:
+            frame = self._initial_rgb_frames[0, 0]
+        if frame is None:
+            return None
+        rgb = (
+            frame.detach()
+            .to(device="cpu", dtype=torch.uint8)
+            .permute(1, 2, 0)
+            .numpy()
+        )
+        ok, encoded = cv2.imencode(".jpg", cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+        if not ok:
+            return None
+        self._preview_jpeg_cache = encoded.tobytes()
+        self._encoded_preview_version = self._preview_version
+        return self._preview_jpeg_cache
+
+    def map_geometry(self) -> dict[str, object]:
+        """Return the loaded scene's ground plane in FLU coordinates."""
+        scene = self._scene_data
+        if scene is None:
+            return {"lines": [], "polygons": [], "bounds": None}
+
+        def ground_plane_rdf_to_flu(points: Any) -> list[list[float]]:
+            """Convert renderer-native RDF vertices to orthographic FLU XY."""
+            points_rdf = np.asarray(points, dtype=np.float32)
+            points_flu = (RDF_TO_FLU_MATRIX @ points_rdf.T).T
+            return points_flu[:, :2].astype(float).tolist()
+
+        lines = []
+        for kind, collection in (
+            ("lane", scene.lane_lines),
+            ("lane_boundary", scene.lane_boundaries),
+            ("road_boundary", scene.road_boundaries),
+            ("wait_line", scene.wait_lines),
+        ):
+            for element in collection:
+                points = np.asarray(element.points)
+                if len(points) >= 2:
+                    lines.append(
+                        {"kind": kind, "points": ground_plane_rdf_to_flu(points)}
+                    )
+
+        polygons = []
+        for kind, collection in (
+            ("crosswalk", scene.crosswalks),
+            ("road_marking", scene.road_markings),
+            ("intersection", scene.intersection_areas),
+            ("island", scene.road_islands),
+        ):
+            for element in collection:
+                vertices = np.asarray(element.vertices)
+                if len(vertices) >= 3:
+                    polygons.append(
+                        {
+                            "kind": kind,
+                            "points": ground_plane_rdf_to_flu(vertices),
+                        }
+                    )
+
+        all_points = [item["points"] for item in [*lines, *polygons]]
+        if not all_points:
+            bounds = None
+        else:
+            flat = np.concatenate([np.asarray(points) for points in all_points])
+            bounds = {
+                "min_x": float(flat[:, 0].min()),
+                "max_x": float(flat[:, 0].max()),
+                "min_y": float(flat[:, 1].min()),
+                "max_y": float(flat[:, 1].max()),
+            }
+        return {"lines": lines, "polygons": polygons, "bounds": bounds}
+
     def wait_for_termination(self) -> None:
         self.rank_coordinator.worker_loop(exit_signal=WebRTCControlSignal.EXIT)
 
@@ -578,10 +746,11 @@ class OmnidreamsInferenceRuntime:
             raise OmnidreamsRuntimeError("Runtime is closed.")
         if self._wrapper is None:
             raise OmnidreamsRuntimeError("Runtime is not initialized.")
-        await self._run_on_runtime_thread(
-            self._reset_rollout_sync_all_ranks,
-            session_input,
-        )
+        async with self._step_lock:
+            await self._run_on_runtime_thread(
+                self._reset_rollout_sync_all_ranks,
+                session_input,
+            )
 
     async def close(self) -> None:
         self._closed = True
@@ -909,12 +1078,24 @@ class OmnidreamsInferenceRuntime:
         if self._state is not None and self._state.pipeline_cache is not None:
             del self._state.pipeline_cache
         self._state = None
+        self._latest_video_chunk = None
+        self._preview_jpeg_cache = None
+        self._preview_version += 1
         self.pose_integrator = CameraPoseIntegrator(
             move_speed_per_s=self.config.move_speed_per_s,
             rotate_speed_rad_per_s=self.config.rotate_speed_rad_per_s,
             coordinate_system="FLU",
         )
-        self.pose_integrator.reset(self._initial_ego_pose)
+        initial_pose = self._initial_ego_pose.copy()
+        if self.config.player_count > 1:
+            center = (self.config.player_count + 1) / 2.0
+            lateral_offset = (self.config.player_id - center) * float(
+                self.config.player_spawn_spacing_m
+            )
+            # FLU uses +Y left. Offset each car in rig-local lateral space so
+            # every player starts at a distinct HDMap/camera perspective.
+            initial_pose[:3, 3] += initial_pose[:3, 1] * lateral_offset
+        self.pose_integrator.reset(initial_pose)
         self.autoregressive_index = 0
         self._next_timestamp_us = int(self._scene_data.ego_poses[0].timestamp)
         self._wrapper.set_rollout_seed(self.config.seed)
@@ -930,6 +1111,8 @@ class OmnidreamsInferenceRuntime:
         self._text_prompts = None
         self._camera_to_rig = None
         self._initial_ego_pose = None
+        self._latest_video_chunk = None
+        self._preview_jpeg_cache = None
         self._close_postprocess_stream()
         if self._video_encoder is not None:
             self._video_encoder.close()
@@ -1030,6 +1213,7 @@ class OmnidreamsInferenceRuntime:
         )
         camera_poses = torch.einsum("nij,jk->nik", ego_poses_t, self._camera_to_rig)
         frame_timestamps_us = self._consume_timestamps(num_frames)
+        dynamic_player_pool = self._dynamic_player_pool(frame_timestamps_us)
 
         camera_names = [self.config.camera_name]
         camera_poses_per_view = {self.config.camera_name: camera_poses}
@@ -1042,6 +1226,7 @@ class OmnidreamsInferenceRuntime:
                 camera_names=camera_names,
                 camera_poses_per_view=camera_poses_per_view,
                 frame_timestamps_us=frame_timestamps_us,
+                dynamic_actor_pool=dynamic_player_pool,
                 skip_video_generation=serve_hdmaps,
             )
             self._state = output.state
@@ -1051,6 +1236,7 @@ class OmnidreamsInferenceRuntime:
                 camera_names=camera_names,
                 camera_poses_per_view=camera_poses_per_view,
                 frame_timestamps_us=frame_timestamps_us,
+                dynamic_actor_pool=dynamic_player_pool,
                 skip_video_generation=serve_hdmaps,
             )
             self._state = output.state
@@ -1081,6 +1267,8 @@ class OmnidreamsInferenceRuntime:
             stats=None,
             sync_device=self._device,
         )
+        self._latest_video_chunk = result.video_chunk
+        self._preview_version += 1
         self.autoregressive_index += 1
         return result
 
@@ -1129,6 +1317,7 @@ class OmnidreamsWebRTCSessionManager(
         return {
             "stream": "hdmap" if self.runtime_config.debug_serve_hdmaps else "rgb",
             "postprocess_preset": self._runtime.postprocess_preset,
+            "player_id": self.runtime_config.player_id,
         }
 
     def _peek_pending_session_input(self) -> OmnidreamsSessionInput | None:
@@ -1142,7 +1331,14 @@ class OmnidreamsWebRTCSessionManager(
     ) -> None:
         await self._runtime.reset_for_new_session(session_input=session_input)
 
-    def set_pending_session_input(self, session_input: OmnidreamsSessionInput) -> None:
+    def set_pending_session_input(
+        self,
+        session_input: OmnidreamsSessionInput,
+        *,
+        player_id: int | None = None,
+    ) -> None:
+        if player_id not in (None, 1):
+            raise ValueError("This server only exposes player 1.")
         if self.has_active_session():
             raise SessionBusyError(self._busy_message)
         preset = session_input.postprocess_preset
@@ -1152,6 +1348,26 @@ class OmnidreamsWebRTCSessionManager(
                 configured_preset=self.runtime_config.postprocess.preset,
             )
         self._pending_session_input = session_input
+
+    def player_descriptors(self) -> list[dict[str, object]]:
+        return [
+            {
+                "id": 1,
+                "label": "P1",
+                "color": _player_color(1),
+                "available": not self.has_active_session(),
+                "pose": self._runtime.player_pose(),
+                "preview_url": "/api/players/1/preview.jpg",
+            }
+        ]
+
+    def player_preview_jpeg(self, player_id: int) -> bytes | None:
+        if player_id != 1:
+            raise ValueError(f"Unknown player P{player_id}.")
+        return self._runtime.preview_jpeg()
+
+    def map_geometry(self) -> dict[str, object]:
+        return self._runtime.map_geometry()
 
     def _register_extra_peer_handlers(self, peer_connection: Any) -> None:
         @peer_connection.on("iceconnectionstatechange")
@@ -1177,3 +1393,255 @@ class OmnidreamsWebRTCSessionManager(
         logger.info(
             "Created WebRTC answer with {}.", _summarize_sdp_candidates(answer_sdp)
         )
+
+
+_PLAYER_COLORS = (
+    "#76b900",
+    "#00a8ff",
+    "#ff5c5c",
+    "#ffb000",
+    "#b47cff",
+    "#00d4a6",
+    "#ff70b7",
+    "#7dd3fc",
+)
+"""Color-blind-friendly base palette for the first eight player slots."""
+
+
+def _player_color(player_id: int) -> str:
+    """Return a stable player color that remains distinct beyond the base palette."""
+    if player_id <= len(_PLAYER_COLORS):
+        return _PLAYER_COLORS[player_id - 1]
+    hue = ((player_id - 1) * 0.61803398875) % 1.0
+    red, green, blue = colorsys.hsv_to_rgb(hue, 0.72, 0.95)
+    return f"#{round(red * 255):02x}{round(green * 255):02x}{round(blue * 255):02x}"
+
+
+def _hex_rgb(value: str) -> tuple[float, float, float]:
+    """Convert a ``#rrggbb`` player color to normalized RGB."""
+    return (
+        int(value[1:3], 16) / 255.0,
+        int(value[3:5], 16) / 255.0,
+        int(value[5:7], 16) / 255.0,
+    )
+
+
+def _rotation_matrix_to_xyzw(rotation: np.ndarray) -> tuple[float, float, float, float]:
+    """Convert a rotation matrix to a normalized XYZW quaternion."""
+    trace = float(np.trace(rotation))
+    if trace > 0.0:
+        scale = np.sqrt(trace + 1.0) * 2.0
+        quaternion = (
+            (rotation[2, 1] - rotation[1, 2]) / scale,
+            (rotation[0, 2] - rotation[2, 0]) / scale,
+            (rotation[1, 0] - rotation[0, 1]) / scale,
+            0.25 * scale,
+        )
+    else:
+        axis = int(np.argmax(np.diag(rotation)))
+        following = (axis + 1) % 3
+        remaining = (axis + 2) % 3
+        scale = np.sqrt(
+            max(
+                0.0,
+                1.0
+                + rotation[axis, axis]
+                - rotation[following, following]
+                - rotation[remaining, remaining],
+            )
+        ) * 2.0
+        scale = max(float(scale), 1e-8)
+        xyz = [0.0, 0.0, 0.0]
+        xyz[axis] = 0.25 * scale
+        xyz[following] = (
+            rotation[following, axis] + rotation[axis, following]
+        ) / scale
+        xyz[remaining] = (
+            rotation[remaining, axis] + rotation[axis, remaining]
+        ) / scale
+        quaternion = (
+            xyz[0],
+            xyz[1],
+            xyz[2],
+            (rotation[remaining, following] - rotation[following, remaining])
+            / scale,
+        )
+    norm = max(float(np.linalg.norm(quaternion)), 1e-8)
+    return (
+        float(quaternion[0] / norm),
+        float(quaternion[1] / norm),
+        float(quaternion[2] / norm),
+        float(quaternion[3] / norm),
+    )
+
+
+class OmnidreamsMultiplayerSessionManager:
+    """Atomically routes WebRTC offers to independent player rollouts.
+
+    Each slot owns its input resampler, pose integrator, autoregressive cache,
+    encoder track, and peer connection. All slots load the same scene/config
+    and execute on the same server; generation is therefore authoritative and
+    does not require rollback prediction on clients.
+    """
+
+    def __init__(
+        self,
+        *,
+        runtime_config: OmnidreamsRuntimeConfig,
+        client_liveness_timeout_s: float = DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
+    ) -> None:
+        if runtime_config.player_count <= 0:
+            raise ValueError("player_count must be > 0.")
+        self.runtime_config = runtime_config
+        self._players: dict[int, OmnidreamsWebRTCSessionManager] = {}
+        shared_step_lock = asyncio.Lock()
+        for player_id in range(1, runtime_config.player_count + 1):
+            player_config = replace(runtime_config, player_id=player_id)
+            self._players[player_id] = OmnidreamsWebRTCSessionManager(
+                runtime_config=player_config,
+                client_liveness_timeout_s=client_liveness_timeout_s,
+            )
+            self._players[player_id]._runtime._step_lock = shared_step_lock
+        for manager in self._players.values():
+            manager._runtime.set_world_pose_provider(self._world_poses)
+        self._claim_lock = asyncio.Lock()
+        self._claiming_players: set[int] = set()
+        self._preview_task: asyncio.Task[None] | None = None
+        self._preview_clocks = dict.fromkeys(self._players, 0.0)
+
+    def _world_poses(self) -> dict[int, np.ndarray]:
+        return {
+            player_id: manager._runtime.pose_integrator.current_pose()
+            for player_id, manager in self._players.items()
+        }
+
+    def _player(self, player_id: int | None) -> OmnidreamsWebRTCSessionManager:
+        resolved = 1 if player_id is None and len(self._players) == 1 else player_id
+        if resolved is None:
+            raise ValueError("A player_id is required for multiplayer sessions.")
+        manager = self._players.get(resolved)
+        if manager is None:
+            raise ValueError(f"Unknown player P{resolved}.")
+        return manager
+
+    def has_active_session(self) -> bool:
+        return any(manager.has_active_session() for manager in self._players.values())
+
+    def is_runtime_ready(self) -> bool:
+        return all(manager.is_runtime_ready() for manager in self._players.values())
+
+    async def preload_runtime(self) -> None:
+        # Initialize serially: CUDA compilation/capture and large checkpoint
+        # loads are intentionally not raced on one device.
+        for manager in self._players.values():
+            await manager.preload_runtime()
+        if self._preview_task is None:
+            self._preview_task = asyncio.create_task(self._preview_worker())
+
+    async def _preview_worker(self) -> None:
+        """Continuously render neutral-input previews for unclaimed players."""
+        try:
+            while True:
+                rendered = False
+                for player_id, manager in self._players.items():
+                    if player_id in self._claiming_players or manager.has_active_session():
+                        continue
+                    runtime = manager._runtime
+                    start = self._preview_clocks[player_id]
+                    num_frames = runtime.peek_next_chunk_num_frames()
+                    frame_times = [
+                        start + (index + 1) / self.runtime_config.fps
+                        for index in range(num_frames)
+                    ]
+                    end = frame_times[-1]
+                    try:
+                        await runtime.generate_chunk(
+                            segments=[(start, end, frozenset())],
+                            frame_times=frame_times,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Preview generation failed for player P{}.", player_id
+                        )
+                        await asyncio.sleep(0.1)
+                        continue
+                    self._preview_clocks[player_id] = end
+                    rendered = True
+                    await asyncio.sleep(0)
+                if not rendered:
+                    await asyncio.sleep(0.05)
+        except asyncio.CancelledError:
+            raise
+
+    async def create_answer(
+        self,
+        *,
+        offer_sdp: str,
+        offer_type: str,
+        player_id: int | None = None,
+    ) -> dict[str, str]:
+        resolved_player_id = player_id
+        manager = self._player(resolved_player_id)
+        assert resolved_player_id is not None
+        async with self._claim_lock:
+            if (
+                resolved_player_id in self._claiming_players
+                or manager.has_active_session()
+            ):
+                raise SessionBusyError(f"Player P{resolved_player_id} is occupied.")
+            self._claiming_players.add(resolved_player_id)
+        try:
+            return await manager.create_answer(
+                offer_sdp=offer_sdp,
+                offer_type=offer_type,
+            )
+        finally:
+            self._claiming_players.discard(resolved_player_id)
+
+    def set_pending_session_input(
+        self,
+        session_input: OmnidreamsSessionInput,
+        *,
+        player_id: int | None = None,
+    ) -> None:
+        self._player(player_id).set_pending_session_input(session_input)
+
+    def player_descriptors(self) -> list[dict[str, object]]:
+        descriptors: list[dict[str, object]] = []
+        for player_id, manager in self._players.items():
+            runtime = manager._runtime
+            descriptors.append(
+                {
+                    "id": player_id,
+                    "label": f"P{player_id}",
+                    "color": _player_color(player_id),
+                    "available": (
+                        player_id not in self._claiming_players
+                        and not manager.has_active_session()
+                    ),
+                    "pose": runtime.player_pose(),
+                    "preview_url": f"/api/players/{player_id}/preview.jpg",
+                }
+            )
+        return descriptors
+
+    def player_preview_jpeg(self, player_id: int) -> bytes | None:
+        return self._player(player_id)._runtime.preview_jpeg()
+
+    def map_geometry(self) -> dict[str, object]:
+        return next(iter(self._players.values()))._runtime.map_geometry()
+
+    async def shutdown(self) -> None:
+        if self._preview_task is not None:
+            self._preview_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._preview_task
+            self._preview_task = None
+        for manager in self._players.values():
+            await manager.shutdown()
+
+    def wait_for_termination(self) -> None:
+        next(iter(self._players.values())).wait_for_termination()
+
+    def send_exit_signal(self) -> None:
+        next(iter(self._players.values())).send_exit_signal()
