@@ -58,6 +58,7 @@ _PHYSX_DEBUG_REAR_M = 15.0
 _PHYSX_DEBUG_LATERAL_M = 100.0
 _VISUAL_FLARE_MIN_SPEED_DELTA_MPS = 5.0 * 0.44704
 _VISUAL_FLARE_COLLISION_WINDOW_US = 500_000
+_PERSISTENT_TRACK_TIMESTAMP_US = np.iinfo(np.int64).max // 4
 # Cover the complete mode-3 debug rectangle despite worst-case recenter lag,
 # with additional room for long vehicles and trailers. A 96 m circle cut
 # through the 125 m forward / 100 m lateral debug region.
@@ -144,6 +145,28 @@ def _ego_model(vehicle: VehicleConfig) -> RigidBodyModel:
     return rigid_body_model_from_vehicle_config(vehicle)
 
 
+def _recorded_actor_trajectory(scene_object: SceneObject) -> DynamicActorTrajectory:
+    """Build one reusable renderer track that holds its final pose indefinitely."""
+    timestamps = scene_object.timestamps_us
+    positions = scene_object.positions_m
+    orientations = scene_object.orientations_xyzw
+    if int(timestamps[-1]) < _PERSISTENT_TRACK_TIMESTAMP_US:
+        timestamps = np.concatenate(
+            (timestamps, np.asarray([_PERSISTENT_TRACK_TIMESTAMP_US], dtype=np.int64))
+        )
+        positions = np.concatenate((positions, positions[-1:]), axis=0)
+        orientations = np.concatenate((orientations, orientations[-1:]), axis=0)
+    return DynamicActorTrajectory(
+        entity_id=scene_object.object_id,
+        object_type=scene_object.object_type,
+        timestamps_us=timestamps,
+        translations_world=positions,
+        orientations_xyzw=orientations,
+        dimensions_lwh=np.asarray(scene_object.model.half_extents_m, dtype=np.float32)
+        * 2.0,
+    )
+
+
 def _simplify_barrier_segments(segments_world: np.ndarray) -> tuple[np.ndarray, ...]:
     """Coalesce dense ordered map strokes into game-scale wall segments."""
     segments = np.asarray(segments_world, dtype=np.float32)
@@ -182,6 +205,9 @@ class GamePhysicsWorld:
             self._build_barriers(scene) if vehicle.static_collision_enabled else ()
         )
         self.graph = PhysicsObjectGraph(objects=objects, barriers=barriers)
+        self._recorded_trajectories_by_id = {
+            obj.object_id: _recorded_actor_trajectory(obj) for obj in objects
+        }
         initial_transform = getattr(scene, "initial_rig_to_world", None)
         initial_xy = (
             np.asarray(initial_transform[:2, 3], dtype=np.float32)
@@ -701,12 +727,12 @@ class GamePhysicsWorld:
         }
         for scene_object in self.graph.objects:
             physically_simulated = scene_object.object_id in simulated_ids
-            detached = any(
-                frame[scene_object.object_id][3]
-                for frame in samples_by_id
-                if scene_object.object_id in frame
-            )
             if physically_simulated:
+                detached = any(
+                    frame[scene_object.object_id][3]
+                    for frame in samples_by_id
+                    if scene_object.object_id in frame
+                )
                 frame_poses = []
                 for timestamp, frame in zip(
                     simulated_timestamps, samples_by_id, strict=True
@@ -725,18 +751,8 @@ class GamePhysicsWorld:
                 )
                 trajectory_timestamps = simulated_timestamps
             else:
-                positions = scene_object.positions_m.copy()
-                orientations = scene_object.orientations_xyzw.copy()
-                trajectory_timestamps = scene_object.timestamps_us.copy()
-                final_simulated_timestamp = int(simulated_timestamps[-1])
-                if final_simulated_timestamp > int(trajectory_timestamps[-1]):
-                    trajectory_timestamps = np.append(
-                        trajectory_timestamps, np.int64(final_simulated_timestamp)
-                    )
-                    positions = np.concatenate((positions, positions[-1:]), axis=0)
-                    orientations = np.concatenate(
-                        (orientations, orientations[-1:]), axis=0
-                    )
+                result.append(self._recorded_trajectories_by_id[scene_object.object_id])
+                continue
             result.append(
                 DynamicActorTrajectory(
                     entity_id=scene_object.object_id,
@@ -749,6 +765,7 @@ class GamePhysicsWorld:
                     )
                     * 2.0,
                     detached_from_track=detached,
+                    is_simulated=True,
                 )
             )
         return tuple(result)

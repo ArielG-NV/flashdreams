@@ -220,6 +220,9 @@ class DynamicActorTrajectory:
     detached_from_track: bool = False
     """Whether rigid-body physics, rather than the recorded track, owns the actor."""
 
+    is_simulated: bool = False
+    """Whether this chunk carries mutable PhysX samples for the actor."""
+
     def to_game_engine_dict(self) -> dict[str, Any]:
         """Return JSON-compatible identity, collider, and transform keyframes."""
         keyframes = [

@@ -6,13 +6,13 @@ from __future__ import annotations
 import concurrent.futures
 from types import SimpleNamespace
 
-from ludus_renderer._ops import context as context_module
-from ludus_renderer._ops.context import LudusCudaTimestampedContext
 import numpy as np
 import omnidreams.interactive_drive.rasterizer as rasterizer_module
 import pytest
 import torch
-from omnidreams.interactive_drive.config import RasterConfig
+from ludus_renderer._ops import context as context_module
+from ludus_renderer._ops.context import LudusCudaTimestampedContext
+from omnidreams.interactive_drive.config import BevConfig, RasterConfig
 from omnidreams.interactive_drive.rasterizer import (
     LudusConditionRasterizer,
     _LoadedSceneData,
@@ -147,6 +147,50 @@ def test_single_camera_render_uses_uniform_scalar_dispatch() -> None:
     assert calls[0]["camera_type_id"] == 1
 
 
+def test_bev_stays_level_and_centered_when_ego_points_upward() -> None:
+    impl = _impl_for_render_chunk(use_cuda_frames=True)
+    del impl._render_one_camera
+    impl._bev = BevConfig(enabled=True, width=3, height=2, height_m=75.0)
+    impl._bev_camera_id = 1
+    impl._bev_sensor_to_rig = rasterizer_module._bev_sensor_to_rig(
+        height_m=impl._bev.height_m,
+        tilt_deg=impl._bev.tilt_deg,
+        device=torch.device("cpu"),
+    )
+    captured_camera_poses: list[torch.Tensor] = []
+
+    class _Context:
+        needs_vflip = False
+
+        def render_uniform(self, **kwargs):
+            captured_camera_poses.append(kwargs["camera_poses"])
+            return torch.zeros((1, 2, 3, 4), dtype=torch.uint8)
+
+    impl.ctx = _Context()
+    yaw = 0.6
+    pitch = torch.pi / 2
+    cos_yaw, sin_yaw = torch.cos(torch.tensor(yaw)), torch.sin(torch.tensor(yaw))
+    cos_pitch = torch.cos(torch.tensor(pitch))
+    sin_pitch = torch.sin(torch.tensor(pitch))
+    rig_pose = torch.eye(4).unsqueeze(0)
+    rig_pose[0, :3, :3] = torch.tensor(
+        [
+            [cos_yaw * cos_pitch, -sin_yaw, cos_yaw * sin_pitch],
+            [sin_yaw * cos_pitch, cos_yaw, sin_yaw * sin_pitch],
+            [-sin_pitch, 0.0, cos_pitch],
+        ]
+    )
+    rig_pose[0, :3, 3] = torch.tensor([12.0, -4.0, 3.0])
+
+    impl.render_bev_frames(rig_poses_torch=rig_pose, timestamps_us=np.array([1]))
+
+    camera_pose = captured_camera_poses[0][0]
+    torch.testing.assert_close(
+        camera_pose[:3, 0], torch.tensor([0.0, 0.0, -1.0]), atol=1e-6, rtol=0.0
+    )
+    torch.testing.assert_close(camera_pose[:3, 3], torch.tensor([12.0, -4.0, 78.0]))
+
+
 def test_uniform_dispatch_reuses_expanded_camera_intrinsics(monkeypatch) -> None:
     context = LudusCudaTimestampedContext.__new__(LudusCudaTimestampedContext)
     context._camera_intrinsics = torch.arange(16, dtype=torch.float32).reshape(1, 16)
@@ -162,6 +206,7 @@ def test_uniform_dispatch_reuses_expanded_camera_intrinsics(monkeypatch) -> None
             "polyline_pools": torch.empty(0),
             "polygon_pools": torch.empty(0),
             "cube_pools": torch.empty(0),
+            "cube_pool_counts": [],
             "total_cubes": 0,
             "max_varrays_per_ts_polyline": 0,
             "max_varrays_per_ts_polygon": 0,
@@ -171,9 +216,11 @@ def test_uniform_dispatch_reuses_expanded_camera_intrinsics(monkeypatch) -> None
     context._max_extrapolation_us = 1
     context._tessellation_threshold = 1.0
     intrinsic_buffers: list[torch.Tensor] = []
+    cube_pool_counts: list[list[int]] = []
 
     class _Plugin:
         def ludus_render_fwd_cuda_timestamped(self, *args):
+            cube_pool_counts.append(args[10])
             intrinsic_buffers.append(args[-4])
             return torch.zeros((4, 1, 1, 4), dtype=torch.uint8)
 
@@ -190,6 +237,7 @@ def test_uniform_dispatch_reuses_expanded_camera_intrinsics(monkeypatch) -> None
         )
 
     assert len(context._uniform_intrinsics_cache) == 1
+    assert cube_pool_counts == [[], []]
     assert intrinsic_buffers[0] is intrinsic_buffers[1]
 
 

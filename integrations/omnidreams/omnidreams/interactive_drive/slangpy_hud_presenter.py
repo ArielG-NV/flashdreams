@@ -22,7 +22,11 @@ from typing import Any
 
 import numpy as np
 from loguru import logger
-from omnidreams.interactive_drive.config import BevConfig, RasterConfig
+from omnidreams.interactive_drive.config import (
+    BevConfig,
+    RasterConfig,
+    VehicleConfig,
+)
 from omnidreams.interactive_drive.cuda_env import DISABLE_CUDA_INTEROP_ENV
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.physx_debug import select_presented_rgb
@@ -84,6 +88,13 @@ MPS_TO_MPH = 2.2369362920544
 DRIVE_KEY_RELEASE_DEBOUNCE_S = 0.08
 
 _BevPanelKey = tuple[int, int, int, int]
+
+_DEFAULT_VEHICLE_CONFIG = VehicleConfig()
+_DEFAULT_EGO_DIMENSIONS_LWH = (
+    _DEFAULT_VEHICLE_CONFIG.aabb_length_m,
+    _DEFAULT_VEHICLE_CONFIG.aabb_width_m,
+    _DEFAULT_VEHICLE_CONFIG.aabb_height_m,
+)
 
 
 def _bev_ego_footprint_points(
@@ -2073,10 +2084,13 @@ class SlangPyHudPresenter:
             canvas.paste(panel_image, (inner[0], inner[1]))
 
         ego_dimensions = getattr(self, "_latest_ego_dimensions_lwh", None)
-        if ego_dimensions is not None:
-            self._draw_bev_ego_footprint(
-                draw, inner, ego_dimensions, self._bev_config
-            )
+        # Physics snapshots are captured only while the optional PhysX debug
+        # view is active. Keep the normal RGB/model views' ego marker visible
+        # with the configured default footprint until an authoritative
+        # snapshot supplies its dimensions.
+        if ego_dimensions is None:
+            ego_dimensions = _DEFAULT_EGO_DIMENSIONS_LWH
+        self._draw_bev_ego_footprint(draw, inner, ego_dimensions, self._bev_config)
 
     def _get_bev_panel_image(self, target_size: tuple[int, int]) -> Image.Image | None:
         if self._latest_bev_source is None:

@@ -352,8 +352,9 @@ class _LudusConditionRasterizerImpl:
             and self._bev_sensor_to_rig is not None
         ):
             return None
+        level_rig_poses = _level_rig_poses_for_bev(rig_poses_torch)
         return self._render_one_camera(
-            rig_poses=rig_poses_torch,
+            rig_poses=level_rig_poses,
             timestamps_us=timestamps_us,
             scene_id=self._scene_id,
             camera_id=self._bev_camera_id,
@@ -767,6 +768,40 @@ def _build_bev_camera(bev: BevConfig, device: torch.device) -> FThetaCamera:
         max_ray_angle=max_ray_angle,
         depth_max=max(150.0, float(bev.height_m) * 4.0),
     )
+
+
+def _level_rig_poses_for_bev(rig_poses: Tensor) -> Tensor:
+    """Keep BEV centered on the rig without inheriting its pitch or roll.
+
+    The minimap remains heading-up, so retain the rig's planar yaw. When the
+    forward axis is nearly vertical (for example after a collision), derive
+    yaw from the projected left axis instead. Translation is copied exactly.
+
+    Args:
+        rig_poses: Rig-to-world poses with shape ``[..., 4, 4]``.
+
+    Returns:
+        Poses with the same translation and planar heading but world-up rotation.
+    """
+    rotation = rig_poses[..., :3, :3]
+    forward_xy = rotation[..., :2, 0]
+    left_xy = rotation[..., :2, 1]
+    forward_norm = torch.linalg.vector_norm(forward_xy, dim=-1)
+    yaw_from_forward = torch.atan2(forward_xy[..., 1], forward_xy[..., 0])
+    yaw_from_left = torch.atan2(-left_xy[..., 0], left_xy[..., 1])
+    yaw = torch.where(forward_norm > 1e-4, yaw_from_forward, yaw_from_left)
+
+    cos_yaw = torch.cos(yaw)
+    sin_yaw = torch.sin(yaw)
+    level_poses = torch.zeros_like(rig_poses)
+    level_poses[..., 0, 0] = cos_yaw
+    level_poses[..., 0, 1] = -sin_yaw
+    level_poses[..., 1, 0] = sin_yaw
+    level_poses[..., 1, 1] = cos_yaw
+    level_poses[..., 2, 2] = 1.0
+    level_poses[..., :3, 3] = rig_poses[..., :3, 3]
+    level_poses[..., 3, 3] = 1.0
+    return level_poses
 
 
 def _bev_sensor_to_rig(

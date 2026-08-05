@@ -34,11 +34,13 @@ from ._ops.primitives import (
 class ObjectTrajectory(Protocol):
     """Structural input accepted from simulation clients."""
 
+    entity_id: str
     object_type: str
     timestamps_us: Any
     translations_world: Any
     orientations_xyzw: Any
     dimensions_lwh: Any
+    is_simulated: bool
 
 
 class MutableSceneContext(Protocol):
@@ -46,6 +48,10 @@ class MutableSceneContext(Protocol):
 
     def update_cube_pool(
         self, scene_id: int, prim_type_id: int, pool: CubePool
+    ) -> bool: ...
+
+    def update_cube_pool_at_index(
+        self, scene_id: int, pool_index: int, pool: CubePool
     ) -> bool: ...
 
     def replace_scene(self, scene_id: int, scene: TimestampedScene) -> int: ...
@@ -67,6 +73,8 @@ class MutableObjectSceneBuffer:
         self._base_scene = base_scene
         self._device = device
         self._initialized = False
+        self._actor_partition: tuple[tuple[str, ...], tuple[str, ...]] | None = None
+        self._dynamic_pool_index: int | None = None
 
     @property
     def scene_id(self) -> int:
@@ -74,7 +82,7 @@ class MutableObjectSceneBuffer:
         return self._scene_id
 
     def update(self, actors: Sequence[ObjectTrajectory]) -> None:
-        """Update actor tracks in place, reallocating only when topology changes."""
+        """Update simulated tracks while retaining immutable tracks on CUDA."""
         if not actors:
             if self._initialized:
                 static_pools = [
@@ -91,24 +99,64 @@ class MutableObjectSceneBuffer:
                     self._scene_id, replacement
                 )
                 self._initialized = False
+                self._actor_partition = None
+                self._dynamic_pool_index = None
             return
-        actor_pool = build_hdmap_object_pool(actors, device=self._device)
-        if self._initialized and self._context.update_cube_pool(
-            self._scene_id, PRIM_OBSTACLE, actor_pool
+
+        static_actors = tuple(
+            actor for actor in actors if not getattr(actor, "is_simulated", False)
+        )
+        dynamic_actors = tuple(
+            actor for actor in actors if getattr(actor, "is_simulated", False)
+        )
+        partition = (
+            tuple(actor.entity_id for actor in static_actors),
+            tuple(actor.entity_id for actor in dynamic_actors),
+        )
+        if (
+            self._initialized
+            and partition == self._actor_partition
+            and self._dynamic_pool_index is None
         ):
             return
+        if (
+            self._initialized
+            and partition == self._actor_partition
+            and self._dynamic_pool_index is not None
+        ):
+            dynamic_pool = build_hdmap_object_pool(
+                dynamic_actors, device=self._device
+            )
+            if self._context.update_cube_pool_at_index(
+                self._scene_id, self._dynamic_pool_index, dynamic_pool
+            ):
+                return
+
         static_pools = [
             pool
             for pool in (self._base_scene.cube_pools or [])
             if pool.prim_type_id != PRIM_OBSTACLE
         ]
+        actor_pools = []
+        if static_actors:
+            actor_pools.append(
+                build_hdmap_object_pool(static_actors, device=self._device)
+            )
+        dynamic_pool_index = None
+        if dynamic_actors:
+            dynamic_pool_index = len(static_pools) + len(actor_pools)
+            actor_pools.append(
+                build_hdmap_object_pool(dynamic_actors, device=self._device)
+            )
         replacement = TimestampedScene(
             polyline_pools=self._base_scene.polyline_pools,
             polygon_pools=self._base_scene.polygon_pools,
-            cube_pools=[*static_pools, actor_pool],
+            cube_pools=[*static_pools, *actor_pools],
         )
         self._scene_id = self._context.replace_scene(self._scene_id, replacement)
         self._initialized = True
+        self._actor_partition = partition
+        self._dynamic_pool_index = dynamic_pool_index
 
 
 def build_hdmap_object_pool(

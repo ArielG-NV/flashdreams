@@ -719,6 +719,26 @@ def test_hud_bev_marker_is_green_top_down_ego_footprint() -> None:
     assert (45, 82, 0, 255) in map(tuple, painted)
 
 
+def test_hud_bev_marker_is_visible_without_physx_debug_snapshot() -> None:
+    presenter = _hud_presenter_without_window()
+    presenter._latest_bev_source = object()
+    presenter._latest_ego_dimensions_lwh = None
+    presenter._bev_config = BevConfig(width=64, height=64, height_m=15.0)
+    presenter._get_bev_panel_image = lambda _size: Image.new(
+        "RGB", (64, 64), (234, 226, 209)
+    )
+    canvas = Image.new("RGBA", (72, 172), (0, 0, 0, 0))
+
+    presenter._draw_bev(
+        canvas,
+        ImageDraw.Draw(canvas),
+        (0, 0, 72, 172),
+        controls_bottom_y=0,
+    )
+
+    assert (118, 185, 0, 255) in map(tuple, np.asarray(canvas).reshape(-1, 4))
+
+
 def test_hud_bev_footprint_is_centered_and_uses_length_and_width() -> None:
     config = BevConfig(fov_deg=60.0)
     viewport = (0, 0, 456, 410)

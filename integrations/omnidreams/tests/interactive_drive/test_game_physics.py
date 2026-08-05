@@ -61,6 +61,7 @@ from omnidreams.interactive_drive.simulation.ego_vehicle_kinematics import (
 from omnidreams.interactive_drive.simulation.game_physics import (
     GamePhysicsWorld,
     _is_visual_flare_impact,
+    _recorded_actor_trajectory,
     _simplify_barrier_segments,
 )
 from omnidreams.interactive_drive.simulation.traffic_ai import TrafficDriverAI
@@ -226,7 +227,32 @@ def test_collision_detaches_actor_and_applies_physics_response() -> None:
     )[0]
     np.testing.assert_array_equal(trajectory.timestamps_us, [0, 33_333])
     assert trajectory.detached_from_track is True
+    assert trajectory.is_simulated is True
     world.close()
+
+
+def test_recorded_renderer_trajectory_is_cached_and_holds_final_pose() -> None:
+    scene_object = GamePhysicsWorld._object_from_track(
+        _track(x_m=500.0), VehicleConfig()
+    )
+    cached = _recorded_actor_trajectory(scene_object)
+    world = object.__new__(GamePhysicsWorld)
+    world.graph = PhysicsObjectGraph(objects=(scene_object,))
+    world._recorded_trajectories_by_id = {scene_object.object_id: cached}
+    timestamps = np.asarray([0, 33_333], dtype=np.int64)
+
+    first = world.build_trajectories(timestamps, [(), ()])[0]
+    second = world.build_trajectories(timestamps, [(), ()])[0]
+
+    assert first is second
+    assert first.is_simulated is False
+    assert int(first.timestamps_us[-1]) > int(timestamps[-1])
+    np.testing.assert_array_equal(
+        first.translations_world[-1], first.translations_world[-2]
+    )
+    np.testing.assert_array_equal(
+        first.orientations_xyzw[-1], first.orientations_xyzw[-2]
+    )
 
 
 def test_side_impact_is_resolved_by_physx_contact() -> None:
@@ -552,6 +578,21 @@ def test_vehicle_instances_have_dimensioned_wheels_and_suspension() -> None:
         car.vehicle.spring_stiffness_n_per_m
     )
     assert pedestrian.vehicle is None
+
+
+@pytest.mark.parametrize("object_type", ["Car", "Truck", "Bus", "Trailer"])
+def test_vehicle_collision_footprint_is_slightly_larger_than_hdmap_box(
+    object_type: str,
+) -> None:
+    dimensions = np.asarray([4.0, 1.9, 1.6], dtype=np.float32)
+    model = rigid_body_model_for_object(object_type, dimensions)
+
+    assert model.vehicle is not None
+    hdmap_half_extents_xy = dimensions[:2] * 0.5
+    np.testing.assert_allclose(
+        model.vehicle.chassis_half_extents_m[:2],
+        hdmap_half_extents_xy + 0.05,
+    )
 
 
 def test_collision_uses_free_vertical_suspension_without_launching_actor() -> None:
@@ -1266,6 +1307,15 @@ class _FakeLudusContext:
         assert prim_type_id == PRIM_OBSTACLE
         return True
 
+    def update_cube_pool_at_index(
+        self, scene_id: int, pool_index: int, pool: CubePool
+    ) -> bool:
+        self.update_count += 1
+        assert scene_id == 3
+        assert pool_index >= 0
+        assert pool.prim_type_id == PRIM_OBSTACLE
+        return True
+
 
 def _cube_pool(prim_type_id: int) -> CubePool:
     return CubePool(
@@ -1307,9 +1357,19 @@ def test_ludus_replacement_removes_recorded_actor_without_dropping_static_pools(
         ),
         dimensions_lwh=np.asarray([4.0, 2.0, 1.6], dtype=np.float32),
         detached_from_track=True,
+        is_simulated=True,
+    )
+    recorded_actor = DynamicActorTrajectory(
+        entity_id="car-recorded",
+        object_type="Car",
+        timestamps_us=actor.timestamps_us,
+        translations_world=actor.translations_world
+        + np.asarray([20.0, 0.0, 0.0], dtype=np.float32),
+        orientations_xyzw=actor.orientations_xyzw,
+        dimensions_lwh=actor.dimensions_lwh,
     )
 
-    renderer._replace_dynamic_actor_scene((actor,))
+    renderer._replace_dynamic_actor_scene((recorded_actor, actor))
 
     assert context.clear_count == 0
     assert context.replace_count == 1
@@ -1321,12 +1381,15 @@ def test_ludus_replacement_removes_recorded_actor_without_dropping_static_pools(
         for pool in context.uploaded_scene.cube_pools
         if pool.prim_type_id == PRIM_OBSTACLE
     ]
-    assert len(obstacle_pools) == 1
+    assert len(obstacle_pools) == 2
     np.testing.assert_allclose(
-        obstacle_pools[0].translations.numpy(), actor.translations_world
+        obstacle_pools[0].translations.numpy(), recorded_actor.translations_world
+    )
+    np.testing.assert_allclose(
+        obstacle_pools[1].translations.numpy(), actor.translations_world
     )
 
-    renderer._replace_dynamic_actor_scene((actor,))
+    renderer._replace_dynamic_actor_scene((recorded_actor, actor))
 
     assert context.replace_count == 1
     assert context.update_count == 1

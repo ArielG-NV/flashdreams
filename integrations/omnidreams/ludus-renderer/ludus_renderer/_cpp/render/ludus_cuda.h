@@ -210,7 +210,7 @@ void ludusCudaRenderTimestamped(
     const TsPolylinePoolHeader* polylinePools, int numPolylinePools,
     const TsPolygonPoolHeader* polygonPools, int numPolygonPools,
     const TsCubePoolHeader* cubePools, int numCubePools,
-    int totalCubes,
+    int totalCubes, const int64_t* cubePoolCounts,
     const int64_t* queryTimestampsUs, int maxExtrapolationUs,
     int maxVarraysPerTsPolyline, int maxVarraysPerTsPolygon,
     const CudaRenderParams& params,

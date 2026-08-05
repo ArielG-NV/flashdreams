@@ -29,6 +29,8 @@ from omnidreams.interactive_drive.types import VehicleState
 
 FloatArray = npt.NDArray[np.float32]
 
+_VEHICLE_COLLISION_PADDING_M = 0.1
+
 _FIXED_OBJECT_MASS_KG = {
     "car": 1_550.0,
     "truck": 8_000.0,
@@ -288,6 +290,7 @@ def rigid_body_model_for_object(
                 dimensions,
                 mass_kg,
                 suspension_travel_m=0.22 if kind == "car" else 0.32,
+                collision_padding_m=_VEHICLE_COLLISION_PADDING_M,
             )
         ),
     )
@@ -348,6 +351,7 @@ def _physx_vehicle_model(
     mass_kg: float,
     *,
     suspension_travel_m: float,
+    collision_padding_m: float | None = None,
 ) -> VehicleModel:
     """Build a dimensioned four-wheel model at its static ride height."""
     length, width, height = (
@@ -379,10 +383,20 @@ def _physx_vehicle_model(
     chassis_bottom = -height * 0.5 + ground_clearance
     chassis_top = height * 0.45
     chassis_center_z = (chassis_bottom + chassis_top) * 0.5
+    chassis_half_length = (
+        length * 0.46
+        if collision_padding_m is None
+        else length * 0.5 + collision_padding_m
+    )
+    chassis_half_width = (
+        width * 0.44
+        if collision_padding_m is None
+        else width * 0.5 + collision_padding_m
+    )
     return VehicleModel(
         chassis_half_extents_m=(
-            length * 0.46,
-            width * 0.44,
+            chassis_half_length,
+            chassis_half_width,
             (chassis_top - chassis_bottom) * 0.5,
         ),
         chassis_offset_m=(0.0, 0.0, chassis_center_z),

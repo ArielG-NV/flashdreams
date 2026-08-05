@@ -18,6 +18,7 @@
 #include "../common/common.h"
 #include "../render/ludus_cuda.h"
 #include "../cudaraster/CudaRaster.hpp"
+#include <limits>
 #include <tuple>
 
 //------------------------------------------------------------------------
@@ -520,6 +521,7 @@ torch::Tensor ludus_render_fwd_cuda_timestamped(
     torch::Tensor polygon_pools,      // [num_pg_pools, 16] uint32
     torch::Tensor cube_pools,         // [num_cb_pools, 16] uint32
     int total_cubes,
+    std::vector<int64_t> cube_pool_counts,
     std::vector<int64_t> query_timestamps_us,
     int max_extrapolation_us,
     int max_varrays_per_ts_polyline,
@@ -621,6 +623,16 @@ torch::Tensor ludus_render_fwd_cuda_timestamped(
     int numPlPools = polyline_pools.size(0);
     int numPgPools = polygon_pools.size(0);
     int numCbPools = cube_pools.size(0);
+    NVDR_CHECK((int)cube_pool_counts.size() == numCbPools,
+               "cube pool counts must match cube pool count");
+    int64_t countedCubes = 0;
+    for (int64_t count : cube_pool_counts) {
+        NVDR_CHECK(count >= 0 && count <= std::numeric_limits<int>::max(),
+                   "cube pool counts must fit non-negative int32");
+        countedCubes += count;
+    }
+    NVDR_CHECK(countedCubes == total_cubes,
+               "cube pool counts must sum to total cubes");
 
     const TsPolylinePoolHeader* plPoolPtr = numPlPools > 0 ?
         reinterpret_cast<const TsPolylinePoolHeader*>(polyline_pools.data_ptr<int32_t>()) : nullptr;
@@ -645,7 +657,7 @@ torch::Tensor ludus_render_fwd_cuda_timestamped(
                                plPoolPtr, numPlPools,
                                pgPoolPtr, numPgPools,
                                cbPoolPtr, numCbPools,
-                               total_cubes,
+                               total_cubes, cube_pool_counts.data(),
                                query_timestamps_us.data(), max_extrapolation_us,
                                max_varrays_per_ts_polyline,
                                max_varrays_per_ts_polygon,

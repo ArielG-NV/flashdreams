@@ -324,6 +324,9 @@ class LudusCudaTimestampedContext:
                 "polygon_pools": all_pg_pools,
                 "cube_pools": all_cb_pools,
                 "cube_pool_metadata": cube_pool_metadata,
+                "cube_pool_counts": [
+                    metadata["n_cubes"] for metadata in cube_pool_metadata
+                ],
                 "total_cubes": sum(
                     metadata["n_cubes"] for metadata in cube_pool_metadata
                 ),
@@ -361,12 +364,26 @@ class LudusCudaTimestampedContext:
         ]
         if len(candidates) != 1:
             return False
-        pool_index, metadata = candidates[0]
+        pool_index, _ = candidates[0]
+        return self.update_cube_pool_at_index(scene_id, pool_index, pool)
+
+    def update_cube_pool_at_index(
+        self, scene_id: int, pool_index: int, pool: CubePool
+    ) -> bool:
+        """Copy a same-topology cube pool into one exact scene slot."""
+        if not 0 <= scene_id < len(self._scenes):
+            raise IndexError(f"scene_id {scene_id} is out of range")
+        scene = self._scenes[scene_id]
+        metadata_values = scene["cube_pool_metadata"]
+        if not 0 <= pool_index < len(metadata_values):
+            raise IndexError(f"cube pool index {pool_index} is out of range")
+        metadata = metadata_values[pool_index]
         n_cubes = int(pool.scales.shape[0])
         n_global_ts = int(pool.timestamps_us.shape[0])
         n_track_poses = int(pool.translations.shape[0])
         if (
-            n_cubes != metadata["n_cubes"]
+            int(pool.prim_type_id) != metadata["prim_type_id"]
+            or n_cubes != metadata["n_cubes"]
             or n_global_ts != metadata["n_global_ts"]
             or n_track_poses != metadata["n_track_poses"]
             or tuple(pool.quaternions.shape) != (n_track_poses, 4)
@@ -612,6 +629,7 @@ class LudusCudaTimestampedContext:
                 sd["polygon_pools"],
                 sd["cube_pools"],
                 sd["total_cubes"],
+                sd["cube_pool_counts"],
                 [member[2] for member in members],
                 self._max_extrapolation_us,
                 sd["max_varrays_per_ts_polyline"],
@@ -681,6 +699,7 @@ class LudusCudaTimestampedContext:
             scene["polygon_pools"],
             scene["cube_pools"],
             scene["total_cubes"],
+            scene["cube_pool_counts"],
             timestamp_values,
             self._max_extrapolation_us,
             scene["max_varrays_per_ts_polyline"],

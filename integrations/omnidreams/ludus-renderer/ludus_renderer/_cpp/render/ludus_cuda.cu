@@ -685,50 +685,15 @@ static __device__ __forceinline__ float3 quat_rotate_d(float4 q, float3 v)
     );
 }
 
-// Conservative bounding-sphere frustum test. Faces remain opaque for depth even
-// when a pool requests wireframe edges. This runs once in lane 0 before
-// tessellation and geometry atomics, using one projection instead of projecting
-// all eight corners (F-theta projection contains relatively expensive acos).
-static __device__ __forceinline__ bool cube_intersects_view_d(
-    float3 tr, float4 qr, float3 sc,
-    const float* __restrict__ poseData,
-    const float* __restrict__ camData)
+static __device__ __forceinline__ bool point_inside_cube_d(
+    float3 point, float3 tr, float4 qr, float3 sc)
 {
-    (void)qr; // A sphere is orientation independent.
-    float radius = 0.5f * sqrtf(sc.x*sc.x + sc.y*sc.y + sc.z*sc.z);
-    float camX = poseData[0]*tr.x + poseData[4]*tr.y
-               + poseData[8]*tr.z + poseData[12];
-    float camY = poseData[1]*tr.x + poseData[5]*tr.y
-               + poseData[9]*tr.z + poseData[13];
-    float camZ = poseData[2]*tr.x + poseData[6]*tr.y
-               + poseData[10]*tr.z + poseData[14];
-    const bool pinhole = camData[10] <= 1.5707963f;
-    if (pinhole && camZ + radius <= 0.001f)
-        return false;
-
-    float distance = sqrtf(camX*camX + camY*camY + camZ*camZ);
-    if (distance <= radius)
-        return true;
-    float angularRadius = asinf(fminf(radius / distance, 0.999f));
-    float maxAngle = camData[10];
-    float derivativeBound = fabsf(camData[5])
-        + 2.0f*fabsf(camData[6])*maxAngle
-        + 3.0f*fabsf(camData[7])*maxAngle*maxAngle
-        + 4.0f*fabsf(camData[8])*maxAngle*maxAngle*maxAngle
-        + 5.0f*fabsf(camData[9])*maxAngle*maxAngle*maxAngle*maxAngle;
-    derivativeBound = fmaxf(derivativeBound, fabsf(camData[12]));
-    float linearGain = fmaxf(
-        fabsf(camData[14]) + fabsf(camData[15]),
-        fabsf(camData[16]) + fabsf(camData[17]));
-    linearGain = fmaxf(linearGain, 1.0f);
-    float radiusPixels = angularRadius * derivativeBound * linearGain;
-    float marginX = 2.0f * radiusPixels / camData[2];
-    float marginY = 2.0f * radiusPixels / camData[3];
-    float4 centerClip = ftheta_project(tr, poseData, camData);
-    return centerClip.x + marginX >= -1.0f
-        && centerClip.x - marginX <= 1.0f
-        && centerClip.y + marginY >= -1.0f
-        && centerClip.y - marginY <= 1.0f;
+    float3 delta = make_float3(point.x - tr.x, point.y - tr.y, point.z - tr.z);
+    float4 inverse = make_float4(-qr.x, -qr.y, -qr.z, qr.w);
+    float3 local = quat_rotate_d(inverse, delta);
+    return fabsf(local.x) <= 0.5f * fabsf(sc.x)
+        && fabsf(local.y) <= 0.5f * fabsf(sc.y)
+        && fabsf(local.z) <= 0.5f * fabsf(sc.z);
 }
 
 //------------------------------------------------------------------------
@@ -835,12 +800,6 @@ __global__ void cubePoolFusedKernel(
         cubePoolInterpolate(trackTs, prefixSum, poolTrans, poolQuat,
                             cubeIdx, queryTs, maxExtrapUs,
                             tx, ty, tz, qx, qy, qz, qw, visible);
-        if (visible) {
-            float3 tr_l = make_float3(tx, ty, tz);
-            float4 qr_l = make_float4(qx, qy, qz, qw);
-            float3 sc_l = make_float3(poolScales[cubeIdx*3], poolScales[cubeIdx*3+1], poolScales[cubeIdx*3+2]);
-            visible = cube_intersects_view_d(tr_l, qr_l, sc_l, poseData, camData);
-        }
         if (visible && tessThreshold > 0.0f) {
             float3 tr_l = make_float3(tx, ty, tz);
             float4 qr_l = make_float4(qx, qy, qz, qw);
@@ -878,6 +837,7 @@ __global__ void cubePoolFusedKernel(
     float4 qr = make_float4(qx, qy, qz, qw);
     float3 sc = make_float3(poolScales[cubeIdx*3], poolScales[cubeIdx*3+1], poolScales[cubeIdx*3+2]);
     float3 cw = cube_cam_world(poseData);
+    bool cameraInside = point_inside_cube_d(cw, tr, qr, sc);
 
     // --- Lanes 0-5: face geometry (with barycentric tessellation) ---
     if (lane < 6) {
@@ -888,7 +848,7 @@ __global__ void cubePoolFusedKernel(
         float3 fc_world = quat_rotate_d(qr, fc_local);
         fc_world.x += tr.x; fc_world.y += tr.y; fc_world.z += tr.z;
         float3 to_cam = make_float3(cw.x - fc_world.x, cw.y - fc_world.y, cw.z - fc_world.z);
-        if (n_world.x*to_cam.x + n_world.y*to_cam.y + n_world.z*to_cam.z > 0.0f) {
+        if (cameraInside || n_world.x*to_cam.x + n_world.y*to_cam.y + n_world.z*to_cam.z > 0.0f) {
             float3 fc_col = make_float3(poolColors[cubeIdx*6], poolColors[cubeIdx*6+1], poolColors[cubeIdx*6+2]);
             float3 bc_col = make_float3(poolColors[cubeIdx*6+3], poolColors[cubeIdx*6+4], poolColors[cubeIdx*6+5]);
 
@@ -953,7 +913,7 @@ __global__ void cubePoolFusedKernel(
         int edgeIdx = lane - 6;
 
         int f0 = EDGE_FACES_D[edgeIdx][0], f1 = EDGE_FACES_D[edgeIdx][1];
-        bool anyVisible = false;
+        bool anyVisible = cameraInside;
         for (int fi = 0; fi < 2; fi++) {
             int f = (fi == 0) ? f0 : f1;
             float3 n = quat_rotate_d(qr, FACE_NORMALS_D[f]);
@@ -1740,13 +1700,6 @@ __global__ void cubePoolFlatKernel(
                 float dist = sqrtf(dx*dx + dy*dy + dz*dz);
                 if (dist - maxSc > cull_r) visible = false;
             }
-            if (visible) {
-                float3 tr_l = make_float3(tr_x, tr_y, tr_z);
-                float4 qr_l = make_float4(qx, qy, qz, qw);
-                float3 sc_l = make_float3(sc_x, sc_y, sc_z);
-                visible = cube_intersects_view_d(
-                    tr_l, qr_l, sc_l, poseData, camData);
-            }
         }
         if (visible && params.tessellationThreshold > 0.0f) {
             int maxTessLvl = (params.maxTessCube >= 0) ? params.maxTessCube : 3;
@@ -1782,11 +1735,12 @@ __global__ void cubePoolFlatKernel(
     float4 qr = make_float4(qx, qy, qz, qw);
     float3 tr = make_float3(tr_x, tr_y, tr_z);
     float3 sc = make_float3(sc_x, sc_y, sc_z);
+    float3 cw = cube_cam_world(poseData);
+    bool cameraInside = point_inside_cube_d(cw, tr, qr, sc);
 
     // Lanes 0-5: face geometry
     if (lane < 6) {
         int faceIdx = lane;
-        float3 cw = cube_cam_world(poseData);
         float3 nLocal = FACE_NORMALS_D[faceIdx];
         float3 nWorld = quat_rotate_d(qr, nLocal);
         float3 fcLocal = make_float3(
@@ -1797,7 +1751,8 @@ __global__ void cubePoolFlatKernel(
         fcWorld.x += tr.x; fcWorld.y += tr.y; fcWorld.z += tr.z;
         float3 toCamera = make_float3(
             cw.x - fcWorld.x, cw.y - fcWorld.y, cw.z - fcWorld.z);
-        if (nWorld.x*toCamera.x + nWorld.y*toCamera.y + nWorld.z*toCamera.z <= 0.0f)
+        if (!cameraInside &&
+            nWorld.x*toCamera.x + nWorld.y*toCamera.y + nWorld.z*toCamera.z <= 0.0f)
             return;
 
         int i0 = FACE_VERTS_D[faceIdx][0], i1 = FACE_VERTS_D[faceIdx][1];
@@ -1876,9 +1831,8 @@ __global__ void cubePoolFlatKernel(
     if ((renderFlags & 1u) && lane >= 6 && lane < 18) {
         int edgeIdx = lane - 6;
 
-        float3 cw = cube_cam_world(poseData);
         int f0 = EDGE_FACES_D[edgeIdx][0], f1 = EDGE_FACES_D[edgeIdx][1];
-        bool anyVisible = false;
+        bool anyVisible = cameraInside;
         for (int fi = 0; fi < 2; fi++) {
             int f = (fi == 0) ? f0 : f1;
             float3 n = quat_rotate_d(qr, FACE_NORMALS_D[f]);
@@ -2420,7 +2374,7 @@ void ludusCudaRenderTimestamped(
     const TsPolylinePoolHeader* polylinePools, int numPolylinePools,
     const TsPolygonPoolHeader* polygonPools, int numPolygonPools,
     const TsCubePoolHeader* cubePools, int numCubePools,
-    int totalCubes,
+    int totalCubes, const int64_t* cubePoolCounts,
     const int64_t* queryTimestampsUs, int maxExtrapolationUs,
     int maxVarraysPerTsPolyline, int maxVarraysPerTsPolygon,
     const CudaRenderParams& params,
@@ -2505,10 +2459,9 @@ void ludusCudaRenderTimestamped(
 
         // Cube pools (flat-buffer variant)
         for (int p = 0; p < numCubePools; p++) {
-            // Launch against the scene total. The kernel reads this pool's
-            // actual count and exits excess warps. Keeping headers on-device
-            // avoids a synchronous D2H copy for every rendered frame.
-            int nc = totalCubes;
+            // Pool sizes are captured on the host during scene upload, so
+            // dispatch exact grids without a per-frame device readback.
+            int nc = (int)cubePoolCounts[p];
             if (nc <= 0) continue;
             int nCubeBlocks = (nc + CUBES_PER_BLOCK - 1) / CUBES_PER_BLOCK;
             cubePoolFlatKernel<<<dim3(nCubeBlocks, 1), CUBE_POOL_BLOCK_SIZE, 0, stream>>>(
