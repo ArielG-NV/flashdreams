@@ -53,9 +53,7 @@ def test_keyboard_reverse_applies_throttle_in_opposite_direction() -> None:
         x_m=0.0, y_m=0.0, z_m=0.0, yaw_rad=0.0, speed_mps=1.0, steer_rad=0.0
     )
 
-    first_reverse_step = integrate_vehicle(
-        state, command, dt_s=0.1, vehicle=vehicle
-    )
+    first_reverse_step = integrate_vehicle(state, command, dt_s=0.1, vehicle=vehicle)
     assert first_reverse_step.speed_mps < state.speed_mps
 
     state = first_reverse_step
@@ -140,6 +138,30 @@ def test_manual_throttle_only_still_accelerates() -> None:
     assert advanced.speed_mps > state.speed_mps
 
 
+@pytest.mark.parametrize("manual_control", [False, True])
+def test_speed_limit_is_only_applied_when_enabled(manual_control: bool) -> None:
+    state = VehicleState(
+        x_m=0.0, y_m=0.0, z_m=0.0, yaw_rad=0.0, speed_mps=18.0, steer_rad=0.0
+    )
+    throttle = DriverCommand(throttle=1.0, manual_control=manual_control)
+
+    limited = integrate_vehicle(
+        state,
+        throttle,
+        dt_s=0.1,
+        vehicle=VehicleConfig(speed_limit_enabled=True),
+    )
+    unlimited = integrate_vehicle(
+        state,
+        throttle,
+        dt_s=0.1,
+        vehicle=VehicleConfig(speed_limit_enabled=False),
+    )
+
+    assert limited.speed_mps == pytest.approx(18.0)
+    assert unlimited.speed_mps > 18.0
+
+
 def test_integrate_vehicle_accumulates_steering_gradually() -> None:
     vehicle = VehicleConfig(
         max_steer_rad=0.5, steer_rate_rad_per_s=1.0, steer_return_rate_rad_per_s=0.5
@@ -199,13 +221,9 @@ def test_low_speed_and_reverse_turns_keep_the_rear_axle_no_slip(
     for _ in range(200):
         state = integrate_vehicle(state, command, dt_s=0.02, vehicle=vehicle)
 
-    expected_yaw_rate = (
-        speed_mps / vehicle.wheel_base_m * math.tan(state.steer_rad)
-    )
+    expected_yaw_rate = speed_mps / vehicle.wheel_base_m * math.tan(state.steer_rad)
     left = (-math.sin(state.yaw_rad), math.cos(state.yaw_rad))
-    cg_lateral_speed = (
-        state.velocity_x_mps * left[0] + state.velocity_y_mps * left[1]
-    )
+    cg_lateral_speed = state.velocity_x_mps * left[0] + state.velocity_y_mps * left[1]
     rear_axle_lateral_speed = (
         cg_lateral_speed - design.rear_axle_to_cg_m * state.yaw_rate_radps
     )

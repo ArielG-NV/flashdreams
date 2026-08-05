@@ -358,12 +358,21 @@ class PhysXWorld:
             )
         )
 
-    def add_object(self, scene_object: SceneObject) -> None:
-        """Add one tracked object without rebuilding the PhysX scene."""
+    def add_object(
+        self, scene_object: SceneObject, *, timestamp_us: int | None = None
+    ) -> None:
+        """Add one tracked object without rebuilding the PhysX scene.
+
+        Args:
+            scene_object: Object and recorded track to add.
+            timestamp_us: Initial pose time; ``None`` uses the first track sample.
+        """
         if scene_object.object_id in self._objects:
             raise ValueError(f"object {scene_object.object_id!r} already exists")
         position, quaternion, velocity = scene_object.sample(
             int(scene_object.timestamps_us[0])
+            if timestamp_us is None
+            else int(timestamp_us)
         )
         state = BodyState(
             position_m=position,
@@ -440,8 +449,15 @@ class PhysXWorld:
         self._scene.remove_barrier(_native_id(barrier_id, barrier=True))
         del self._barriers[barrier_id]
 
-    def synchronize(self, graph: PhysicsObjectGraph) -> None:
-        """Apply graph additions, replacements, and removals incrementally."""
+    def synchronize(
+        self, graph: PhysicsObjectGraph, *, timestamp_us: int | None = None
+    ) -> None:
+        """Apply graph additions, replacements, and removals incrementally.
+
+        Args:
+            graph: Desired active topology.
+            timestamp_us: Initial pose time for newly added objects.
+        """
         incoming_objects = {value.object_id: value for value in graph.objects}
         for object_id in tuple(self._objects):
             if object_id not in incoming_objects:
@@ -452,7 +468,7 @@ class PhysXWorld:
                 continue
             if current is not None:
                 self.remove_object(object_id)
-            self.add_object(scene_object)
+            self.add_object(scene_object, timestamp_us=timestamp_us)
 
         incoming_barriers = {
             barrier.barrier_id or f"barrier-{index}": barrier

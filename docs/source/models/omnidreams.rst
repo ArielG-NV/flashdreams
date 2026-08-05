@@ -185,9 +185,10 @@ Run the demo and stream to your browser:
 Then open ``http://<server-ip>:8080/`` in any browser on the same
 network and pick a scene from the picker in the bottom-right.
 
-Collision physics and their visual effect are disabled by default. Add
-``--game-mode`` to enable collisions with scene actors and static map geometry,
-along with the collision visual flare:
+Collision physics, the vehicle speed limit, and the collision visual effect are
+disabled by default. Add ``--game-mode`` to enable the speed limit and
+collisions with scene actors and static map geometry, along with the collision
+visual flare:
 
 .. code-block:: bash
 

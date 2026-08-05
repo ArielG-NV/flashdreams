@@ -818,11 +818,11 @@ def test_game_world_recenters_topology_without_reallocating_state_buffers() -> N
     world.close()
 
 
-def test_game_world_keeps_complete_debug_view_envelope_around_ego() -> None:
+def test_game_world_bounds_physics_topology_around_ego() -> None:
     world = GamePhysicsWorld(
         _scene(
-            _track("Car", x_m=205.0),
-            _track("Truck", x_m=219.0),
+            _track("Car", x_m=95.0),
+            _track("Truck", x_m=97.0),
         ),
         VehicleConfig(),
     )
@@ -830,6 +830,62 @@ def test_game_world_keeps_complete_debug_view_envelope_around_ego() -> None:
     assert [entity.entity_id for entity in world.entities] == ["car-1"]
     assert world.synchronize_window(np.asarray([32.0, 0.0], dtype=np.float32))
     assert [entity.entity_id for entity in world.entities] == ["car-1", "truck-1"]
+    world.close()
+
+
+def test_game_world_activates_actor_at_current_track_pose() -> None:
+    timestamps_us = np.asarray([0, 2_000_000], dtype=np.int64)
+    approaching_track = WorldVehicleBBoxTrack(
+        track_id="car-approaching",
+        object_type="Car",
+        timestamps_us=timestamps_us,
+        centers_world=np.asarray(
+            [[120.0, 0.0, 0.8], [90.0, 0.0, 0.8]], dtype=np.float32
+        ),
+        dimensions_lwh=np.asarray(
+            [[4.0, 1.9, 1.6], [4.0, 1.9, 1.6]], dtype=np.float32
+        ),
+        orientations_xyzw=np.asarray(
+            [[0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0]], dtype=np.float32
+        ),
+        max_extrapolation_us=2_000_000.0,
+    )
+    world = GamePhysicsWorld(_scene(approaching_track), VehicleConfig())
+
+    assert world.entities == ()
+    assert world.synchronize_window(
+        np.asarray([0.0, 0.0], dtype=np.float32), timestamp_us=2_000_000
+    )
+    np.testing.assert_array_equal(
+        world._world.body_state("car-approaching").position_m,
+        np.asarray([90.0, 0.0, 0.8], dtype=np.float32),
+    )
+    world.close()
+
+
+def test_game_world_keeps_out_of_window_actor_on_recorded_trajectory() -> None:
+    world = GamePhysicsWorld(
+        _scene(
+            _track("Car", x_m=5.0),
+            _track("Truck", x_m=97.0),
+        ),
+        VehicleConfig(),
+    )
+    _, samples = world.step(_moving_ego(), timestamp_us=0, dt_s=1.0 / 30.0)
+
+    trajectories = {
+        trajectory.entity_id: trajectory
+        for trajectory in world.build_trajectories(
+            np.asarray([0], dtype=np.int64), [samples]
+        )
+    }
+
+    assert trajectories["car-1"].is_simulated is True
+    assert trajectories["truck-1"].is_simulated is False
+    np.testing.assert_array_equal(
+        trajectories["truck-1"].translations_world[0],
+        np.asarray([97.0, 0.0, 0.8], dtype=np.float32),
+    )
     world.close()
 
 

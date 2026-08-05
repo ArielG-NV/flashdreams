@@ -301,9 +301,19 @@ class PhysicsObjectGraph:
         self._rebuild_spatial_index()
 
     def copy_for_physx(
-        self, center_xy_m: npt.ArrayLike, radius_m: float
+        self,
+        center_xy_m: npt.ArrayLike,
+        radius_m: float,
+        timestamp_us: int | None = None,
     ) -> PhysicsObjectGraph:
-        """Copy nearby topology into the active PhysX simulation window."""
+        """Copy nearby topology into the active PhysX simulation window.
+
+        Args:
+            center_xy_m: Center of the simulation window.
+            radius_m: Simulation radius in metres.
+            timestamp_us: Track-sampling time; ``None`` considers every recorded
+                position.
+        """
         center = np.asarray(center_xy_m, dtype=np.float32)
         if center.shape != (2,):
             raise ValueError("center_xy_m must have shape (2,)")
@@ -313,18 +323,24 @@ class PhysicsObjectGraph:
         object_candidates = self._spatial_candidates(
             self._object_cells, center, float(radius_m)
         )
+
+        def _object_is_near(scene_object: SceneObject) -> bool:
+            if timestamp_us is not None:
+                if not scene_object.is_visible_at(timestamp_us):
+                    return False
+                position, _, _ = scene_object.sample(timestamp_us)
+                delta = position[:2] - center
+                return float(np.dot(delta, delta)) <= radius_sq
+            distance_sq = np.sum(
+                (scene_object.positions_m[:, :2] - center[None, :]) ** 2,
+                axis=1,
+            )
+            return float(np.min(distance_sq)) <= radius_sq
+
         objects = tuple(
             self.objects[index]
             for index in object_candidates
-            if float(
-                np.min(
-                    np.sum(
-                        (self.objects[index].positions_m[:, :2] - center[None, :]) ** 2,
-                        axis=1,
-                    )
-                )
-            )
-            <= radius_sq
+            if _object_is_near(self.objects[index])
         )
 
         def _barrier_is_near(barrier: InvisibleBarrier) -> bool:

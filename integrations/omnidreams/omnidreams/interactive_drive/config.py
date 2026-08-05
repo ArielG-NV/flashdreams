@@ -61,6 +61,7 @@ class VehicleConfig:
     max_steer_rad: float = 0.5
     steer_rate_rad_per_s: float = 0.55
     steer_return_rate_rad_per_s: float = 0.9
+    speed_limit_enabled: bool = True
     max_speed_mps: float = 18.0
     max_reverse_speed_mps: float = 6.0
     max_accel_mps2: float = 3.5

@@ -260,8 +260,10 @@ def test_sample_chunk_trajectory_tracks_only_physx_calls(
             self._step_index = 0
             self.last_step_actor_collision = False
 
-        def synchronize_window(self, center_xy_m: np.ndarray) -> None:
-            del center_xy_m
+        def synchronize_window(
+            self, center_xy_m: np.ndarray, timestamp_us: int | None = None
+        ) -> None:
+            del center_xy_m, timestamp_us
 
         def step(
             self, state: VehicleState, timestamp_us: int, dt_s: float

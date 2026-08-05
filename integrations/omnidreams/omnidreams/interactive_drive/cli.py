@@ -245,8 +245,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Enable game-style actor and static-world collisions, along with "
-            "the collision visual flare. By default, collisions and their "
-            "visual effect are disabled."
+            "the vehicle speed limit and collision visual flare. By default, "
+            "collisions, the speed limit, and their visual effect are disabled."
         ),
     )
     parser.add_argument(
@@ -485,6 +485,7 @@ def prepare_config_and_backend(
         postprocess=VideoPostprocessChainConfig(preset=args.postprocess_preset),
         bev=bev_config,
         vehicle=VehicleConfig(
+            speed_limit_enabled=bool(args.game_mode),
             actor_collision_enabled=bool(args.game_mode),
             static_collision_enabled=bool(args.game_mode),
         ),

@@ -52,6 +52,9 @@ from omnidreams.interactive_drive.types import (
 
 _BARRIER_LAYER_TOKENS = ("road_bound", "building", "house", "wall", "curb")
 _PHYSX_RECENTER_DISTANCE_M = 32.0
+_PHYSX_TOPOLOGY_REFRESH_INTERVAL_US = 2_000_000
+"""Maximum time moving tracks can remain outside a stationary PhysX window."""
+
 _PHYSX_BARRIER_SPACING_M = 2.0
 _PHYSX_DEBUG_FORWARD_M = 125.0
 _PHYSX_DEBUG_REAR_M = 15.0
@@ -60,16 +63,14 @@ _VISUAL_FLARE_MIN_SPEED_DELTA_MPS = 5.0 * 0.44704
 _VISUAL_FLARE_COLLISION_WINDOW_US = 500_000
 _NON_EGO_MAX_DRIVE_SPEED_MPS = 15.0 * 0.44704
 _PERSISTENT_TRACK_TIMESTAMP_US = np.iinfo(np.int64).max // 4
-# Cover the complete mode-3 debug rectangle despite worst-case recenter lag,
-# with additional room for long vehicles and trailers. A 96 m circle cut
-# through the 125 m forward / 100 m lateral debug region.
-_PHYSX_ACTIVE_RADIUS_M = math.ceil(
-    math.hypot(
-        _PHYSX_DEBUG_FORWARD_M + _PHYSX_RECENTER_DISTANCE_M,
-        _PHYSX_DEBUG_LATERAL_M + _PHYSX_RECENTER_DISTANCE_M,
-    )
-    + 12.0
-)
+_PHYSX_SIMULATION_RADIUS_M = 96.0
+"""Collision horizon around the last recenter point.
+
+The 32 m recenter threshold leaves at least 64 m of active topology around the
+ego. Actors outside the horizon keep their recorded renderer trajectories until
+they enter the PhysX window.
+"""
+
 
 def _yaw_from_quaternion_xyzw(quaternion: np.ndarray) -> float:
     x, y, z, w = [float(value) for value in quaternion]
@@ -215,10 +216,14 @@ class GamePhysicsWorld:
             if initial_transform is not None
             else np.zeros(2, dtype=np.float32)
         )
+        initial_timestamp_us = int(getattr(scene, "initial_timestamp_us", 0))
         self._physics_graph = self.graph.copy_for_physx(
-            initial_xy, _PHYSX_ACTIVE_RADIUS_M
+            initial_xy,
+            _PHYSX_SIMULATION_RADIUS_M,
+            timestamp_us=initial_timestamp_us,
         )
         self._physics_center_xy = initial_xy.copy()
+        self._physics_timestamp_us = initial_timestamp_us
         self._entities = [
             self._entity_from_object(obj) for obj in self._physics_graph.objects
         ]
@@ -242,13 +247,13 @@ class GamePhysicsWorld:
         self._traffic_ai.synchronize(self._physics_graph.objects)
         self._refresh_debug_barriers()
         logger.info(
-            "[physics] PhysX graph ready in {:.1f} ms; objects={}/{} barriers={}/{} active_radius_m={:.0f}",
+            "[physics] PhysX graph ready in {:.1f} ms; objects={}/{} barriers={}/{} simulation_radius_m={:.0f}",
             (time.perf_counter() - started_at) * 1000.0,
             len(self._physics_graph.objects),
             len(self.graph.objects),
             len(self._physics_graph.barriers),
             len(self.graph.barriers),
-            _PHYSX_ACTIVE_RADIUS_M,
+            _PHYSX_SIMULATION_RADIUS_M,
         )
 
     @staticmethod
@@ -340,17 +345,29 @@ class GamePhysicsWorld:
         """Expose the native collider set for invariant checks and diagnostics."""
         return set(self._world.active_collider_ids)
 
-    def synchronize_window(self, center_xy_m: np.ndarray) -> bool:
+    def synchronize_window(
+        self, center_xy_m: np.ndarray, timestamp_us: int | None = None
+    ) -> bool:
         """Incrementally recenter active PhysX topology when the ego moves."""
         center = np.asarray(center_xy_m, dtype=np.float32)
         if center.shape != (2,):
             raise ValueError("center_xy_m must have shape (2,)")
-        if (
+        center_is_current = (
             float(np.linalg.norm(center - self._physics_center_xy))
             < _PHYSX_RECENTER_DISTANCE_M
-        ):
+        )
+        timestamp_is_current = timestamp_us is None or (
+            0
+            <= timestamp_us - self._physics_timestamp_us
+            < _PHYSX_TOPOLOGY_REFRESH_INTERVAL_US
+        )
+        if center_is_current and timestamp_is_current:
             return False
-        physics_graph = self.graph.copy_for_physx(center, _PHYSX_ACTIVE_RADIUS_M)
+        physics_graph = self.graph.copy_for_physx(
+            center,
+            _PHYSX_SIMULATION_RADIUS_M,
+            timestamp_us=timestamp_us,
+        )
         incoming_ids = {obj.object_id for obj in physics_graph.objects}
         retained_detached = tuple(
             obj
@@ -363,7 +380,7 @@ class GamePhysicsWorld:
                 objects=physics_graph.objects + retained_detached,
                 barriers=physics_graph.barriers,
             )
-        self._world.synchronize(physics_graph)
+        self._world.synchronize(physics_graph, timestamp_us=timestamp_us)
         self._traffic_ai.synchronize(physics_graph.objects)
         existing_entities = {entity.entity_id: entity for entity in self._entities}
         self._entities = [
@@ -375,6 +392,8 @@ class GamePhysicsWorld:
         self._detached_entity_ids.intersection_update(self._entities_by_id)
         self._physics_graph = physics_graph
         self._physics_center_xy = center.copy()
+        if timestamp_us is not None:
+            self._physics_timestamp_us = timestamp_us
         self._refresh_debug_barriers()
         return True
 

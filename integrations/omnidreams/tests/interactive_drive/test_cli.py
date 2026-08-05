@@ -35,25 +35,26 @@ def test_visual_flare_override_defaults_disabled() -> None:
 
 
 @pytest.mark.parametrize(
-    ("argv", "collisions_enabled", "visual_flare_enabled"),
+    ("argv", "game_mode_enabled", "visual_flare_enabled"),
     [
         ([], False, False),
         (["--game-mode"], True, True),
         (["--game-mode", "--disable-visual-flare"], True, False),
     ],
 )
-def test_game_mode_controls_collisions_and_visual_flare(
+def test_game_mode_controls_speed_limit_collisions_and_visual_flare(
     monkeypatch: pytest.MonkeyPatch,
     argv: list[str],
-    collisions_enabled: bool,
+    game_mode_enabled: bool,
     visual_flare_enabled: bool,
 ) -> None:
     monkeypatch.setattr(cli, "RasterRenderBackend", lambda **_k: object())
 
     config, _backend = cli.prepare_config_and_backend(build_parser().parse_args(argv))
 
-    assert config.vehicle.actor_collision_enabled is collisions_enabled
-    assert config.vehicle.static_collision_enabled is collisions_enabled
+    assert config.vehicle.speed_limit_enabled is game_mode_enabled
+    assert config.vehicle.actor_collision_enabled is game_mode_enabled
+    assert config.vehicle.static_collision_enabled is game_mode_enabled
     assert config.visual_flare_enabled is visual_flare_enabled
 
 

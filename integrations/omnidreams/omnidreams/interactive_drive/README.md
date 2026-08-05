@@ -236,9 +236,9 @@ flags:
 | **Bare backend, local window** | You want the lightweight setup: a single Vulkan window showing the world-model output, no HUD chrome. | `interactive-drive --no-hud ...` |
 | **Bare backend, browser** | The demo machine has no graphics-capable GPU (e.g. compute-only GB300) or you want to view from a laptop browser while the model runs elsewhere. Implies `--no-hud`. | `interactive-drive --stream-mjpeg [HOST:]PORT ...` |
 
-Collision physics are off by default. Add `--game-mode` to enable collisions
-with scene actors and static map geometry, together with the collision visual
-effect:
+Collision physics and the vehicle speed limit are off by default. Add
+`--game-mode` to enable the speed limit and collisions with scene actors and
+static map geometry, together with the collision visual effect:
 
 ```bash
 uv run --package flashdreams-omnidreams interactive-drive --game-mode

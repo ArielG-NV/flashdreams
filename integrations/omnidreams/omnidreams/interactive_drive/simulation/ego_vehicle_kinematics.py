@@ -66,7 +66,7 @@ def integrate_vehicle(
             accel = 2.0 * command.throttle * dt_s
             if intended_direction < 0.0:
                 speed -= accel
-            else:
+            elif vehicle.speed_limit_enabled:
                 max_speed = vehicle.max_speed_mps
                 current = abs(speed)
                 high_speed_knee = max_speed * 0.62
@@ -78,15 +78,17 @@ def integrate_vehicle(
                     )
                     taper = max(0.05, 0.5 * (1.0 - excess) ** 3)
                 speed += accel * taper
+            else:
+                speed += accel
         else:
             if speed > 0.0:
                 speed = max(0.0, speed - 0.5 * dt_s)
             elif speed < 0.0:
                 speed = min(0.0, speed + 0.5 * dt_s)
-        # Honour the configured forward / reverse speed caps.
-        speed = float(
-            np.clip(speed, -vehicle.max_reverse_speed_mps, vehicle.max_speed_mps)
-        )
+        if vehicle.speed_limit_enabled:
+            speed = float(
+                np.clip(speed, -vehicle.max_reverse_speed_mps, vehicle.max_speed_mps)
+            )
     else:
         intended_direction = -1.0 if command.reverse else 1.0
         accel = command.throttle * vehicle.max_accel_mps2 * dt_s
@@ -100,9 +102,10 @@ def integrate_vehicle(
                 speed = max(0.0, speed - vehicle.drag_mps2 * dt_s)
             else:
                 speed = min(0.0, speed + vehicle.drag_mps2 * dt_s)
-        speed = float(
-            np.clip(speed, -vehicle.max_reverse_speed_mps, vehicle.max_speed_mps)
-        )
+        if vehicle.speed_limit_enabled:
+            speed = float(
+                np.clip(speed, -vehicle.max_reverse_speed_mps, vehicle.max_speed_mps)
+            )
 
     commanded_yaw_rate = 0.0
     if abs(steer_rad) > 1e-5 and abs(speed) > 1e-5:
@@ -318,7 +321,8 @@ def sample_chunk_trajectory(
     if physics_world is not None:
         physx_started_at = time.perf_counter()
         physics_world.synchronize_window(
-            np.asarray([state.x_m, state.y_m], dtype=np.float32)
+            np.asarray([state.x_m, state.y_m], dtype=np.float32),
+            timestamp_us=start_timestamp_us,
         )
         sync_elapsed_s = time.perf_counter() - physx_started_at
         physx_sync_s += sync_elapsed_s
