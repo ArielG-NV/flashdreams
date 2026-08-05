@@ -181,14 +181,24 @@ class PhysXWorld:
         ego_model: RigidBodyModel,
         *,
         actor_collision_enabled: bool = True,
+        max_actor_drive_speed_mps: float | None = None,
         capacity: int | None = None,
     ) -> None:
+        if (
+            max_actor_drive_speed_mps is not None
+            and (
+                not math.isfinite(max_actor_drive_speed_mps)
+                or max_actor_drive_speed_mps <= 0.0
+            )
+        ):
+            raise ValueError("max_actor_drive_speed_mps must be finite and positive")
         native = load_native_physx()
         minimum_capacity = len(graph.objects) + 1
         self._scene = native.NativeScene(capacity or max(256, minimum_capacity * 2))
         self.graph = graph
         self.ego_model = ego_model
         self.actor_collision_enabled = actor_collision_enabled
+        self.max_actor_drive_speed_mps = max_actor_drive_speed_mps
         self._closed = False
         self._objects: dict[str, SceneObject] = {}
         self._object_slots: dict[str, int] = {}
@@ -217,7 +227,9 @@ class PhysXWorld:
             linear_velocity_mps=np.zeros(3, dtype=np.float32),
             angular_velocity_radps=np.zeros(3, dtype=np.float32),
         )
-        self._ego_slot = self._add_body(_EGO_BODY_ID, ego_model, ego_state, False, True)
+        self._ego_slot = self._add_body(
+            _EGO_BODY_ID, ego_model, ego_state, False, True, None
+        )
         for scene_object in graph.objects:
             self.add_object(scene_object)
         for index, barrier in enumerate(graph.barriers):
@@ -302,6 +314,7 @@ class PhysXWorld:
         state: BodyState,
         kinematic: bool,
         collision_enabled: bool,
+        max_drive_speed_mps: float | None,
     ) -> int:
         pose, linear, angular = _state_arrays(state)
         vehicle = model.vehicle
@@ -341,6 +354,7 @@ class PhysXWorld:
                 0.0 if vehicle is None else vehicle.rolling_resistance,
                 0.0 if vehicle is None else vehicle.max_engine_force_n,
                 0.0 if vehicle is None else vehicle.max_brake_force_n,
+                0.0 if max_drive_speed_mps is None else max_drive_speed_mps,
             )
         )
 
@@ -364,6 +378,7 @@ class PhysXWorld:
             state,
             False,
             self.actor_collision_enabled,
+            self.max_actor_drive_speed_mps,
         )
         self._scene.set_body_track(
             native_id,

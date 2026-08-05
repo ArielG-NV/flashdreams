@@ -530,13 +530,17 @@ wheel contacts. PhysX raycasts those wheels against static geometry and applies
 spring, damper, cornering, friction, and rolling-resistance forces at their
 contact points. Recorded position and heading samples are controller targets:
 bounded forces and torques ask each actor to follow its track, but no track pose
-is written into the body after creation. PhysX therefore owns translation,
+is written into the body after creation. Non-ego track-driving commands are
+limited to 15 mph; collision impulses remain ordinary rigid-body forces rather
+than being velocity-clamped. PhysX therefore owns translation,
 vertical suspension travel, body attitude, rigid-body contact, and
 mass-dependent momentum transfer without locking any axis. A struck actor
 remains an integrated vehicle body instead of reverting to a sliding visual box.
-Traffic AI suppresses its track-driving command after impact and restores it
-only after the body has remained stationary for one continuous simulated
-second; the native physics layer owns neither that timer nor that decision.
+When an impact meets the collision visual effect's 5 mph speed-change threshold,
+traffic AI suppresses the struck vehicle's track-driving command so that only
+its transferred momentum moves it. Driving is restored only after the body has
+remained stationary for one continuous simulated second; the native physics
+layer owns neither that timer nor that decision.
 
 Road-boundary, curb, building, house, and wall line/polygon layers are solid
 barriers. The large scene AABB remains a separate last-resort respawn boundary.

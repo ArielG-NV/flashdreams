@@ -58,6 +58,7 @@ _PHYSX_DEBUG_REAR_M = 15.0
 _PHYSX_DEBUG_LATERAL_M = 100.0
 _VISUAL_FLARE_MIN_SPEED_DELTA_MPS = 5.0 * 0.44704
 _VISUAL_FLARE_COLLISION_WINDOW_US = 500_000
+_NON_EGO_MAX_DRIVE_SPEED_MPS = 15.0 * 0.44704
 _PERSISTENT_TRACK_TIMESTAMP_US = np.iinfo(np.int64).max // 4
 # Cover the complete mode-3 debug rectangle despite worst-case recenter lag,
 # with additional room for long vehicles and trailers. A 96 m circle cut
@@ -229,11 +230,13 @@ class GamePhysicsWorld:
         self._visual_flare_driving_direction_xy: np.ndarray | None = None
         self._visual_flare_impact_normal_xy: np.ndarray | None = None
         self._visual_flare_collision_deadline_us: int | None = None
+        self._pending_struck_vehicle_ids: set[str] = set()
         self._ego_model = _ego_model(vehicle)
         self._world = PhysXWorld(
             self._physics_graph,
             self._ego_model,
             actor_collision_enabled=vehicle.actor_collision_enabled,
+            max_actor_drive_speed_mps=_NON_EGO_MAX_DRIVE_SPEED_MPS,
         )
         self._traffic_ai = TrafficDriverAI()
         self._traffic_ai.synchronize(self._physics_graph.objects)
@@ -561,6 +564,7 @@ class GamePhysicsWorld:
             for scene_object in self._physics_graph.objects
         }
         if physics_step.struck_object_ids:
+            self._pending_struck_vehicle_ids.update(physics_step.struck_object_ids)
             self._visual_flare_collision_velocity_mps = (
                 ego_before_step.linear_velocity_mps.copy()
             )
@@ -616,14 +620,21 @@ class GamePhysicsWorld:
             flare_driving_direction,
             self._visual_flare_impact_normal_xy,
         )
-        if self.last_step_actor_collision or (
+        significant_struck_vehicle_ids = (
+            self._pending_struck_vehicle_ids.copy()
+            if self.last_step_actor_collision
+            else set()
+        )
+        collision_window_expired = (
             self._visual_flare_collision_deadline_us is not None
             and timestamp_us > self._visual_flare_collision_deadline_us
-        ):
+        )
+        if self.last_step_actor_collision or collision_window_expired:
             self._visual_flare_collision_velocity_mps = None
             self._visual_flare_driving_direction_xy = None
             self._visual_flare_impact_normal_xy = None
             self._visual_flare_collision_deadline_us = None
+            self._pending_struck_vehicle_ids.clear()
         actor_samples = []
         pending_controls = []
         for object_id, body, native_detached in physics_step.actor_samples:
@@ -633,7 +644,7 @@ class GamePhysicsWorld:
             )
             decision = self._traffic_ai.update(
                 object_id,
-                struck=object_id in physics_step.struck_object_ids,
+                struck=object_id in significant_struck_vehicle_ids,
                 body=body,
                 track_position=track_position,
                 track_orientation_xyzw=track_orientation,
@@ -644,8 +655,14 @@ class GamePhysicsWorld:
                 detached = native_detached
             else:
                 detached = decision.detached_from_track
+                # Do not let the track motor erase momentum while the visual
+                # effect's short impact-measurement window is still open.
+                drive_enabled = (
+                    decision.drive_enabled
+                    and object_id not in self._pending_struck_vehicle_ids
+                )
                 pending_controls.append(
-                    (object_id, decision.drive_enabled, detached)
+                    (object_id, drive_enabled, detached)
                 )
             actor_samples.append(
                 (object_id, body.position_m, body.orientation_xyzw, detached)

@@ -34,8 +34,8 @@ FloatArray = npt.NDArray[np.float32]
 # model's driving-data distribution and causes the generated object to smear or
 # disappear after impact.  Lateral padding stays small so parked curbside cars
 # do not create phantom side contacts.
-_VEHICLE_LONGITUDINAL_COLLISION_PADDING_M = 0.3
-_VEHICLE_LATERAL_COLLISION_PADDING_M = 0.3
+_VEHICLE_LONGITUDINAL_COLLISION_PADDING_M = 0.2
+_VEHICLE_LATERAL_COLLISION_PADDING_M = 0.1
 
 _FIXED_OBJECT_MASS_KG = {
     "car": 1_550.0,

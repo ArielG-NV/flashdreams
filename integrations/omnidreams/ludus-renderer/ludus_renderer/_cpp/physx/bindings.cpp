@@ -90,6 +90,7 @@ struct BodyRecord {
     float rollingResistance = 0.0f;
     float maxEngineForce = 0.0f;
     float maxBrakeForce = 0.0f;
+    float maxDriveSpeed = 0.0f;
     bool driveIntentActive = false;
     PxVec3 desiredLinearVelocity{0.0f};
     PxVec3 desiredAngularVelocity{0.0f};
@@ -200,7 +201,8 @@ public:
         float corneringStiffness,
         float rollingResistance,
         float maxEngineForce,
-        float maxBrakeForce)
+        float maxBrakeForce,
+        float maxDriveSpeed)
     {
         ensureOpen();
         if (mBodies.count(objectId))
@@ -228,6 +230,9 @@ public:
                 || corneringStiffness < 0.0f || rollingResistance < 0.0f
                 || maxEngineForce <= 0.0f || maxBrakeForce <= 0.0f))
             throw std::invalid_argument("vehicle wheel and suspension parameters are invalid");
+        if (!std::isfinite(maxDriveSpeed) || maxDriveSpeed < 0.0f)
+            throw std::invalid_argument(
+                "max_drive_speed must be finite and non-negative");
 
         const std::size_t slot = allocateSlot();
         PxMaterial* material = mPhysics->createMaterial(friction, friction, restitution);
@@ -275,6 +280,7 @@ public:
         record.mass = mass;
         record.restitution = restitution;
         record.collisionActive = collisionEnabled;
+        record.maxDriveSpeed = maxDriveSpeed;
         if (hasVehicle) {
             const float* mounts = suspensionMounts.data();
             for (std::size_t index = 0; index < record.suspensionMounts.size(); ++index)
@@ -987,6 +993,15 @@ private:
         PxVec3 desiredVelocity = track.velocity;
         desiredVelocity.x += correction.x;
         desiredVelocity.y += correction.y;
+        const float desiredHorizontalSpeed = std::sqrt(
+            desiredVelocity.x * desiredVelocity.x
+            + desiredVelocity.y * desiredVelocity.y);
+        if (body.maxDriveSpeed > 0.0f
+            && desiredHorizontalSpeed > body.maxDriveSpeed) {
+            const float scale = body.maxDriveSpeed / desiredHorizontalSpeed;
+            desiredVelocity.x *= scale;
+            desiredVelocity.y *= scale;
+        }
 
         const float headingError = wrappedAngle(
             yawFromQuaternion(track.transform.q) - yawFromQuaternion(current.q));
