@@ -237,6 +237,44 @@ def test_generate_chunk_dispatches_start_then_continue() -> None:
     assert wrapper.skip_video_generation_flags == [False, False]
 
 
+def test_generate_chunk_uses_game_physics_when_enabled() -> None:
+    class _FakeGameSimulation:
+        def __init__(self) -> None:
+            self.calls: list[tuple[Any, int, float]] = []
+
+        def pose_chunk(
+            self,
+            command: Any,
+            chunk_size: int,
+            frame_interval_s: float,
+            extrapolation_offset_s: float,
+        ) -> Any:
+            assert extrapolation_offset_s == 0.0
+            self.calls.append((command, chunk_size, frame_interval_s))
+            return SimpleNamespace(
+                rig_poses_world=torch.eye(4).repeat(chunk_size, 1, 1).numpy(),
+                timestamps_us=torch.arange(10, 10 + chunk_size).numpy(),
+                actor_collision_detected=False,
+            )
+
+    runtime, wrapper = _build_fake_runtime()
+    simulation = _FakeGameSimulation()
+    runtime.config.game_mode = True
+    runtime._game_simulation = simulation  # ty:ignore[invalid-assignment]
+
+    runtime._generate_one_chunk_sync(
+        segments=[(0.0, 2 / 30, frozenset({"w", "a"}))],
+        frame_times=[1 / 30, 2 / 30],
+    )
+
+    command, chunk_size, frame_interval_s = simulation.calls[0]
+    assert command.throttle == 1.0
+    assert command.steer == 1.0
+    assert chunk_size == 2
+    assert frame_interval_s == pytest.approx(1 / 30)
+    assert wrapper.calls[0][2] == [10, 11]
+
+
 def test_generate_chunk_postprocesses_rgb_before_cpu_handoff() -> None:
     class _FakePostprocessStream:
         def __init__(self) -> None:
@@ -556,6 +594,8 @@ def test_build_runtime_config_threads_hf_scene_args(tmp_path: Path) -> None:
         warmup_chunks=0,
         warmup_timeout_s=30.0,
         debug_serve_hdmaps=True,
+        game_mode=True,
+        auto_start=True,
         postprocess_preset="rtx-super-resolution",
         prefer_sw_encoder=False,
     )
@@ -569,6 +609,7 @@ def test_build_runtime_config_threads_hf_scene_args(tmp_path: Path) -> None:
     assert cfg.video_height == 360
     assert cfg.video_width == 640
     assert cfg.debug_serve_hdmaps is True
+    assert cfg.game_mode is True
     assert cfg.postprocess.preset == "rtx-super-resolution"
     # ``--prefer_sw_encoder`` unset maps to the ``auto`` backend, which
     # still probes NVENC and only falls back to software when the driver
@@ -703,6 +744,8 @@ def test_parse_args_omits_scene_dir_by_default(
     assert args.scene_dir is None
     assert args.scene_uuid is None
     assert args.debug_serve_hdmaps is True
+    assert args.game_mode is False
+    assert args.auto_start is False
     assert args.postprocess_preset == ""
 
 
@@ -785,6 +828,19 @@ def test_runtime_initialization_passes_manifest_pipeline_config(
     assert captured["resolution_wh"] == (cfg.video_width, cfg.video_height)
     assert captured["seed_for_every_rollout"] is None
     assert captured["rollout_seed"] is None
+def test_parse_args_enables_game_mode_and_auto_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["omnidreams.webrtc.server", "--game-mode", "--auto-start"],
+    )
+
+    args = webrtc_server.parse_args()
+
+    assert args.game_mode is True
+    assert args.auto_start is True
 
 
 def test_runtime_uses_default_scene_uuid_when_scene_is_unspecified(

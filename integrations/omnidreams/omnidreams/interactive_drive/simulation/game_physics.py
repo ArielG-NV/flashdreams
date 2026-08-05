@@ -196,8 +196,21 @@ def _simplify_barrier_segments(segments_world: np.ndarray) -> tuple[np.ndarray, 
 class GamePhysicsWorld:
     """Adapt a scene bundle to Ludus and delegate all simulation to PhysX."""
 
-    def __init__(self, scene: SceneBundle, vehicle: VehicleConfig) -> None:
+    def __init__(
+        self,
+        scene: SceneBundle,
+        vehicle: VehicleConfig,
+        *,
+        active_radius_m: float | None = None,
+    ) -> None:
         started_at = time.perf_counter()
+        self._active_radius_m = float(
+            _PHYSX_SIMULATION_RADIUS_M if active_radius_m is None else active_radius_m
+        )
+        if self._active_radius_m <= _PHYSX_RECENTER_DISTANCE_M:
+            raise ValueError(
+                "active_radius_m must exceed the PhysX recenter distance"
+            )
         self._vehicle = vehicle
         objects = tuple(
             self._object_from_track(track, vehicle)
@@ -219,7 +232,7 @@ class GamePhysicsWorld:
         initial_timestamp_us = int(getattr(scene, "initial_timestamp_us", 0))
         self._physics_graph = self.graph.copy_for_physx(
             initial_xy,
-            _PHYSX_SIMULATION_RADIUS_M,
+            self._active_radius_m,
             timestamp_us=initial_timestamp_us,
         )
         self._physics_center_xy = initial_xy.copy()
@@ -253,7 +266,7 @@ class GamePhysicsWorld:
             len(self.graph.objects),
             len(self._physics_graph.barriers),
             len(self.graph.barriers),
-            _PHYSX_SIMULATION_RADIUS_M,
+            self._active_radius_m,
         )
 
     @staticmethod
@@ -365,7 +378,7 @@ class GamePhysicsWorld:
             return False
         physics_graph = self.graph.copy_for_physx(
             center,
-            _PHYSX_SIMULATION_RADIUS_M,
+            self._active_radius_m,
             timestamp_us=timestamp_us,
         )
         incoming_ids = {obj.object_id for obj in physics_graph.objects}

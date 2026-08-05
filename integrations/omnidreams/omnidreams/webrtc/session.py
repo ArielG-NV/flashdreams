@@ -12,6 +12,7 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
+from types import SimpleNamespace
 from typing import AbstractSet, Any, Callable, TypeVar
 
 import cv2
@@ -30,6 +31,24 @@ from omnidreams.conditioning.renderer import load_and_attach_ludus_scene
 from omnidreams.conditioning.world_scenario.data_loaders import load_scene
 from omnidreams.conditioning.world_scenario.settings import SETTINGS
 from omnidreams.config import OMNIDREAMS_CONFIGS
+from omnidreams.interactive_drive.browser_presenter import NativeHudBrowserPresenter
+from omnidreams.interactive_drive.config import RasterConfig, VehicleConfig
+from omnidreams.interactive_drive.input.keyboard import (
+    KeyboardState,
+    command_from_snapshot,
+)
+from omnidreams.interactive_drive.scene_loader import load_scene_bundle
+from omnidreams.interactive_drive.simulation.ego_vehicle_kinematics import (
+    EgoVehicleKinematics,
+    build_ground_snapper,
+    build_map_bounds,
+    state_from_initial_pose,
+)
+from omnidreams.interactive_drive.types import (
+    ControlSnapshot,
+    PresentedFrame,
+    SceneBundle,
+)
 from omnidreams.scenes import (
     HF_DATASET_BROWSER_URL,
     SCENE_CLIPGT_DIRNAME,
@@ -54,6 +73,7 @@ from flashdreams.infra.postprocess import (
     VideoPostprocessStream,
 )
 from flashdreams.plugins.registry import resolve_postprocess_preset
+from flashdreams.serving.realtime.media import rgb_array_to_uint8_frames
 from flashdreams.serving.webrtc.controls import (
     WSAD_SUPPORTED_KEYS,
     CameraPoseIntegrator,
@@ -337,6 +357,48 @@ def _extract_local_webrtc_scene_if_needed(
     return normalized_scene_dir
 
 
+def _resolve_game_scene_archive(
+    scene_source: Path,
+    *,
+    scene_uuid: str | None,
+    variant: str,
+) -> Path:
+    """Resolve the intact USDZ required by interactive-drive game physics."""
+    if scene_source.is_file() and scene_source.suffix.lower() == ".usdz":
+        return scene_source
+    if not scene_source.is_dir():
+        raise FileNotFoundError(
+            f"WebRTC game-mode scene source does not exist: {scene_source}"
+        )
+
+    suffix = _variant_dir_suffix(variant)
+    preferred_stems: tuple[str, ...]
+    if scene_uuid:
+        preferred_stems = (
+            f"clipgt-{scene_uuid}{suffix}",
+            f"{scene_uuid}{suffix}",
+            f"clipgt-{scene_uuid}",
+            scene_uuid,
+        )
+    else:
+        preferred_stems = ()
+    archive = _choose_existing_asset(
+        scene_source,
+        fallback_prefixes=preferred_stems,
+        allowed_suffixes={".usdz"},
+        preferred_stems=preferred_stems,
+    )
+    if archive is None:
+        archives = sorted(scene_source.glob("*.usdz"))
+        if len(archives) == 1:
+            return archives[0]
+        raise FileNotFoundError(
+            "--game-mode requires an intact USDZ scene archive; none could be "
+            f"resolved under {scene_source}. Pass --scene-uuid for a local scene root."
+        )
+    return archive
+
+
 def _ensure_hf_webrtc_scene_synced(
     scene_uuid: str,
     *,
@@ -451,6 +513,9 @@ class OmnidreamsRuntimeConfig:
     warmup_chunks: int = 10
     warmup_timeout_s: float = 600.0
     debug_serve_hdmaps: bool = False
+    game_mode: bool = False
+    physics_active_radius_m: float = 96.0
+    server_side_hud: bool = False
     postprocess: VideoPostprocessChainConfig = field(
         default_factory=VideoPostprocessChainConfig
     )
@@ -517,6 +582,11 @@ class OmnidreamsInferenceRuntime:
         self._next_timestamp_us: int = 0
         self._postprocess_stream: VideoPostprocessStream | None = None
         self._postprocess_preset = self.config.postprocess.preset
+        self._native_hud: NativeHudBrowserPresenter | None = None
+        self._native_hud_frames: list[np.ndarray] = []
+        self._native_hud_keys: set[str] = set()
+        self._game_scene: SceneBundle | None = None
+        self._game_simulation: EgoVehicleKinematics | None = None
         self._closed = False
         self._clipgt_temp_dir: tempfile.TemporaryDirectory[str] | None = None
         # Selected once at initialization; the concrete backend is chosen
@@ -675,8 +745,11 @@ class OmnidreamsInferenceRuntime:
 
         init_t0 = time.perf_counter()
         cfg = self.config
+        game_archive_path: Path | None = None
         if cfg.scene_dir is None:
             scene_uuid = cfg.scene_uuid or DEFAULT_WEBRTC_SCENE_UUID
+            if cfg.game_mode:
+                game_archive_path = hf_hub_download_scene(scene_uuid, cfg.scene_variant)
             scene_dir = _ensure_hf_webrtc_scene_synced(
                 scene_uuid,
                 variant=cfg.scene_variant,
@@ -684,14 +757,23 @@ class OmnidreamsInferenceRuntime:
                 clipgt_dirname=cfg.clipgt_dirname,
             )
         else:
+            scene_source = cfg.scene_dir
+            if cfg.game_mode:
+                game_archive_path = _resolve_game_scene_archive(
+                    scene_source,
+                    scene_uuid=cfg.scene_uuid,
+                    variant=cfg.scene_variant,
+                )
             scene_dir = _extract_local_webrtc_scene_if_needed(
-                cfg.scene_dir,
+                scene_source,
                 scene_uuid=cfg.scene_uuid,
                 variant=cfg.scene_variant,
                 clipgt_dirname=cfg.clipgt_dirname,
             )
 
         cfg.scene_dir = scene_dir
+        if cfg.server_side_hud:
+            self._initialize_native_hud(scene_dir)
         clipgt_dir, first_frame_path, prompt_path = _resolve_webrtc_scene_assets(
             scene_dir,
             prompt_filename=cfg.prompt_filename,
@@ -699,6 +781,14 @@ class OmnidreamsInferenceRuntime:
             camera_name=cfg.camera_name,
             variant=cfg.scene_variant,
         )
+        if game_archive_path is not None:
+            self._game_scene = load_scene_bundle(
+                scene_path=game_archive_path,
+                camera_name=cfg.camera_name,
+                variant=cfg.scene_variant,
+                prompt_override=None,
+                raster=RasterConfig(width=cfg.video_width, height=cfg.video_height),
+            )
         if (
             cfg.pipeline_config is None
             and cfg.pipeline_config_name not in OMNIDREAMS_CONFIGS
@@ -708,7 +798,6 @@ class OmnidreamsInferenceRuntime:
                 f"Unknown pipeline_config_name={cfg.pipeline_config_name!r}. "
                 f"Supported: {supported}"
             )
-
         pipeline_cfg = (
             cfg.pipeline_config or OMNIDREAMS_CONFIGS[cfg.pipeline_config_name]
         )
@@ -860,6 +949,40 @@ class OmnidreamsInferenceRuntime:
             gop=self.config.encoder_gop,
         )
 
+    def _initialize_native_hud(self, scene_dir: Path) -> None:
+        """Build the headless native HUD for WebRTC output."""
+        if self._native_hud is not None:
+            self._native_hud.close()
+        from omnidreams.interactive_drive.demo import _load_control_assets
+
+        cfg = self.config
+        scene_option = SimpleNamespace(
+            label=scene_dir.name,
+            path=scene_dir,
+            variants=(cfg.scene_variant,),
+            variant_paths={},
+            thumbnail=None,
+        )
+        args = SimpleNamespace(
+            scene=scene_dir,
+            variant=cfg.scene_variant,
+            bev=False,
+            bev_resolution="1024x1024",
+            bev_height_m=75.0,
+            bev_fov_deg=60.0,
+            bev_tilt_deg=0.0,
+        )
+        keyboard = KeyboardState()
+        self._native_hud = NativeHudBrowserPresenter(
+            RasterConfig(width=cfg.video_width, height=cfg.video_height),
+            keyboard,
+            args=args,
+            scene_options=(scene_option,),
+            control_assets=_load_control_assets(None),
+            frame_sink=self._native_hud_frames.append,
+        )
+        self._native_hud.set_engine_active(True)
+
     def _prepare_clipgt_dir(self, clipgt_dir: Path) -> Path:
         def _has_prefixed_parquets(path: Path) -> bool:
             return any(path.glob("*.calibration_estimate.parquet"))
@@ -909,6 +1032,31 @@ class OmnidreamsInferenceRuntime:
         if self._state is not None and self._state.pipeline_cache is not None:
             del self._state.pipeline_cache
         self._state = None
+        if self._game_simulation is not None:
+            self._game_simulation.close()
+            self._game_simulation = None
+        if self.config.game_mode:
+            if self._game_scene is None:
+                raise OmnidreamsRuntimeError(
+                    "Game mode scene physics were not initialized."
+                )
+            game_scene = self._game_scene
+            self._game_simulation = EgoVehicleKinematics(
+                initial_state=state_from_initial_pose(
+                    initial_rig_to_world=game_scene.initial_rig_to_world,
+                    initial_yaw_rad=game_scene.initial_yaw_rad,
+                    initial_speed_mps=10.0,
+                ),
+                vehicle_config=VehicleConfig(
+                    actor_collision_enabled=True,
+                    static_collision_enabled=True,
+                ),
+                ground_snapper=build_ground_snapper(game_scene),
+                initial_timestamp_us=game_scene.initial_timestamp_us,
+                map_bounds=build_map_bounds(game_scene),
+                scene=game_scene,
+                physics_active_radius_m=self.config.physics_active_radius_m,
+            )
         self.pose_integrator = CameraPoseIntegrator(
             move_speed_per_s=self.config.move_speed_per_s,
             rotate_speed_rad_per_s=self.config.rotate_speed_rad_per_s,
@@ -930,6 +1078,13 @@ class OmnidreamsInferenceRuntime:
         self._text_prompts = None
         self._camera_to_rig = None
         self._initial_ego_pose = None
+        if self._game_simulation is not None:
+            self._game_simulation.close()
+            self._game_simulation = None
+        self._game_scene = None
+        if self._native_hud is not None:
+            self._native_hud.close()
+            self._native_hud = None
         self._close_postprocess_stream()
         if self._video_encoder is not None:
             self._video_encoder.close()
@@ -1000,6 +1155,7 @@ class OmnidreamsInferenceRuntime:
         segments: list[PoseSegment],
         frame_times: list[float],
     ) -> WebRTCStepResult:
+        chunk_started_at = time.perf_counter()
         if (
             self._wrapper is None
             or self._renderer is None
@@ -1022,18 +1178,39 @@ class OmnidreamsInferenceRuntime:
                 f"Chunk={self.autoregressive_index} received empty segments."
             )
 
-        ego_poses = self.pose_integrator.integrate_chunk(
-            segments=segments, frame_times=frame_times
-        )
+        active_keys = segments[-1][2]
+        self._sync_native_hud_keys(active_keys)
+        physics_started_at = time.perf_counter()
+        if self._game_simulation is not None:
+            trajectory = self._game_simulation.pose_chunk(
+                command=command_from_snapshot(
+                    ControlSnapshot(pressed=set(active_keys))
+                ),
+                chunk_size=num_frames,
+                frame_interval_s=1.0 / float(self.config.fps),
+                extrapolation_offset_s=0.0,
+            )
+            ego_poses = trajectory.rig_poses_world
+            frame_timestamps_us = [
+                int(timestamp) for timestamp in trajectory.timestamps_us
+            ]
+            if trajectory.actor_collision_detected and self._native_hud is not None:
+                self._native_hud.trigger_visual_flare()
+        else:
+            ego_poses = self.pose_integrator.integrate_chunk(
+                segments=segments, frame_times=frame_times
+            )
+            frame_timestamps_us = self._consume_timestamps(num_frames)
+        physics_elapsed_s = time.perf_counter() - physics_started_at
         ego_poses_t = torch.from_numpy(ego_poses).to(
             device=self._device, dtype=torch.float32
         )
         camera_poses = torch.einsum("nij,jk->nik", ego_poses_t, self._camera_to_rig)
-        frame_timestamps_us = self._consume_timestamps(num_frames)
 
         camera_names = [self.config.camera_name]
         camera_poses_per_view = {self.config.camera_name: camera_poses}
         serve_hdmaps = self.config.debug_serve_hdmaps
+        model_started_at = time.perf_counter()
         if self._state is None:
             output = self._wrapper.start_generation(
                 text_prompts=self._text_prompts,
@@ -1054,12 +1231,15 @@ class OmnidreamsInferenceRuntime:
                 skip_video_generation=serve_hdmaps,
             )
             self._state = output.state
+        model_elapsed_s = time.perf_counter() - model_started_at
 
+        finalize_started_at = time.perf_counter()
         if self._state.pipeline_cache is not None:
             self._wrapper.finalize_block_generation(
                 self._state.pipeline_cache,
                 output.finalization_state,
             )
+        finalize_elapsed_s = time.perf_counter() - finalize_started_at
 
         if serve_hdmaps:
             video_chunk = output.condition_frames
@@ -1068,21 +1248,76 @@ class OmnidreamsInferenceRuntime:
         else:
             video_chunk = output.rgb_frames
 
+        postprocess_started_at = time.perf_counter()
         if not serve_hdmaps and self._postprocess_stream is not None:
             video_chunk = self._postprocess_stream.process(
                 video_chunk,
                 autoregressive_index=self.autoregressive_index,
             )
+        postprocess_elapsed_s = time.perf_counter() - postprocess_started_at
 
+        hud_started_at = time.perf_counter()
+        if self.is_master and self._native_hud is not None:
+            video_chunk = self._render_native_hud_chunk(
+                video_chunk, frame_timestamps_us
+            )
+        hud_elapsed_s = time.perf_counter() - hud_started_at
         result = make_webrtc_step_result(
             chunk_index=self.autoregressive_index,
             video_chunk=video_chunk,
             layout="bvtchw",
-            stats=None,
+            stats={
+                "model_step_s": model_elapsed_s,
+                "physics_s": physics_elapsed_s,
+                "finalize_s": finalize_elapsed_s,
+                "pixel_post_s": postprocess_elapsed_s,
+                "hud_s": hud_elapsed_s,
+                "runtime_total_s": time.perf_counter() - chunk_started_at,
+            },
             sync_device=self._device,
         )
         self.autoregressive_index += 1
         return result
+
+    def _sync_native_hud_keys(
+        self,
+        keys: AbstractSet[str],
+    ) -> None:
+        hud = self._native_hud
+        if hud is None:
+            return
+        active = {str(key).lower() for key in keys}
+        for key in self._native_hud_keys - active:
+            hud.browser_key(key, False)
+        for key in active - self._native_hud_keys:
+            hud.browser_key(key, True)
+        self._native_hud_keys = active
+
+    def _render_native_hud_chunk(
+        self,
+        video_chunk: torch.Tensor,
+        timestamps_us: list[int],
+    ) -> torch.Tensor:
+        hud = self._native_hud
+        assert hud is not None
+        value_range = "uint8" if video_chunk.dtype == torch.uint8 else "minus_one_one"
+        frames = rgb_array_to_uint8_frames(
+            video_chunk,
+            layout="bvtchw",
+            value_range=value_range,
+        )
+        self._native_hud_frames.clear()
+        for timestamp_us, rgb in zip(timestamps_us, frames, strict=True):
+            frame = PresentedFrame(
+                timestamp_us=timestamp_us,
+                rgb_host_uint8=rgb,
+                depth_host_f32=None,
+                model_rgb_host_uint8=rgb,
+            )
+            hud.present_frame(frame, "model_rgb")
+        rendered = np.stack(self._native_hud_frames, axis=0)
+        tensor = torch.from_numpy(rendered)
+        return tensor.permute(0, 3, 1, 2).unsqueeze(0).unsqueeze(0).contiguous()
 
     def _consume_timestamps(self, num_frames: int) -> list[int]:
         step_us = int(round(1_000_000 / self.config.fps))

@@ -542,7 +542,17 @@ class InteractiveDriveApp:
         return "Loading scene..."
 
     def _resetting_status_message(self) -> str:
-        """Phase text shown while a reset / respawn re-primes the rollout."""
+        """Phase text shown while a reset / respawn re-primes the rollout.
+
+        A reset can be requested while the worker is still loading the model
+        or paying the one-time first-chunk optimization cost. Keep exposing
+        that underlying phase instead of making a long compile/autotune look
+        like a reset deadlock.
+        """
+        if not self.model_ready():
+            return "Loading world model..."
+        if self._backend.optimizes_on_first_chunk and not self.first_chunk_produced():
+            return "Optimizing world model..."
         return "Resetting..."
 
     def run(self) -> None:

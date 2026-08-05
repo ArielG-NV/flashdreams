@@ -2310,8 +2310,18 @@ torch::Tensor optimized_dit_forward(
         if (!v || !v[0]) return true;
         return v[0] != '0' && v[0] != 'f' && v[0] != 'F' && v[0] != 'n' && v[0] != 'N';
     };
+    // The FlashDreams shim supplies the complete per-block modulation cache.
+    // In that case the block runner consumes those tensors directly, so the
+    // native global precompute would be redundant and its output ignored.
+    // Treat even a partial request as external here; the validation below
+    // will report the missing cache entries before any block is launched.
+    const bool external_block_mod_cache_requested =
+        config.contains("cosmos_block_mods_sa") ||
+        config.contains("cosmos_block_mods_ca") ||
+        config.contains("cosmos_block_mods_mlp");
     bool adaln_precompute_enabled =
         adaln_precompute_env_enabled() &&
+        !external_block_mod_cache_requested &&
         lora_hidden_all.defined() &&
         mods_all.defined();
 
@@ -2461,9 +2471,7 @@ torch::Tensor optimized_dit_forward(
     torch::Tensor block_mods_ca;
     torch::Tensor block_mods_mlp;
     bool block_mod_cache_enabled = false;
-    if (config.contains("cosmos_block_mods_sa") ||
-        config.contains("cosmos_block_mods_ca") ||
-        config.contains("cosmos_block_mods_mlp")) {
+    if (external_block_mod_cache_requested) {
         TORCH_CHECK(config.contains("cosmos_block_mods_sa") &&
                     config.contains("cosmos_block_mods_ca") &&
                     config.contains("cosmos_block_mods_mlp"),

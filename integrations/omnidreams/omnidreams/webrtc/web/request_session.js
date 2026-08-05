@@ -906,7 +906,7 @@ function startVideoFrameMonitor() {
   remoteVideo.requestVideoFrameCallback(onFrame)
 }
 
-function initialize() {
+async function initialize() {
   document.body.dataset.status = "idle"
   logEvent("viewer ready", { source: "client" })
   setFlow("waiting")
@@ -914,12 +914,37 @@ function initialize() {
   attachPointerControls()
   window.requestAnimationFrame(drawIdleScene)
   startVideoFrameMonitor()
-  void loadPostprocessOptions().catch((error) => {
+  try {
+    await loadPostprocessOptions()
+  } catch (error) {
     logEvent(`post-process options unavailable: ${error.message}`, {
       source: "client",
       level: "error",
     })
-  })
+  }
+  await applyClientOptions()
+}
+
+async function applyClientOptions() {
+  try {
+    const response = await fetch("/api/client/options")
+    if (!response.ok) {
+      throw new Error(`client options failed (${response.status})`)
+    }
+    const options = await response.json()
+    document.body.classList.toggle(
+      "server-side-hud",
+      options.server_side_hud === true,
+    )
+    if (options.auto_start === true) {
+      await connectSession()
+    }
+  } catch (error) {
+    logEvent(`client options unavailable: ${error.message}`, {
+      source: "client",
+      level: "error",
+    })
+  }
 }
 
 connectButton.addEventListener("click", () => {
@@ -943,4 +968,4 @@ window.addEventListener("beforeunload", () => {
   disconnectSession()
 })
 
-initialize()
+void initialize()

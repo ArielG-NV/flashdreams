@@ -45,3 +45,17 @@ def test_loading_status_world_model_phases() -> None:
 def test_loading_status_skips_optimize_phase_for_non_optimizing_backend() -> None:
     raster = _app(optimizes=False, model_ready=True, first_chunk=False)
     assert raster._loading_status_message() == "Loading scene..."
+
+
+def test_reset_status_preserves_incomplete_world_model_phase() -> None:
+    warming = _app(optimizes=True, model_ready=False, first_chunk=False)
+    assert warming._resetting_status_message() == "Loading world model..."
+
+    optimizing = _app(optimizes=True, model_ready=True, first_chunk=False)
+    assert optimizing._resetting_status_message() == "Optimizing world model..."
+
+    ready = _app(optimizes=True, model_ready=True, first_chunk=True)
+    assert ready._resetting_status_message() == "Resetting..."
+
+    raster = _app(optimizes=False, model_ready=True, first_chunk=False)
+    assert raster._resetting_status_message() == "Resetting..."

@@ -571,3 +571,21 @@ body[data-status="generating"] .statusLine strong {
     border-bottom: 0;
   }
 }
+
+/* Keep the browser waiting UI visible until the first decoded frame. When the
+   server explicitly composites the native HUD, become transport-transparent
+   only after video playback has actually started. */
+body.server-side-hud.has-video .brandOverlay,
+body.server-side-hud.has-video .statusCard,
+body.server-side-hud.has-video .controlCard,
+body.server-side-hud.has-video .logCard,
+body.server-side-hud.has-video .metricsBar,
+body.server-side-hud.has-video .stageBackdrop,
+body.server-side-hud.has-video .idleCanvas,
+body.server-side-hud.has-video .stageVignette {
+  display: none !important;
+}
+
+body.server-side-hud .stageVideo {
+  object-fit: contain;
+}

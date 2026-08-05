@@ -200,10 +200,31 @@ def discover_postprocess_presets() -> dict[str, VideoPostProcessorConfig]:
     )
     for ep in discovered:
         origin = f"entry point {ep.name!r} -> {ep.value}"
+        module_name = ep.value.split(":", 1)[0]
+        top_level_module = module_name.split(".", 1)[0]
         try:
             value = ep.load()
+        except ModuleNotFoundError as exc:
+            # Partial installs can expose metadata for an optional integration
+            # whose package is absent from the active environment.
+            missing_name = exc.name or ""
+            if (
+                missing_name == top_level_module
+                or missing_name == module_name
+                or missing_name.startswith(f"{top_level_module}.")
+            ):
+                logger.debug(
+                    f"Skipping unavailable postprocess preset {origin}: "
+                    f"module {missing_name!r} is not installed in this environment."
+                )
+                continue
+            logger.debug(
+                f"Failed to load postprocess preset {origin}:\n"
+                f"{traceback.format_exc()}"
+            )
+            continue
         except Exception:  # noqa: BLE001 - keep CLI alive on bad plugins
-            logger.warning(
+            logger.debug(
                 f"Failed to load postprocess preset {origin}:\n{traceback.format_exc()}"
             )
             continue

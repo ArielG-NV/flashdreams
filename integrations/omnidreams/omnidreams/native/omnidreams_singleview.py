@@ -56,6 +56,14 @@ _NATIVE_CUDA_ARCH_LIST_ENV = "OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST"
 _DISABLE_SAGE3_ENV = "OMNIDREAMS_SINGLEVIEW_DISABLE_SAGE3"
 _PYTORCH_CUDA_ARCH_LIST_ENV = "TORCH_CUDA_ARCH_LIST"
 _DEFAULT_CUDA_ARCH_LIST = "12.0a"
+_ARCH_SPECIFIC_CUDA_CAPABILITIES = {
+    (9, 0),
+    (10, 0),
+    (10, 3),
+    (11, 0),
+    (12, 0),
+    (12, 1),
+}
 
 _native_build_module: ModuleType | None = None
 _extension: dict[bool, ModuleType] = {}
@@ -463,16 +471,36 @@ def _resolved_max_jobs(max_jobs: int | str | None) -> str | None:
     return str(min(os.cpu_count() or 1, _DEFAULT_MAX_JOBS_CAP))
 
 
+def _detected_cuda_arch_list() -> str | None:
+    """Return the architecture-specific target for the active CUDA device."""
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return None
+        capability = tuple(torch.cuda.get_device_capability())
+    except (ImportError, RuntimeError):
+        return None
+
+    suffix = "a" if capability in _ARCH_SPECIFIC_CUDA_CAPABILITIES else ""
+    return f"{capability[0]}.{capability[1]}{suffix}"
+
+
+def _default_cuda_arch_list() -> str:
+    return _detected_cuda_arch_list() or _DEFAULT_CUDA_ARCH_LIST
+
+
 def _resolved_cuda_arch_list() -> str | None:
     if os.environ.get(_PYTORCH_CUDA_ARCH_LIST_ENV):
         return None
-    return os.environ.get(_NATIVE_CUDA_ARCH_LIST_ENV, _DEFAULT_CUDA_ARCH_LIST)
+    return os.environ.get(_NATIVE_CUDA_ARCH_LIST_ENV) or _default_cuda_arch_list()
 
 
 def _effective_cuda_arch_list() -> str:
-    return os.environ.get(
-        _PYTORCH_CUDA_ARCH_LIST_ENV,
-        os.environ.get(_NATIVE_CUDA_ARCH_LIST_ENV, _DEFAULT_CUDA_ARCH_LIST),
+    return (
+        os.environ.get(_PYTORCH_CUDA_ARCH_LIST_ENV)
+        or os.environ.get(_NATIVE_CUDA_ARCH_LIST_ENV)
+        or _default_cuda_arch_list()
     )
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import replace
+from functools import partial
 from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -146,6 +147,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--game-mode",
+        action="store_true",
+        help=(
+            "Enable game-style actor and static-world collisions, along with "
+            "collision visual feedback."
+        ),
+    )
+    parser.add_argument(
+        "--server-side-hud",
+        action="store_true",
+        help=(
+            "Composite the native desktop HUD into every video frame. Disabled "
+            "by default because the browser already renders its own overlay."
+        ),
+    )
+    parser.add_argument(
+        "--auto-start",
+        action="store_true",
+        help="Connect the browser WebRTC session automatically when the page loads.",
+    )
+    parser.add_argument(
         "--camera_name",
         type=str,
         default="camera_front_wide_120fov",
@@ -218,8 +240,19 @@ async def _session_input(request: web.Request) -> web.StreamResponse:
     return web.json_response({"postprocess_preset": preset})
 
 
-def _configure_app(app: web.Application) -> None:
+def _configure_app(
+    app: web.Application, *, auto_start: bool, server_side_hud: bool
+) -> None:
+    async def client_options(_: web.Request) -> web.StreamResponse:
+        return web.json_response(
+            {
+                "auto_start": auto_start,
+                "server_side_hud": server_side_hud,
+            }
+        )
+
     app.router.add_get("/api/postprocess/options", _postprocess_options)
+    app.router.add_get("/api/client/options", client_options)
     app.router.add_post("/api/session/input", _session_input)
 
 
@@ -227,6 +260,8 @@ def create_app(
     *,
     request_session_url: str,
     session_manager: WebRTCSessionManager | None = None,
+    auto_start: bool = False,
+    server_side_hud: bool = False,
 ) -> web.Application:
     manager = session_manager or OmnidreamsWebRTCSessionManager()
     return create_packaged_webrtc_app(
@@ -234,7 +269,11 @@ def create_app(
         session_manager=manager,
         preload_name="Omnidreams",
         request_session_url=request_session_url,
-        configure_app=_configure_app,
+        configure_app=partial(
+            _configure_app,
+            auto_start=auto_start,
+            server_side_hud=server_side_hud,
+        ),
         as_file_fn=as_file,
         create_app_fn=create_webrtc_app,
         cleanup_callback=_close_package_resources,
@@ -302,6 +341,8 @@ def build_runtime_config(
         warmup_chunks=args.warmup_chunks,
         warmup_timeout_s=args.warmup_timeout_s,
         debug_serve_hdmaps=args.debug_serve_hdmaps,
+        game_mode=bool(getattr(args, "game_mode", False)),
+        server_side_hud=bool(getattr(args, "server_side_hud", False)),
         postprocess=VideoPostprocessChainConfig(preset=args.postprocess_preset),
         encoder_backend="default" if args.prefer_sw_encoder else "auto",
     )
@@ -360,6 +401,8 @@ def main() -> None:
         app = create_app(
             session_manager=session_manager,
             request_session_url=f"http://{external_ip}:{args.port}/request_session",
+            auto_start=args.auto_start,
+            server_side_hud=args.server_side_hud,
         )
         logger.info("Starting on external IP: {}", external_ip)
     run_webrtc_server(

@@ -467,6 +467,7 @@ class EgoVehicleKinematics:
         oob_margin_m: float = 50.0,
         oob_warning_zone_m: float = 100.0,
         scene: SceneBundle | None = None,
+        physics_active_radius_m: float | None = None,
     ) -> None:
         self._state = initial_state
         self._vehicle_config = vehicle_config
@@ -476,7 +477,13 @@ class EgoVehicleKinematics:
         self._oob_margin_m = float(oob_margin_m)
         self._oob_warning_zone_m = float(oob_warning_zone_m)
         self._physics_world = (
-            GamePhysicsWorld(scene, vehicle_config) if scene is not None else None
+            GamePhysicsWorld(
+                scene,
+                vehicle_config,
+                active_radius_m=physics_active_radius_m,
+            )
+            if scene is not None
+            else None
         )
         self._capture_physics_debug = False
 

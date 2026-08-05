@@ -839,6 +839,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                         "WebRTC perf chunk={} interval_chunks={} frames={} "
                         "gen_fps={:.1f} interval_fps={:.1f} playback_fps={} "
                         "gen_ms={:.0f} enqueue_ms={:.0f} model_ms={:.0f} "
+                        "physics_ms={:.0f} finalize_ms={:.0f} hud_ms={:.0f} "
                         "denoise_ms={:.0f} decode_ms={:.0f} pixel_post_ms={:.0f} "
                         "copy_ms={:.0f} cache_ms={:.0f} "
                         "cache_wait_ms={:.0f} cache_submit_ms={:.0f} "
@@ -854,6 +855,9 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                         gen_ms,
                         enqueue_ms,
                         _stat_ms(stats, "model_step_s", gen_ms),
+                        _stat_ms(stats, "physics_s"),
+                        _stat_ms(stats, "finalize_s"),
+                        _stat_ms(stats, "hud_s"),
                         _stat_ms(stats, "denoise_s"),
                         _stat_ms(stats, "decode_s"),
                         _stat_ms(stats, "pixel_post_s"),

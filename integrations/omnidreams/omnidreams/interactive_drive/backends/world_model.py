@@ -37,6 +37,21 @@ from flashdreams.infra.postprocess import VideoPostprocessChainConfig
 _FIRST_STEADY_STATE_WARMUP_MESSAGE = "Optimizing world model..."
 
 
+def _physx_elapsed_ms(trajectory: TrajectoryChunk) -> float | None:
+    if trajectory.physx_timings is not None:
+        return trajectory.physx_timings.total_ms
+    if trajectory.physx_elapsed_s is not None:
+        return trajectory.physx_elapsed_s * 1000.0
+    return None
+
+
+def _total_chunk_elapsed_ms(
+    trajectory: TrajectoryChunk, render_elapsed_s: float
+) -> float:
+    physx_ms = _physx_elapsed_ms(trajectory)
+    return render_elapsed_s * 1000.0 + (physx_ms or 0.0)
+
+
 class WorldModelRenderBackend(RenderBackend):
     def __init__(
         self,
@@ -225,25 +240,24 @@ class WorldModelRenderBackend(RenderBackend):
         merged_frames = self._merge_frames(raster_chunk.frames, model_frames)
         merge_end = time.perf_counter()
         self._next_chunk_count += 1
-        total_ms = (merge_end - chunk_start) * 1000.0
+        physx_ms = _physx_elapsed_ms(trajectory)
+        total_ms = _total_chunk_elapsed_ms(trajectory, merge_end - chunk_start)
         if trajectory.physx_timings is not None:
             timing = trajectory.physx_timings
             physx_timing = (
-                f"physx_ms={timing.total_ms:.1f} "
-                # f"physx_sync_ms={timing.synchronize_ms:.1f} "
-                # f"physx_actor_update_ms={timing.actor_update_ms:.1f} "
-                # f"physx_solver_ms={timing.solver_ms:.1f} "
-                # f"physx_readback_ms={timing.readback_ms:.1f} "
-                # f"physx_bridge_ms={timing.bridge_ms:.1f} "
-                # f"physx_visible_actors={timing.max_visible_actors} "
-                # f"physx_detached_actors={timing.max_detached_actors} "
+                f"physx_ms={physx_ms:.1f} "
+                f"physx_sync_ms={timing.synchronize_ms:.1f} "
+                f"physx_actor_update_ms={timing.actor_update_ms:.1f} "
+                f"physx_solver_ms={timing.solver_ms:.1f} "
+                f"physx_readback_ms={timing.readback_ms:.1f} "
+                f"physx_bridge_ms={timing.bridge_ms:.1f} "
+                f"physx_visible_actors={timing.max_visible_actors} "
+                f"physx_detached_actors={timing.max_detached_actors} "
             )
+        elif physx_ms is not None:
+            physx_timing = f"physx_ms={physx_ms:.1f} "
         else:
-            physx_timing = (
-                f"physx_ms={trajectory.physx_elapsed_s * 1000.0:.1f} "
-                if trajectory.physx_elapsed_s is not None
-                else ""
-            )
+            physx_timing = ""
         if (
             self._next_chunk_count <= 3
             or self._next_chunk_count % 10 == 0

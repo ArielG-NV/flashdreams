@@ -63,6 +63,8 @@ PxVec3 vectorFromArray(
     return PxVec3(values.data()[0], values.data()[1], values.data()[2]);
 }
 
+constexpr float kTrackedActorSimulationRadiusM = 64.0f;
+
 struct BodyRecord {
     PxRigidDynamic* actor = nullptr;
     PxMaterial* material = nullptr;
@@ -564,6 +566,38 @@ public:
                 body.trackVisible = true;
                 ++visibleCount;
                 const TrackSample track = sampleTrack(body, timestampUs);
+                const PxVec3 trackSeparation =
+                    track.transform.p - requestedEgoPose.p;
+                const bool simulateActor = body.detached
+                    || (
+                        actorCollisionEnabled
+                        && trackSeparation.x * trackSeparation.x
+                                + trackSeparation.y * trackSeparation.y
+                            <= kTrackedActorSimulationRadiusM
+                                * kTrackedActorSimulationRadiusM);
+                if (!simulateActor) {
+                    updateActorState(
+                        body,
+                        track.transform,
+                        track.velocity,
+                        track.angularVelocity,
+                        true);
+                    body.overlappingEgo = false;
+                    body.driveIntentActive = false;
+                    body.verticalTrackControl = false;
+                    setCollisionEnabled(body, false);
+                    mDetached[body.slot] = body.detached ? 1 : 0;
+                    continue;
+                }
+                if (body.actor->getRigidBodyFlags().isSet(
+                        PxRigidBodyFlag::eKINEMATIC)) {
+                    updateActorState(
+                        body,
+                        track.transform,
+                        track.velocity,
+                        track.angularVelocity,
+                        false);
+                }
                 const PxTransform actorTransform = body.actor->getGlobalPose();
                 const PxVec3 actorVelocity = body.actor->getLinearVelocity();
                 const bool overlapsEgo = actorCollisionEnabled

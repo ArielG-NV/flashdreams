@@ -38,7 +38,11 @@ from flashdreams.configs.runner_configs import (
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.runner import RunnerConfig
 from flashdreams.plugins import discover_runners
-from flashdreams.plugins.registry import ENV_VAR
+from flashdreams.plugins.registry import (
+    ENV_VAR,
+    POSTPROCESS_PRESET_GROUP,
+    discover_postprocess_presets,
+)
 from flashdreams.recipes.template.config import TEMPLATE_OFFLINE_RUNNER
 
 pytestmark = pytest.mark.ci_cpu
@@ -225,6 +229,37 @@ def test_entry_point_transitive_import_error_is_debug_skipped(
     runners = discover_runners()
     assert runners == {}
     assert any("broken-plugin" in msg for msg in debug_messages)
+
+
+def test_postprocess_entry_point_missing_package_is_skipped_without_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unavailable optional postprocess packages should not emit warnings."""
+
+    class _FakeEntryPoint:
+        name = "missing-postprocess-plugin"
+        value = "missing_postprocess_pkg.postprocess:PRESET"
+
+        @staticmethod
+        def load() -> object:
+            raise ModuleNotFoundError(
+                "No module named \x27missing_postprocess_pkg\x27",
+                name="missing_postprocess_pkg",
+            )
+
+    warning_messages: list[str] = []
+    monkeypatch.setattr(
+        "flashdreams.plugins.registry.entry_points",
+        lambda *, group: [_FakeEntryPoint()]
+        if group == POSTPROCESS_PRESET_GROUP
+        else [],
+    )
+    monkeypatch.setattr(
+        "flashdreams.plugins.registry.logger.warning", warning_messages.append
+    )
+
+    assert discover_postprocess_presets() == {}
+    assert warning_messages == []
 
 
 def test_discover_runners_skips_runner_name_collision(

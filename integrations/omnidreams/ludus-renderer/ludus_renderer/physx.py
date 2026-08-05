@@ -517,6 +517,10 @@ class PhysXWorld:
             )
             for object_id, slot in self._object_slots.items()
             if self._objects[object_id].is_visible_at(timestamp_us)
+            and (
+                bool(self._collision_active_buffer[slot])
+                or bool(self._detached_buffer[slot])
+            )
         )
         struck_object_ids = frozenset(
             object_id

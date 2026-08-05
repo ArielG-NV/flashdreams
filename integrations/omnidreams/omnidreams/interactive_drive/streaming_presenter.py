@@ -16,24 +16,20 @@ import json
 import shutil
 import subprocess
 import threading
-import time
 from collections.abc import Callable
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 from loguru import logger
+from omnidreams.interactive_drive.browser_presenter import NativeHudBrowserPresenter
 from omnidreams.interactive_drive.config import RasterConfig
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.loading_overlay import render_loading_overlay
-from omnidreams.interactive_drive.physx_debug import select_presented_rgb
 from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
-from omnidreams.interactive_drive.visual_flare import (
-    CollisionVisualFlare,
-    darken_rgb,
-)
 
 from flashdreams.serving.realtime.frame_bus import LatestFrameBus
 from flashdreams.serving.realtime.media import (
@@ -77,6 +73,56 @@ _BROWSER_KEY_TO_VIEW_MODE: dict[str, str] = {
     "2": "rgb",
     "3": "physx",
 }
+
+
+class _LatestFramePublisher:
+    """Run a frame publisher off-thread with one replaceable pending slot.
+
+    MJPEG encoding is slower than a frame interval on some hosts. Queueing
+    every frame would turn that throughput mismatch into steadily increasing
+    input-to-visible latency, so retain only the newest frame while the worker
+    is busy. The frame currently being encoded is never interrupted.
+    """
+
+    def __init__(self, publish: Callable[[object], None]) -> None:
+        self._publish = publish
+        self._lock = threading.Lock()
+        self._pending: object | None = None
+        self._worker_running = False
+        self._closed = False
+        self._executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="interactive-drive-jpeg-publish",
+        )
+
+    def submit(self, frame: object) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._pending = frame
+            if self._worker_running:
+                return
+            self._worker_running = True
+            self._executor.submit(self._drain)
+
+    def close(self) -> None:
+        with self._lock:
+            self._closed = True
+            self._pending = None
+        self._executor.shutdown(wait=True, cancel_futures=True)
+
+    def _drain(self) -> None:
+        while True:
+            with self._lock:
+                frame = self._pending
+                self._pending = None
+                if frame is None:
+                    self._worker_running = False
+                    return
+            try:
+                self._publish(frame)
+            except Exception as exc:  # noqa: BLE001 -- keep the realtime loop alive
+                logger.warning(f"[presenter] JPEG frame publish failed: {exc!r}")
 
 
 class _KeyboardDriveSink:
@@ -323,6 +369,16 @@ _INDEX_HTML = """<!doctype html>
   }
   .variant-pill:hover { background: rgba(120, 200, 255, 0.3); border-color: rgba(120, 200, 255, 0.7); }
   .variant-pill.loading { border-color: rgba(120, 200, 255, 1.0); opacity: 0.7; pointer-events: none; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: rgb(20, 20, 30); }
+  img#stream {
+    width: 100vw;
+    height: 100vh;
+    max-width: none;
+    max-height: none;
+    object-fit: contain;
+    cursor: default;
+  }
+  .hint, .hud, .scene-picker { display: none !important; }
 </style>
 </head>
 <body>
@@ -352,6 +408,7 @@ _INDEX_HTML = """<!doctype html>
 </div>
 <script>
 const DOWN_KEYS = new Set();
+const stream = document.getElementById("stream");
 const INDICATOR_FOR_KEY = {
   "w":"w","W":"w","ArrowUp":"w",
   "a":"a","A":"a","ArrowLeft":"a",
@@ -380,6 +437,19 @@ function send(key, down) {
   fetch('/control?key=' + encodeURIComponent(key) + '&down=' + (down ? 1 : 0))
     .catch(() => {});                       // ignore network hiccups, next event will resync
 }
+stream.addEventListener('click', event => {
+  const rect = stream.getBoundingClientRect();
+  const aspect = (stream.naturalWidth || 16) / (stream.naturalHeight || 9);
+  let width = rect.width;
+  let height = width / aspect;
+  if (height > rect.height) { height = rect.height; width = height * aspect; }
+  const left = rect.left + (rect.width - width) / 2;
+  const top = rect.top + (rect.height - height) / 2;
+  const x = (event.clientX - left) / width;
+  const y = (event.clientY - top) / height;
+  if (x < 0 || x > 1 || y < 0 || y > 1) return;
+  fetch(`/pointer?x=${x}&y=${y}&pressed=1`).catch(() => {});
+});
 // Skip key handling when focus is on a form input (e.g. a future
 // settings panel). The scene picker is now click-driven so the
 // keyboard never lands on a button there.
@@ -552,13 +622,41 @@ class MJPEGStreamingPresenter:
         jpeg_quality: int = 85,
         scenes: tuple[dict[str, object], ...] = (),
         thumbnails: dict[str, bytes] | None = None,
+        args: object | None = None,
+        scene_options: tuple[object, ...] = (),
+        control_assets: object | None = None,
     ) -> None:
         self._raster = raster
         self._keyboard = keyboard
-        self._visual_flare = CollisionVisualFlare()
         self._jpeg_quality = int(jpeg_quality)
         self._stop_event = threading.Event()
         self._frame_bus = LatestFrameBus[bytes]()
+        # CPU JPEG compression must not block the simulation/presentation thread.
+        # A latest-only slot also prevents an overloaded encoder from building a
+        # stale-frame queue that makes driving feel progressively laggier.
+        self._frame_publisher = _LatestFramePublisher(self._publish)
+        if args is None:
+            args = SimpleNamespace(
+                scene=Path(),
+                variant="default",
+                bev=True,
+                bev_resolution="1024x1024",
+                bev_height_m=75.0,
+                bev_fov_deg=60.0,
+                bev_tilt_deg=0.0,
+            )
+        if control_assets is None:
+            from omnidreams.interactive_drive.demo import _load_control_assets
+
+            control_assets = _load_control_assets(None)
+        self._native_hud = NativeHudBrowserPresenter(
+            raster,
+            keyboard,
+            args=args,
+            scene_options=scene_options,
+            control_assets=control_assets,
+            frame_sink=self._frame_publisher.submit,
+        )
         # BEV minimap stream lives on its own JPEG buffer so connected
         # clients of /bev_stream can paginate at a different rate than
         # /stream (e.g. if the HUD process throttles).
@@ -648,21 +746,25 @@ class MJPEGStreamingPresenter:
 
     @property
     def should_close(self) -> bool:
-        # There's no window to close. The app loop runs until the
-        # simulation thread finishes, the user Ctrl-C's the process,
-        # or a /scene/select request flips the pending-change channel
-        # so the demo wrapper can switch the long-lived engine to a new scene.
-        return self._stop_event.is_set() or self._pending_scene_change is not None
+        return self._stop_event.is_set() or self._native_hud.should_close
 
     @property
     def pending_scene_change(self) -> tuple[Path, str] | None:
         """Scene the browser asked to load next (via ``/scene/select``), or ``None``."""
-        return self._pending_scene_change
+        return self._native_hud.pending_scene_change
 
     def acknowledge_scene_change(self, scene_path: Path, variant: str) -> None:
         """Clear the pending scene change after the demo wrapper has applied it."""
-        del scene_path, variant  # accepted for symmetry with the slangpy HUD API
-        self._pending_scene_change = None
+        self._native_hud.acknowledge_scene_change(scene_path, variant)
+
+    @property
+    def pending_exit_scene(self) -> bool:
+        """Whether native HUD input requested a return to scene selection."""
+        return self._native_hud.pending_exit_scene
+
+    def acknowledge_exit_scene(self) -> None:
+        """Clear the native HUD's pending exit-to-selector request."""
+        self._native_hud.acknowledge_exit_scene()
 
     def set_model_status(
         self, *, can_prewarm: bool, ready_probe: Callable[[], bool]
@@ -672,8 +774,10 @@ class MJPEGStreamingPresenter:
         While ``can_prewarm`` and not ``ready_probe()``, the idle frame reads
         "Loading world model..." instead of the "select a scene" prompt.
         """
-        self._model_can_prewarm = bool(can_prewarm)
-        self._model_ready_probe = ready_probe
+        self._native_hud.set_model_status(
+            can_prewarm=can_prewarm,
+            ready_probe=ready_probe,
+        )
 
     def set_scene_selection_locked(self, probe: Callable[[], bool]) -> None:
         """Reject ``/scene/select`` while ``probe()`` returns True (--preload-scenes).
@@ -681,26 +785,33 @@ class MJPEGStreamingPresenter:
         Locks scene picking until every scene is cached; idle overlay then
         reads "Preloading scenes...".
         """
-        self._scene_selection_locked_probe = probe
+        self._native_hud.set_scene_selection_locked(probe)
+
+    def set_engine_active(self, active: bool) -> None:
+        """Set the native HUD scene-running state."""
+        self._native_hud.set_engine_active(active)
+
+    def set_postprocess_control(
+        self,
+        *,
+        preset: str,
+        enabled: bool,
+        callback: Callable[[bool], None],
+    ) -> None:
+        """Bind the native HUD post-process toggle."""
+        self._native_hud.set_postprocess_control(
+            preset=preset,
+            enabled=enabled,
+            callback=callback,
+        )
+
+    def wait_while_preloading(self, in_progress: Callable[[], bool]) -> None:
+        """Render the native preloading state until loading completes."""
+        self._native_hud.wait_while_preloading(in_progress)
 
     def wait_for_scene_selection(self) -> tuple[Path, str] | None:
-        """Block until the browser POSTs a scene selection (or the presenter closes).
-
-        Publishes an idle overlay frame, re-published on a 2 s heartbeat so a
-        late-connecting browser still gets the placeholder promptly. Returns
-        ``(scene_path, variant)`` on selection, or ``None`` if closed first.
-        """
-        idle_heartbeat_s = 2.0
-        last_publish = 0.0
-        while True:
-            now = time.monotonic()
-            if now - last_publish >= idle_heartbeat_s:
-                self._publish_idle_frame()
-                last_publish = now
-            if self._stop_event.wait(timeout=0.1):
-                return None
-            if self._pending_scene_change is not None:
-                return self._pending_scene_change
+        """Wait until the native HUD receives a scene selection."""
+        return self._native_hud.wait_for_scene_selection()
 
     def _publish_idle_frame(self) -> None:
         """Stream the cached idle placeholder frame.
@@ -724,87 +835,28 @@ class MJPEGStreamingPresenter:
         self._publish(cached)
 
     def bind_keyboard(self, keyboard: KeyboardState) -> None:
-        """Re-target the presenter (and rebuild the keyboard-drive integrator) at ``keyboard``."""
+        """Re-target the native HUD at ``keyboard``."""
         self._keyboard = keyboard
-        self._keyboard_drive = self._keyboard_drive_factory(
-            _KeyboardDriveSink(keyboard)
-        )
+        self._native_hud.bind_keyboard(keyboard)
 
     def process_events(self) -> None:
-        # Per-tick integrator update so auto-crawl smoothing advances at sim
-        # cadence regardless of how often the browser posts /control events.
-        self._keyboard_drive.update()
+        self._native_hud.process_events()
 
     def trigger_visual_flare(self) -> None:
         """Start the collision-feedback fade."""
-        self._visual_flare.trigger()
+        self._native_hud.trigger_visual_flare()
 
     def prepare_frame(self, frame: PresentedFrame, view_mode: str) -> None:
-        if view_mode == "physx":
-            if frame.physx_debug is None:
-                return
-            _prefetch_to_numpy(
-                select_presented_rgb(
-                    frame,
-                    view_mode,
-                    width=self._raster.width,
-                    height=self._raster.height,
-                )
-            )
-        elif view_mode == "model_rgb" and frame.model_rgb_host_uint8 is not None:
-            _prefetch_to_numpy(frame.model_rgb_host_uint8)
-        else:
-            _prefetch_to_numpy(frame.rgb_host_uint8)
-        if frame.bev_host_uint8 is not None:
-            _prefetch_to_numpy(frame.bev_host_uint8)
+        self._native_hud.prepare_frame(frame, view_mode)
 
     def present_frame(self, frame: PresentedFrame, view_mode: str) -> None:
-        if view_mode == "physx" and frame.physx_debug is None:
-            # Preserve the last published JPEG until a PhysX-enabled chunk is
-            # ready; publishing frame.rgb_host_uint8 here flashes the HDMap.
-            return
-        visual_flare = getattr(self, "_visual_flare", None)
-        flare_opacity = visual_flare.opacity() if visual_flare is not None else 0.0
-
-        def with_flare(rgb: object) -> np.ndarray:
-            return darken_rgb(_as_rgb_host_uint8(rgb), flare_opacity)
-
-        # Mirror SlangPyPresenter.present_frame's view-mode branching so
-        # the user's `1`/`2` toggles behave identically.
-        if view_mode == "physx":
-            self._publish(
-                with_flare(
-                    _with_status_overlay(
-                        select_presented_rgb(
-                            frame,
-                            view_mode,
-                            width=self._raster.width,
-                            height=self._raster.height,
-                        ),
-                        frame.status_message,
-                    )
-                )
-            )
-        elif view_mode == "model_rgb" and frame.model_rgb_host_uint8 is not None:
-            self._publish(
-                with_flare(
-                    _with_status_overlay(
-                        frame.model_rgb_host_uint8, frame.status_message
-                    )
-                )
-            )
-        else:
-            self._publish(
-                with_flare(
-                    _with_status_overlay(frame.rgb_host_uint8, frame.status_message)
-                )
-            )
-        if frame.bev_host_uint8 is not None:
-            self._submit_bev_publish(frame.bev_host_uint8)
+        self._native_hud.present_frame(frame, view_mode)
 
     def close(self) -> None:
         self._stop_event.set()
+        self._native_hud.close()
         future = self._bev_publish_future
+        self._frame_publisher.close()
         if future is not None:
             with contextlib.suppress(Exception):
                 future.result(timeout=1.0)
@@ -874,25 +926,7 @@ class MJPEGStreamingPresenter:
         )
 
     def _apply_control(self, key: str, down: bool) -> None:
-        # Direction keys (W/A/S/D + arrows + Space) flow through the
-        # ``KeyboardDriveState`` integrator so the MJPEG path posts the
-        # exact same ``DriverCommand(manual_control=True, ...)`` shape
-        # the slangpy HUD does -- which is what unlocks the integrator's
-        # ~10 mph creep-toward-target on key release.
-        drive_keysym = _BROWSER_KEY_TO_DRIVE_KEYSYM.get(key)
-        if drive_keysym is not None and self._keyboard_drive.set_key(
-            drive_keysym, down
-        ):
-            return
-        if down:
-            view_mode = _BROWSER_KEY_TO_VIEW_MODE.get(key)
-            if view_mode is not None:
-                self._keyboard.set_view_mode(view_mode)
-                return
-            # ``r`` / ``R`` restarts the rollout. Only fire on keydown so
-            # holding the key doesn't trigger a cascade of resets.
-            if key in ("r", "R"):
-                self._keyboard.request_reset()
+        self._native_hud.browser_key(key, down)
 
     def _state_snapshot(self) -> dict[str, float | None]:
         """JSON-serialisable telemetry snapshot from ``KeyboardState.vehicle_state``.
@@ -921,7 +955,7 @@ class MJPEGStreamingPresenter:
         """
         if not scene_path_str:
             return False
-        if self._scene_selection_locked_probe():
+        if self._native_hud._scene_selection_locked():
             # Scenes are still preloading; reject selection so the browser
             # waits for the instant (cached) switch instead of triggering a
             # mid-preload parse.
@@ -937,7 +971,9 @@ class MJPEGStreamingPresenter:
                 resolved_variant = (
                     variant if variant in entry_variants else entry_variants[0]
                 )
-                self._pending_scene_change = (Path(entry_path), str(resolved_variant))
+                self._native_hud._signal_scene_change(
+                    Path(entry_path), str(resolved_variant)
+                )
                 return True
         return False
 
@@ -978,6 +1014,8 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
                 self._serve_thumbnail(parse_qs(parsed.query))
             elif parsed.path == "/control":
                 self._serve_control(parse_qs(parsed.query))
+            elif parsed.path == "/pointer":
+                self._serve_pointer(parse_qs(parsed.query))
             else:
                 self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -1121,6 +1159,19 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
                 down = False
             if key:
                 presenter._apply_control(key, down)
+            self.send_response(HTTPStatus.NO_CONTENT)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def _serve_pointer(self, query: dict[str, list[str]]) -> None:
+            try:
+                x = float(query.get("x", ["0"])[0])
+                y = float(query.get("y", ["0"])[0])
+                pressed = bool(int(query.get("pressed", ["0"])[0]))
+            except ValueError:
+                self.send_error(HTTPStatus.BAD_REQUEST)
+                return
+            presenter._native_hud.browser_pointer(x, y, pressed=pressed)
             self.send_response(HTTPStatus.NO_CONTENT)
             self.send_header("Content-Length", "0")
             self.end_headers()

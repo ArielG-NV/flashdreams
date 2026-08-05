@@ -354,6 +354,11 @@ Each scene ships clear, rain, and snow weather variants as sibling
 archives; add ``--scene-variant rain`` (or ``snow``) to serve a specific
 one (the default is the clear-weather scene).
 
+Add ``--game-mode`` to enable actor and static-world collisions with collision
+feedback. Add ``--auto-start`` when the browser should connect as soon as its
+session options have loaded; without it, the user starts the session with the
+**Connect Session** button.
+
 The server may take a few minutes to warm up. Once ready, it prints
 ``Connect via http://<server-ip>:8089/request_session``.
 Here, ``<server-ip>`` is the server IP address you are connecting to

@@ -962,6 +962,9 @@ def _run_streaming(args: argparse.Namespace) -> None:
         bind_port=bind_port,
         scenes=scenes_payload,
         thumbnails=thumbnails,
+        args=args,
+        scene_options=scene_options,
+        control_assets=_load_control_assets(args.control_assets_dir),
     )
 
     # Build the backend + engine once so the model warms up (on the
@@ -977,6 +980,11 @@ def _run_streaming(args: argparse.Namespace) -> None:
         close_presenter_on_exit=False,
     )
     presenter.set_model_status(can_prewarm=app.can_prewarm, ready_probe=app.model_ready)
+    presenter.set_postprocess_control(
+        preset=config.postprocess.preset,
+        enabled=config.postprocess.is_enabled(),
+        callback=app.set_postprocess_enabled,
+    )
 
     if args.preload_scenes:
         app.preload_scenes(
@@ -1028,8 +1036,18 @@ def _run_streaming(args: argparse.Namespace) -> None:
             # browser keeps receiving frames; False means the session is
             # ending (or a new scene was requested) before the parse
             # finished, so skip run_scene and let the check below decide.
+            presenter.set_engine_active(True)
             if app.load_scene(scene_path, variant, args.prompt):
                 app.run_scene()
+            presenter.set_engine_active(False)
+            if presenter.pending_exit_scene:
+                presenter.acknowledge_exit_scene()
+                request = presenter.wait_for_scene_selection()
+                if request is None:
+                    break
+                scene_path, variant = request
+                presenter.acknowledge_scene_change(scene_path, variant)
+                continue
             requested = presenter.pending_scene_change
             if requested is None:
                 # Either the process is shutting down (Ctrl-C) or the

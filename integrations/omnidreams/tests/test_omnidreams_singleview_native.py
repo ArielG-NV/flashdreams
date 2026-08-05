@@ -153,6 +153,7 @@ def test_load_extension_uses_build_root_for_torch_cache(
     monkeypatch.setattr(cpp_extension, "load", fake_load_torch_extension)
     monkeypatch.setattr(native.os, "cpu_count", lambda: 48)
     monkeypatch.setattr(native, "_python_package_dir", lambda package: None)
+    monkeypatch.setattr(native, "_detected_cuda_arch_list", lambda: "12.0a")
     monkeypatch.delenv("MAX_JOBS", raising=False)
     monkeypatch.delenv("TORCH_CUDA_ARCH_LIST", raising=False)
     monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", raising=False)
@@ -413,6 +414,25 @@ def test_extension_name_isolated_by_sage3_build_opt_out(
     assert stubbed_name != full_name
     assert "_sage3_1_" in full_name
     assert "_sage3_0_" in stubbed_name
+@pytest.mark.ci_cpu
+@pytest.mark.parametrize(
+    ("capability", "expected"),
+    [
+        ((8, 9), "8.9"),
+        ((9, 0), "9.0a"),
+        ((10, 3), "10.3a"),
+        ((12, 0), "12.0a"),
+    ],
+)
+def test_detected_cuda_arch_list_targets_active_device(
+    capability: tuple[int, int],
+    expected: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda: capability)
+
+    assert native._detected_cuda_arch_list() == expected
 
 
 @pytest.mark.ci_cpu
@@ -937,9 +957,10 @@ def test_cuda_native_extension_builds(tmp_path: Path) -> None:
     assert extension.is_available()
     build_info = extension.build_info()
     assert build_info["with_cuda"] is True
-    expected_arch = os.environ.get(
-        "TORCH_CUDA_ARCH_LIST",
-        os.environ.get("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", "12.0a"),
+    expected_arch = (
+        os.environ.get("TORCH_CUDA_ARCH_LIST")
+        or os.environ.get("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST")
+        or native._default_cuda_arch_list()
     )
     assert build_info["cuda_arch_list"] == expected_arch
     assert hasattr(extension, "native_tensor_descriptor")

@@ -54,8 +54,15 @@ class FakeSessionManager:
         self.runtime_ready = False
 
 
-async def _build_client(manager: FakeSessionManager) -> TestClient:
+async def _build_client(
+    manager: FakeSessionManager,
+    *,
+    auto_start: bool = False,
+    server_side_hud: bool = False,
+) -> TestClient:
     app = create_app(
+        auto_start=auto_start,
+        server_side_hud=server_side_hud,
         session_manager=manager,
         request_session_url="http://127.0.0.1:8080/request_session",
     )
@@ -133,6 +140,21 @@ async def test_request_session_serves_html() -> None:
         body = await response.text()
         assert response.status == 200
         assert "Omnidreams WebRTC Drive" in body
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_client_options_exposes_auto_start_flag() -> None:
+    manager = FakeSessionManager()
+    client = await _build_client(manager, auto_start=True)
+    try:
+        response = await client.get("/api/client/options")
+        assert response.status == 200
+        assert await response.json() == {
+            "auto_start": True,
+            "server_side_hud": False,
+        }
     finally:
         await client.close()
 
@@ -264,6 +286,24 @@ async def test_static_css_fades_idle_animation_after_video_arrives() -> None:
         assert response.status == 200
         assert ".idleCanvas" in body
         assert "body.has-video .idleCanvas" in body
+        assert "body.server-side-hud.has-video .idleCanvas" in body
+        assert "body.server-side-hud .stageVideo" in body
+        assert "\n.stageVideo {\n  opacity: 1;" not in body
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_client_options_exposes_server_side_hud_flag() -> None:
+    manager = FakeSessionManager()
+    client = await _build_client(manager, server_side_hud=True)
+    try:
+        response = await client.get("/api/client/options")
+        assert response.status == 200
+        assert await response.json() == {
+            "auto_start": False,
+            "server_side_hud": True,
+        }
     finally:
         await client.close()
 

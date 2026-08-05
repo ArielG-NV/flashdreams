@@ -927,6 +927,23 @@ def test_actor_collider_stays_enabled_while_hdmap_track_is_visible() -> None:
     world.close()
 
 
+def test_distant_visible_actor_uses_track_pose_without_collision_solver() -> None:
+    track = _track(x_m=100.0)
+    world = GamePhysicsWorld(_scene(track), VehicleConfig())
+
+    state, samples = world.step(_moving_ego(), timestamp_us=0, dt_s=1.0 / 30.0)
+
+    assert world._active_collider_ids == set()
+    assert samples == ()
+    trajectory = world.build_trajectories(np.asarray([0], dtype=np.int64), [samples])[0]
+    assert trajectory.is_simulated is False
+    np.testing.assert_allclose(
+        trajectory.translations_world[0], track.centers_world[0], atol=1.0e-4
+    )
+    assert world.debug_frame(state).actor_positions_m.shape == (0, 3)
+    world.close()
+
+
 def test_actor_and_hdmap_hold_final_pose_after_track_ends() -> None:
     track = _track()
     track = WorldVehicleBBoxTrack(
