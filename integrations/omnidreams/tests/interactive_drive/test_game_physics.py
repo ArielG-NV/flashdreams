@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import math
 from types import SimpleNamespace
 
 import numpy as np
@@ -289,6 +290,24 @@ def test_side_impact_is_resolved_by_physx_contact() -> None:
     assert max(actor_heights) < 1.6
     assert max(actor_tilts) < 0.5
     assert actor_heights[-1] == pytest.approx(0.8, abs=0.08)
+    world.close()
+
+
+def test_collision_yaw_impulse_stays_within_camera_continuity_envelope() -> None:
+    config = VehicleConfig(max_collision_yaw_rate_radps=0.35)
+    world = GamePhysicsWorld(_scene(_track(x_m=5.0, y_m=0.75)), config)
+    before = _moving_ego()
+    dt_s = 1.0 / 30.0
+
+    resolved, _ = world.step(before, timestamp_us=0, dt_s=dt_s)
+
+    yaw_delta = math.atan2(
+        math.sin(resolved.yaw_rad - before.yaw_rad),
+        math.cos(resolved.yaw_rad - before.yaw_rad),
+    )
+    assert resolved.ragdoll_active is True
+    assert abs(yaw_delta) <= config.max_collision_yaw_rate_radps * dt_s
+    assert abs(resolved.yaw_rate_radps) <= config.max_collision_yaw_rate_radps
     world.close()
 
 
@@ -581,7 +600,7 @@ def test_vehicle_instances_have_dimensioned_wheels_and_suspension() -> None:
 
 
 @pytest.mark.parametrize("object_type", ["Car", "Truck", "Bus", "Trailer"])
-def test_vehicle_collision_footprint_is_slightly_larger_than_hdmap_box(
+def test_vehicle_collision_footprint_preserves_front_camera_standoff(
     object_type: str,
 ) -> None:
     dimensions = np.asarray([4.0, 1.9, 1.6], dtype=np.float32)
@@ -591,7 +610,7 @@ def test_vehicle_collision_footprint_is_slightly_larger_than_hdmap_box(
     hdmap_half_extents_xy = dimensions[:2] * 0.5
     np.testing.assert_allclose(
         model.vehicle.chassis_half_extents_m[:2],
-        hdmap_half_extents_xy + 0.05,
+        hdmap_half_extents_xy + np.asarray([0.15, 0.05], dtype=np.float32),
     )
 
 

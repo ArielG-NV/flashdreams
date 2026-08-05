@@ -664,6 +664,24 @@ class GamePhysicsWorld:
 
         ego = physics_step.ego
         yaw = _yaw_from_quaternion_xyzw(ego.orientation_xyzw)
+        collision_response_active = (
+            physics_step.impact
+            or bool(physics_step.struck_object_ids)
+            or state.ragdoll_active
+        )
+        yaw_rate_radps = float(ego.angular_velocity_radps[2])
+        if collision_response_active:
+            max_yaw_rate = self._vehicle.max_collision_yaw_rate_radps
+            yaw_delta = math.atan2(
+                math.sin(yaw - state.yaw_rad), math.cos(yaw - state.yaw_rad)
+            )
+            yaw_delta = float(
+                np.clip(yaw_delta, -max_yaw_rate * dt_s, max_yaw_rate * dt_s)
+            )
+            yaw = state.yaw_rad + yaw_delta
+            yaw_rate_radps = float(
+                np.clip(yaw_rate_radps, -max_yaw_rate, max_yaw_rate)
+            )
         forward = np.asarray([math.cos(yaw), math.sin(yaw)])
         ego_height_m = float(ego.position_m[2] - self._ego_model.half_extents_m[2])
         remains_unsettled = (
@@ -680,7 +698,7 @@ class GamePhysicsWorld:
             speed_mps=float(np.dot(ego.linear_velocity_mps[:2], forward)),
             velocity_x_mps=float(ego.linear_velocity_mps[0]),
             velocity_y_mps=float(ego.linear_velocity_mps[1]),
-            yaw_rate_radps=float(ego.angular_velocity_radps[2]),
+            yaw_rate_radps=yaw_rate_radps,
             ragdoll_active=physics_step.impact or remains_unsettled,
         )
         samples = tuple(

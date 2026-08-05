@@ -29,7 +29,13 @@ from omnidreams.interactive_drive.types import VehicleState
 
 FloatArray = npt.NDArray[np.float32]
 
-_VEHICLE_COLLISION_PADDING_M = 0.05
+# Keep struck vehicles far enough ahead of the front camera that their HD-map
+# boxes remain recognizable.  A near-plane-sized actor is outside the world
+# model's driving-data distribution and causes the generated object to smear or
+# disappear after impact.  Lateral padding stays small so parked curbside cars
+# do not create phantom side contacts.
+_VEHICLE_LONGITUDINAL_COLLISION_PADDING_M = 0.3
+_VEHICLE_LATERAL_COLLISION_PADDING_M = 0.3
 
 _FIXED_OBJECT_MASS_KG = {
     "car": 1_550.0,
@@ -290,7 +296,10 @@ def rigid_body_model_for_object(
                 dimensions,
                 mass_kg,
                 suspension_travel_m=0.22 if kind == "car" else 0.32,
-                collision_padding_m=_VEHICLE_COLLISION_PADDING_M,
+                longitudinal_collision_padding_m=(
+                    _VEHICLE_LONGITUDINAL_COLLISION_PADDING_M
+                ),
+                lateral_collision_padding_m=_VEHICLE_LATERAL_COLLISION_PADDING_M,
             )
         ),
     )
@@ -351,7 +360,8 @@ def _physx_vehicle_model(
     mass_kg: float,
     *,
     suspension_travel_m: float,
-    collision_padding_m: float | None = None,
+    longitudinal_collision_padding_m: float | None = None,
+    lateral_collision_padding_m: float | None = None,
 ) -> VehicleModel:
     """Build a dimensioned four-wheel model at its static ride height."""
     length, width, height = (
@@ -385,13 +395,13 @@ def _physx_vehicle_model(
     chassis_center_z = (chassis_bottom + chassis_top) * 0.5
     chassis_half_length = (
         length * 0.46
-        if collision_padding_m is None
-        else length * 0.5 + collision_padding_m
+        if longitudinal_collision_padding_m is None
+        else length * 0.5 + longitudinal_collision_padding_m
     )
     chassis_half_width = (
         width * 0.44
-        if collision_padding_m is None
-        else width * 0.5 + collision_padding_m
+        if lateral_collision_padding_m is None
+        else width * 0.5 + lateral_collision_padding_m
     )
     return VehicleModel(
         chassis_half_extents_m=(

@@ -73,6 +73,11 @@ class VehicleConfig:
     aero_drag_coefficient: float = 0.42
     collision_restitution: float = 0.22
     collision_friction: float = 0.65
+    # Bound impact-induced camera rotation.  Normal steering keeps its full
+    # response; this only filters single-frame PhysX yaw impulses that would
+    # turn the conditioning view away from the struck actor.
+    # This prevents the cache from forgetting whom you hit.
+    max_collision_yaw_rate_radps: float = 0.35
     suspension_stiffness: float = 42.0
     suspension_damping: float = 9.0
     suspension_travel_m: float = 0.22
