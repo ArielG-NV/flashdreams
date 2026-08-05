@@ -68,7 +68,7 @@ class VehicleConfig:
     max_lateral_accel_mps2: float = 6.2
     drag_mps2: float = 0.7
     mass_kg: float = 1_550.0
-    tire_grip: float = 1.05
+    tire_grip: float = 1.35
     rolling_resistance: float = 0.015
     aero_drag_coefficient: float = 0.42
     collision_restitution: float = 0.22
@@ -76,7 +76,7 @@ class VehicleConfig:
     suspension_stiffness: float = 42.0
     suspension_damping: float = 9.0
     suspension_travel_m: float = 0.22
-    suspension_visual_gain: float = 0.65
+    suspension_visual_gain: float = 0.15
     max_body_roll_rad: float = 0.5
     max_body_pitch_rad: float = 0.5
     actor_collision_enabled: bool = True

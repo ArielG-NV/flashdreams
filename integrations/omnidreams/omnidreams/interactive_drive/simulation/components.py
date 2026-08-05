@@ -29,7 +29,7 @@ from omnidreams.interactive_drive.types import VehicleState
 
 FloatArray = npt.NDArray[np.float32]
 
-_VEHICLE_COLLISION_PADDING_M = 0.1
+_VEHICLE_COLLISION_PADDING_M = 0.05
 
 _FIXED_OBJECT_MASS_KG = {
     "car": 1_550.0,
