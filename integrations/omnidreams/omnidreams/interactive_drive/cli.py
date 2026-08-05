@@ -19,6 +19,7 @@ from omnidreams.interactive_drive.config import (
     AppConfig,
     BevConfig,
     RasterConfig,
+    VehicleConfig,
     WorldModelProfileConfig,
 )
 from omnidreams.interactive_drive.log import configure_logging
@@ -240,11 +241,20 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--game-mode",
+        action="store_true",
+        help=(
+            "Enable game-style actor and static-world collisions, along with "
+            "the collision visual flare. By default, collisions and their "
+            "visual effect are disabled."
+        ),
+    )
+    parser.add_argument(
         "--disable-visual-flare",
         action="store_true",
         help=(
             "Disable the strong full-screen dark fade that signals a collision "
-            "with another scene object."
+            "when --game-mode is enabled."
         ),
     )
     parser.add_argument(
@@ -474,9 +484,13 @@ def prepare_config_and_backend(
         world_model_offload_text_encoder=bool(args.offload_text_encoder),
         postprocess=VideoPostprocessChainConfig(preset=args.postprocess_preset),
         bev=bev_config,
+        vehicle=VehicleConfig(
+            actor_collision_enabled=bool(args.game_mode),
+            static_collision_enabled=bool(args.game_mode),
+        ),
         stream_mjpeg_bind=args.stream_mjpeg,
         stop_after_consumed_chunks=args.stop_after_chunks,
-        visual_flare_enabled=not args.disable_visual_flare,
+        visual_flare_enabled=bool(args.game_mode and not args.disable_visual_flare),
         **_oob_kwargs(args),
     )
 
