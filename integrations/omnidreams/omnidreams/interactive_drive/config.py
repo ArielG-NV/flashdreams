@@ -10,9 +10,8 @@ from typing import Literal
 from flashdreams.infra.postprocess import VideoPostprocessChainConfig
 
 BackendName = Literal["raster", "omnidreams"]
-ViewMode = Literal["rgb", "model_rgb"]
+ViewMode = Literal["rgb", "model_rgb", "physx"]
 ComputeDeviceName = Literal["automatic", "cuda", "vulkan"]
-LudusBackendName = Literal["cuda", "vulkan"]
 
 
 @dataclass(frozen=True)
@@ -27,7 +26,7 @@ class ChunkConfig:
 
     @property
     def frame_interval_us(self) -> int:
-        return int(round(1_000_000 / float(self.fps)))
+        return round(1_000_000 / float(self.fps))
 
 
 @dataclass(frozen=True)
@@ -35,7 +34,6 @@ class RasterConfig:
     width: int = 1280
     height: int = 704
     compute_device: ComputeDeviceName = "cuda"
-    ludus_backend: LudusBackendName = "cuda"
     sync_gpu_timing: bool = False
     perf_log_interval_frames: int = 20
     near_plane_m: float = 0.1
@@ -61,13 +59,28 @@ class RasterConfig:
 class VehicleConfig:
     wheel_base_m: float = 2.8
     max_steer_rad: float = 0.5
-    steer_rate_rad_per_s: float = 0.4
-    steer_return_rate_rad_per_s: float = 0.7
+    steer_rate_rad_per_s: float = 0.55
+    steer_return_rate_rad_per_s: float = 0.9
     max_speed_mps: float = 18.0
     max_reverse_speed_mps: float = 6.0
     max_accel_mps2: float = 3.5
     max_brake_mps2: float = 6.0
+    max_lateral_accel_mps2: float = 6.2
     drag_mps2: float = 0.7
+    mass_kg: float = 1_550.0
+    tire_grip: float = 1.05
+    rolling_resistance: float = 0.015
+    aero_drag_coefficient: float = 0.42
+    collision_restitution: float = 0.22
+    collision_friction: float = 0.65
+    suspension_stiffness: float = 42.0
+    suspension_damping: float = 9.0
+    suspension_travel_m: float = 0.22
+    suspension_visual_gain: float = 0.65
+    max_body_roll_rad: float = 0.5
+    max_body_pitch_rad: float = 0.5
+    actor_collision_enabled: bool = True
+    static_collision_enabled: bool = True
     # Ego AABB used by :class:`omnidreams.interactive_drive.simulation.ground_snap.GroundSnapper` to decide
     # which area of the ground mesh to query when snapping z + pitch + roll.
     # Defaults match a typical sedan; the alpasim test data uses
@@ -84,21 +97,21 @@ class WorldModelProfileConfig:
 
 @dataclass(frozen=True)
 class BevConfig:
-    """Synthetic top-down BEV camera rendered alongside the main view, published as a separate stream for the HUD minimap."""
+    """Straight-down HD-map view rendered for the HUD mini-map."""
 
     enabled: bool = True
     # 1024x1024 = ~2x SSAA at the HUD's ~470x400 BEV panel; dominant lever
     # for BEV quality (under-sampling bakes in unrecoverable aliasing).
     width: int = 1024
     height: int = 1024
-    # 75 m altitude + 60° vertical FOV covers ~87 m of ground (with the
-    # forward tilt, ~90 m ahead / ~10 m behind the rig): a navigation zoom.
+    # 75 m altitude + 60° vertical FOV covers ~87 m of ground. With the
+    # straight-down camera this is an orthographic-style view of the HD-map
+    # plane, centered on the ego rig.
     height_m: float = 75.0
     fov_deg: float = 60.0
-    # Forward pitch: 0 is pure top-down, positive tilts forward for a
-    # Google-Maps feel. 28 stays just under the fov_deg/2 = 30 ceiling above
-    # which the image bottom would cross the horizon.
-    tilt_deg: float = 28.0
+    # Keep the mini-map straight down. Non-zero values remain available for
+    # explicit CLI overrides, but they no longer define the default HUD view.
+    tilt_deg: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -143,3 +156,6 @@ class AppConfig:
     # presenter onto a specific GPU (e.g. "RTX PRO"); None lets SlangPy pick
     # the first enumerated adapter.
     presenter_adapter: str | None = None
+    # Strong, short full-screen darkening on actor collision. The CLI exposes
+    # the negative form because feedback is enabled by default.
+    visual_flare_enabled: bool = True

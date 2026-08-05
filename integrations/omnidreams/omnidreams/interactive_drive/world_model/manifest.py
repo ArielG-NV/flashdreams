@@ -175,6 +175,8 @@ class WorldModelManifest:
     fps: int = 30
     num_frames_per_block: int = 8
     compile_net: bool = True
+    compile_encoders: bool = True
+    compile_decoder: bool = True
     light_vae: bool = True
     encode_with_pixel_shuffle: bool = False
     local_attn_size: int = 6
@@ -226,6 +228,8 @@ def load_world_model_manifest(path: str | Path) -> WorldModelManifest:
         fps=int(data.get("fps", 30)),
         num_frames_per_block=int(data.get("num_frames_per_block", 8)),
         compile_net=bool(data.get("compile_net", True)),
+        compile_encoders=bool(data.get("compile_encoders", True)),
+        compile_decoder=bool(data.get("compile_decoder", True)),
         light_vae=bool(data.get("light_vae", True)),
         encode_with_pixel_shuffle=bool(data.get("encode_with_pixel_shuffle", False)),
         local_attn_size=int(data.get("local_attn_size", 6)),

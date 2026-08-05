@@ -140,6 +140,20 @@ static __device__ __forceinline__ uint32_t pack_rgba8(float r, float g, float b)
     return rb | (gb << 8) | (bb << 16) | (0xFFu << 24);
 }
 
+static __device__ __forceinline__ bool geometry_reservation_fits(
+    int vbase, int vertexCount,
+    int triBase, int triangleCount,
+    int* atomicVerts, int* atomicTris)
+{
+    if (vbase < 0 || triBase < 0 ||
+        vertexCount > atomicVerts[1] - vbase ||
+        triangleCount > atomicTris[1] - triBase) {
+        atomicExch(&atomicVerts[2], 1);
+        return false;
+    }
+    return true;
+}
+
 //------------------------------------------------------------------------
 // Adaptive tessellation helpers.
 //------------------------------------------------------------------------
@@ -383,6 +397,8 @@ __global__ void polygonGeometryKernel(
         if (level == 0) {
             int vbase = atomicAdd(atomicVerts, 3);
             int triOut = atomicAdd(atomicTris, 1);
+            if (!geometry_reservation_fits(vbase, 3, triOut, 1, atomicVerts, atomicTris))
+                return;
             for (int vi = 0; vi < 3; vi++) {
                 outVerts[vbase + vi] = ftheta_project(wp[vi], poseData, camData);
                 outVertColors[vbase + vi] = color;
@@ -395,6 +411,8 @@ __global__ void polygonGeometryKernel(
             int nT = bary_triangle_count(level);
             int vbase = atomicAdd(atomicVerts, nV);
             int triBase = atomicAdd(atomicTris, nT);
+            if (!geometry_reservation_fits(vbase, nV, triBase, nT, atomicVerts, atomicTris))
+                return;
             for (int v = 0; v < nV; v++) {
                 float2 uv = bary_vertex_uv(v, level);
                 float wb = 1.0f - uv.x - uv.y;
@@ -511,6 +529,8 @@ __global__ void cubeGeometryKernel(
 
     int vbase = atomicAdd(atomicVerts, 4);
     int triBase = atomicAdd(atomicTris, 2);
+    if (!geometry_reservation_fits(vbase, 4, triBase, 2, atomicVerts, atomicTris))
+        return;
 
     for (int i = 0; i < 4; i++) {
         int vi = FACE_VERTS_D[faceIdx][i];
@@ -605,6 +625,8 @@ __global__ void cubeWireframeKernel(
 
     int vbase = atomicAdd(atomicVerts, 4);
     int triBase = atomicAdd(atomicTris, 2);
+    if (!geometry_reservation_fits(vbase, 4, triBase, 2, atomicVerts, atomicTris))
+        return;
 
     outVerts[vbase + 0] = make_float4(clip0.x - ox*clip0.w, clip0.y - oy*clip0.w, clip0.z + z_bias0, clip0.w);
     outVerts[vbase + 1] = make_float4(clip0.x + ox*clip0.w, clip0.y + oy*clip0.w, clip0.z + z_bias0, clip0.w);
@@ -661,6 +683,52 @@ static __device__ __forceinline__ float3 quat_rotate_d(float4 q, float3 v)
         (xy+wz)*v.x + (1-(xx+zz))*v.y + (yz-wx)*v.z,
         (xz-wy)*v.x + (yz+wx)*v.y + (1-(xx+yy))*v.z
     );
+}
+
+// Conservative bounding-sphere frustum test. Faces remain opaque for depth even
+// when a pool requests wireframe edges. This runs once in lane 0 before
+// tessellation and geometry atomics, using one projection instead of projecting
+// all eight corners (F-theta projection contains relatively expensive acos).
+static __device__ __forceinline__ bool cube_intersects_view_d(
+    float3 tr, float4 qr, float3 sc,
+    const float* __restrict__ poseData,
+    const float* __restrict__ camData)
+{
+    (void)qr; // A sphere is orientation independent.
+    float radius = 0.5f * sqrtf(sc.x*sc.x + sc.y*sc.y + sc.z*sc.z);
+    float camX = poseData[0]*tr.x + poseData[4]*tr.y
+               + poseData[8]*tr.z + poseData[12];
+    float camY = poseData[1]*tr.x + poseData[5]*tr.y
+               + poseData[9]*tr.z + poseData[13];
+    float camZ = poseData[2]*tr.x + poseData[6]*tr.y
+               + poseData[10]*tr.z + poseData[14];
+    const bool pinhole = camData[10] <= 1.5707963f;
+    if (pinhole && camZ + radius <= 0.001f)
+        return false;
+
+    float distance = sqrtf(camX*camX + camY*camY + camZ*camZ);
+    if (distance <= radius)
+        return true;
+    float angularRadius = asinf(fminf(radius / distance, 0.999f));
+    float maxAngle = camData[10];
+    float derivativeBound = fabsf(camData[5])
+        + 2.0f*fabsf(camData[6])*maxAngle
+        + 3.0f*fabsf(camData[7])*maxAngle*maxAngle
+        + 4.0f*fabsf(camData[8])*maxAngle*maxAngle*maxAngle
+        + 5.0f*fabsf(camData[9])*maxAngle*maxAngle*maxAngle*maxAngle;
+    derivativeBound = fmaxf(derivativeBound, fabsf(camData[12]));
+    float linearGain = fmaxf(
+        fabsf(camData[14]) + fabsf(camData[15]),
+        fabsf(camData[16]) + fabsf(camData[17]));
+    linearGain = fmaxf(linearGain, 1.0f);
+    float radiusPixels = angularRadius * derivativeBound * linearGain;
+    float marginX = 2.0f * radiusPixels / camData[2];
+    float marginY = 2.0f * radiusPixels / camData[3];
+    float4 centerClip = ftheta_project(tr, poseData, camData);
+    return centerClip.x + marginX >= -1.0f
+        && centerClip.x - marginX <= 1.0f
+        && centerClip.y + marginY >= -1.0f
+        && centerClip.y - marginY <= 1.0f;
 }
 
 //------------------------------------------------------------------------
@@ -767,6 +835,12 @@ __global__ void cubePoolFusedKernel(
         cubePoolInterpolate(trackTs, prefixSum, poolTrans, poolQuat,
                             cubeIdx, queryTs, maxExtrapUs,
                             tx, ty, tz, qx, qy, qz, qw, visible);
+        if (visible) {
+            float3 tr_l = make_float3(tx, ty, tz);
+            float4 qr_l = make_float4(qx, qy, qz, qw);
+            float3 sc_l = make_float3(poolScales[cubeIdx*3], poolScales[cubeIdx*3+1], poolScales[cubeIdx*3+2]);
+            visible = cube_intersects_view_d(tr_l, qr_l, sc_l, poseData, camData);
+        }
         if (visible && tessThreshold > 0.0f) {
             float3 tr_l = make_float3(tx, ty, tz);
             float4 qr_l = make_float4(qx, qy, qz, qw);
@@ -837,6 +911,8 @@ __global__ void cubePoolFusedKernel(
             int totalT = nT * 2;
             int vbase = atomicAdd(atomicVerts, totalV);
             int triBase = atomicAdd(atomicTris, totalT);
+            if (!geometry_reservation_fits(vbase, totalV, triBase, totalT, atomicVerts, atomicTris))
+                return;
 
             for (int half = 0; half < 2; half++) {
                 float3 v0 = corners[0];
@@ -899,6 +975,9 @@ __global__ void cubePoolFusedKernel(
         int numSegs = 1 << subdiv;
         int vbase = atomicAdd(atomicVerts, numSegs * 4);
         int triBase = atomicAdd(atomicTris, numSegs * 2);
+        if (!geometry_reservation_fits(vbase, numSegs * 4, triBase, numSegs * 2,
+                                       atomicVerts, atomicTris))
+            return;
         float img_w = camData[2], img_h = camData[3];
         float EDGE_WIDTH = 2.0f;
         uint32_t ec = pack_rgba8(0.784f, 0.784f, 0.784f);
@@ -971,6 +1050,8 @@ __global__ void dotGeometryKernel(
     // 7 vertices: center + 6 ring, 6 triangles
     int vbase = atomicAdd(atomicVerts, 7);
     int triBase = atomicAdd(atomicTris, 6);
+    if (!geometry_reservation_fits(vbase, 7, triBase, 6, atomicVerts, atomicTris))
+        return;
 
     outVerts[vbase] = clip;
     outVertColors[vbase] = dotColor;
@@ -1039,6 +1120,9 @@ __global__ void polylineGeometryKernel(
     // Phase 2: allocate output
     int vbase = atomicAdd(atomicVerts, totalEffPts * 2);
     int triBase = atomicAdd(atomicTris, (totalEffPts - 1) * 2);
+    if (!geometry_reservation_fits(vbase, totalEffPts * 2, triBase,
+                                   (totalEffPts - 1) * 2, atomicVerts, atomicTris))
+        return;
 
     // Phase 3: generate effective points and geometry
     int ept = 0;
@@ -1233,6 +1317,8 @@ __global__ void polylinePoolKernel(
             if (r < 0.5f) continue;
             int vbase = atomicAdd(atomicVerts, 7);
             int triBase = atomicAdd(atomicTris, 6);
+            if (!geometry_reservation_fits(vbase, 7, triBase, 6, atomicVerts, atomicTris))
+                return;
             outVerts[vbase] = clip;
             outVertColors[vbase] = packedColor;
             for (int i = 0; i < 6; i++) {
@@ -1277,6 +1363,10 @@ __global__ void polylinePoolKernel(
     const int CAP_SEGS = 6;
     int vbase = atomicAdd(atomicVerts, totalEffPts * 2 + CAP_SEGS * 2);
     int triBase = atomicAdd(atomicTris, (totalEffPts - 1) * 2 + CAP_SEGS * 2);
+    if (!geometry_reservation_fits(vbase, totalEffPts * 2 + CAP_SEGS * 2,
+                                   triBase, (totalEffPts - 1) * 2 + CAP_SEGS * 2,
+                                   atomicVerts, atomicTris))
+        return;
 
     int ept = 0;
     float prev_sx = 0.0f, prev_sy = 0.0f;
@@ -1545,6 +1635,8 @@ __global__ void polygonPoolKernel(
         if (level == 0) {
             int vbase = atomicAdd(atomicVerts, 3);
             int triOut = atomicAdd(atomicTris, 1);
+            if (!geometry_reservation_fits(vbase, 3, triOut, 1, atomicVerts, atomicTris))
+                return;
             for (int vi = 0; vi < 3; vi++) {
                 outVerts[vbase + vi] = ftheta_project(wp[vi], poseData, camData);
                 outVertColors[vbase + vi] = color;
@@ -1557,6 +1649,8 @@ __global__ void polygonPoolKernel(
             int nT = bary_triangle_count(level);
             int vbase = atomicAdd(atomicVerts, nV);
             int triBase = atomicAdd(atomicTris, nT);
+            if (!geometry_reservation_fits(vbase, nV, triBase, nT, atomicVerts, atomicTris))
+                return;
             for (int v = 0; v < nV; v++) {
                 float2 uv = bary_vertex_uv(v, level);
                 float wb = 1.0f - uv.x - uv.y;
@@ -1646,6 +1740,13 @@ __global__ void cubePoolFlatKernel(
                 float dist = sqrtf(dx*dx + dy*dy + dz*dz);
                 if (dist - maxSc > cull_r) visible = false;
             }
+            if (visible) {
+                float3 tr_l = make_float3(tr_x, tr_y, tr_z);
+                float4 qr_l = make_float4(qx, qy, qz, qw);
+                float3 sc_l = make_float3(sc_x, sc_y, sc_z);
+                visible = cube_intersects_view_d(
+                    tr_l, qr_l, sc_l, poseData, camData);
+            }
         }
         if (visible && params.tessellationThreshold > 0.0f) {
             int maxTessLvl = (params.maxTessCube >= 0) ? params.maxTessCube : 3;
@@ -1685,6 +1786,20 @@ __global__ void cubePoolFlatKernel(
     // Lanes 0-5: face geometry
     if (lane < 6) {
         int faceIdx = lane;
+        float3 cw = cube_cam_world(poseData);
+        float3 nLocal = FACE_NORMALS_D[faceIdx];
+        float3 nWorld = quat_rotate_d(qr, nLocal);
+        float3 fcLocal = make_float3(
+            nLocal.x * 0.5f * sc.x,
+            nLocal.y * 0.5f * sc.y,
+            nLocal.z * 0.5f * sc.z);
+        float3 fcWorld = quat_rotate_d(qr, fcLocal);
+        fcWorld.x += tr.x; fcWorld.y += tr.y; fcWorld.z += tr.z;
+        float3 toCamera = make_float3(
+            cw.x - fcWorld.x, cw.y - fcWorld.y, cw.z - fcWorld.z);
+        if (nWorld.x*toCamera.x + nWorld.y*toCamera.y + nWorld.z*toCamera.z <= 0.0f)
+            return;
+
         int i0 = FACE_VERTS_D[faceIdx][0], i1 = FACE_VERTS_D[faceIdx][1];
         int i2 = FACE_VERTS_D[faceIdx][2], i3 = FACE_VERTS_D[faceIdx][3];
 
@@ -1705,6 +1820,8 @@ __global__ void cubePoolFlatKernel(
         if (subdiv == 0) {
             int vbase = atomicAdd(atomicVerts, 4);
             int triBase = atomicAdd(atomicTris, 2);
+            if (!geometry_reservation_fits(vbase, 4, triBase, 2, atomicVerts, atomicTris))
+                return;
             for (int ci = 0; ci < 4; ci++) {
                 outVerts[vbase + ci] = ftheta_project(corners[ci], poseData, camData);
                 float gt = corner_t[ci];
@@ -1730,6 +1847,9 @@ __global__ void cubePoolFlatKernel(
                 int nT = bary_triangle_count(subdiv);
                 int vbase = atomicAdd(atomicVerts, nV);
                 int triBase = atomicAdd(atomicTris, nT);
+                if (!geometry_reservation_fits(vbase, nV, triBase, nT,
+                                               atomicVerts, atomicTris))
+                    return;
                 for (int v = 0; v < nV; v++) {
                     float2 uv = bary_vertex_uv(v, subdiv);
                     float wb = 1.0f - uv.x - uv.y;
@@ -1780,6 +1900,9 @@ __global__ void cubePoolFlatKernel(
         int numSegs = 1 << subdiv;
         int vbase = atomicAdd(atomicVerts, numSegs * 4);
         int triBase = atomicAdd(atomicTris, numSegs * 2);
+        if (!geometry_reservation_fits(vbase, numSegs * 4, triBase, numSegs * 2,
+                                       atomicVerts, atomicTris))
+            return;
         float img_w = camData[2], img_h = camData[3];
         float EDGE_WIDTH = get_wireframe_width(params);
         uint32_t ec = pack_rgba8(0.784f, 0.784f, 0.784f);
@@ -1959,8 +2082,8 @@ void ludusCudaInit(NVDR_CTX_ARGS, LudusCudaState& s)
     s.maxTessPolygon = 3;
     s.maxTessCube = 3;
 
-    CUDA_CHECK(cudaMalloc(&s.atomicVertexCount, sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&s.atomicTriangleCount, sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&s.atomicVertexCount, 3 * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&s.atomicTriangleCount, 2 * sizeof(int)));
 
     printf("LudusCuda: Initialized renderer\n");
 }
@@ -2020,6 +2143,10 @@ static void ensureBuffers(LudusCudaState& s, int maxVerts, int maxTris)
     CUDA_CHECK(cudaMalloc(&s.projectedVertices, vertBytes));
     CUDA_CHECK(cudaMalloc(&s.triangleIndices, triBytes));
     CUDA_CHECK(cudaMalloc(&s.vertexColors, colBytes));
+    CUDA_CHECK(cudaMemcpy(s.atomicVertexCount + 1, &s.maxVertices,
+                          sizeof(int), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(s.atomicTriangleCount + 1, &s.maxTriangles,
+                          sizeof(int), cudaMemcpyHostToDevice));
 }
 
 //------------------------------------------------------------------------
@@ -2053,9 +2180,9 @@ void ludusCudaRender(
 
     // Tessellation multipliers for geometry budget
     bool hasTess = s.tessellationThreshold > 0.0f;
-    int tessPolyMul = hasTess ? 16 : 1;   // polygon triangles: up to level-2 (16x)
-    int tessLineMul = hasTess ? 8  : 1;    // polyline segments: average subdivision
-    int tessCubeMul = hasTess ? 16 : 1;    // cube faces: up to level-2 (16x per tri)
+    int tessPolyMul = hasTess ? (1 << (2 * s.maxTessPolygon)) : 1;
+    int tessLineMul = hasTess ? (1 << s.maxTessPolyline) : 1;
+    int tessCubeMul = hasTess ? (1 << (2 * s.maxTessCube)) : 1;
 
     // Estimate worst-case per-camera geometry
     int maxTrisPerCam = numTriangles * tessPolyMul  // polygon triangles
@@ -2095,11 +2222,13 @@ void ludusCudaRender(
     }
 
     // Render each camera sequentially
+    int geometryRetryCount = 0;
     for (int camIdx = 0; camIdx < numCameras; camIdx++)
     {
         // Clear atomic counters
         CUDA_CHECK(cudaMemsetAsync(s.atomicVertexCount, 0, sizeof(int), stream));
         CUDA_CHECK(cudaMemsetAsync(s.atomicTriangleCount, 0, sizeof(int), stream));
+        CUDA_CHECK(cudaMemsetAsync(s.atomicVertexCount + 2, 0, sizeof(int), stream));
 
         // Camera data pointers (raw float arrays matching struct layout)
         const float* camData  = (const float*)&cameras[camIdx];   // 18 floats
@@ -2163,10 +2292,32 @@ void ludusCudaRender(
         }
 
         // Read back actual counts
-        int actualVerts = 0, actualTris = 0;
+        int actualVerts = 0, actualTris = 0, geometryOverflow = 0;
         CUDA_CHECK(cudaMemcpyAsync(&actualTris, s.atomicTriangleCount, sizeof(int), cudaMemcpyDeviceToHost, stream));
         CUDA_CHECK(cudaMemcpyAsync(&actualVerts, s.atomicVertexCount, sizeof(int), cudaMemcpyDeviceToHost, stream));
+        CUDA_CHECK(cudaMemcpyAsync(&geometryOverflow, s.atomicVertexCount + 2, sizeof(int), cudaMemcpyDeviceToHost, stream));
         CUDA_CHECK(cudaStreamSynchronize(stream));
+
+        if (geometryOverflow) {
+            fprintf(stderr,
+                    "[LudusCuda] geometry capacity exceeded (%d/%d vertices, %d/%d triangles); "
+                    "growing buffers\n",
+                    actualVerts, s.maxVertices, actualTris, s.maxTriangles);
+            int requiredVerts = actualVerts > s.maxVertices ? actualVerts : s.maxVertices + 1;
+            int requiredTris = actualTris > s.maxTriangles ? actualTris : s.maxTriangles + 1;
+            ensureBuffers(s, requiredVerts, requiredTris);
+            if (geometryRetryCount++ == 0) {
+                --camIdx;
+                continue;
+            }
+            fprintf(stderr, "[LudusCuda] geometry still overflowed after retry; zeroing camera output\n");
+            CUDA_CHECK(cudaMemsetAsync(
+                outputPtr + (size_t)camIdx * height * width * 4, 0,
+                (size_t)width * height * 4, stream));
+            geometryRetryCount = 0;
+            continue;
+        }
+        geometryRetryCount = 0;
 
         // Debug: uncomment to log per-camera geometry counts and vertex data
         // fprintf(stderr, "[LudusCuda] cam %d: %d verts, %d tris (buf: %dx%d, cr: %dx%d)\n",
@@ -2269,7 +2420,8 @@ void ludusCudaRenderTimestamped(
     const TsPolylinePoolHeader* polylinePools, int numPolylinePools,
     const TsPolygonPoolHeader* polygonPools, int numPolygonPools,
     const TsCubePoolHeader* cubePools, int numCubePools,
-    int64_t queryTimestampUs, int maxExtrapolationUs,
+    int totalCubes,
+    const int64_t* queryTimestampsUs, int maxExtrapolationUs,
     int maxVarraysPerTsPolyline, int maxVarraysPerTsPolygon,
     const CudaRenderParams& params,
     const FThetaCamera* cameras, const CameraPose* poses,
@@ -2278,23 +2430,13 @@ void ludusCudaRenderTimestamped(
 {
     if (numCameras == 0 || width == 0 || height == 0) return;
 
-    // Pool headers live in device memory — copy to host for CPU-side logic
-    std::vector<TsCubePoolHeader> cbPoolsHost(numCubePools);
-    if (numCubePools > 0)
-        CUDA_CHECK(cudaMemcpy(cbPoolsHost.data(), cubePools,
-                              numCubePools * sizeof(TsCubePoolHeader),
-                              cudaMemcpyDeviceToHost));
-
+    // Pool headers stay device-resident; totalCubes is cached at scene upload.
     bool hasTess = params.tessellationThreshold > 0.0f;
-    int tessPolyMul = hasTess ? 16 : 1;
-    int tessLineMul = hasTess ? 8  : 1;
-    int tessCubeMul = hasTess ? 16 : 1;
+    int tessPolyMul = hasTess ? (1 << (2 * params.maxTessPolygon)) : 1;
+    int tessLineMul = hasTess ? (1 << params.maxTessPolyline) : 1;
+    int tessCubeMul = hasTess ? (1 << (2 * params.maxTessCube)) : 1;
 
     // Compute geometry budget per camera using actual per-timestamp max varrays
-    int totalCubes = 0;
-    for (int p = 0; p < numCubePools; p++)
-        totalCubes += (int)cbPoolsHost[p].num_cubes;
-
     // Use per-timestamp max (computed from prefix sums on Python side)
     int mvPl = maxVarraysPerTsPolyline;
     int mvPg = maxVarraysPerTsPolygon;
@@ -2338,10 +2480,13 @@ void ludusCudaRenderTimestamped(
         }
     }
 
+    int geometryRetryCount = 0;
     for (int camIdx = 0; camIdx < numCameras; camIdx++)
     {
+        int64_t queryTimestampUs = queryTimestampsUs[camIdx];
         CUDA_CHECK(cudaMemsetAsync(s.atomicVertexCount, 0, sizeof(int), stream));
         CUDA_CHECK(cudaMemsetAsync(s.atomicTriangleCount, 0, sizeof(int), stream));
+        CUDA_CHECK(cudaMemsetAsync(s.atomicVertexCount + 2, 0, sizeof(int), stream));
 
         const float* camData  = (const float*)&cameras[camIdx];
         const float* poseData = (const float*)&poses[camIdx];
@@ -2360,7 +2505,10 @@ void ludusCudaRenderTimestamped(
 
         // Cube pools (flat-buffer variant)
         for (int p = 0; p < numCubePools; p++) {
-            int nc = (int)cbPoolsHost[p].num_cubes;
+            // Launch against the scene total. The kernel reads this pool's
+            // actual count and exits excess warps. Keeping headers on-device
+            // avoids a synchronous D2H copy for every rendered frame.
+            int nc = totalCubes;
             if (nc <= 0) continue;
             int nCubeBlocks = (nc + CUBES_PER_BLOCK - 1) / CUBES_PER_BLOCK;
             cubePoolFlatKernel<<<dim3(nCubeBlocks, 1), CUBE_POOL_BLOCK_SIZE, 0, stream>>>(
@@ -2385,10 +2533,32 @@ void ludusCudaRenderTimestamped(
         }
 
         // Read back actual counts
-        int actualVerts = 0, actualTris = 0;
+        int actualVerts = 0, actualTris = 0, geometryOverflow = 0;
         CUDA_CHECK(cudaMemcpyAsync(&actualTris, s.atomicTriangleCount, sizeof(int), cudaMemcpyDeviceToHost, stream));
         CUDA_CHECK(cudaMemcpyAsync(&actualVerts, s.atomicVertexCount, sizeof(int), cudaMemcpyDeviceToHost, stream));
+        CUDA_CHECK(cudaMemcpyAsync(&geometryOverflow, s.atomicVertexCount + 2, sizeof(int), cudaMemcpyDeviceToHost, stream));
         CUDA_CHECK(cudaStreamSynchronize(stream));
+
+        if (geometryOverflow) {
+            fprintf(stderr,
+                    "[LudusCudaTS] geometry capacity exceeded (%d/%d vertices, %d/%d triangles); "
+                    "growing buffers\n",
+                    actualVerts, s.maxVertices, actualTris, s.maxTriangles);
+            int requiredVerts = actualVerts > s.maxVertices ? actualVerts : s.maxVertices + 1;
+            int requiredTris = actualTris > s.maxTriangles ? actualTris : s.maxTriangles + 1;
+            ensureBuffers(s, requiredVerts, requiredTris);
+            if (geometryRetryCount++ == 0) {
+                --camIdx;
+                continue;
+            }
+            fprintf(stderr, "[LudusCudaTS] geometry still overflowed after retry; zeroing camera output\n");
+            CUDA_CHECK(cudaMemsetAsync(
+                outputPtr + (size_t)camIdx * height * width * 4, 0,
+                (size_t)width * height * 4, stream));
+            geometryRetryCount = 0;
+            continue;
+        }
+        geometryRetryCount = 0;
 
         // Debug: uncomment to log per-camera geometry counts
         // fprintf(stderr, "[LudusCudaTS] cam %d: %d verts, %d tris (cr: %dx%d)\n",

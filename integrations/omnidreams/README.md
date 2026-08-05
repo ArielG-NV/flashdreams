@@ -140,7 +140,7 @@ uv run --package flashdreams-omnidreams python integrations/omnidreams/omnidream
 uv run --package flashdreams-omnidreams omnidreams-prepare --perf
 # Run demo
 uv run --package flashdreams-omnidreams interactive-drive \
-	--manifest example_world_model_perf.yaml
+	--manifest example_world_model_perf.yaml --auto-start
 
 # add `--stream-mjpeg :8080` to stream to your browser
 ```

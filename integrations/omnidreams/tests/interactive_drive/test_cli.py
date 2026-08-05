@@ -20,6 +20,14 @@ def test_offload_text_encoder_flag_enables() -> None:
     assert args.offload_text_encoder is True
 
 
+def test_visual_flare_defaults_enabled_and_can_be_disabled() -> None:
+    assert build_parser().parse_args([]).disable_visual_flare is False
+    assert (
+        build_parser().parse_args(["--disable-visual-flare"]).disable_visual_flare
+        is True
+    )
+
+
 def test_postprocess_preset_defaults_disabled() -> None:
     args = build_parser().parse_args([])
 
@@ -46,3 +54,8 @@ def test_parser_records_explicit_arg_destinations() -> None:
     assert arg_was_explicit(args, "offload_text_encoder")
     assert arg_was_explicit(args, "bev")
     assert not arg_was_explicit(args, "camera")
+
+
+def test_removed_ludus_vulkan_backend_is_not_a_cli_option() -> None:
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--ludus-backend", "vulkan"])

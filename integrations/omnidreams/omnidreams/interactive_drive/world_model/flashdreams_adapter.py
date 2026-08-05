@@ -99,6 +99,8 @@ def _pipeline_config_log_line(
     encoder_native = getattr(encoder, "native_vae_acceleration", None)
     image_encoder_native = getattr(image_encoder, "native_vae_acceleration", None)
     native_backend = getattr(encoder, "native_vae_backend", None)
+    encoder_compile = getattr(encoder, "use_compile", None)
+    decoder_compile = getattr(config.decoder, "use_compile", None)
     return (
         "[flashdreams-session] resolved pipeline config "
         f"selected_recipe={config_name} "
@@ -109,6 +111,8 @@ def _pipeline_config_log_line(
         f"dit_attn={transformer.native_dit_attention_backend} "
         f"compile_network={transformer.compile_network} "
         f"use_cuda_graph={transformer.use_cuda_graph} "
+        f"encoder_compile={encoder_compile} "
+        f"decoder_compile={decoder_compile} "
         f"denoising_steps={list(scheduler.denoising_timesteps)} "
         f"encoder_native_vae={encoder_native} "
         f"image_encoder_native_vae={image_encoder_native} "
@@ -140,10 +144,8 @@ def _build_pipeline_config(
         else int(manifest.seed_for_every_rollout)
     )
 
-    # The lightvae chassis maps to the perf preset (use_compile + cuda_graph
-    # on every encoder/decoder). ``OMNIDREAMS_CONFIGS`` values are shared
-    # global instances, so use ``derive_config`` to get a deep-copied
-    # override-applied instance instead of mutating the global.
+    # Select the requested encoder startup policy without mutating the shared
+    # ``OMNIDREAMS_CONFIGS`` instances.
     transformer_overrides = _transformer_overrides(manifest)
     base_config_name = _base_config_name(config_name, manifest)
     base = OMNIDREAMS_CONFIGS[base_config_name]
@@ -156,6 +158,8 @@ def _build_pipeline_config(
             transformer=transformer_overrides,
         ),
     )
+    if not manifest.compile_decoder:
+        config = derive_config(config, decoder=dict(use_compile=False))
     scheduler_uses_manifest_steps = False
 
     if not scheduler_uses_manifest_steps and hasattr(
@@ -257,7 +261,7 @@ def _base_config_name(config_name: str, manifest: WorldModelManifest) -> str:
             raise ValueError("native_vae_encoder=fp8 requires light_vae=true.")
         return _LIGHTVAE_NATIVE_PERF_RECIPE
     if config_name == _LIGHTVAE_RECIPE:
-        return _LIGHTVAE_PERF_RECIPE
+        return _LIGHTVAE_PERF_RECIPE if manifest.compile_encoders else _LIGHTVAE_RECIPE
     return config_name
 
 

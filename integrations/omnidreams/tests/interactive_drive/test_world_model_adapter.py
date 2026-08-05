@@ -240,6 +240,18 @@ def test_build_pipeline_config_synthetic_swaps_only_weight_sources(
     assert not _contains_hf_url(synthetic)
 
 
+def test_build_pipeline_config_can_skip_io_compilation() -> None:
+    config = _build_pipeline_config(
+        replace(_manifest(), compile_encoders=False, compile_decoder=False),
+        profile=WorldModelProfileConfig(),
+    )
+
+    assert config.encoder.use_compile is False
+    assert config.image_encoder.use_compile is False
+    assert config.decoder.use_compile is False
+    assert config.diffusion_model.transformer.compile_network is True
+
+
 def test_native_vae_encoder_requires_light_vae_recipe() -> None:
     with pytest.raises(ValueError, match="native_vae_encoder=fp8 requires light_vae"):
         _build_pipeline_config(

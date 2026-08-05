@@ -20,7 +20,7 @@ The implementation is intentionally narrow:
 
 - one scene loaded at startup
 - one camera view
-- ego-only kinematic controls from the keyboard
+- fixed-step vehicle dynamics with collision-driven dynamic actors
 - one UI thread and one simulation thread
 - explicit WSL-safe CPU staging between Vulkan and CUDA when needed
 
@@ -136,10 +136,9 @@ prerequisites:
 ### 3. Sync and stage assets
 
 Run everything from the **flashdreams workspace root** — the standard
-flashdreams convention. The `interactive-drive` extra pulls in `slangpy`
-(the Vulkan-backed local windowing runtime) on top of the base
-`flashdreams-omnidreams` deps; server-only users (`omnidreams.webrtc` /
-`omnidreams.grpc`) skip it.
+flashdreams convention. Ludus always installs NVIDIA PhysX because simulation
+has one supported physics implementation. The `interactive-drive` extra adds
+only `slangpy`, the local-window presentation runtime.
 
 ```bash
 uv sync --package flashdreams-omnidreams --extra interactive-drive
@@ -460,6 +459,12 @@ CUDA:
 uv run --no-sync --package flashdreams-omnidreams interactive-drive
 ```
 
+The packaged interactive manifests leave the one-shot image/per-chunk HDMap
+encoders and display decoder eager (`compile_encoders: false` and
+`compile_decoder: false`) to reduce first-scene latency. Native DiT compilation
+remains enabled for steady generation. Prewarmed deployments can enable either
+wrapper when measurements justify its additional startup cost.
+
 Set `INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP=1` to force the conservative host
 path for both HDMap raster conditioning and presenter CUDA interop. In HUD mode,
 chrome is still rendered with PIL on the CPU, then uploaded as an alpha overlay;
@@ -477,6 +482,7 @@ Controls (apply in all three modes):
 - `Space` stop
 - `1` generated driving view
 - `2` HD map view
+- `3` first-person PhysX collider view (actor chassis and invisible walls)
 - `R` reset rollout
 - `X` exit scene (return to the scene selector; HUD mode only)
 - `Esc` quit
@@ -484,6 +490,57 @@ Controls (apply in all three modes):
 The browser control hint is static today, so it does not confirm every keydown
 visually. If the world-model backend is still producing a chunk, input can be
 accepted before the visual response arrives.
+
+### Interactive startup profile
+
+The packaged encoder/decoder policy is recommended for interactive sessions.
+On an RTX PRO 6000 Blackwell (driver 596.72, CUDA 13.0, PyTorch 2.12.1), a warm
+native-extension run on 2026-07-31 measured 32.0 s from process start through
+one steady chunk, versus 87.3 s with compiled encoder/decoder wrappers. Model
+warmup was 14.95 s, the first chunk was 5.73 s, and the next 8-frame chunk was
+356.6 ms. The compiled-wrapper baseline's steady chunk was 319.7 ms, so this
+trades about 37 ms per chunk for roughly 55 s less startup.
+
+```bash
+uv run --no-sync --package flashdreams-omnidreams interactive-drive \
+  --manifest example_world_model_perf.yaml --synthetic-model \
+  --synthetic-scene --auto-start --stream-mjpeg 127.0.0.1:18765 \
+  --stop-after-chunks 1 --no-bev --profile-world-model
+```
+
+The simulation uses fixed timesteps and a PhysX-first object graph owned by
+Ludus. Interactive-drive maps typed scene tracks into that graph. Throttle and
+braking preserve momentum; steering
+feeds a bicycle-model yaw target and lateral tire grip; a spring-damper adds
+game-style body pitch and roll. Every semantic type has a fixed mass (cars
+1,550 kg, trucks 8,000 kg, buses 12,000 kg, trailers 10,000 kg). Each road
+vehicle also carries dimension-derived chassis geometry and four per-instance
+wheel contacts. PhysX raycasts those wheels against static geometry and applies
+spring, damper, cornering, friction, and rolling-resistance forces at their
+contact points. Recorded position and heading samples are controller targets:
+bounded forces and torques ask each actor to follow its track, but no track pose
+is written into the body after creation. PhysX therefore owns translation,
+vertical suspension travel, body attitude, rigid-body contact, and
+mass-dependent momentum transfer without locking any axis. A struck actor
+remains an integrated vehicle body instead of reverting to a sliding visual box.
+Traffic AI suppresses its track-driving command after impact and restores it
+only after the body has remained stationary for one continuous simulated
+second; the native physics layer owns neither that timer nor that decision.
+
+Road-boundary, curb, building, house, and wall line/polygon layers are solid
+barriers. The large scene AABB remains a separate last-resort respawn boundary.
+The complete typed scene stays in the abstract graph for rendering; Ludus
+copies a 350 m active window into PhysX and coalesces densely sampled map
+strokes into roughly 2 m collision walls. This keeps long-HD-map preload cost
+bounded without dropping far-away objects from RGB or BEV rendering.
+For active actors, Ludus renders the authoritative per-frame PhysX poses as
+oriented HD-map boxes for both RGB and BEV/model inputs. The first topology
+change replaces one scene slot; subsequent chunks update the actor cube pool in
+place without clearing static map or camera buffers.
+
+``GameEntity.to_game_engine_dict()`` and
+``DynamicActorTrajectory.to_game_engine_dict()`` expose JSON-compatible
+component data and timestamped transform keyframes for an external game engine.
 
 ### Generated-frame e2e profiling
 
