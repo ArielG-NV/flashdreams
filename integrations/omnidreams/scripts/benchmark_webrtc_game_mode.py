@@ -122,7 +122,7 @@ async def _run(args: argparse.Namespace) -> None:
             scene_uuid=args.scene_uuid,
             device=args.device,
             fps=args.fps,
-            game_mode=True,
+            game_mode=args.game_mode,
             warmup_chunks=args.warmup_chunks,
             server_side_hud=args.server_side_hud,
         )
@@ -158,6 +158,11 @@ def main() -> None:
     parser.add_argument("--warmup-chunks", type=int, default=6)
     parser.add_argument("--chunks", type=int, default=55)
     parser.add_argument("--port", type=int, default=8090)
+    parser.add_argument(
+        "--game-mode",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
     parser.add_argument(
         "--server-side-hud",
         action=argparse.BooleanOptionalAction,
