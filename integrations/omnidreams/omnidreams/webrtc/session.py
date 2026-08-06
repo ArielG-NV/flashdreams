@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import colorsys
+import contextlib
 import os
 import shutil
 import tempfile
@@ -13,7 +14,7 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
-from typing import AbstractSet, Any, Callable, TypeVar
+from typing import AbstractSet, Any, Awaitable, Callable, TypeVar
 
 import cv2
 import numpy as np
@@ -21,7 +22,15 @@ import torch
 import torch.distributed as dist
 from filelock import FileLock
 from loguru import logger
-from ludus_renderer import CUBE_FLAG_WIREFRAME, PRIM_OBSTACLE, CubePool
+from ludus_renderer import (
+    CUBE_FLAG_WIREFRAME,
+    PRIM_OBSTACLE,
+    BodyState,
+    CubePool,
+    PhysicsObjectGraph,
+    PhysXWorld,
+    RigidBodyModel,
+)
 from omnidreams.conditioning.conditioning_wrapper import (
     AV_POSITIVE_PROMPT,
     OmnidreamsConditioningState,
@@ -449,11 +458,27 @@ class OmnidreamsRuntimeConfig:
     player_count: int = 1
     """Number of independently claimable player rollouts."""
 
+    player_devices: tuple[str, ...] = ()
+    """Optional one-device-per-player mapping for parallel multiplayer inference."""
+
+    pause_lobby_previews_while_active: bool = True
+    """Whether active sessions suspend full-model lobby preview generation."""
+
+    live_lobby_previews: bool = False
+    """Whether idle player tiles continuously run model-generated previews."""
+
+    eager_control_chunks: bool = False
+    """Whether chunks predict held controls without waiting for the input window."""
+
     player_id: int = 1
     """One-based player slot represented by this runtime."""
 
     player_spawn_spacing_m: float = 4.0
-    """Lateral distance in meters between adjacent initial player poses."""
+    """Longitudinal distance in meters between multiplayer spawn rows."""
+
+    player_spawn_lateral_offset_m: float = 1.5
+    """Left/right offset from the road-centered initial pose."""
+
     camera_name: str = "camera_front_wide_120fov"
     prompt_filename: str = SCENE_PROMPT_FILENAME
     clipgt_dirname: str = SCENE_CLIPGT_DIRNAME
@@ -499,6 +524,35 @@ def _validate_requested_postprocess_preset(
     resolve_postprocess_preset(requested_preset)
 
 
+def _multiplayer_spawn_offset(
+    player_id: int,
+    *,
+    row_spacing_m: float,
+    lateral_offset_m: float,
+) -> tuple[float, float]:
+    """Return the rig-local forward and left offsets for a player slot.
+
+    Player one remains at the authored ego pose. Later players alternate between
+    left and right positions in rows behind it, keeping the lateral displacement
+    small enough to remain on the road.
+
+    Args:
+        player_id: One-based player slot.
+        row_spacing_m: Distance between rows along the rig's forward axis.
+        lateral_offset_m: Distance from the authored pose along the left axis.
+
+    Returns:
+        Pair of forward and left offsets in meters.
+    """
+    spawn_index = player_id - 1
+    if spawn_index <= 0:
+        return 0.0, 0.0
+
+    row = (spawn_index + 1) // 2
+    side = 1.0 if spawn_index % 2 else -1.0
+    return -row * float(row_spacing_m), side * float(lateral_offset_m)
+
+
 class OmnidreamsInferenceRuntime:
     """Single-scene, single-view Omnidreams runtime for WebRTC control."""
 
@@ -533,6 +587,20 @@ class OmnidreamsInferenceRuntime:
         self._preview_version = 0
         self._encoded_preview_version = -1
         self._world_pose_provider: Callable[[], dict[int, np.ndarray]] | None = None
+        self._shared_trajectory_provider: (
+            Callable[
+                [int, int, list[PoseSegment], list[float]],
+                Awaitable[np.ndarray],
+            ]
+            | None
+        ) = None
+        self._shared_generation_provider: (
+            Callable[
+                [int, int, list[PoseSegment], list[float]],
+                Awaitable[WebRTCStepResult],
+            ]
+            | None
+        ) = None
         self._closed = False
         self._clipgt_temp_dir: tempfile.TemporaryDirectory[str] | None = None
         # Selected once at initialization; the concrete backend is chosen
@@ -566,15 +634,6 @@ class OmnidreamsInferenceRuntime:
         """Preset active for the current rollout, or an empty string when off."""
         return self._postprocess_preset
 
-    @property
-    def video_encoder(self) -> VideoEncoder:
-        """Return the encoder selected at :meth:`initialize` time."""
-        if self._video_encoder is None:
-            raise OmnidreamsRuntimeError(
-                "Video encoder is not initialized; call runtime.initialize() first."
-            )
-        return self._video_encoder
-
     def player_pose(self) -> dict[str, float]:
         """Return the current FLU pose for lobby/BEV telemetry."""
         pose = self.pose_integrator.current_pose()
@@ -589,6 +648,25 @@ class OmnidreamsInferenceRuntime:
     ) -> None:
         """Set the shared player-pose source used for HDMap actor overlays."""
         self._world_pose_provider = provider
+
+    def set_shared_trajectory_provider(
+        self,
+        provider: Callable[
+            [int, int, list[PoseSegment], list[float]], Awaitable[np.ndarray]
+        ],
+    ) -> None:
+        """Route control through the multiplayer world's shared PhysX step."""
+        self._shared_trajectory_provider = provider
+
+    def set_shared_generation_provider(
+        self,
+        provider: Callable[
+            [int, int, list[PoseSegment], list[float]],
+            Awaitable[WebRTCStepResult],
+        ],
+    ) -> None:
+        """Advance every multiplayer model pipeline through one chunk barrier."""
+        self._shared_generation_provider = provider
 
     def _dynamic_player_pool(self, frame_timestamps_us: list[int]) -> CubePool | None:
         """Build the other-player car boxes for the current HDMap chunk."""
@@ -659,10 +737,7 @@ class OmnidreamsInferenceRuntime:
         if frame is None:
             return None
         rgb = (
-            frame.detach()
-            .to(device="cpu", dtype=torch.uint8)
-            .permute(1, 2, 0)
-            .numpy()
+            frame.detach().to(device="cpu", dtype=torch.uint8).permute(1, 2, 0).numpy()
         )
         ok, encoded = cv2.imencode(".jpg", cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
         if not ok:
@@ -769,15 +844,58 @@ class OmnidreamsInferenceRuntime:
             raise OmnidreamsRuntimeError("Session is closed.")
         if self._wrapper is None:
             raise OmnidreamsRuntimeError("Runtime is not initialized.")
-
-        async with self._step_lock:
-            if self._closed:
-                raise OmnidreamsRuntimeError("Session is closed.")
-            return await self._run_on_runtime_thread(
-                self._generate_chunk_sync_all_ranks,
+        if self._shared_generation_provider is not None:
+            return await self._shared_generation_provider(
+                self.config.player_id,
+                self.autoregressive_index,
                 segments,
                 frame_times,
             )
+        return await self._generate_chunk_direct(
+            segments=segments,
+            frame_times=frame_times,
+        )
+
+    async def _generate_chunk_direct(
+        self,
+        *,
+        segments: list[PoseSegment],
+        frame_times: list[float],
+    ) -> WebRTCStepResult:
+        if self._closed:
+            raise OmnidreamsRuntimeError("Session is closed.")
+        if self._wrapper is None:
+            raise OmnidreamsRuntimeError("Runtime is not initialized.")
+
+        loop = asyncio.get_running_loop()
+        shared_physics_started = loop.time()
+        ego_poses = None
+        if self._shared_trajectory_provider is not None:
+            ego_poses = await self._shared_trajectory_provider(
+                self.config.player_id,
+                self.autoregressive_index,
+                segments,
+                frame_times,
+            )
+        shared_physics_s = loop.time() - shared_physics_started
+        inference_wait_started = loop.time()
+        async with self._step_lock:
+            inference_wait_s = loop.time() - inference_wait_started
+            if self._closed:
+                raise OmnidreamsRuntimeError("Session is closed.")
+            model_step_started = loop.time()
+            result = await self._run_on_runtime_thread(
+                self._generate_chunk_sync_all_ranks,
+                segments,
+                frame_times,
+                ego_poses,
+            )
+        stats = dict(result.stats or {})
+        stats.setdefault("model_step_s", loop.time() - model_step_started)
+        stats["shared_physics_wait_s"] = shared_physics_s
+        stats["inference_queue_wait_s"] = inference_wait_s
+        result.stats = stats
+        return result
 
     async def _run_on_runtime_thread(
         self,
@@ -831,8 +949,11 @@ class OmnidreamsInferenceRuntime:
         self,
         segments: list[PoseSegment],
         frame_times: list[float],
+        ego_poses: np.ndarray | None = None,
     ) -> WebRTCStepResult:
-        return self._generate_one_chunk_sync(segments=segments, frame_times=frame_times)
+        return self._generate_one_chunk_sync(
+            segments=segments, frame_times=frame_times, ego_poses=ego_poses
+        )
 
     @distributed_op(WebRTCControlSignal.CLOSE)
     def _close_sync_all_ranks(self) -> None:
@@ -1088,13 +1209,17 @@ class OmnidreamsInferenceRuntime:
         )
         initial_pose = self._initial_ego_pose.copy()
         if self.config.player_count > 1:
-            center = (self.config.player_count + 1) / 2.0
-            lateral_offset = (self.config.player_id - center) * float(
-                self.config.player_spawn_spacing_m
+            forward_offset, lateral_offset = _multiplayer_spawn_offset(
+                self.config.player_id,
+                row_spacing_m=self.config.player_spawn_spacing_m,
+                lateral_offset_m=self.config.player_spawn_lateral_offset_m,
             )
-            # FLU uses +Y left. Offset each car in rig-local lateral space so
-            # every player starts at a distinct HDMap/camera perspective.
-            initial_pose[:3, 3] += initial_pose[:3, 1] * lateral_offset
+            # FLU uses +X forward and +Y left. Stagger rows behind the authored
+            # pose and keep side-to-side offsets within the road corridor.
+            initial_pose[:3, 3] += (
+                initial_pose[:3, 0] * forward_offset
+                + initial_pose[:3, 1] * lateral_offset
+            )
         self.pose_integrator.reset(initial_pose)
         self.autoregressive_index = 0
         self._next_timestamp_us = int(self._scene_data.ego_poses[0].timestamp)
@@ -1182,6 +1307,7 @@ class OmnidreamsInferenceRuntime:
         *,
         segments: list[PoseSegment],
         frame_times: list[float],
+        ego_poses: np.ndarray | None = None,
     ) -> WebRTCStepResult:
         if (
             self._wrapper is None
@@ -1205,9 +1331,15 @@ class OmnidreamsInferenceRuntime:
                 f"Chunk={self.autoregressive_index} received empty segments."
             )
 
-        ego_poses = self.pose_integrator.integrate_chunk(
-            segments=segments, frame_times=frame_times
-        )
+        if ego_poses is None:
+            ego_poses = self.pose_integrator.integrate_chunk(
+                segments=segments, frame_times=frame_times
+            )
+        elif ego_poses.shape != (num_frames, 4, 4):
+            raise OmnidreamsRuntimeError(
+                f"Expected shared trajectory shape {(num_frames, 4, 4)}, "
+                f"got {ego_poses.shape}."
+            )
         ego_poses_t = torch.from_numpy(ego_poses).to(
             device=self._device, dtype=torch.float32
         )
@@ -1300,6 +1432,7 @@ class OmnidreamsWebRTCSessionManager(
         *,
         runtime_config: OmnidreamsRuntimeConfig | None = None,
         client_liveness_timeout_s: float = DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
+        preserve_world_on_session_start: bool = False,
     ) -> None:
         runtime_config = runtime_config or OmnidreamsRuntimeConfig()
         super().__init__(
@@ -1309,6 +1442,7 @@ class OmnidreamsWebRTCSessionManager(
             client_liveness_timeout_s=client_liveness_timeout_s,
         )
         self._pending_session_input: OmnidreamsSessionInput | None = None
+        self._preserve_world_on_session_start = preserve_world_on_session_start
 
     def _model_name(self) -> str:
         return self.runtime_config.pipeline_config_name
@@ -1329,7 +1463,17 @@ class OmnidreamsWebRTCSessionManager(
     async def _reset_runtime_for_session(
         self, session_input: OmnidreamsSessionInput | None
     ) -> None:
+        if self._preserve_world_on_session_start:
+            # Multiplayer slots are persistent members of one authoritative
+            # world. Joining a free slot must attach to its current rollout,
+            # not rewind that car (or its peers) to the spawn state.
+            return
         await self._runtime.reset_for_new_session(session_input=session_input)
+
+    async def reset_world(self) -> None:
+        """Reset the one available player after ending its active drive."""
+        await self.close_active_session()
+        await self._runtime.reset_for_new_session()
 
     def set_pending_session_input(
         self,
@@ -1441,30 +1585,28 @@ def _rotation_matrix_to_xyzw(rotation: np.ndarray) -> tuple[float, float, float,
         axis = int(np.argmax(np.diag(rotation)))
         following = (axis + 1) % 3
         remaining = (axis + 2) % 3
-        scale = np.sqrt(
-            max(
-                0.0,
-                1.0
-                + rotation[axis, axis]
-                - rotation[following, following]
-                - rotation[remaining, remaining],
+        scale = (
+            np.sqrt(
+                max(
+                    0.0,
+                    1.0
+                    + rotation[axis, axis]
+                    - rotation[following, following]
+                    - rotation[remaining, remaining],
+                )
             )
-        ) * 2.0
+            * 2.0
+        )
         scale = max(float(scale), 1e-8)
         xyz = [0.0, 0.0, 0.0]
         xyz[axis] = 0.25 * scale
-        xyz[following] = (
-            rotation[following, axis] + rotation[axis, following]
-        ) / scale
-        xyz[remaining] = (
-            rotation[remaining, axis] + rotation[axis, remaining]
-        ) / scale
+        xyz[following] = (rotation[following, axis] + rotation[axis, following]) / scale
+        xyz[remaining] = (rotation[remaining, axis] + rotation[axis, remaining]) / scale
         quaternion = (
             xyz[0],
             xyz[1],
             xyz[2],
-            (rotation[remaining, following] - rotation[following, remaining])
-            / scale,
+            (rotation[remaining, following] - rotation[following, remaining]) / scale,
         )
     norm = max(float(np.linalg.norm(quaternion)), 1e-8)
     return (
@@ -1475,13 +1617,410 @@ def _rotation_matrix_to_xyzw(rotation: np.ndarray) -> tuple[float, float, float,
     )
 
 
-class OmnidreamsMultiplayerSessionManager:
-    """Atomically routes WebRTC offers to independent player rollouts.
+def _xyzw_to_rotation_matrix(quaternion: np.ndarray) -> np.ndarray:
+    """Convert a normalized XYZW quaternion to a 3x3 rotation matrix."""
+    x, y, z, w = (float(value) for value in quaternion)
+    return np.asarray(
+        [
+            [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+        ],
+        dtype=np.float32,
+    )
 
-    Each slot owns its input resampler, pose integrator, autoregressive cache,
-    encoder track, and peer connection. All slots load the same scene/config
-    and execute on the same server; generation is therefore authoritative and
-    does not require rollback prediction on clients.
+
+def _clip_pose_segments(
+    segments: list[PoseSegment], start: float, end: float
+) -> list[PoseSegment]:
+    """Clip a resampled control timeline to one physics-frame interval."""
+    clipped = [
+        (max(seg_start, start), min(seg_end, end), state)
+        for seg_start, seg_end, state in segments
+        if seg_end > start and seg_start < end
+    ]
+    if not clipped:
+        return [(start, end, frozenset())]
+    first_start, first_end, first_state = clipped[0]
+    clipped[0] = (start, first_end, first_state)
+    last_start, _, last_state = clipped[-1]
+    clipped[-1] = (last_start, end, last_state)
+    return clipped
+
+
+@dataclass(slots=True)
+class _SharedWorldBatch:
+    submissions: dict[int, tuple[list[PoseSegment], list[float]]] = field(
+        default_factory=dict
+    )
+    trajectories: dict[int, np.ndarray] | None = None
+    error: Exception | None = None
+    ready: asyncio.Event = field(default_factory=asyncio.Event)
+    timeout_task: asyncio.Task[None] | None = None
+
+
+class _SharedMultiplayerPhysXWorld:
+    """Batch player controls into one authoritative PhysX scene pass.
+
+    Rendering runtimes submit their controls for the same AR chunk. The first
+    submission waits up to one frame for its peers; missing peers retain a
+    neutral input. Every simulated frame updates all player bodies, calls the
+    native scene exactly once, then publishes one trajectory per renderer.
+    """
+
+    _PLAYER_MODEL = RigidBodyModel(
+        mass_kg=1_550.0,
+        half_extents_m=(2.4, 1.0, 0.8),
+        restitution=0.22,
+        friction=0.65,
+    )
+
+    def __init__(
+        self,
+        runtimes: dict[int, Any],
+        *,
+        fps: int,
+        physics_world_factory: Callable[..., Any] = PhysXWorld,
+    ) -> None:
+        self._runtimes = runtimes
+        self._fps = fps
+        self._physics_world_factory = physics_world_factory
+        self._physics_world: Any | None = None
+        self._batches: dict[int, _SharedWorldBatch] = {}
+        self._lock = asyncio.Lock()
+
+    async def trajectory(
+        self,
+        player_id: int,
+        chunk_index: int,
+        segments: list[PoseSegment],
+        frame_times: list[float],
+    ) -> np.ndarray:
+        """Return this player's trajectory from the shared chunk simulation."""
+        async with self._lock:
+            batch = self._batches.setdefault(chunk_index, _SharedWorldBatch())
+            if batch.trajectories is None:
+                batch.submissions[player_id] = (segments, frame_times)
+                if set(batch.submissions) == set(self._runtimes):
+                    self._complete_batch(batch)
+                elif batch.timeout_task is None:
+                    batch.timeout_task = asyncio.create_task(
+                        self._resolve_after_timeout(chunk_index, batch)
+                    )
+        await batch.ready.wait()
+        if batch.error is not None:
+            raise batch.error
+        assert batch.trajectories is not None
+        trajectory = batch.trajectories[player_id]
+        async with self._lock:
+            # Keep a small resolved window for a renderer that arrives after
+            # the one-frame batching deadline, but bound retained frame data.
+            resolved = [
+                index
+                for index, candidate in self._batches.items()
+                if candidate.trajectories is not None
+            ]
+            for stale_index in sorted(resolved)[:-4]:
+                del self._batches[stale_index]
+        return trajectory
+
+    async def _resolve_after_timeout(
+        self, chunk_index: int, batch: _SharedWorldBatch
+    ) -> None:
+        await asyncio.sleep(1.0 / self._fps)
+        async with self._lock:
+            if self._batches.get(chunk_index) is batch and batch.trajectories is None:
+                self._complete_batch(batch)
+
+    def _complete_batch(self, batch: _SharedWorldBatch) -> None:
+        try:
+            self._resolve_batch(batch)
+        except Exception as exc:
+            batch.error = exc
+            batch.ready.set()
+
+    def _ensure_physics_world(self) -> Any:
+        if self._physics_world is not None:
+            return self._physics_world
+        world = self._physics_world_factory(
+            PhysicsObjectGraph(),
+            self._PLAYER_MODEL,
+        )
+        for index, (player_id, runtime) in enumerate(self._runtimes.items()):
+            body = self._body_state(runtime.pose_integrator.current_pose())
+            object_id = self._body_id(player_id)
+            if index == 0:
+                world.bind_ego_controlled_body(object_id)
+            else:
+                world.add_controlled_body(object_id, self._PLAYER_MODEL, body)
+        self._physics_world = world
+        return world
+
+    @staticmethod
+    def _body_id(player_id: int) -> str:
+        return f"player-{player_id}"
+
+    @classmethod
+    def _body_state(
+        cls,
+        pose: np.ndarray,
+        *,
+        linear_velocity: np.ndarray | None = None,
+        yaw_rate: float = 0.0,
+    ) -> BodyState:
+        position = pose[:3, 3].astype(np.float32, copy=True)
+        position[2] += cls._PLAYER_MODEL.half_extents_m[2]
+        return BodyState(
+            position_m=position,
+            orientation_xyzw=np.asarray(
+                _rotation_matrix_to_xyzw(pose[:3, :3]), dtype=np.float32
+            ),
+            linear_velocity_mps=(
+                np.zeros(3, dtype=np.float32)
+                if linear_velocity is None
+                else np.asarray(linear_velocity, dtype=np.float32)
+            ),
+            angular_velocity_radps=np.asarray([0.0, 0.0, yaw_rate], dtype=np.float32),
+        )
+
+    @classmethod
+    def _pose_from_body(cls, body: BodyState) -> np.ndarray:
+        pose = np.eye(4, dtype=np.float32)
+        pose[:3, :3] = _xyzw_to_rotation_matrix(body.orientation_xyzw)
+        pose[:3, 3] = body.position_m
+        pose[2, 3] -= cls._PLAYER_MODEL.half_extents_m[2]
+        return pose
+
+    def _resolve_batch(self, batch: _SharedWorldBatch) -> None:
+        if batch.trajectories is not None:
+            return
+        if batch.timeout_task is not None:
+            batch.timeout_task.cancel()
+        if not batch.submissions:
+            raise RuntimeError("Cannot simulate an empty multiplayer batch.")
+
+        reference_segments, reference_times = next(iter(batch.submissions.values()))
+        frame_count = len(reference_times)
+        if frame_count == 0:
+            raise ValueError("Shared multiplayer chunks must contain frames.")
+        submissions = dict(batch.submissions)
+        for player_id in self._runtimes:
+            submissions.setdefault(
+                player_id,
+                (
+                    [
+                        (
+                            reference_segments[0][0],
+                            reference_segments[-1][1],
+                            frozenset(),
+                        )
+                    ],
+                    reference_times,
+                ),
+            )
+        if any(len(times) != frame_count for _, times in submissions.values()):
+            raise ValueError(
+                "All multiplayer trajectories must have equal frame counts."
+            )
+
+        world = self._ensure_physics_world()
+        trajectories = {
+            player_id: np.empty((frame_count, 4, 4), dtype=np.float32)
+            for player_id in self._runtimes
+        }
+        for frame_index in range(frame_count):
+            intents: dict[str, BodyState] = {}
+            for player_id, runtime in self._runtimes.items():
+                segments, frame_times = submissions[player_id]
+                end = frame_times[frame_index]
+                start = (
+                    segments[0][0] if frame_index == 0 else frame_times[frame_index - 1]
+                )
+                dt_s = max(end - start, 1.0 / self._fps)
+                current_pose = runtime.pose_integrator.current_pose()
+                desired_pose = runtime.pose_integrator.integrate_chunk(
+                    segments=_clip_pose_segments(segments, start, end),
+                    frame_times=[end],
+                )[0]
+                linear_velocity = (desired_pose[:3, 3] - current_pose[:3, 3]) / dt_s
+                current_yaw = float(np.arctan2(current_pose[1, 0], current_pose[0, 0]))
+                desired_yaw = float(np.arctan2(desired_pose[1, 0], desired_pose[0, 0]))
+                yaw_delta = (desired_yaw - current_yaw + np.pi) % (2 * np.pi) - np.pi
+                intents[self._body_id(player_id)] = self._body_state(
+                    current_pose,
+                    linear_velocity=linear_velocity,
+                    yaw_rate=float(yaw_delta / dt_s),
+                )
+            simulated = world.step_controlled(intents, 1.0 / self._fps)
+            for player_id, runtime in self._runtimes.items():
+                pose = self._pose_from_body(simulated[self._body_id(player_id)])
+                runtime.pose_integrator.reset(pose)
+                trajectories[player_id][frame_index] = pose
+
+        batch.trajectories = trajectories
+        batch.ready.set()
+
+    def reset(self) -> None:
+        """Discard native and queued state after all player spawns are reset."""
+        for batch in self._batches.values():
+            if batch.timeout_task is not None:
+                batch.timeout_task.cancel()
+        self._batches.clear()
+        self.close()
+
+    def close(self) -> None:
+        if self._physics_world is not None:
+            self._physics_world.close()
+            self._physics_world = None
+
+
+@dataclass(slots=True)
+class _SharedGenerationBatch:
+    submissions: dict[int, tuple[list[PoseSegment], list[float]]] = field(
+        default_factory=dict
+    )
+    results: dict[int, WebRTCStepResult] | None = None
+    error: Exception | None = None
+    ready: asyncio.Event = field(default_factory=asyncio.Event)
+    timeout_task: asyncio.Task[None] | None = None
+    generation_task: asyncio.Task[None] | None = None
+
+
+class _SynchronizedMultiplayerGeneration:
+    """Advance every player model exactly once per authoritative world chunk."""
+
+    def __init__(
+        self,
+        runtimes: dict[int, Any],
+        *,
+        fps: int,
+    ) -> None:
+        self._runtimes = runtimes
+        self._fps = fps
+        self._batches: dict[int, _SharedGenerationBatch] = {}
+        self._lock = asyncio.Lock()
+
+    async def generate(
+        self,
+        player_id: int,
+        chunk_index: int,
+        segments: list[PoseSegment],
+        frame_times: list[float],
+    ) -> WebRTCStepResult:
+        """Submit controls and return the synchronized result for one player."""
+        async with self._lock:
+            batch = self._batches.setdefault(chunk_index, _SharedGenerationBatch())
+            if batch.results is None and batch.generation_task is None:
+                batch.submissions[player_id] = (segments, frame_times)
+                if set(batch.submissions) == set(self._runtimes):
+                    self._start_batch(chunk_index, batch)
+                elif batch.timeout_task is None:
+                    batch.timeout_task = asyncio.create_task(
+                        self._resolve_after_timeout(chunk_index, batch)
+                    )
+        await batch.ready.wait()
+        if batch.error is not None:
+            raise batch.error
+        assert batch.results is not None
+        result = batch.results[player_id]
+        async with self._lock:
+            resolved = [
+                index
+                for index, candidate in self._batches.items()
+                if candidate.results is not None
+            ]
+            for stale_index in sorted(resolved)[:-4]:
+                del self._batches[stale_index]
+        return result
+
+    async def _resolve_after_timeout(
+        self,
+        chunk_index: int,
+        batch: _SharedGenerationBatch,
+    ) -> None:
+        await asyncio.sleep(1.0 / self._fps)
+        async with self._lock:
+            if (
+                self._batches.get(chunk_index) is batch
+                and batch.results is None
+                and batch.generation_task is None
+            ):
+                self._start_batch(chunk_index, batch)
+
+    def _start_batch(
+        self,
+        chunk_index: int,
+        batch: _SharedGenerationBatch,
+    ) -> None:
+        if batch.timeout_task is not None:
+            batch.timeout_task.cancel()
+        batch.generation_task = asyncio.create_task(self._run_batch(chunk_index, batch))
+
+    async def _run_batch(
+        self,
+        chunk_index: int,
+        batch: _SharedGenerationBatch,
+    ) -> None:
+        try:
+            if not batch.submissions:
+                raise RuntimeError("Cannot generate an empty multiplayer batch.")
+            reference_segments, reference_times = next(iter(batch.submissions.values()))
+            submissions = dict(batch.submissions)
+            for player_id in self._runtimes:
+                submissions.setdefault(
+                    player_id,
+                    (
+                        [
+                            (
+                                reference_segments[0][0],
+                                reference_segments[-1][1],
+                                frozenset(),
+                            )
+                        ],
+                        reference_times,
+                    ),
+                )
+            indices = {
+                player_id: runtime.autoregressive_index
+                for player_id, runtime in self._runtimes.items()
+            }
+            if set(indices.values()) != {chunk_index}:
+                raise RuntimeError(
+                    "Multiplayer model states are out of sync before generation; "
+                    f"requested={chunk_index}, runtime_indices={indices}."
+                )
+            player_ids = list(self._runtimes)
+            generated = await asyncio.gather(
+                *(
+                    self._runtimes[player_id]._generate_chunk_direct(
+                        segments=submissions[player_id][0],
+                        frame_times=submissions[player_id][1],
+                    )
+                    for player_id in player_ids
+                )
+            )
+            batch.results = dict(zip(player_ids, generated))
+        except Exception as exc:
+            batch.error = exc
+        finally:
+            batch.ready.set()
+
+    def reset(self) -> None:
+        """Cancel queued generation and discard resolved chunk results."""
+        for batch in self._batches.values():
+            for task in (batch.timeout_task, batch.generation_task):
+                if task is not None:
+                    task.cancel()
+        self._batches.clear()
+
+
+class OmnidreamsMultiplayerSessionManager:
+    """Atomically route players through one persistent authoritative world.
+
+    Each slot owns its input resampler, autoregressive cache, renderer, encoder
+    track, and peer connection. Both slots feed one PhysX scene and simulation
+    clock; only their rendering/model passes are duplicated. Joining preserves
+    that world, while :meth:`reset_world` rewinds every slot together.
     """
 
     def __init__(
@@ -1492,19 +2031,66 @@ class OmnidreamsMultiplayerSessionManager:
     ) -> None:
         if runtime_config.player_count <= 0:
             raise ValueError("player_count must be > 0.")
+        if runtime_config.player_devices and (
+            len(runtime_config.player_devices) != runtime_config.player_count
+        ):
+            raise ValueError(
+                "player_devices must contain exactly one device per player "
+                f"({runtime_config.player_count} expected, "
+                f"got {len(runtime_config.player_devices)})."
+            )
         self.runtime_config = runtime_config
         self._players: dict[int, OmnidreamsWebRTCSessionManager] = {}
-        shared_step_lock = asyncio.Lock()
-        for player_id in range(1, runtime_config.player_count + 1):
-            player_config = replace(runtime_config, player_id=player_id)
+        player_devices = runtime_config.player_devices or tuple(
+            runtime_config.device for _ in range(runtime_config.player_count)
+        )
+        device_step_locks: dict[str, asyncio.Lock] = {}
+        for player_id, device in enumerate(player_devices, start=1):
+            canonical_device = str(torch.device(device))
+            player_config = replace(
+                runtime_config,
+                player_id=player_id,
+                device=canonical_device,
+            )
             self._players[player_id] = OmnidreamsWebRTCSessionManager(
                 runtime_config=player_config,
                 client_liveness_timeout_s=client_liveness_timeout_s,
+                preserve_world_on_session_start=True,
             )
-            self._players[player_id]._runtime._step_lock = shared_step_lock
+            # Stateful rollouts sharing a CUDA device must serialize. Runtimes
+            # assigned to different devices get independent locks and can run
+            # concurrently on their dedicated executor threads.
+            self._players[player_id]._runtime._step_lock = device_step_locks.setdefault(
+                canonical_device, asyncio.Lock()
+            )
+        logger.info(
+            "Omnidreams multiplayer device assignment: {}",
+            ", ".join(
+                f"P{player_id}={manager._runtime.config.device}"
+                for player_id, manager in self._players.items()
+            ),
+        )
+        runtimes = {
+            player_id: manager._runtime for player_id, manager in self._players.items()
+        }
+        self._shared_world = _SharedMultiplayerPhysXWorld(
+            runtimes,
+            fps=runtime_config.fps,
+        )
+        self._synchronized_generation = _SynchronizedMultiplayerGeneration(
+            runtimes,
+            fps=runtime_config.fps,
+        )
         for manager in self._players.values():
             manager._runtime.set_world_pose_provider(self._world_poses)
+            manager._runtime.set_shared_trajectory_provider(
+                self._shared_world.trajectory
+            )
+            manager._runtime.set_shared_generation_provider(
+                self._synchronized_generation.generate
+            )
         self._claim_lock = asyncio.Lock()
+        self._world_reset_lock = asyncio.Lock()
         self._claiming_players: set[int] = set()
         self._preview_task: asyncio.Task[None] | None = None
         self._preview_clocks = dict.fromkeys(self._players, 0.0)
@@ -1531,45 +2117,83 @@ class OmnidreamsMultiplayerSessionManager:
         return all(manager.is_runtime_ready() for manager in self._players.values())
 
     async def preload_runtime(self) -> None:
-        # Initialize serially: CUDA compilation/capture and large checkpoint
-        # loads are intentionally not raced on one device.
+        # Every synchronized chunk advances every model, so all runtimes must be
+        # initialized before the first loopback warmup offer. Warm one player
+        # connection once; the shared generation coordinator advances all slots.
         for manager in self._players.values():
-            await manager.preload_runtime()
-        if self._preview_task is None:
+            async with manager._preload_lock:
+                if not manager._runtime_ready:
+                    await manager._runtime.initialize()
+                    manager._runtime_ready = True
+        if any(not manager._warmup_complete for manager in self._players.values()):
+            first_manager = next(iter(self._players.values()))
+            await first_manager._run_loopback_warmup_session(
+                num_chunks=self.runtime_config.warmup_chunks
+            )
+            for manager in self._players.values():
+                manager._warmup_complete = True
+        if self.runtime_config.live_lobby_previews and self._preview_task is None:
             self._preview_task = asyncio.create_task(self._preview_worker())
 
     async def _preview_worker(self) -> None:
-        """Continuously render neutral-input previews for unclaimed players."""
+        """Render neutral-input previews only while the whole world is idle.
+
+        A preview uses the same full HDMap/DiT/decode path as a player chunk.
+        Letting an unclaimed slot preview while another player is driving makes
+        both rollouts contend for the same device and roughly halves the active
+        player's available inference throughput on a one-GPU deployment.
+        """
+
+        async def render_player(
+            player_id: int, manager: OmnidreamsWebRTCSessionManager
+        ) -> bool:
+            runtime = manager._runtime
+            start = self._preview_clocks[player_id]
+            num_frames = runtime.peek_next_chunk_num_frames()
+            frame_times = [
+                start + (index + 1) / self.runtime_config.fps
+                for index in range(num_frames)
+            ]
+            end = frame_times[-1]
+            try:
+                await runtime.generate_chunk(
+                    segments=[(start, end, frozenset())],
+                    frame_times=frame_times,
+                )
+            except Exception:
+                logger.exception("Preview generation failed for player P{}.", player_id)
+                return False
+            self._preview_clocks[player_id] = end
+            return True
+
         try:
             while True:
-                rendered = False
-                for player_id, manager in self._players.items():
-                    if player_id in self._claiming_players or manager.has_active_session():
-                        continue
-                    runtime = manager._runtime
-                    start = self._preview_clocks[player_id]
-                    num_frames = runtime.peek_next_chunk_num_frames()
-                    frame_times = [
-                        start + (index + 1) / self.runtime_config.fps
-                        for index in range(num_frames)
-                    ]
-                    end = frame_times[-1]
-                    try:
-                        await runtime.generate_chunk(
-                            segments=[(start, end, frozenset())],
-                            frame_times=frame_times,
-                        )
-                    except Exception:
-                        logger.exception(
-                            "Preview generation failed for player P{}.", player_id
-                        )
-                        await asyncio.sleep(0.1)
-                        continue
-                    self._preview_clocks[player_id] = end
-                    rendered = True
-                    await asyncio.sleep(0)
-                if not rendered:
+                should_pause = (
+                    self.runtime_config.pause_lobby_previews_while_active
+                    and (self._claiming_players or self.has_active_session())
+                )
+                if should_pause:
                     await asyncio.sleep(0.05)
+                    continue
+                available = [
+                    (player_id, manager)
+                    for player_id, manager in self._players.items()
+                    if player_id not in self._claiming_players
+                    and not manager.has_active_session()
+                ]
+                if not available:
+                    await asyncio.sleep(0.05)
+                    continue
+                rendered = await asyncio.gather(
+                    *(
+                        render_player(player_id, manager)
+                        for player_id, manager in available
+                    )
+                )
+                if not any(rendered):
+                    await asyncio.sleep(0.1)
+                else:
+                    await asyncio.sleep(0)
         except asyncio.CancelledError:
             raise
 
@@ -1606,6 +2230,19 @@ class OmnidreamsMultiplayerSessionManager:
     ) -> None:
         self._player(player_id).set_pending_session_input(session_input)
 
+    async def reset_world(self) -> None:
+        """End active drives and reset every player slot as one world change."""
+        async with self._world_reset_lock:
+            # A reset invalidates every view, so clients reconnect against the
+            # same clean state instead of observing a mixture of old/new worlds.
+            for manager in self._players.values():
+                await manager.close_active_session()
+            self._synchronized_generation.reset()
+            for manager in self._players.values():
+                await manager._runtime.reset_for_new_session()
+            self._shared_world.reset()
+            self._preview_clocks = dict.fromkeys(self._players, 0.0)
+
     def player_descriptors(self) -> list[dict[str, object]]:
         descriptors: list[dict[str, object]] = []
         for player_id, manager in self._players.items():
@@ -1637,8 +2274,10 @@ class OmnidreamsMultiplayerSessionManager:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._preview_task
             self._preview_task = None
+        self._synchronized_generation.reset()
         for manager in self._players.values():
             await manager.shutdown()
+        self._shared_world.close()
 
     def wait_for_termination(self) -> None:
         next(iter(self._players.values())).wait_for_termination()

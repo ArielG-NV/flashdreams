@@ -419,8 +419,6 @@ class SlangPyPresenter:
             self._keyboard.set_view_mode("rgb")
         elif is_press and self._matches_key(event.key, "key3"):
             self._keyboard.set_view_mode("physx")
-        elif is_press and self._matches_key(event.key, "r"):
-            self._keyboard.request_reset()
 
     def _build_key_codes(self) -> dict[str, object | None]:
         return {
@@ -429,7 +427,6 @@ class SlangPyPresenter:
             "a": self._lookup_key_code("a"),
             "s": self._lookup_key_code("s"),
             "d": self._lookup_key_code("d"),
-            "r": self._lookup_key_code("r"),
             "up": self._lookup_key_code("up", "arrow_up"),
             "left": self._lookup_key_code("left", "arrow_left"),
             "down": self._lookup_key_code("down", "arrow_down"),

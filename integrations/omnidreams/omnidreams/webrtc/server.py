@@ -69,6 +69,20 @@ def _positive_int(value: str) -> int:
     return parsed
 
 
+def _player_devices(value: str) -> tuple[str, ...]:
+    devices = tuple(device.strip() for device in value.split(",") if device.strip())
+    if not devices:
+        raise argparse.ArgumentTypeError(
+            "player devices must be a comma-separated list such as cuda:0,cuda:1"
+        )
+    try:
+        for device in devices:
+            torch.device(device)
+    except (RuntimeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+    return devices
+
+
 class _OmnidreamsSessionManager(WebRTCSessionManager, Protocol):
     runtime_config: OmnidreamsRuntimeConfig
 
@@ -84,6 +98,8 @@ class _OmnidreamsSessionManager(WebRTCSessionManager, Protocol):
     def player_preview_jpeg(self, player_id: int) -> bytes | None: ...
 
     def map_geometry(self) -> dict[str, object]: ...
+
+    async def reset_world(self) -> None: ...
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -151,6 +167,44 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=_positive_int,
         default=1,
         help="Number of atomically claimable player slots to expose.",
+    )
+    parser.add_argument(
+        "--player-devices",
+        type=_player_devices,
+        default=(),
+        metavar="DEVICE,...",
+        help=(
+            "Optional one-device-per-player mapping, for example "
+            "'cuda:0,cuda:1'. Players on the same device serialize inference; "
+            "players on distinct devices can generate concurrently."
+        ),
+    )
+    parser.add_argument(
+        "--live-lobby-previews",
+        "--keep-lobby-previews-active",
+        dest="live_lobby_previews",
+        action="store_true",
+        help=(
+            "Continuously generate model-backed idle-player thumbnails. "
+            "The default lobby uses cached scene snapshots and consumes no "
+            "steady-state preview inference."
+        ),
+    )
+    parser.add_argument(
+        "--eager-control-chunks",
+        action="store_true",
+        help=(
+            "Sample each control chunk immediately using the latest held state "
+            "instead of waiting for its input window to close."
+        ),
+    )
+    parser.add_argument(
+        "--single-gpu-multiplayer",
+        action="store_true",
+        help=(
+            "Enable the one-GPU multiplayer preset: eager control chunks and "
+            "896x496 video when resolution is otherwise left at its default."
+        ),
     )
     parser.add_argument("--video_height", type=int, default=704)
     parser.add_argument("--video_width", type=int, default=1280)
@@ -273,16 +327,27 @@ async def _player_preview(request: web.Request) -> web.StreamResponse:
         raise web.HTTPNotFound(reason=str(exc)) from exc
     if jpeg is None:
         raise web.HTTPServiceUnavailable(reason="Player preview is warming up.")
+    cache_control = (
+        "no-store"
+        if getattr(manager.runtime_config, "live_lobby_previews", False)
+        else "private, max-age=300"
+    )
     return web.Response(
         body=jpeg,
         content_type="image/jpeg",
-        headers={"Cache-Control": "no-store"},
+        headers={"Cache-Control": cache_control},
     )
 
 
 async def _map_geometry(request: web.Request) -> web.StreamResponse:
     manager = _get_omnidreams_manager(request.app)
     return web.json_response(manager.map_geometry())
+
+
+async def _reset_world(request: web.Request) -> web.StreamResponse:
+    manager = _get_omnidreams_manager(request.app)
+    await manager.reset_world()
+    return web.json_response({"status": "reset"})
 
 
 async def _game_manager(_: web.Request) -> web.StreamResponse:
@@ -295,6 +360,7 @@ def _configure_app(app: web.Application) -> None:
     app.router.add_get("/api/players", _players)
     app.router.add_get("/api/players/{player_id}/preview.jpg", _player_preview)
     app.router.add_get("/api/map", _map_geometry)
+    app.router.add_post("/api/world/reset", _reset_world)
     app.router.add_get("/game-manager", _game_manager)
     app.router.add_get("/", _game_manager)
 
@@ -361,6 +427,19 @@ def build_runtime_config(
             video_width = manifest.resolution_wh[0]
         if not arg_was_explicit(args, "video_height"):
             video_height = manifest.resolution_wh[1]
+    player_count = getattr(args, "player_count", 1)
+    player_devices = getattr(args, "player_devices", ())
+    single_gpu_multiplayer = getattr(args, "single_gpu_multiplayer", False)
+    if single_gpu_multiplayer and player_count < 2:
+        raise ValueError("--single-gpu-multiplayer requires --player-count >= 2.")
+    if single_gpu_multiplayer and len(set(player_devices)) > 1:
+        raise ValueError(
+            "--single-gpu-multiplayer cannot be combined with distinct "
+            "--player-devices."
+        )
+
+    if single_gpu_multiplayer and (video_width, video_height) == (1280, 704):
+        video_width, video_height = 896, 496
 
     return OmnidreamsRuntimeConfig(
         pipeline_config_name=pipeline_config_name,
@@ -374,7 +453,18 @@ def build_runtime_config(
         video_height=video_height,
         video_width=video_width,
         fps=fps,
-        player_count=getattr(args, "player_count", 1),
+        player_count=player_count,
+        player_devices=player_devices,
+        live_lobby_previews=getattr(args, "live_lobby_previews", False),
+        pause_lobby_previews_while_active=getattr(
+            args,
+            "pause_lobby_previews_while_active",
+            True,
+        ),
+        eager_control_chunks=(
+            getattr(args, "eager_control_chunks", False)
+            or single_gpu_multiplayer
+        ),
         camera_name=args.camera_name,
         warmup_chunks=args.warmup_chunks,
         warmup_timeout_s=args.warmup_timeout_s,

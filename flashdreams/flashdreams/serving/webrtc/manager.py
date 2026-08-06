@@ -255,6 +255,10 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             label="peek_steady_chunk_num_frames",
         )
 
+    def _eager_control_chunks(self) -> bool:
+        """Return whether control chunks sample before their windows end."""
+        return bool(getattr(self.runtime_config, "eager_control_chunks", False))
+
     def _register_extra_peer_handlers(self, peer_connection: Any) -> None:
         """Register optional extra peer-connection event handlers."""
 
@@ -770,12 +774,15 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                 except self._runtime_error_types:
                     logger.exception("Runtime not ready; stopping generation worker.")
                     return
-                # Trigger when wallclock reaches the chunk's window end.
+                # The reference path collects the complete control window.
                 chunk_duration = input_num_frames * resampler.dt
-                trigger_wall = resampler.next_chunk_start_v + chunk_duration
-                delay = trigger_wall - loop.time()
-                if delay > 0:
-                    await asyncio.sleep(delay)
+                input_wait_started = loop.time()
+                if not self._eager_control_chunks():
+                    trigger_wall = resampler.next_chunk_start_v + chunk_duration
+                    delay = trigger_wall - loop.time()
+                    if delay > 0:
+                        await asyncio.sleep(delay)
+                input_wait_ms = (loop.time() - input_wait_started) * 1e3
                 if managed_session.closed:
                     break
 
@@ -846,11 +853,14 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                     logger.info(
                         "WebRTC perf chunk={} interval_chunks={} frames={} "
                         "gen_fps={:.1f} interval_fps={:.1f} playback_fps={} "
-                        "gen_ms={:.0f} enqueue_ms={:.0f} model_ms={:.0f} "
+                        "input_wait_ms={:.0f} gen_ms={:.0f} enqueue_ms={:.0f} "
+                        "model_ms={:.0f} "
                         "denoise_ms={:.0f} decode_ms={:.0f} pixel_post_ms={:.0f} "
                         "copy_ms={:.0f} cache_ms={:.0f} "
                         "cache_wait_ms={:.0f} cache_submit_ms={:.0f} "
+                        "physics_wait_ms={:.0f} inference_wait_ms={:.0f} "
                         "queue_depth={} lag_ms={:.0f} control_latency_ms={} "
+                        "eager_control={} "
                         "compile_active={} compile_start_step={} cuda_graph={} "
                         "cache_frames={} cache_tokens={}",
                         result.chunk_index,
@@ -859,6 +869,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                         gen_fps,
                         interval_fps,
                         video_track.fps,
+                        input_wait_ms,
                         gen_ms,
                         enqueue_ms,
                         _stat_ms(stats, "model_step_s", gen_ms),
@@ -869,11 +880,14 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                         _stat_ms(stats, "cache_seed_prune_s"),
                         _stat_ms(stats, "cache_update_wait_s"),
                         _stat_ms(stats, "cache_update_submit_s"),
+                        _stat_ms(stats, "shared_physics_wait_s"),
+                        _stat_ms(stats, "inference_queue_wait_s"),
                         video_track.qsize(),
                         lag_ms,
                         "-"
                         if control_latency_ms is None
                         else f"{control_latency_ms:.0f}",
+                        int(self._eager_control_chunks()),
                         _stat_int(stats, "compile_denoise_active"),
                         _stat_int(stats, "compile_denoise_start_step"),
                         _stat_int(stats, "cuda_graph_captured"),

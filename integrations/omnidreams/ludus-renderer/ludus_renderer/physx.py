@@ -184,12 +184,9 @@ class PhysXWorld:
         max_actor_drive_speed_mps: float | None = None,
         capacity: int | None = None,
     ) -> None:
-        if (
-            max_actor_drive_speed_mps is not None
-            and (
-                not math.isfinite(max_actor_drive_speed_mps)
-                or max_actor_drive_speed_mps <= 0.0
-            )
+        if max_actor_drive_speed_mps is not None and (
+            not math.isfinite(max_actor_drive_speed_mps)
+            or max_actor_drive_speed_mps <= 0.0
         ):
             raise ValueError("max_actor_drive_speed_mps must be finite and positive")
         native = load_native_physx()
@@ -205,6 +202,8 @@ class PhysXWorld:
         self._slot_object_ids: dict[int, str] = {}
         self._object_native_ids: dict[str, int] = {}
         self._object_collision_active: dict[str, bool] = {}
+        self._controlled_body_slots: dict[str, int] = {}
+        self._controlled_body_native_ids: dict[str, int] = {}
         self._track_drive_enabled: dict[str, bool] = {}
         self._detached_object_ids: set[str] = set()
         self._barriers: dict[str, InvisibleBarrier] = {}
@@ -234,6 +233,76 @@ class PhysXWorld:
             self.add_object(scene_object)
         for index, barrier in enumerate(graph.barriers):
             self.add_barrier(barrier.barrier_id or f"barrier-{index}", barrier)
+
+    def bind_ego_controlled_body(self, object_id: str) -> None:
+        """Expose the scene's built-in ego chassis as a controlled player."""
+        if self._controlled_body_slots:
+            raise RuntimeError("the ego body must be bound before adding other players")
+        if object_id in self._objects:
+            raise ValueError(f"body {object_id!r} already exists")
+        self._controlled_body_slots[object_id] = self._ego_slot
+        self._controlled_body_native_ids[object_id] = _EGO_BODY_ID
+        self._half_extents_buffer[self._ego_slot] = np.asarray(
+            self.ego_model.half_extents_m, dtype=np.float32
+        )
+
+    def add_controlled_body(
+        self,
+        object_id: str,
+        model: RigidBodyModel,
+        state: BodyState,
+    ) -> None:
+        """Add a player-controlled dynamic body to the shared scene.
+
+        Controlled bodies have no recorded track. Their drive intent is
+        supplied together through :meth:`step_controlled`, which performs one
+        native scene simulation after updating every player.
+        """
+        if object_id in self._controlled_body_slots or object_id in self._objects:
+            raise ValueError(f"body {object_id!r} already exists")
+        native_id = _native_id(f"controlled:{object_id}")
+        slot = self._add_body(
+            native_id,
+            model,
+            state,
+            False,
+            True,
+            None,
+        )
+        self._controlled_body_slots[object_id] = slot
+        self._controlled_body_native_ids[object_id] = native_id
+        self._half_extents_buffer[slot] = np.asarray(
+            model.half_extents_m, dtype=np.float32
+        )
+
+    def step_controlled(
+        self,
+        states: dict[str, BodyState],
+        dt_s: float,
+    ) -> dict[str, BodyState]:
+        """Advance all controlled bodies with exactly one native PhysX pass."""
+        if self._closed:
+            raise RuntimeError("PhysX world is closed")
+        expected = set(self._controlled_body_slots)
+        if set(states) != expected:
+            raise ValueError(
+                "controlled body states must exactly match registered bodies; "
+                f"expected={sorted(expected)}, got={sorted(states)}"
+            )
+        for object_id, state in states.items():
+            pose, linear, angular = _state_arrays(state)
+            self._scene.update_body(
+                self._controlled_body_native_ids[object_id],
+                pose,
+                linear,
+                angular,
+                False,
+            )
+        self._scene.step(float(dt_s))
+        return {
+            object_id: _body_state(self._state_buffer[slot])
+            for object_id, slot in self._controlled_body_slots.items()
+        }
 
     @property
     def state_buffer(self) -> np.ndarray:
@@ -270,7 +339,9 @@ class PhysXWorld:
 
     def set_track_drive_enabled(self, object_id: str, enabled: bool) -> None:
         """Enable or suppress the tracked body's driving actuator."""
-        self.apply_track_controls(((object_id, enabled, self._objects[object_id].detached),))
+        self.apply_track_controls(
+            ((object_id, enabled, self._objects[object_id].detached),)
+        )
 
     def set_detached(self, object_id: str, detached: bool) -> None:
         """Publish the integration-owned track attachment state to PhysX."""

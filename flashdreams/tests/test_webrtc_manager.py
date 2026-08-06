@@ -308,6 +308,57 @@ async def test_chunk_done_payload_includes_model_and_extra() -> None:
     assert payload["resolution"] == {"width": 8, "height": 4}
 
 
+@pytest.mark.parametrize(
+    ("eager_control_chunks", "expected_sleep_count"),
+    [(False, 1), (True, 0)],
+)
+@pytest.mark.asyncio
+async def test_generation_worker_can_sample_controls_without_window_wait(
+    monkeypatch: pytest.MonkeyPatch,
+    eager_control_chunks: bool,
+    expected_sleep_count: int,
+) -> None:
+    sleep_delays: list[float] = []
+
+    async def record_sleep(delay: float) -> None:
+        sleep_delays.append(delay)
+
+    class _DelayedResampler(_FakeResampler):
+        dt = 0.25
+
+    class _OneChunkRuntime:
+        def __init__(self) -> None:
+            self.managed_session: ManagedWebRTCSession | None = None
+
+        def peek_next_chunk_num_frames(self) -> int:
+            return 1
+
+        async def generate_chunk(
+            self, *, segments: Any, frame_times: Any
+        ) -> WebRTCStepResult:
+            del segments, frame_times
+            assert self.managed_session is not None
+            self.managed_session.closed = True
+            return WebRTCStepResult(
+                chunk_index=0,
+                num_frames=1,
+                video_chunk=torch.zeros((1, 1, 1, 3, 2, 2), dtype=torch.uint8),
+                stats=None,
+            )
+
+    monkeypatch.setattr(manager_module.asyncio, "sleep", record_sleep)
+    runtime = _OneChunkRuntime()
+    manager = _make_manager(_BaseTestManager, runtime)
+    manager.runtime_config.eager_control_chunks = eager_control_chunks
+    managed, _video_track, _peer, _channel = _managed_session(runtime)
+    managed.resampler = _DelayedResampler()  # ty:ignore[invalid-assignment]
+    runtime.managed_session = managed
+
+    await manager._generation_worker(managed_session=managed)
+
+    assert len(sleep_delays) == expected_sleep_count
+
+
 @pytest.mark.asyncio
 async def test_generation_worker_uses_split_input_and_output_frame_counts() -> None:
     class _SplitResampler:
@@ -438,6 +489,9 @@ async def test_generation_worker_logs_periodic_perf_stats(
     assert "compile_active" in perf_logs[0][0]
     assert "pixel_post_ms" in perf_logs[0][0]
     assert "copy_ms" in perf_logs[0][0]
+    assert "input_wait_ms" in perf_logs[0][0]
+    assert "physics_wait_ms" in perf_logs[0][0]
+    assert "inference_wait_ms" in perf_logs[0][0]
     assert perf_logs[0][1][-2:] == (13, 512)
 
 

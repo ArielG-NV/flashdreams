@@ -21,6 +21,7 @@ const bevCanvas = document.getElementById("bevCanvas")
 const lobbyStatus = document.getElementById("lobbyStatus")
 const driveStage = document.getElementById("driveStage")
 const gameManager = document.getElementById("gameManager")
+const resetWorldButton = document.getElementById("resetWorldButton")
 
 const allowedKeys = new Set(["w", "a", "s", "d"])
 const keyAliases = new Map([
@@ -49,7 +50,7 @@ let heldKeySequence = 0
 let postprocessControlAvailable = false
 let selectedPlayerId = null
 let playerPollTimer = null
-let previewPollTimer = null
+let idleAnimationFrame = null
 let playerDescriptors = []
 let mapGeometry = null
 
@@ -63,6 +64,7 @@ function enterDriveView(playerId) {
     `#play/player/${playerId}`
   )
   driveStage.focus({ preventScroll: true })
+  startIdleAnimation()
 }
 
 function exitDriveView({ updateHistory = true } = {}) {
@@ -73,6 +75,7 @@ function exitDriveView({ updateHistory = true } = {}) {
     window.history.replaceState({}, "", window.location.pathname + window.location.search)
   }
   window.scrollTo({ top: 0, behavior: "instant" })
+  void refreshPlayers()
 }
 
 const metrics = {
@@ -217,8 +220,8 @@ function createPlayerTile(player) {
 
   const preview = document.createElement("img")
   preview.className = "playerPreview"
-  preview.alt = `${player.label} live perspective`
-  preview.src = `${player.preview_url}?t=${Date.now()}`
+  preview.alt = `${player.label} perspective snapshot`
+  preview.src = player.preview_url
 
   const shade = document.createElement("div")
   shade.className = "playerShade"
@@ -376,12 +379,20 @@ async function refreshPlayers() {
   }
 }
 
-function refreshPreviewImages() {
-  for (const image of playerGrid.querySelectorAll(".playerPreview")) {
-    const playerId = image.closest(".playerTile")?.dataset.playerId
-    if (playerId) {
-      image.src = `/api/players/${playerId}/preview.jpg?t=${Date.now()}`
-    }
+async function resetSharedWorld() {
+  if (!window.confirm("Reset the shared world for every player? All active drives will reconnect.")) {
+    return
+  }
+  resetWorldButton.disabled = true
+  try {
+    const response = await fetch("/api/world/reset", { method: "POST" })
+    if (!response.ok) throw new Error(`world reset failed (${response.status})`)
+    logEvent("shared world reset", { source: "server" })
+    await refreshPlayers()
+  } catch (error) {
+    logEvent(error.message, { source: "server", level: "error" })
+  } finally {
+    resetWorldButton.disabled = false
   }
 }
 
@@ -492,8 +503,16 @@ function drawRouteRibbon(ctx, width, height, t) {
 }
 
 function drawIdleScene(now) {
+  if (
+    driveStage.classList.contains("isHidden")
+    || document.body.classList.contains("has-video")
+  ) {
+    idleAnimationFrame = null
+    return
+  }
   const ctx = idleCanvas.getContext("2d")
   if (!ctx) {
+    idleAnimationFrame = null
     return
   }
 
@@ -588,7 +607,13 @@ function drawIdleScene(now) {
   if (!document.body.classList.contains("has-video")) {
     recordFrame(now)
   }
-  window.requestAnimationFrame(drawIdleScene)
+  idleAnimationFrame = window.requestAnimationFrame(drawIdleScene)
+}
+
+function startIdleAnimation() {
+  if (idleAnimationFrame === null) {
+    idleAnimationFrame = window.requestAnimationFrame(drawIdleScene)
+  }
 }
 
 function recordFrame(timestamp) {
@@ -1133,14 +1158,16 @@ function initialize() {
   setFlow("waiting")
   renderMetrics()
   attachPointerControls()
-  window.requestAnimationFrame(drawIdleScene)
   startVideoFrameMonitor()
   void refreshPlayers()
   void loadMapGeometry().catch((error) => {
     logEvent(`BEV map unavailable: ${error.message}`, { source: "server", level: "error" })
   })
-  playerPollTimer = window.setInterval(refreshPlayers, 1000)
-  previewPollTimer = window.setInterval(refreshPreviewImages, 250)
+  playerPollTimer = window.setInterval(() => {
+    if (!gameManager.classList.contains("isHidden") && !document.hidden) {
+      void refreshPlayers()
+    }
+  }, 2000)
   void loadPostprocessOptions().catch((error) => {
     logEvent(`post-process options unavailable: ${error.message}`, {
       source: "client",
@@ -1152,6 +1179,9 @@ function initialize() {
 connectButton.addEventListener("click", () => {
   void connectSession(selectedPlayerId || 1)
 })
+resetWorldButton.addEventListener("click", () => {
+  void resetSharedWorld()
+})
 remoteVideo.addEventListener("loadedmetadata", updateMetricsFromVideo)
 remoteVideo.addEventListener("playing", () => {
   setVideoVisible(true)
@@ -1159,6 +1189,7 @@ remoteVideo.addEventListener("playing", () => {
 })
 remoteVideo.addEventListener("emptied", () => {
   setVideoVisible(false)
+  startIdleAnimation()
 })
 window.addEventListener("keydown", handleKeyDown)
 window.addEventListener("keyup", handleKeyUp)
@@ -1168,9 +1199,17 @@ window.addEventListener("popstate", () => {
     disconnectSession()
   }
 })
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && !gameManager.classList.contains("isHidden")) {
+    void refreshPlayers()
+  }
+})
 window.addEventListener("pagehide", () => {
   if (playerPollTimer !== null) window.clearInterval(playerPollTimer)
-  if (previewPollTimer !== null) window.clearInterval(previewPollTimer)
+  if (idleAnimationFrame !== null) {
+    window.cancelAnimationFrame(idleAnimationFrame)
+    idleAnimationFrame = null
+  }
   disconnectSession()
 })
 window.addEventListener("beforeunload", () => {

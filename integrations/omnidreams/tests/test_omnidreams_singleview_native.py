@@ -153,6 +153,7 @@ def test_load_extension_uses_build_root_for_torch_cache(
     monkeypatch.setattr(cpp_extension, "load", fake_load_torch_extension)
     monkeypatch.setattr(native.os, "cpu_count", lambda: 48)
     monkeypatch.setattr(native, "_python_package_dir", lambda package: None)
+    monkeypatch.setattr(native, "_detected_cuda_arch_list", lambda: "12.0a")
     monkeypatch.delenv("MAX_JOBS", raising=False)
     monkeypatch.delenv("TORCH_CUDA_ARCH_LIST", raising=False)
     monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", raising=False)
@@ -413,6 +414,96 @@ def test_extension_name_isolated_by_sage3_build_opt_out(
     assert stubbed_name != full_name
     assert "_sage3_1_" in full_name
     assert "_sage3_0_" in stubbed_name
+
+
+@pytest.mark.ci_cpu
+@pytest.mark.parametrize(
+    ("capability", "expected"),
+    [
+        ((8, 9), "8.9"),
+        ((10, 0), "10.0a"),
+        ((10, 3), "10.3a"),
+        ((12, 0), "12.0a"),
+    ],
+)
+def test_detected_cuda_arch_list_tracks_active_device(
+    capability: tuple[int, int],
+    expected: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda: capability)
+
+    assert native._detected_cuda_arch_list() == expected
+
+
+@pytest.mark.ci_cpu
+def test_extension_name_isolated_by_cuda_architecture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TORCH_CUDA_ARCH_LIST", raising=False)
+    thirdparty_info = _fake_thirdparty_info(tmp_path)
+    monkeypatch.setattr(native, "_source_fingerprint", lambda: "fixed-fingerprint")
+    monkeypatch.setenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", "12.0a")
+    sm120_name = native._extension_name(thirdparty_info)
+
+    monkeypatch.setenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", "10.3a")
+    sm103_name = native._extension_name(thirdparty_info)
+
+    assert sm103_name != sm120_name
+
+
+@pytest.mark.ci_cpu
+def test_cuda13_toolkit_root_prefers_newest_discovered_toolkit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cuda_13_1 = tmp_path / "cuda-13.1"
+    cuda_13_3 = tmp_path / "cuda-13.3"
+    for toolkit in (cuda_13_1, cuda_13_3):
+        (toolkit / "bin").mkdir(parents=True)
+        (toolkit / "bin" / "nvcc").touch()
+
+    monkeypatch.setattr(native.shutil, "which", lambda _name: None)
+    monkeypatch.setenv("CUDA_HOME", str(cuda_13_1))
+    monkeypatch.setattr(
+        native.Path,
+        "glob",
+        lambda self, pattern: (
+            [cuda_13_3 / "bin" / "nvcc"] if str(self) == "/usr/local" else []
+        ),
+    )
+
+    def fake_run(command: list[str], **_: object) -> SimpleNamespace:
+        version = "13.3" if "13.3" in command[0] else "13.1"
+        return SimpleNamespace(
+            stdout=f"Cuda compilation tools, release {version}, V0", stderr=""
+        )
+
+    monkeypatch.setattr(native.subprocess, "run", fake_run)
+
+    assert native._cuda13_toolkit_root() == cuda_13_3
+
+
+@pytest.mark.ci_cpu
+def test_scoped_cuda_toolkit_updates_and_restores_builder_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    toolkit = tmp_path / "cuda-13.3"
+    cpp_extension = SimpleNamespace(CUDA_HOME="/old/cuda")
+    monkeypatch.setenv("CUDA_HOME", "/old/cuda")
+    monkeypatch.setenv("PATH", "/usr/bin")
+
+    with native._scoped_cuda_toolkit(toolkit, cpp_extension):
+        assert os.environ["CUDA_HOME"] == str(toolkit)
+        assert os.environ["PATH"].startswith(f"{toolkit / 'bin'}{os.pathsep}")
+        assert cpp_extension.CUDA_HOME == str(toolkit)
+
+    assert os.environ["CUDA_HOME"] == "/old/cuda"
+    assert os.environ["PATH"] == "/usr/bin"
+    assert cpp_extension.CUDA_HOME == "/old/cuda"
 
 
 @pytest.mark.ci_cpu

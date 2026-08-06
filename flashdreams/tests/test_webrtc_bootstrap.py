@@ -14,8 +14,14 @@ pytestmark = pytest.mark.ci_cpu
 def test_initialize_cuda_distributed_single_process_uses_default_device(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("RANK", raising=False)
-    monkeypatch.delenv("WORLD_SIZE", raising=False)
+    monkeypatch.setenv("RANK", "0")
+    monkeypatch.setenv("WORLD_SIZE", "1")
+
+    init_calls = 0
+
+    def _fake_distributed_init() -> None:
+        nonlocal init_calls
+        init_calls += 1
 
     set_device_calls: list[torch.device] = []
     logging_ranks: list[int | None] = []
@@ -28,6 +34,7 @@ def test_initialize_cuda_distributed_single_process_uses_default_device(
     )
 
     context = bootstrap.initialize_cuda_distributed(
+        distributed_init_fn=_fake_distributed_init,
         default_device="cuda:2",
         configure_logging_fn=lambda *, world_rank: logging_ranks.append(world_rank),
     )
@@ -35,6 +42,7 @@ def test_initialize_cuda_distributed_single_process_uses_default_device(
     assert context.device == torch.device("cuda:2")
     assert context.world_rank == 0
     assert context.world_size == 1
+    assert init_calls == 0
     assert set_device_calls == [torch.device("cuda:2")]
     assert logging_ranks == [0]
 

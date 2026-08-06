@@ -153,6 +153,117 @@ MJPEG and WebRTC affect video delivery after a frame exists. If the model is
 still spending most of the time inside each chunk, use the perf manifest,
 resolution, and native-acceleration knobs first.
 
+Multiplayer contention and latency
+----------------------------------
+
+Each multiplayer slot owns a complete stateful OmniDreams pipeline, renderer,
+autoregressive cache, and WebRTC track. This has two important consequences:
+
+- Two players on the same GPU cannot safely interleave their stateful model
+  steps. Their runtimes share a per-device lock and execute serially.
+- A lobby preview is not a cheap thumbnail render. Refreshing one runs the same
+  HDMap, DiT, decode, and host-transfer path as a normal neutral-input chunk.
+
+The default lobby uses one cached scene snapshot per player. It does
+not start the model-backed preview worker or poll thumbnails, so idle time adds
+no steady-state HDMap, DiT, decode, JPEG, or preview-transfer work. Player
+availability and the lightweight BEV refresh every two seconds only while the
+lobby is visible; the hidden drive canvas does not animate.
+
+``--live-lobby-previews`` restores continuous idle-player generation for
+comparison or lobby-first deployments; ``--keep-lobby-previews-active`` remains
+a compatibility alias. Live previews pause while a player is active unless the
+runtime pause setting is explicitly disabled.
+
+One-GPU multiplayer preset
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use the opt-in preset when two or more players must share one GPU:
+
+.. code-block:: bash
+
+   uv run --package flashdreams-omnidreams torchrun --nproc_per_node 1 \
+       -m omnidreams.webrtc.server \
+       --pipeline_config_name omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
+       --player-count 2 \
+       --single-gpu-multiplayer
+
+The preset applies two independent latency controls:
+
+- When both resolution arguments remain at their defaults, lower resolution
+  from ``1280x704`` to the tested aspect-compatible ``896x496``. This is
+  about half the pixels per player, reducing HDMap, DiT, decode, host-transfer,
+  and WebRTC payload work with the expected image-detail tradeoff.
+- Enable eager control chunks. The generation worker samples the latest held
+  state and starts model work immediately instead of waiting for the 8-frame
+  input window to close. Key changes arriving after that sample affect the next
+  chunk, so this trades within-chunk control capture for lower response latency.
+
+Omit the preset to retain the full-resolution, window-complete reference path.
+Use ``--eager-control-chunks`` with explicit
+``--video_width``/``--video_height`` values to sweep the scheduler and
+resolution independently. The output remains ordered; the preset does not drop
+generated frames.
+
+Validation status: **Useful opt-in** pending a target-GPU benchmark and moving
+rollout smoke test. CPU tests verify flag construction, resolution overrides,
+window-wait bypass, fallback behavior, and ordered frame handoff. No GPU FPS or
+p90 latency number was measured here.
+
+For two simultaneous drivers, assign a dedicated GPU to each player:
+
+.. code-block:: bash
+
+   uv run --package flashdreams-omnidreams torchrun --nproc_per_node 1 \
+       -m omnidreams.webrtc.server \
+       --pipeline_config_name omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
+       --player-count 2 \
+       --player-devices cuda:0,cuda:1
+
+Without ``--player-devices``, every player uses ``--device`` (default
+``cuda:0``) and active model steps serialize. ``torchrun
+--nproc_per_node 1`` does not add inference parallelism; it still launches one
+server process.
+
+The ``WebRTC perf`` line reports the boundaries needed to distinguish model
+cost from multiplayer scheduling and transport:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 28 72
+
+   * - Field
+     - Meaning
+   * - ``input_wait_ms``
+     - Time collecting the control window before generation; near zero when
+       eager control chunks are active.
+   * - ``model_ms``
+     - Time executing one runtime chunk after its device lock is acquired.
+   * - ``inference_wait_ms``
+     - Time queued behind another runtime on the same device. Sustained values
+       near another player's ``model_ms`` identify device contention.
+   * - ``physics_wait_ms``
+     - Time waiting for the shared multiplayer control batch. One missing or
+       later player can add up to one 30 FPS frame (about 33 ms).
+   * - ``enqueue_ms`` and ``queue_depth``
+     - Time blocked on the bounded WebRTC frame queue and its remaining depth.
+   * - ``control_latency_ms`` and ``lag_ms``
+     - End-to-end control-to-enqueue delay and virtual-clock lag.
+
+At 30 FPS, the supported 8-frame steady-state chunk spans about 267 ms. The
+reference scheduler closes that input window before starting the chunk, so
+model compute, device contention, and queue backpressure add on top of that
+control-window granularity. Eager control chunks bypass the pre-generation
+wait, but later within-window control changes apply to the following chunk.
+WebRTC improves delivery after generation; it cannot remove chunked output.
+
+Validation status: CPU regression tests cover scheduler suspension, device-lock
+assignment, timing metadata, and the legacy-preview fallback. Target-GPU FPS,
+p90 latency, warmup, and rollout-quality measurements were not run here.
+Dedicated player devices are therefore a useful opt-in pending those target
+hardware measurements. Same-GPU simultaneous players remain supported but
+throughput-limited.
+
 Profiling and validated reference
 ---------------------------------
 

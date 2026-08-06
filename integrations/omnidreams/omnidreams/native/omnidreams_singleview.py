@@ -58,7 +58,7 @@ _PYTORCH_CUDA_ARCH_LIST_ENV = "TORCH_CUDA_ARCH_LIST"
 _DEFAULT_CUDA_ARCH_LIST = "12.0a"
 
 _native_build_module: ModuleType | None = None
-_extension: dict[bool, ModuleType] = {}
+_extension: dict[tuple[bool, str], ModuleType] = {}
 _extension_load_error: Exception | None = None
 _state_lock = threading.RLock()
 _dll_directory_handles: list[object] = []
@@ -244,10 +244,49 @@ def _nvcc_release(output: str) -> tuple[int, int] | None:
         return None
 
 
-def _ensure_windows_cuda13_toolkit() -> None:
+def _cuda13_toolkit_root() -> Path | None:
+    nvcc_name = "nvcc.exe" if os.name == "nt" else "nvcc"
+    candidates: list[Path] = []
+    if nvcc := shutil.which(nvcc_name) or shutil.which("nvcc"):
+        candidates.append(Path(nvcc))
+    if cuda_home := os.environ.get("CUDA_HOME"):
+        candidates.append(Path(cuda_home) / "bin" / nvcc_name)
     if os.name != "nt":
-        return
+        for parent in (Path("/usr/local"), Path("/opt")):
+            candidates.extend(parent.glob(f"cuda-13*/bin/{nvcc_name}"))
+
+    matches: list[tuple[tuple[int, int], Path]] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        candidate = candidate.resolve()
+        if candidate in seen or not candidate.is_file():
+            continue
+        seen.add(candidate)
+        try:
+            result = subprocess.run(
+                [str(candidate), "--version"],
+                check=True,
+                capture_output=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        except (OSError, subprocess.CalledProcessError):
+            continue
+        release = _nvcc_release(result.stdout + result.stderr)
+        if release is not None and release[0] >= 13:
+            matches.append((release, candidate.parent.parent))
+    if not matches:
+        return None
+    return max(matches)[1]
+
+
+def _ensure_cuda13_toolkit() -> Path | None:
+    toolkit_root = _cuda13_toolkit_root()
+    if toolkit_root is not None:
+        return toolkit_root
     nvcc = shutil.which("nvcc.exe") or shutil.which("nvcc")
+    if os.name != "nt":
+        return None
     if nvcc is None:
         raise RuntimeError(
             "OmniDreams native Windows builds require a full CUDA 13 toolkit "
@@ -263,8 +302,6 @@ def _ensure_windows_cuda13_toolkit() -> None:
     )
     output = result.stdout + result.stderr
     release = _nvcc_release(output)
-    if release is not None and release[0] >= 13:
-        return
     found = f"{release[0]}.{release[1]}" if release is not None else "unknown"
     raise RuntimeError(
         "OmniDreams native Windows builds require CUDA 13 nvcc.exe. "
@@ -272,6 +309,38 @@ def _ensure_windows_cuda13_toolkit() -> None:
         "enough for native extension compilation; install the full CUDA 13 "
         "toolkit and put its bin directory first on PATH."
     )
+
+
+@contextlib.contextmanager
+def _scoped_cuda_toolkit(
+    toolkit_root: Path | None,
+    cpp_extension: Any,
+) -> Iterator[None]:
+    if toolkit_root is None:
+        yield
+        return
+
+    previous_cuda_home = os.environ.get("CUDA_HOME")
+    previous_path = os.environ.get("PATH")
+    previous_cpp_cuda_home = cpp_extension.CUDA_HOME
+    toolkit_bin = str(toolkit_root / "bin")
+    os.environ["CUDA_HOME"] = str(toolkit_root)
+    os.environ["PATH"] = os.pathsep.join(
+        [toolkit_bin, *(previous_path or "").split(os.pathsep)]
+    ).rstrip(os.pathsep)
+    cpp_extension.CUDA_HOME = str(toolkit_root)
+    try:
+        yield
+    finally:
+        cpp_extension.CUDA_HOME = previous_cpp_cuda_home
+        if previous_cuda_home is None:
+            os.environ.pop("CUDA_HOME", None)
+        else:
+            os.environ["CUDA_HOME"] = previous_cuda_home
+        if previous_path is None:
+            os.environ.pop("PATH", None)
+        else:
+            os.environ["PATH"] = previous_path
 
 
 def _cudnn_include_dir(cudnn_package_dir: Path | None) -> Path | None:
@@ -435,10 +504,12 @@ def _source_fingerprint() -> str:
 
 def _extension_name(thirdparty_info: dict[str, Any]) -> str:
     has_sage3 = int(not _sage3_disabled())
+    cuda_arch_list = _effective_cuda_arch_list()
     digest = hashlib.sha256()
     digest.update(_source_fingerprint().encode("ascii"))
     digest.update(json.dumps(thirdparty_info, sort_keys=True).encode("utf-8"))
     digest.update(f"sage3={has_sage3}".encode("ascii"))
+    digest.update(f"cuda_arch_list={cuda_arch_list}".encode("ascii"))
     return f"omnidreams_singleview_native_sage3_{has_sage3}_{digest.hexdigest()[:12]}"
 
 
@@ -463,16 +534,39 @@ def _resolved_max_jobs(max_jobs: int | str | None) -> str | None:
     return str(min(os.cpu_count() or 1, _DEFAULT_MAX_JOBS_CAP))
 
 
+def _detected_cuda_arch_list() -> str:
+    """Return the native target for the active CUDA device.
+
+    The optimized kernels use architecture-specific Blackwell instructions, so
+    compiling the historical ``12.0a`` default for a datacenter Blackwell GPU
+    such as GB300 (compute capability 10.3) can load successfully but fail at
+    runtime. Keep the legacy target as the no-CUDA fallback used by build-only
+    hosts, while selecting the active device's architecture when CUDA is
+    available.
+    """
+
+    try:
+        import torch
+    except ImportError:
+        return _DEFAULT_CUDA_ARCH_LIST
+
+    if not torch.cuda.is_available():
+        return _DEFAULT_CUDA_ARCH_LIST
+    major, minor = torch.cuda.get_device_capability()
+    suffix = "a" if major >= 10 else ""
+    return f"{major}.{minor}{suffix}"
+
+
 def _resolved_cuda_arch_list() -> str | None:
     if os.environ.get(_PYTORCH_CUDA_ARCH_LIST_ENV):
         return None
-    return os.environ.get(_NATIVE_CUDA_ARCH_LIST_ENV, _DEFAULT_CUDA_ARCH_LIST)
+    return os.environ.get(_NATIVE_CUDA_ARCH_LIST_ENV, _detected_cuda_arch_list())
 
 
 def _effective_cuda_arch_list() -> str:
     return os.environ.get(
         _PYTORCH_CUDA_ARCH_LIST_ENV,
-        os.environ.get(_NATIVE_CUDA_ARCH_LIST_ENV, _DEFAULT_CUDA_ARCH_LIST),
+        os.environ.get(_NATIVE_CUDA_ARCH_LIST_ENV, _detected_cuda_arch_list()),
     )
 
 
@@ -541,14 +635,16 @@ def load_extension(
     global _extension, _extension_load_error
     with _state_lock:
         sage3_disabled = _sage3_disabled()
-        if (extension := _extension.get(sage3_disabled)) is not None:
+        cuda_arch_list = _effective_cuda_arch_list()
+        cache_key = (sage3_disabled, cuda_arch_list)
+        if (extension := _extension.get(cache_key)) is not None:
             return extension
         _extension_load_error = None
 
         try:
-            _ensure_windows_cuda13_toolkit()
+            toolkit_root = _ensure_cuda13_toolkit()
 
-            from torch.utils.cpp_extension import load as load_torch_extension
+            import torch.utils.cpp_extension as cpp_extension
 
             thirdparty_info = validate_thirdparty()
             extension_name = _extension_name(thirdparty_info)
@@ -570,8 +666,12 @@ def load_extension(
             extension_build_dir.mkdir(parents=True, exist_ok=True)
             _add_windows_cuda_dll_directories(cudnn_package_dir)
 
-            with _scoped_torch_max_jobs(max_jobs), _scoped_cuda_arch_list():
-                _extension[sage3_disabled] = load_torch_extension(
+            with (
+                _scoped_cuda_toolkit(toolkit_root, cpp_extension),
+                _scoped_torch_max_jobs(max_jobs),
+                _scoped_cuda_arch_list(),
+            ):
+                _extension[cache_key] = cpp_extension.load(
                     name=extension_name,
                     sources=[str(source) for source in _extension_sources()],
                     build_directory=str(extension_build_dir),
@@ -677,7 +777,7 @@ def load_extension(
         except Exception as exc:  # pragma: no cover - environment-specific build path
             _extension_load_error = exc
             return None
-        return _extension[sage3_disabled]
+        return _extension[cache_key]
 
 
 def extension_load_error() -> Exception | None:

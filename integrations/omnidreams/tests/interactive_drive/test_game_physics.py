@@ -120,9 +120,7 @@ def _fast_moving_track() -> WorldVehicleBBoxTrack:
         centers_world=np.asarray(
             [[20.0, 0.0, 0.8], [220.0, 0.0, 0.8]], dtype=np.float32
         ),
-        dimensions_lwh=np.asarray(
-            [[4.0, 1.9, 1.6], [4.0, 1.9, 1.6]], dtype=np.float32
-        ),
+        dimensions_lwh=np.asarray([[4.0, 1.9, 1.6], [4.0, 1.9, 1.6]], dtype=np.float32),
         orientations_xyzw=np.asarray(
             [[0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0]], dtype=np.float32
         ),
@@ -192,9 +190,7 @@ def test_visual_flare_ignores_side_swipe_that_only_adds_lateral_velocity() -> No
     assert not _is_visual_flare_impact(
         True,
         before_velocity_mps=np.asarray([20.0 * mph_to_mps, 0.0, 0.0]),
-        after_velocity_mps=np.asarray(
-            [20.0 * mph_to_mps, 5.0 * mph_to_mps, 0.0]
-        ),
+        after_velocity_mps=np.asarray([20.0 * mph_to_mps, 5.0 * mph_to_mps, 0.0]),
         driving_direction_xy=np.asarray([1.0, 0.0]),
     )
 
@@ -219,9 +215,7 @@ def test_visual_flare_counts_external_hit_across_driving_direction() -> None:
     assert _is_visual_flare_impact(
         True,
         before_velocity_mps=np.asarray([20.0 * mph_to_mps, 0.0, 0.0]),
-        after_velocity_mps=np.asarray(
-            [20.0 * mph_to_mps, 5.0 * mph_to_mps, 0.0]
-        ),
+        after_velocity_mps=np.asarray([20.0 * mph_to_mps, 5.0 * mph_to_mps, 0.0]),
         driving_direction_xy=np.asarray([1.0, 0.0]),
         impact_normal_xy=np.asarray([0.0, 1.0]),
     )
@@ -467,9 +461,7 @@ def test_non_ego_track_drive_is_limited_to_fifteen_mph() -> None:
     try:
         for frame_index in range(180):
             world.step(parked_ego, frame_index * 33_333, 1.0 / 30.0)
-            actor_velocity = world._world.body_state(
-                "car-fast"
-            ).linear_velocity_mps
+            actor_velocity = world._world.body_state("car-fast").linear_velocity_mps
             actor_speeds_mps.append(float(np.linalg.norm(actor_velocity[:2])))
     finally:
         world.close()
@@ -767,6 +759,35 @@ def test_physx_world_can_be_recreated_after_close() -> None:
     second.close()
 
 
+def test_physx_world_steps_two_controlled_players_together() -> None:
+    model = RigidBodyModel(1_550.0, (2.4, 1.0, 0.8))
+    world = PhysXWorld(PhysicsObjectGraph(), model, capacity=8)
+    world.bind_ego_controlled_body("player-1")
+
+    def state(x_m: float, velocity_mps: float) -> BodyState:
+        return BodyState(
+            position_m=np.asarray([x_m, 0.0, 0.8], dtype=np.float32),
+            orientation_xyzw=np.asarray([0.0, 0.0, 0.0, 1.0], dtype=np.float32),
+            linear_velocity_mps=np.asarray([velocity_mps, 0.0, 0.0], dtype=np.float32),
+            angular_velocity_radps=np.zeros(3, dtype=np.float32),
+        )
+
+    world.add_controlled_body("player-2", model, state(8.0, -2.0))
+    result = world.step_controlled(
+        {
+            "player-1": state(0.0, 2.0),
+            "player-2": state(8.0, -2.0),
+        },
+        1.0 / 30.0,
+    )
+
+    assert world.body_count == 2
+    assert set(result) == {"player-1", "player-2"}
+    assert result["player-1"].position_m[0] > 0.0
+    assert result["player-2"].position_m[0] < 8.0
+    world.close()
+
+
 def test_physx_world_applies_incremental_graph_changes_in_stable_buffers() -> None:
     ego_model = RigidBodyModel(1_550.0, (2.4, 1.0, 0.8))
     graph = PhysicsObjectGraph()
@@ -842,9 +863,7 @@ def test_game_world_activates_actor_at_current_track_pose() -> None:
         centers_world=np.asarray(
             [[120.0, 0.0, 0.8], [90.0, 0.0, 0.8]], dtype=np.float32
         ),
-        dimensions_lwh=np.asarray(
-            [[4.0, 1.9, 1.6], [4.0, 1.9, 1.6]], dtype=np.float32
-        ),
+        dimensions_lwh=np.asarray([[4.0, 1.9, 1.6], [4.0, 1.9, 1.6]], dtype=np.float32),
         orientations_xyzw=np.asarray(
             [[0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0]], dtype=np.float32
         ),

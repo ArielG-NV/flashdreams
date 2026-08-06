@@ -17,6 +17,7 @@
 
 import glob
 import os
+import shutil
 import subprocess
 import time
 
@@ -28,6 +29,60 @@ from ludus_renderer._logging import logger
 _cached_plugin = None
 _dll_directory_handles = []
 _dll_directory_paths: set[str] = set()
+
+
+def _nvcc_release(nvcc: str) -> tuple[int, int] | None:
+    try:
+        result = subprocess.run(
+            [nvcc, "--version"],
+            check=True,
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    output = result.stdout + result.stderr
+    marker = "release "
+    start = output.find(marker)
+    if start < 0:
+        return None
+    version = output[start + len(marker) :].split(",", 1)[0].strip()
+    try:
+        major, minor = version.split(".", 1)
+        return int(major), int(minor)
+    except ValueError:
+        return None
+
+
+def _prefer_cuda13_toolkit() -> str | None:
+    """Select an installed CUDA 13 toolkit before PyTorch writes Ninja files."""
+    if os.name == "nt":
+        return None
+    candidates: list[str] = []
+    if nvcc := shutil.which("nvcc"):
+        candidates.append(nvcc)
+    if cuda_home := os.environ.get("CUDA_HOME"):
+        candidates.append(os.path.join(cuda_home, "bin", "nvcc"))
+    candidates.extend(glob.glob("/usr/local/cuda-13*/bin/nvcc"))
+    candidates.extend(glob.glob("/opt/cuda-13*/bin/nvcc"))
+    matches = [
+        (release, os.path.dirname(os.path.dirname(os.path.realpath(candidate))))
+        for candidate in dict.fromkeys(candidates)
+        if os.path.isfile(candidate)
+        and (release := _nvcc_release(candidate)) is not None
+        and release[0] >= 13
+    ]
+    if not matches:
+        return None
+    toolkit_root = max(matches)[1]
+    toolkit_bin = os.path.join(toolkit_root, "bin")
+    os.environ["CUDA_HOME"] = toolkit_root
+    os.environ["PATH"] = os.pathsep.join(
+        [toolkit_bin, *os.environ.get("PATH", "").split(os.pathsep)]
+    ).rstrip(os.pathsep)
+    torch.utils.cpp_extension.CUDA_HOME = toolkit_root
+    return toolkit_root
 
 
 def _add_windows_dll_directory(path: str) -> None:
@@ -69,6 +124,7 @@ def _get_plugin():
     global _cached_plugin
     if _cached_plugin is not None:
         return _cached_plugin
+    toolkit_root = _prefer_cuda13_toolkit()
 
     # Make sure we can find the necessary compiler and library binaries.
     if os.name == "nt":
@@ -172,7 +228,21 @@ def _get_plugin():
     os.environ["TORCH_CUDA_ARCH_LIST"] = ""
 
     # Check for stale lock files
-    plugin_name = "ludus_renderer_plugin"
+    plugin_suffix = "default"
+    if toolkit_root is not None:
+        nvcc = os.path.join(toolkit_root, "bin", "nvcc")
+        release = _nvcc_release(nvcc)
+        if release is not None:
+            plugin_suffix = f"cu{release[0]}_{release[1]}"
+    if torch.cuda.is_available():
+        major, minor = torch.cuda.get_device_capability()
+        plugin_suffix += f"_sm{major}_{minor}"
+    plugin_name = f"ludus_renderer_plugin_{plugin_suffix}"
+    logger.info(
+        "Ludus renderer selected CUDA toolkit {}; cache key {}.",
+        toolkit_root or torch.utils.cpp_extension.CUDA_HOME,
+        plugin_name,
+    )
     build_directory = None
     try:
         build_directory = torch.utils.cpp_extension._get_build_directory(

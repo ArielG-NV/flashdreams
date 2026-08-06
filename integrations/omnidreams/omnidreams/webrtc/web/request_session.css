@@ -612,7 +612,11 @@ body.is-playing .stage {
 .managerHeader h1 { margin: 6px 0 8px; font-size: clamp(34px, 5vw, 74px); letter-spacing: -.055em; }
 .managerHeader p { margin: 0; color: #98a5a2; font-size: 17px; }
 .eyebrow, .sectionHeading > span { color: #76b900; text-transform: uppercase; letter-spacing: .16em; font: 700 11px/1.2 system-ui; }
+.managerActions { display: flex; gap: 10px; align-items: center; justify-content: flex-end; }
 .lobbyStatus { border: 1px solid #314037; border-radius: 999px; padding: 10px 16px; color: #b9c4c0; white-space: nowrap; }
+.resetWorldButton { border: 1px solid #9a4e4e; border-radius: 999px; padding: 10px 16px; color: #ffd9d9; background: #321b1d; font: 750 13px/1 system-ui; cursor: pointer; white-space: nowrap; }
+.resetWorldButton:hover:not(:disabled) { background: #542528; }
+.resetWorldButton:disabled { opacity: .55; cursor: wait; }
 
 .playerSection, .bevSection, .bindingSection { max-width: 1500px; margin: 0 auto 110px; }
 .sectionHeading { margin-bottom: 24px; }
@@ -673,6 +677,7 @@ body.is-playing .stage {
 
 @media (max-width: 720px) {
   .managerHeader { grid-template-columns: 1fr; margin-bottom: 48px; }
+  .managerActions { justify-content: flex-start; flex-wrap: wrap; }
   .managerLogo { width: 150px; }
   .bindingPanel { grid-template-columns: 1fr; }
   .playerGrid { grid-template-columns: 1fr; }

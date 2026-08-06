@@ -25,6 +25,7 @@ from omnidreams.webrtc import server as webrtc_server
 from omnidreams.webrtc import session
 from omnidreams.webrtc.session import (
     OmnidreamsInferenceRuntime,
+    OmnidreamsMultiplayerSessionManager,
     OmnidreamsRuntimeConfig,
     OmnidreamsWebRTCSessionManager,
 )
@@ -114,6 +115,29 @@ def _json_response_payload(response: web.StreamResponse) -> dict[str, Any]:
 def _fake_runtime_factory(config: OmnidreamsRuntimeConfig) -> object:
     del config
     return object()
+
+
+@pytest.mark.parametrize(
+    ("player_id", "expected_offset"),
+    [
+        (1, (0.0, 0.0)),
+        (2, (-4.0, 1.5)),
+        (3, (-4.0, -1.5)),
+        (4, (-8.0, 1.5)),
+        (5, (-8.0, -1.5)),
+    ],
+)
+def test_multiplayer_spawn_offsets_stagger_players_behind_on_the_road(
+    player_id: int, expected_offset: tuple[float, float]
+) -> None:
+    assert (
+        session._multiplayer_spawn_offset(
+            player_id,
+            row_spacing_m=4.0,
+            lateral_offset_m=1.5,
+        )
+        == expected_offset
+    )
 
 
 def test_map_geometry_converts_renderer_rdf_to_orthographic_flu_ground_plane() -> None:
@@ -289,6 +313,23 @@ def test_generate_chunk_dispatches_start_then_continue() -> None:
     assert wrapper.skip_video_generation_flags == [False, False]
 
 
+@pytest.mark.asyncio
+async def test_generate_chunk_reports_scheduler_timing_boundaries() -> None:
+    runtime, _wrapper = _build_fake_runtime()
+    try:
+        result = await runtime.generate_chunk(
+            segments=[(0.0, 2 / 30, frozenset({"w"}))],
+            frame_times=[1 / 30, 2 / 30],
+        )
+    finally:
+        runtime._executor.shutdown(wait=True)
+
+    assert result.stats is not None
+    assert result.stats["model_step_s"] >= 0.0
+    assert result.stats["shared_physics_wait_s"] >= 0.0
+    assert result.stats["inference_queue_wait_s"] >= 0.0
+
+
 def test_generate_chunk_postprocesses_rgb_before_cpu_handoff() -> None:
     class _FakePostprocessStream:
         def __init__(self) -> None:
@@ -402,6 +443,9 @@ def test_generate_chunk_overlays_other_players_in_shared_hdmap_state() -> None:
     assert pool is not None
     assert tuple(pool.translations.shape) == (2, 3)
     assert pool.translations[0].tolist() == [12.0, -3.0, 0.5]
+    # The Ludus/physics-test BEV actor uses the same stable P2 palette color
+    # exposed by the game-manager icon, stored as front/back RGB values.
+    assert pool.colors[0].tolist() == pytest.approx([0.0, 168 / 255, 1.0] * 2)
 
 
 def test_prepare_clipgt_dir_stages_unprefixed_parquets(
@@ -778,6 +822,94 @@ def test_parse_args_omits_scene_dir_by_default(
     assert args.debug_serve_hdmaps is True
     assert args.postprocess_preset == ""
     assert args.player_count == 1
+    assert args.live_lobby_previews is False
+
+
+@pytest.mark.parametrize(
+    "flag",
+    ["--live-lobby-previews", "--keep-lobby-previews-active"],
+)
+def test_parse_args_accepts_live_lobby_preview_opt_in(
+    monkeypatch: pytest.MonkeyPatch,
+    flag: str,
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["omnidreams.webrtc.server", flag])
+
+    assert webrtc_server.parse_args().live_lobby_previews is True
+
+
+def test_parse_args_accepts_player_device_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "omnidreams.webrtc.server",
+            "--player-devices",
+            "cuda:0,cuda:1",
+        ],
+    )
+
+    assert webrtc_server.parse_args().player_devices == ("cuda:0", "cuda:1")
+
+
+def test_single_gpu_multiplayer_preset_reduces_resolution_and_wait(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "omnidreams.webrtc.server",
+            "--player-count",
+            "2",
+            "--single-gpu-multiplayer",
+        ],
+    )
+
+    cfg = webrtc_server.build_runtime_config(webrtc_server.parse_args())
+
+    assert (cfg.video_width, cfg.video_height) == (896, 496)
+    assert cfg.eager_control_chunks is True
+    assert cfg.player_devices == ()
+
+
+def test_single_gpu_multiplayer_preset_preserves_explicit_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "omnidreams.webrtc.server",
+            "--player-count",
+            "2",
+            "--single-gpu-multiplayer",
+            "--video_width",
+            "640",
+            "--video_height",
+            "352",
+        ],
+    )
+
+    cfg = webrtc_server.build_runtime_config(webrtc_server.parse_args())
+
+    assert (cfg.video_width, cfg.video_height) == (640, 352)
+    assert cfg.eager_control_chunks is True
+
+
+def test_single_gpu_multiplayer_preset_requires_multiple_players(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["omnidreams.webrtc.server", "--single-gpu-multiplayer"],
+    )
+
+    with pytest.raises(ValueError, match="requires --player-count"):
+        webrtc_server.build_runtime_config(webrtc_server.parse_args())
 
 
 def test_parse_args_accepts_positive_player_count(
@@ -968,6 +1100,328 @@ def test_build_runtime_config_clears_scene_uuid_for_local_scene(tmp_path: Path) 
     assert cfg.scene_variant == "default"
 
 
+def test_multiplayer_uses_one_physx_pass_for_both_player_views() -> None:
+    class _FakePhysicsWorld:
+        def __init__(self, graph: object, model: object) -> None:
+            del graph, model
+            self.body_ids: set[str] = set()
+            self.step_calls: list[set[str]] = []
+            self.closed = False
+
+        def bind_ego_controlled_body(self, object_id: str) -> None:
+            self.body_ids.add(object_id)
+
+        def add_controlled_body(
+            self, object_id: str, model: object, state: object
+        ) -> None:
+            del model, state
+            self.body_ids.add(object_id)
+
+        def step_controlled(
+            self, states: dict[str, session.BodyState], dt_s: float
+        ) -> dict[str, session.BodyState]:
+            self.step_calls.append(set(states))
+            assert set(states) == self.body_ids
+            return {
+                object_id: session.BodyState(
+                    position_m=(
+                        state.position_m + state.linear_velocity_mps * dt_s
+                    ).astype(np.float32),
+                    orientation_xyzw=state.orientation_xyzw.copy(),
+                    linear_velocity_mps=state.linear_velocity_mps.copy(),
+                    angular_velocity_radps=state.angular_velocity_radps.copy(),
+                )
+                for object_id, state in states.items()
+            }
+
+        def close(self) -> None:
+            self.closed = True
+
+    runtimes = {
+        player_id: SimpleNamespace(
+            pose_integrator=CameraPoseIntegrator(
+                move_speed_per_s=6.0,
+                rotate_speed_rad_per_s=np.deg2rad(35.0),
+                coordinate_system="FLU",
+            )
+        )
+        for player_id in (1, 2)
+    }
+    player_two_pose = np.eye(4, dtype=np.float32)
+    player_two_pose[1, 3] = 4.0
+    runtimes[2].pose_integrator.reset(player_two_pose)
+    worlds: list[_FakePhysicsWorld] = []
+
+    def physics_factory(graph: object, model: object) -> _FakePhysicsWorld:
+        world = _FakePhysicsWorld(graph, model)
+        worlds.append(world)
+        return world
+
+    world = session._SharedMultiplayerPhysXWorld(
+        runtimes, fps=30, physics_world_factory=physics_factory
+    )
+    frame_times = [1 / 30, 2 / 30]
+
+    async def simulate() -> tuple[np.ndarray, np.ndarray]:
+        return await asyncio.gather(
+            world.trajectory(1, 0, [(0.0, 2 / 30, frozenset({"w"}))], frame_times),
+            world.trajectory(2, 0, [(0.0, 2 / 30, frozenset({"s"}))], frame_times),
+        )
+
+    player_one, player_two = asyncio.run(simulate())
+
+    assert len(worlds) == 1
+    assert worlds[0].step_calls == [
+        {"player-1", "player-2"},
+        {"player-1", "player-2"},
+    ]
+    assert player_one[-1, 0, 3] > 0.0
+    assert player_two[-1, 0, 3] < 0.0
+    world.close()
+    assert worlds[0].closed
+
+
+@pytest.mark.asyncio
+async def test_synchronized_generation_advances_idle_player_models() -> None:
+    class _FakeRuntime:
+        def __init__(self, player_id: int) -> None:
+            self.player_id = player_id
+            self.autoregressive_index = 0
+            self.calls: list[list[session.PoseSegment]] = []
+
+        async def _generate_chunk_direct(
+            self,
+            *,
+            segments: list[session.PoseSegment],
+            frame_times: list[float],
+        ) -> WebRTCStepResult:
+            chunk_index = self.autoregressive_index
+            self.calls.append(segments)
+            self.autoregressive_index += 1
+            return WebRTCStepResult(
+                chunk_index=chunk_index,
+                num_frames=len(frame_times),
+                video_chunk=torch.full(
+                    (1, 1, len(frame_times), 3, 2, 2),
+                    self.player_id,
+                    dtype=torch.uint8,
+                ),
+                stats={"player_id": self.player_id},
+            )
+
+    runtimes = {player_id: _FakeRuntime(player_id) for player_id in (1, 2)}
+    coordinator = session._SynchronizedMultiplayerGeneration(runtimes, fps=1_000)
+    frame_times = [1 / 30, 2 / 30]
+
+    player_one = await coordinator.generate(
+        1,
+        0,
+        [(0.0, 2 / 30, frozenset({"w"}))],
+        frame_times,
+    )
+
+    assert player_one.chunk_index == 0
+    assert [runtime.autoregressive_index for runtime in runtimes.values()] == [1, 1]
+    assert runtimes[1].calls[0][0][2] == frozenset({"w"})
+    assert runtimes[2].calls[0][0][2] == frozenset()
+
+    player_one, player_two = await asyncio.gather(
+        coordinator.generate(
+            1,
+            1,
+            [(2 / 30, 4 / 30, frozenset({"a"}))],
+            [3 / 30, 4 / 30],
+        ),
+        coordinator.generate(
+            2,
+            1,
+            [(0.0, 2 / 30, frozenset({"d"}))],
+            frame_times,
+        ),
+    )
+
+    assert (player_one.chunk_index, player_two.chunk_index) == (1, 1)
+    assert [runtime.autoregressive_index for runtime in runtimes.values()] == [2, 2]
+    assert runtimes[1].calls[1][0][2] == frozenset({"a"})
+    assert runtimes[2].calls[1][0][2] == frozenset({"d"})
+    coordinator.reset()
+
+
+def test_multiplayer_serializes_only_players_on_the_same_device() -> None:
+    shared_device = OmnidreamsMultiplayerSessionManager(
+        runtime_config=OmnidreamsRuntimeConfig(
+            device="cuda:0",
+            player_count=2,
+        )
+    )
+    split_devices = OmnidreamsMultiplayerSessionManager(
+        runtime_config=OmnidreamsRuntimeConfig(
+            device="cuda:0",
+            player_count=2,
+            player_devices=("cuda:0", "cuda:1"),
+        )
+    )
+
+    assert (
+        shared_device._players[1]._runtime._step_lock
+        is shared_device._players[2]._runtime._step_lock
+    )
+    assert (
+        split_devices._players[1]._runtime._step_lock
+        is not split_devices._players[2]._runtime._step_lock
+    )
+    assert [
+        manager._runtime.config.device for manager in split_devices._players.values()
+    ] == ["cuda:0", "cuda:1"]
+
+
+def test_multiplayer_requires_one_device_entry_per_player() -> None:
+    with pytest.raises(ValueError, match="exactly one device per player"):
+        OmnidreamsMultiplayerSessionManager(
+            runtime_config=OmnidreamsRuntimeConfig(
+                device="cuda:0",
+                player_count=2,
+                player_devices=("cuda:0",),
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_multiplayer_pauses_lobby_generation_unless_fallback_is_enabled() -> None:
+    manager = OmnidreamsMultiplayerSessionManager(
+        runtime_config=OmnidreamsRuntimeConfig(device="cpu", player_count=2)
+    )
+    active = True
+    generation_started = asyncio.Event()
+    generation_calls: list[int] = []
+
+    manager._players[1].has_active_session = lambda: active  # ty:ignore[invalid-assignment]
+    manager._players[2].has_active_session = lambda: False  # ty:ignore[invalid-assignment]
+
+    for player_id, player in manager._players.items():
+        player._runtime.peek_next_chunk_num_frames = (  # ty:ignore[invalid-assignment]
+            lambda: 1
+        )
+
+        async def generate_chunk(
+            *,
+            segments: object,
+            frame_times: object,
+            _player_id: int = player_id,
+        ) -> WebRTCStepResult:
+            del segments, frame_times
+            generation_calls.append(_player_id)
+            generation_started.set()
+            return WebRTCStepResult(
+                chunk_index=0,
+                num_frames=1,
+                video_chunk=torch.zeros((1, 1, 1, 3, 2, 2), dtype=torch.uint8),
+                stats=None,
+            )
+
+        player._runtime.generate_chunk = generate_chunk  # ty:ignore[invalid-assignment]
+
+    task = asyncio.create_task(manager._preview_worker())
+    try:
+        await asyncio.sleep(0.08)
+        assert generation_calls == []
+
+        manager.runtime_config.pause_lobby_previews_while_active = False
+        await asyncio.wait_for(generation_started.wait(), timeout=0.5)
+        assert generation_calls
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+
+@pytest.mark.asyncio
+async def test_multiplayer_starts_preview_worker_only_when_opted_in() -> None:
+    manager = OmnidreamsMultiplayerSessionManager(
+        runtime_config=OmnidreamsRuntimeConfig(device="cpu", player_count=2)
+    )
+    initialize_calls: list[int] = []
+    warmup_calls: list[int] = []
+    keep_worker_alive = asyncio.Event()
+
+    for player_id, player in manager._players.items():
+
+        async def initialize(*, _player_id: int = player_id) -> None:
+            initialize_calls.append(_player_id)
+
+        player._runtime.initialize = initialize  # ty:ignore[invalid-assignment]
+
+    async def warmup(*, num_chunks: int) -> None:
+        warmup_calls.append(num_chunks)
+
+    manager._players[1]._run_loopback_warmup_session = (  # ty:ignore[invalid-assignment]
+        warmup
+    )
+
+    async def preview_worker() -> None:
+        await keep_worker_alive.wait()
+
+    manager._preview_worker = preview_worker  # ty:ignore[invalid-assignment]
+
+    await manager.preload_runtime()
+    assert initialize_calls == [1, 2]
+    assert warmup_calls == [manager.runtime_config.warmup_chunks]
+    assert all(player._warmup_complete for player in manager._players.values())
+    assert manager._preview_task is None
+    manager.runtime_config.live_lobby_previews = True
+    await manager.preload_runtime()
+    assert manager._preview_task is not None
+
+    manager._preview_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await manager._preview_task
+
+
+def test_multiplayer_join_preserves_the_current_world() -> None:
+    manager = OmnidreamsMultiplayerSessionManager(
+        runtime_config=OmnidreamsRuntimeConfig(device="cpu", player_count=2)
+    )
+    reset_calls: list[object] = []
+
+    async def record_reset(*, session_input: object | None = None) -> None:
+        reset_calls.append(session_input)
+
+    player = manager._players[2]
+    player._runtime.reset_for_new_session = record_reset  # ty:ignore[invalid-assignment]
+
+    asyncio.run(
+        player._reset_runtime_for_session(
+            session.OmnidreamsSessionInput(postprocess_preset="")
+        )
+    )
+
+    assert reset_calls == []
+
+
+def test_multiplayer_manager_reset_rewinds_every_player_together() -> None:
+    manager = OmnidreamsMultiplayerSessionManager(
+        runtime_config=OmnidreamsRuntimeConfig(device="cpu", player_count=2)
+    )
+    calls: list[tuple[str, int]] = []
+    for player_id, player in manager._players.items():
+
+        async def close(*, _player_id: int = player_id) -> None:
+            calls.append(("close", _player_id))
+
+        async def reset(
+            *, session_input: object | None = None, _player_id: int = player_id
+        ) -> None:
+            assert session_input is None
+            calls.append(("reset", _player_id))
+
+        player.close_active_session = close  # ty:ignore[invalid-assignment]
+        player._runtime.reset_for_new_session = reset  # ty:ignore[invalid-assignment]
+
+    asyncio.run(manager.reset_world())
+
+    assert calls == [("close", 1), ("close", 2), ("reset", 1), ("reset", 2)]
+
+
 def test_session_manager_stores_postprocess_override_for_next_rollout() -> None:
     manager = OmnidreamsWebRTCSessionManager(
         runtime_config=OmnidreamsRuntimeConfig(device="cpu")
@@ -1078,6 +1532,13 @@ def test_webrtc_ui_exposes_multiplayer_lobby_bev_and_scoped_join_overlay() -> No
     assert "player_id: playerId" in javascript
     assert 'fetch("/api/map"' in javascript
     assert ".playerTile:hover .joinPlayerButton:not(:disabled)" in css
+    assert "refreshPreviewImages" not in javascript
+    assert "preview.src = player.preview_url" in javascript
+    assert "preview.jpg?t=" not in javascript
+    assert "perspective snapshot" in javascript
+    assert 'driveStage.classList.contains("isHidden")' in javascript
+    assert "startIdleAnimation()" in javascript
+    assert "}, 2000)" in javascript
 
 
 @pytest.mark.asyncio

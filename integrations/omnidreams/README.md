@@ -35,6 +35,16 @@ importing FlashDreams:
 export HF_TOKEN=<YOUR-HF-TOKEN>
 ```
 
+## Installing dependencies
+
+```bash
+# Install cuda toolkit
+wget wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/<arch>/cuda-keyring_1.1-1_all.deb
+sudo dpkg -i cuda-keyring_1.1-1_all.deb
+sudo apt update
+sudo apt install cuda-toolkit-13
+```
+
 ## Run batch evaluation
 
 The `omnidreams-eval` CLI automates a fixed-split evaluation flow for
@@ -165,7 +175,19 @@ Sparge/SageAttention-3 hybrid schedule when the extension and GPU support it.
 From the workspace root, run:
 
 ```bash
-uv run --package flashdreams-omnidreams torchrun --nproc_per_node 1 -m omnidreams.webrtc.server --pipeline_config_name omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf --scene-uuid 0d404ff7-2b66-498c-b047-1ed8cded60d4 --port 8089 -player-count 2
+uv run --package flashdreams-omnidreams torchrun --nproc_per_node 1 \
+  -m omnidreams.webrtc.server \
+  --manifest example_world_model_perf.yaml \
+  --scene-uuid 0d404ff7-2b66-498c-b047-1ed8cded60d4 \
+  --port 8089 --player-count 2 \
+  --single-gpu-multiplayer
+
+# Recommended for two simultaneous drivers when two GPUs are available.
+uv run --package flashdreams-omnidreams torchrun --nproc_per_node 1 \
+  -m omnidreams.webrtc.server \
+  --manifest example_world_model_perf.yaml \
+  --scene-uuid 0d404ff7-2b66-498c-b047-1ed8cded60d4 \
+  --port 8089 --player-count 2 --player-devices cuda:0,cuda:1
 ```
 
 When `--scene_dir` is omitted, the server downloads the selected scene from the
@@ -184,6 +206,46 @@ defaults to one. Open `/game-manager` to see every player perspective, claim an
 available car, inspect the shared top-down map, and review the controls. Player
 claims are performed atomically with WebRTC offer creation; one car cannot be
 controlled by two browser sessions.
+
+Every player owns a full stateful OmniDreams pipeline and autoregressive cache.
+Players assigned to the same GPU therefore serialize model steps. The default
+lobby serves one cached scene snapshot per player and never starts background
+preview inference. Browser thumbnails are not polled, metadata/BEV updates run
+every two seconds only while the lobby is visible, and the hidden drive canvas
+does not animate. For simultaneous drivers, use `--player-devices` with one
+distinct GPU per player. Passing `torchrun --nproc_per_node 1` initializes the
+server process but does not make multiple players run in parallel on one GPU.
+Use `--live-lobby-previews` (or the legacy alias
+`--keep-lobby-previews-active`) only when moving idle-player thumbnails are more
+important than inference headroom.
+
+The periodic `WebRTC perf` log separates `input_wait_ms`, `model_ms`,
+`inference_wait_ms`, `physics_wait_ms`, `enqueue_ms`, queue depth, and
+control latency. Sustained `inference_wait_ms` indicates same-device player
+contention; queue depth and `enqueue_ms` indicate video-delivery backpressure.
+
+The opt-in `--single-gpu-multiplayer` preset changes the untouched
+`1280x704` default to `896x496` and enables eager control chunks. Eager
+sampling starts model work from the latest held control instead of first waiting
+for the 8-frame input window to close. A direction or key-release event that
+arrives after a chunk has been sampled applies to the following chunk. Omit the
+flag to retain full resolution and window-complete input sampling, or combine
+`--eager-control-chunks` with an explicit tested resolution to tune the two
+controls independently.
+
+Multiplayer advances every player pipeline through one synchronized chunk
+barrier, including neutral-input players without an active browser. On one GPU,
+those stateful model passes serialize.
+
+One measured GB300 run on 2026-08-06 used the perf manifest, two synchronized
+players, `896x496`, and 20 warmed 8-frame chunks. It delivered 14.18 FPS per
+player view with 563 ms median and 585 ms p90 chunk latency. The benchmark
+process reached 105.3 GB GPU memory. Cold startup for both runtimes was about
+607 seconds and the first compile-heavy synchronized chunk took 88.4 seconds.
+The steady server log attributed about 225 ms median to one player's model pass,
+226 ms to same-device inference waiting, and 10 ms to shared physics. This is a
+functional one-GPU fallback, not a 30 FPS real-time configuration; use distinct
+entries in `--player-devices` when lower synchronized latency is required.
 
 To enable video post-processing by default, pass a registered preset such as
 `--postprocess-preset rtx-super-resolution`. RTX postprocess presets require the

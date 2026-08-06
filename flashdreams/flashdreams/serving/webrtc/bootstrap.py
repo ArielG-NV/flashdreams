@@ -63,6 +63,12 @@ def initialize_cuda_distributed(
         )
 
     distributed_launch = has_rank and has_world_size
+    # ``torchrun --nproc_per_node 1`` supplies RANK/WORLD_SIZE even though no
+    # collective communication is required. Avoid creating a one-rank NCCL
+    # process group in that case: it adds startup latency and can block before
+    # the WebRTC server gets a chance to bind its HTTP port.
+    if distributed_launch and int(os.environ["WORLD_SIZE"]) == 1:
+        distributed_launch = False
     if distributed_launch:
         if distributed_init_fn is None:
             distributed_init_fn = _distributed_init

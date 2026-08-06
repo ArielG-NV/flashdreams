@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import ExitStack
+from types import SimpleNamespace
 
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
@@ -25,6 +26,7 @@ pytestmark = pytest.mark.ci_gpu
 
 class FakeSessionManager:
     def __init__(self) -> None:
+        self.runtime_config = SimpleNamespace(live_lobby_previews=False)
         self.answer_payload = {"sdp": "fake-answer-sdp", "type": "answer"}
         self.raise_busy = False
         self.preload_calls = 0
@@ -32,6 +34,7 @@ class FakeSessionManager:
         self.player_ids: list[int | None] = []
         self.active = False
         self.runtime_ready = False
+        self.reset_world_calls = 0
 
     def has_active_session(self) -> bool:
         return self.active
@@ -60,6 +63,9 @@ class FakeSessionManager:
     async def shutdown(self) -> None:
         self.active = False
         self.runtime_ready = False
+
+    async def reset_world(self) -> None:
+        self.reset_world_calls += 1
 
     def player_descriptors(self) -> list[dict[str, object]]:
         return [
@@ -194,6 +200,36 @@ async def test_players_api_exposes_claim_and_bev_metadata() -> None:
             "y": 0.0,
             "yaw": 0.0,
         }
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_static_player_preview_is_browser_cacheable() -> None:
+    manager = FakeSessionManager()
+    client = await _build_client(manager)
+    try:
+        response = await client.get("/api/players/1/preview.jpg")
+        assert response.status == 200
+        assert response.headers["Cache-Control"] == "private, max-age=300"
+        assert await response.read() == b"jpeg"
+
+        manager.runtime_config.live_lobby_previews = True
+        response = await client.get("/api/players/1/preview.jpg")
+        assert response.headers["Cache-Control"] == "no-store"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_world_reset_api_resets_the_authoritative_manager() -> None:
+    manager = FakeSessionManager()
+    client = await _build_client(manager)
+    try:
+        response = await client.post("/api/world/reset")
+        assert response.status == 200
+        assert await response.json() == {"status": "reset"}
+        assert manager.reset_world_calls == 1
     finally:
         await client.close()
 
