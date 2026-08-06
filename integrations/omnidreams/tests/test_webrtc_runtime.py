@@ -14,6 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pytest
 import torch
 from aiohttp import web
@@ -34,7 +35,7 @@ from flashdreams.infra.postprocess import (
     VideoPostProcessorConfig,
 )
 from flashdreams.serving.webrtc.controls import (
-    WSAD_SUPPORTED_KEYS,
+    DRIVING_SUPPORTED_KEYS,
     CameraPoseIntegrator,
 )
 from flashdreams.serving.webrtc.encoders import (
@@ -129,9 +130,9 @@ def test_session_manager_hooks_are_wired() -> None:
     )
     # A fatal chunk-generation error tears the omnidreams session down.
     assert OmnidreamsWebRTCSessionManager._close_session_on_generation_error is True
-    # Only the WSAD driving keys are accepted by the resampler.
+    # The native driving keys are accepted by the WebRTC resampler.
     assert (
-        OmnidreamsWebRTCSessionManager._resampler_supported_keys == WSAD_SUPPORTED_KEYS
+        OmnidreamsWebRTCSessionManager._resampler_supported_keys == DRIVING_SUPPORTED_KEYS
     )
 
 
@@ -1529,3 +1530,109 @@ def test_initialize_video_encoder_sync_runs_on_master(
 
     assert len(calls) == 1
     assert runtime._video_encoder is stub
+def test_native_hud_runtime_bridge_returns_video_chunks() -> None:
+    class _FakeHud:
+        def __init__(self, sink: list[np.ndarray]) -> None:
+            self.sink = sink
+            self.key_calls: list[tuple[str, bool]] = []
+            self.pointer_calls: list[tuple[float, float, bool]] = []
+
+        def browser_key(self, key: str, down: bool) -> None:
+            self.key_calls.append((key, down))
+
+        def browser_pointer(self, x: float, y: float, *, pressed: bool) -> None:
+            self.pointer_calls.append((x, y, pressed))
+            self.sink.append(np.full((6, 8, 3), 17, dtype=np.uint8))
+
+        def render_current_frame(self, status_message: str | None = None) -> None:
+            del status_message
+            self.sink.append(np.full((6, 8, 3), 23, dtype=np.uint8))
+
+    runtime = OmnidreamsInferenceRuntime(
+        config=OmnidreamsRuntimeConfig(device="cpu")
+    )
+    hud = _FakeHud(runtime._native_hud_frames)
+    runtime._native_hud = hud  # ty:ignore[invalid-assignment]
+    try:
+        key_frame = runtime._handle_native_hud_key_sync("r", True)
+        pointer_frame = runtime._handle_native_hud_pointer_sync(
+            0.25, 0.75, True
+        )
+    finally:
+        runtime._executor.shutdown(wait=False, cancel_futures=True)
+
+    assert hud.key_calls == [("r", True)]
+    assert hud.pointer_calls == [(0.25, 0.75, True)]
+    assert key_frame is not None
+    assert pointer_frame is not None
+    assert tuple(key_frame.shape) == (1, 1, 1, 3, 6, 8)
+    assert tuple(pointer_frame.shape) == (1, 1, 1, 3, 6, 8)
+
+
+@pytest.mark.asyncio
+async def test_native_hud_events_enqueue_presenter_frames() -> None:
+    frame = torch.zeros((1, 1, 1, 3, 6, 8), dtype=torch.uint8)
+
+    class _FakeRuntime:
+        def __init__(self) -> None:
+            self.key_calls: list[tuple[str, bool]] = []
+            self.pointer_calls: list[tuple[float, float, bool]] = []
+
+        async def handle_native_hud_key(
+            self, *, key: str, down: bool
+        ) -> torch.Tensor:
+            self.key_calls.append((key, down))
+            return frame
+
+        async def handle_native_hud_pointer(
+            self, *, x: float, y: float, pressed: bool
+        ) -> torch.Tensor:
+            self.pointer_calls.append((x, y, pressed))
+            return frame
+
+    class _FakeVideoTrack:
+        def __init__(self) -> None:
+            self.chunks: list[torch.Tensor] = []
+
+        async def enqueue_chunk(self, chunk: torch.Tensor) -> int:
+            self.chunks.append(chunk)
+            return int(chunk.shape[2])
+
+        async def close(self) -> None:
+            return
+
+    manager = OmnidreamsWebRTCSessionManager(
+        runtime_config=OmnidreamsRuntimeConfig(device="cpu")
+    )
+    runtime = _FakeRuntime()
+    manager._runtime = runtime  # ty:ignore[invalid-assignment]
+    track = _FakeVideoTrack()
+    managed_session = session._ManagedOmnidreamsSession(
+        runtime=runtime,
+        video_track=track,  # ty:ignore[invalid-argument-type]
+        video_encoder=_FakeVideoEncoder(),
+        peer_connection=_FakeCloseable(),
+        resampler=object(),  # ty:ignore[invalid-argument-type]
+    )
+
+    assert await manager._handle_event_message(
+        managed_session=managed_session,
+        payload={
+            "event_id": "native_hud_key",
+            "state": "press",
+            "key": "2",
+        },
+    )
+    assert await manager._handle_event_message(
+        managed_session=managed_session,
+        payload={
+            "event_id": "native_hud_pointer",
+            "x": 0.25,
+            "y": 0.75,
+            "pressed": True,
+        },
+    )
+
+    assert runtime.key_calls == [("2", True)]
+    assert runtime.pointer_calls == [(0.25, 0.75, True)]
+    assert track.chunks == [frame, frame]

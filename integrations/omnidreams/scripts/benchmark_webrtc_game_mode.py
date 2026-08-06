@@ -9,6 +9,7 @@ import argparse
 import asyncio
 import json
 import time
+from pathlib import Path
 
 import aiohttp
 from aiohttp import web
@@ -20,7 +21,9 @@ from omnidreams.webrtc.session import (
 )
 
 
-async def _drive_client(url: str, target_chunks: int) -> None:
+async def _drive_client(
+    url: str, target_chunks: int, output_frame: Path | None
+) -> None:
     peer = RTCPeerConnection()
     channel = peer.createDataChannel("controls")
     peer.addTransceiver("video", direction="recvonly")
@@ -28,6 +31,7 @@ async def _drive_client(url: str, target_chunks: int) -> None:
     finished = asyncio.Event()
     chunk_count = 0
     frame_count = 0
+    latest_frame = None
 
     @channel.on("open")
     def on_open() -> None:
@@ -47,10 +51,10 @@ async def _drive_client(url: str, target_chunks: int) -> None:
     @peer.on("track")
     def on_track(track: object) -> None:
         async def consume() -> None:
-            nonlocal frame_count
+            nonlocal frame_count, latest_frame
             while True:
                 try:
-                    await track.recv()
+                    latest_frame = await track.recv()
                 except Exception:
                     return
                 frame_count += 1
@@ -91,6 +95,10 @@ async def _drive_client(url: str, target_chunks: int) -> None:
     try:
         await asyncio.wait_for(finished.wait(), timeout=180.0)
         elapsed = time.monotonic() - started
+        if output_frame is not None and latest_frame is not None:
+            output_frame.parent.mkdir(parents=True, exist_ok=True)
+            latest_frame.to_image().save(output_frame)
+            print(f"Saved decoded WebRTC frame to {output_frame}", flush=True)
         print(
             f"WebRTC client chunks={chunk_count} decoded_frames={frame_count} "
             f"elapsed_s={elapsed:.3f} decoded_fps={frame_count / elapsed:.3f}",
@@ -116,6 +124,7 @@ async def _run(args: argparse.Namespace) -> None:
             fps=args.fps,
             game_mode=True,
             warmup_chunks=args.warmup_chunks,
+            server_side_hud=args.server_side_hud,
         )
     )
     url = f"http://127.0.0.1:{args.port}"
@@ -123,13 +132,14 @@ async def _run(args: argparse.Namespace) -> None:
         session_manager=manager,
         request_session_url=f"{url}/request_session",
         auto_start=False,
+        server_side_hud=args.server_side_hud,
     )
     runner = web.AppRunner(app)
     try:
         await runner.setup()
         site = web.TCPSite(runner, host="127.0.0.1", port=args.port)
         await site.start()
-        await _drive_client(url, args.chunks)
+        await _drive_client(url, args.chunks, args.output_frame)
     finally:
         await runner.cleanup()
 
@@ -148,6 +158,12 @@ def main() -> None:
     parser.add_argument("--warmup-chunks", type=int, default=6)
     parser.add_argument("--chunks", type=int, default=55)
     parser.add_argument("--port", type=int, default=8090)
+    parser.add_argument(
+        "--server-side-hud",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    parser.add_argument("--output-frame", type=Path, default=None)
     args = parser.parse_args()
     asyncio.run(_run(args))
 

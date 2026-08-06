@@ -17,12 +17,14 @@ const postprocessField = document.getElementById("postprocessField")
 const postprocessSelect = document.getElementById("postprocessSelect")
 const controlButtons = Array.from(document.querySelectorAll("[data-control-key]"))
 
-const allowedKeys = new Set(["w", "a", "s", "d"])
+const allowedKeys = new Set(["w", "a", "s", "d", "space"])
+const nativeHudKeys = new Set(["1", "2", "3", "r", "x"])
 const keyAliases = new Map([
   ["arrowup", "w"],
   ["arrowleft", "a"],
   ["arrowdown", "s"],
   ["arrowright", "d"],
+  [" ", "space"],
 ])
 const keySources = new Map()
 const heldKeyOrder = new Map()
@@ -427,6 +429,14 @@ function sendControlAction(action) {
   setStatus("Generating", "generating")
   setFlow(`sent ${actionLabel(action)}, waiting=${inferenceInFlight}`)
   logEvent(`control ${actionLabel(action)}`, { source: "client" })
+  return true
+}
+
+function sendNativeHudEvent(event) {
+  if (!connected || !controlChannel || controlChannel.readyState !== "open") {
+    return false
+  }
+  controlChannel.send(JSON.stringify({ type: "event", ...event }))
   return true
 }
 
@@ -845,24 +855,31 @@ async function connectSession() {
 
 function handleKeyDown(event) {
   const key = normalizeKey(event.key)
-  if (!allowedKeys.has(key)) {
+  if (!allowedKeys.has(key) && !nativeHudKeys.has(key)) {
     return
   }
   event.preventDefault()
-
   if (event.repeat) {
     return
   }
-  setKeyHeld(key, `keyboard:${key}`, true)
+  if (allowedKeys.has(key)) {
+    setKeyHeld(key, "keyboard:" + key, true)
+  } else {
+    sendNativeHudEvent({ event_id: "native_hud_key", state: "press", key })
+  }
 }
 
 function handleKeyUp(event) {
   const key = normalizeKey(event.key)
-  if (!allowedKeys.has(key)) {
+  if (!allowedKeys.has(key) && !nativeHudKeys.has(key)) {
     return
   }
   event.preventDefault()
-  setKeyHeld(key, `keyboard:${key}`, false)
+  if (allowedKeys.has(key)) {
+    setKeyHeld(key, "keyboard:" + key, false)
+  } else {
+    sendNativeHudEvent({ event_id: "native_hud_key", state: "release", key })
+  }
 }
 
 function attachPointerControls() {
@@ -889,6 +906,36 @@ function attachPointerControls() {
   }
 }
 
+function attachNativeHudPointer() {
+  remoteVideo.addEventListener("click", (event) => {
+    if (!connected || remoteVideo.videoWidth <= 0 || remoteVideo.videoHeight <= 0) {
+      return
+    }
+    const rect = remoteVideo.getBoundingClientRect()
+    const aspect = remoteVideo.videoWidth / remoteVideo.videoHeight
+    let width = rect.width
+    let height = width / aspect
+    if (height > rect.height) {
+      height = rect.height
+      width = height * aspect
+    }
+    const left = rect.left + (rect.width - width) / 2
+    const top = rect.top + (rect.height - height) / 2
+    const x = (event.clientX - left) / width
+    const y = (event.clientY - top) / height
+    if (x < 0 || x > 1 || y < 0 || y > 1) {
+      return
+    }
+    sendNativeHudEvent({
+      event_id: "native_hud_pointer",
+      state: "press",
+      x,
+      y,
+      pressed: true,
+    })
+  })
+}
+
 function startVideoFrameMonitor() {
   if (typeof remoteVideo.requestVideoFrameCallback !== "function") {
     if (videoMetricsTimer === null) {
@@ -912,6 +959,7 @@ async function initialize() {
   setFlow("waiting")
   renderMetrics()
   attachPointerControls()
+  attachNativeHudPointer()
   window.requestAnimationFrame(drawIdleScene)
   startVideoFrameMonitor()
   try {

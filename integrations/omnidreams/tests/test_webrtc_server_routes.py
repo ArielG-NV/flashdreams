@@ -58,7 +58,7 @@ async def _build_client(
     manager: FakeSessionManager,
     *,
     auto_start: bool = False,
-    server_side_hud: bool = False,
+    server_side_hud: bool = True,
 ) -> TestClient:
     app = create_app(
         auto_start=auto_start,
@@ -153,7 +153,7 @@ async def test_client_options_exposes_auto_start_flag() -> None:
         assert response.status == 200
         assert await response.json() == {
             "auto_start": True,
-            "server_side_hud": False,
+            "server_side_hud": True,
         }
     finally:
         await client.close()
@@ -233,7 +233,9 @@ async def test_static_js_keeps_omnidreams_controls_and_lingbot_status_helpers() 
         response = await client.get("/static/request_session.js")
         body = await response.text()
         assert response.status == 200
-        assert 'const allowedKeys = new Set(["w", "a", "s", "d"])' in body
+        assert 'const allowedKeys = new Set(["w", "a", "s", "d", "space"])' in body
+        assert 'const nativeHudKeys = new Set(["1", "2", "3", "r", "x"])' in body
+        assert 'event_id: "native_hud_pointer"' in body
         assert 'const logState = document.getElementById("logState")' in body
         assert 'logState.textContent = state === "idle" ? "Waiting" : message' in body
         assert "eventLog.prepend(entry)" in body
@@ -296,13 +298,13 @@ async def test_static_css_fades_idle_animation_after_video_arrives() -> None:
 @pytest.mark.asyncio
 async def test_client_options_exposes_server_side_hud_flag() -> None:
     manager = FakeSessionManager()
-    client = await _build_client(manager, server_side_hud=True)
+    client = await _build_client(manager, server_side_hud=False)
     try:
         response = await client.get("/api/client/options")
         assert response.status == 200
         assert await response.json() == {
             "auto_start": False,
-            "server_side_hud": True,
+            "server_side_hud": False,
         }
     finally:
         await client.close()

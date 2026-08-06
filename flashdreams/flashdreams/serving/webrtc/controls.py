@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from flashdreams.serving.realtime.input import (
     DEFAULT_SUPPORTED_KEYS,
+    DRIVING_SUPPORTED_KEYS,
     KEY_ALIASES,
     WSAD_SUPPORTED_KEYS,
     CameraPoseIntegrator,
@@ -22,6 +23,7 @@ from flashdreams.serving.realtime.input import (
 
 __all__ = [
     "DEFAULT_SUPPORTED_KEYS",
+    "DRIVING_SUPPORTED_KEYS",
     "KEY_ALIASES",
     "WSAD_SUPPORTED_KEYS",
     "CameraPoseIntegrator",

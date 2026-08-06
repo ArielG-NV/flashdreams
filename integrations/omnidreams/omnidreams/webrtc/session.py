@@ -75,7 +75,7 @@ from flashdreams.infra.postprocess import (
 from flashdreams.plugins.registry import resolve_postprocess_preset
 from flashdreams.serving.realtime.media import rgb_array_to_uint8_frames
 from flashdreams.serving.webrtc.controls import (
-    WSAD_SUPPORTED_KEYS,
+    DRIVING_SUPPORTED_KEYS,
     CameraPoseIntegrator,
     PoseSegment,
 )
@@ -515,7 +515,7 @@ class OmnidreamsRuntimeConfig:
     debug_serve_hdmaps: bool = False
     game_mode: bool = False
     physics_active_radius_m: float = 96.0
-    server_side_hud: bool = False
+    server_side_hud: bool = True
     postprocess: VideoPostprocessChainConfig = field(
         default_factory=VideoPostprocessChainConfig
     )
@@ -583,6 +583,7 @@ class OmnidreamsInferenceRuntime:
         self._postprocess_stream: VideoPostprocessStream | None = None
         self._postprocess_preset = self.config.postprocess.preset
         self._native_hud: NativeHudBrowserPresenter | None = None
+        self._native_hud_keyboard: KeyboardState | None = None
         self._native_hud_frames: list[np.ndarray] = []
         self._native_hud_keys: set[str] = set()
         self._game_scene: SceneBundle | None = None
@@ -679,6 +680,81 @@ class OmnidreamsInferenceRuntime:
                 segments,
                 frame_times,
             )
+
+    async def render_native_hud_frame(
+        self, status_message: str | None = None
+    ) -> torch.Tensor | None:
+        """Render one exact native HUD frame for WebRTC presentation."""
+        async with self._step_lock:
+            return await self._run_on_runtime_thread(
+                self._render_native_hud_frame_sync, status_message
+            )
+
+    async def handle_native_hud_key(
+        self, *, key: str, down: bool
+    ) -> torch.Tensor | None:
+        """Forward a browser key through the shared native presenter."""
+        async with self._step_lock:
+            return await self._run_on_runtime_thread(
+                self._handle_native_hud_key_sync, key, down
+            )
+
+    async def handle_native_hud_pointer(
+        self, *, x: float, y: float, pressed: bool
+    ) -> torch.Tensor | None:
+        """Forward a normalized browser click through native HUD hit-testing."""
+        async with self._step_lock:
+            return await self._run_on_runtime_thread(
+                self._handle_native_hud_pointer_sync, x, y, pressed
+            )
+
+    def _native_hud_frame_chunk(self) -> torch.Tensor | None:
+        if not self._native_hud_frames:
+            return None
+        frame = np.ascontiguousarray(self._native_hud_frames[-1])
+        self._native_hud_frames.clear()
+        return (
+            torch.from_numpy(frame)
+            .permute(2, 0, 1)
+            .unsqueeze(0)
+            .unsqueeze(0)
+            .unsqueeze(0)
+            .contiguous()
+        )
+
+    def _render_native_hud_frame_sync(
+        self, status_message: str | None
+    ) -> torch.Tensor | None:
+        hud = self._native_hud
+        if hud is None:
+            return None
+        self._native_hud_frames.clear()
+        hud.render_current_frame(status_message)
+        return self._native_hud_frame_chunk()
+
+    def _handle_native_hud_key_sync(
+        self, key: str, down: bool
+    ) -> torch.Tensor | None:
+        hud = self._native_hud
+        if hud is None:
+            return None
+        self._native_hud_frames.clear()
+        hud.browser_key(key, down)
+        keyboard = self._native_hud_keyboard
+        if keyboard is not None and keyboard.consume_reset_request():
+            self._reset_rollout_sync_all_ranks()
+        hud.render_current_frame()
+        return self._native_hud_frame_chunk()
+
+    def _handle_native_hud_pointer_sync(
+        self, x: float, y: float, pressed: bool
+    ) -> torch.Tensor | None:
+        hud = self._native_hud
+        if hud is None:
+            return None
+        self._native_hud_frames.clear()
+        hud.browser_pointer(x, y, pressed=pressed)
+        return self._native_hud_frame_chunk()
 
     async def _run_on_runtime_thread(
         self,
@@ -973,6 +1049,8 @@ class OmnidreamsInferenceRuntime:
             bev_tilt_deg=0.0,
         )
         keyboard = KeyboardState()
+        keyboard.set_view_mode("model_rgb")
+        self._native_hud_keyboard = keyboard
         self._native_hud = NativeHudBrowserPresenter(
             RasterConfig(width=cfg.video_width, height=cfg.video_height),
             keyboard,
@@ -982,6 +1060,22 @@ class OmnidreamsInferenceRuntime:
             frame_sink=self._native_hud_frames.append,
         )
         self._native_hud.set_engine_active(True)
+        self._native_hud.set_postprocess_control(
+            preset=self.config.postprocess.preset,
+            enabled=self.config.postprocess.is_enabled(),
+            callback=self._set_postprocess_enabled_sync,
+        )
+
+    def _set_postprocess_enabled_sync(self, enabled: bool) -> None:
+        """Apply the native HUD post-process toggle to the WebRTC runtime."""
+        if enabled:
+            self._reset_postprocess_stream(
+                OmnidreamsSessionInput(
+                    postprocess_preset=self.config.postprocess.preset
+                )
+            )
+        else:
+            self._close_postprocess_stream()
 
     def _prepare_clipgt_dir(self, clipgt_dir: Path) -> Path:
         def _has_prefixed_parquets(path: Path) -> bool:
@@ -1085,6 +1179,7 @@ class OmnidreamsInferenceRuntime:
         if self._native_hud is not None:
             self._native_hud.close()
             self._native_hud = None
+        self._native_hud_keyboard = None
         self._close_postprocess_stream()
         if self._video_encoder is not None:
             self._video_encoder.close()
@@ -1241,6 +1336,7 @@ class OmnidreamsInferenceRuntime:
             )
         finalize_elapsed_s = time.perf_counter() - finalize_started_at
 
+        condition_chunk = output.condition_frames
         if serve_hdmaps:
             video_chunk = output.condition_frames
         elif output.rgb_frames is None:
@@ -1259,7 +1355,9 @@ class OmnidreamsInferenceRuntime:
         hud_started_at = time.perf_counter()
         if self.is_master and self._native_hud is not None:
             video_chunk = self._render_native_hud_chunk(
-                video_chunk, frame_timestamps_us
+                video_chunk,
+                condition_chunk,
+                frame_timestamps_us,
             )
         hud_elapsed_s = time.perf_counter() - hud_started_at
         result = make_webrtc_step_result(
@@ -1296,6 +1394,7 @@ class OmnidreamsInferenceRuntime:
     def _render_native_hud_chunk(
         self,
         video_chunk: torch.Tensor,
+        condition_chunk: torch.Tensor,
         timestamps_us: list[int],
     ) -> torch.Tensor:
         hud = self._native_hud
@@ -1306,15 +1405,27 @@ class OmnidreamsInferenceRuntime:
             layout="bvtchw",
             value_range=value_range,
         )
+        condition_value_range = (
+            "uint8" if condition_chunk.dtype == torch.uint8 else "minus_one_one"
+        )
+        condition_frames = rgb_array_to_uint8_frames(
+            condition_chunk,
+            layout="bvtchw",
+            value_range=condition_value_range,
+        )
+        keyboard = self._native_hud_keyboard
+        view_mode = keyboard.view_mode if keyboard is not None else "model_rgb"
         self._native_hud_frames.clear()
-        for timestamp_us, rgb in zip(timestamps_us, frames, strict=True):
+        for timestamp_us, rgb, condition_rgb in zip(
+            timestamps_us, frames, condition_frames, strict=True
+        ):
             frame = PresentedFrame(
                 timestamp_us=timestamp_us,
-                rgb_host_uint8=rgb,
+                rgb_host_uint8=condition_rgb,
                 depth_host_f32=None,
                 model_rgb_host_uint8=rgb,
             )
-            hud.present_frame(frame, "model_rgb")
+            hud.present_frame(frame, view_mode)
         rendered = np.stack(self._native_hud_frames, axis=0)
         tensor = torch.from_numpy(rendered)
         return tensor.permute(0, 3, 1, 2).unsqueeze(0).unsqueeze(0).contiguous()
@@ -1340,7 +1451,7 @@ class OmnidreamsWebRTCSessionManager(
     # A chunk-generation failure here is fatal to the rollout, so tear the
     # session down instead of retrying on the next tick.
     _close_session_on_generation_error = True
-    _resampler_supported_keys = WSAD_SUPPORTED_KEYS
+    _resampler_supported_keys = DRIVING_SUPPORTED_KEYS
 
     def __init__(
         self,
@@ -1356,6 +1467,55 @@ class OmnidreamsWebRTCSessionManager(
             client_liveness_timeout_s=client_liveness_timeout_s,
         )
         self._pending_session_input: OmnidreamsSessionInput | None = None
+
+    async def create_answer(
+        self, *, offer_sdp: str, offer_type: str
+    ) -> dict[str, str]:
+        """Create an answer and queue the exact native waiting frame first."""
+        answer = await super().create_answer(
+            offer_sdp=offer_sdp, offer_type=offer_type
+        )
+        managed_session = self._active_session
+        if managed_session is not None and self.runtime_config.server_side_hud:
+            frame = await self._runtime.render_native_hud_frame("Loading Scene...")
+            if frame is not None:
+                await managed_session.video_track.enqueue_chunk(frame)
+        return answer
+
+    async def _handle_event_message(
+        self,
+        *,
+        managed_session: ManagedWebRTCSession,
+        payload: dict[str, Any],
+    ) -> bool:
+        event_id = str(payload.get("event_id", payload.get("id", ""))).strip()
+        if event_id == "native_hud_key":
+            key = str(payload.get("key", "")).strip()
+            if not key:
+                return False
+            state = str(payload.get("state", "press")).strip().lower()
+            frame = await self._runtime.handle_native_hud_key(
+                key=key, down=state not in {"clear", "release", "up", "off"}
+            )
+        elif event_id == "native_hud_pointer":
+            try:
+                x = float(payload["x"])
+                y = float(payload["y"])
+            except (KeyError, TypeError, ValueError):
+                return False
+            if not 0.0 <= x <= 1.0 or not 0.0 <= y <= 1.0:
+                return False
+            frame = await self._runtime.handle_native_hud_pointer(
+                x=x, y=y, pressed=bool(payload.get("pressed", True))
+            )
+        else:
+            return await super()._handle_event_message(
+                managed_session=managed_session, payload=payload
+            )
+
+        if frame is not None:
+            await managed_session.video_track.enqueue_chunk(frame)
+        return True
 
     def _model_name(self) -> str:
         return self.runtime_config.pipeline_config_name

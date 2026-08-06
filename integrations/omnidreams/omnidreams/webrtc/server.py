@@ -156,10 +156,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--server-side-hud",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help=(
-            "Composite the native desktop HUD into every video frame. Disabled "
-            "by default because the browser already renders its own overlay."
+            "Composite the shared native desktop HUD into WebRTC video (default). "
+            "Use --no-server-side-hud only for raw-video performance profiling."
         ),
     )
     parser.add_argument(
@@ -261,7 +262,7 @@ def create_app(
     request_session_url: str,
     session_manager: WebRTCSessionManager | None = None,
     auto_start: bool = False,
-    server_side_hud: bool = False,
+    server_side_hud: bool = True,
 ) -> web.Application:
     manager = session_manager or OmnidreamsWebRTCSessionManager()
     return create_packaged_webrtc_app(
@@ -342,7 +343,7 @@ def build_runtime_config(
         warmup_timeout_s=args.warmup_timeout_s,
         debug_serve_hdmaps=args.debug_serve_hdmaps,
         game_mode=bool(getattr(args, "game_mode", False)),
-        server_side_hud=bool(getattr(args, "server_side_hud", False)),
+        server_side_hud=bool(getattr(args, "server_side_hud", True)),
         postprocess=VideoPostprocessChainConfig(preset=args.postprocess_preset),
         encoder_backend="default" if args.prefer_sw_encoder else "auto",
     )

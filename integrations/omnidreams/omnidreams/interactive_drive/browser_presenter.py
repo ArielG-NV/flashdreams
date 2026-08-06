@@ -226,6 +226,7 @@ class NativeHudBrowserPresenter(SlangPyHudPresenter):
             "ArrowLeft": "Left",
             "ArrowRight": "Right",
             " ": "space",
+            "space": "space",
         }.get(key)
         if drive_key is not None:
             if down:
@@ -261,6 +262,11 @@ class NativeHudBrowserPresenter(SlangPyHudPresenter):
         if pressed:
             self._handle_click(pos)
         self._render_canvas(None, force_cpu_camera=True)
+        self._present_canvas()
+
+    def render_current_frame(self, status_message: str | None = None) -> None:
+        """Render and publish the current native HUD state."""
+        self._render_canvas(status_message, force_cpu_camera=True)
         self._present_canvas()
 
     def close(self) -> None:
