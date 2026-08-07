@@ -1,753 +1,693 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Shared input-device profile model, evdev helpers, and profile IO.
+"""SDL3 gamepad and generic joystick profiles for interactive-drive.
 
-A *profile* describes any analog driving input device -- a steering wheel
-with pedals or a game controller with an analog stick and triggers. The
-runtime (:class:`~omnidreams.interactive_drive.demo.WheelBridge`) only ever
-reads three absolute axes (steering / throttle / brake) and normalizes
-them, so the same profile shape covers both device classes; a controller is
-just a profile whose throttle/brake axes are triggers (``pedal.inverted:
-false``) and whose force feedback is disabled.
-
-Profiles are data-only YAML. Nothing here hardcodes a device's make or
-model: detection is by the device's own evdev-reported name, which the
-configuration tool captures live and writes only into the user's local
-profile -- never into shipped source or configs.
-
-This module is intentionally free of any GUI / slangpy imports so the
-configuration tool (:mod:`omnidreams.interactive_drive.input_config`) and
-the demo runtime can both depend on it cheaply.
+Console-style controllers use SlangPy's SDL3 gamepad callbacks. Racing wheels,
+pedal sets, flight controls, and other arbitrary devices use SDL3's lower-level
+Joystick API through :mod:`.sdl3_joystick`. Both backends share one portable
+profile format and never expose evdev paths, WinMM slots, or HID reports.
 """
 
 from __future__ import annotations
 
-import array
-import os
-import struct
+import re
 import time
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Any
 
 import yaml
 from loguru import logger
 
-# fcntl is Linux-only (used for the evdev ioctls below). It's absent on Windows,
-# where there are no /dev/input evdev nodes, so the ioctl call sites are
-# unreachable. Import it optionally so the module loads on Windows; the two
-# public entry points (read_evdev_name, scan_evdev_devices) short-circuit when
-# fcntl is None so the unreachable ioctl paths are never entered.
-try:
-    import fcntl
-except ImportError:  # Windows / non-Linux
-    fcntl = None
+SDL3_AXES: tuple[str, ...] = (
+    "left_x",
+    "left_y",
+    "right_x",
+    "right_y",
+    "left_trigger",
+    "right_trigger",
+)
 
-# --- evdev wire format / ioctl constants -------------------------------
-# Linux input_event struct: two longs (timeval), two u16, one s32.
-EVDEV_EVENT_FORMAT = "llHHi"
-EVDEV_EVENT_SIZE = struct.calcsize(EVDEV_EVENT_FORMAT)
-EV_ABS = 0x03
-EV_KEY = 0x01
-EV_FF = 0x15
-FF_CONSTANT = 0x52
-FF_AUTOCENTER = 0x61
-FF_GAIN = 0x60
-# Number of FF effect codes; a 16-byte bitmap covers them all.
-FF_CNT = 0x80
-# EVIOCGABS(axis): read an absolute axis' value/min/max range.
-EVIOCGABS = lambda axis: 0x80184540 + axis  # noqa: E731
-# EVIOCGNAME(len): read the device's human-readable name.
-EVIOCGNAME = lambda length: 0x80004506 + (length << 16)  # noqa: E731
-# EVIOCGBIT(EV_FF, len): read the device's supported FFB effect bitmap.
-EVIOCGBIT_FF = lambda length: 0x80004535 + (length << 16)  # noqa: E731
-# EVIOCSFF: upload a struct ff_effect (48 bytes) to the device.
-EVIOCSFF = 0x40304580
+SDL3_BUTTONS: tuple[str, ...] = (
+    "a",
+    "b",
+    "x",
+    "y",
+    "left_bumper",
+    "right_bumper",
+    "back",
+    "start",
+    "guide",
+    "left_thumb",
+    "right_thumb",
+    "up",
+    "right",
+    "down",
+    "left",
+)
 
+DRIVE_ACTIONS: tuple[str, ...] = (
+    "steering",
+    "throttle",
+    "brake",
+    "reverse",
+    "reset",
+    "exit",
+)
 
-@dataclass(frozen=True)
-class AxisRange:
-    minimum: int
-    maximum: int
+GAMEPAD_BACKEND = "sdl3-gamepad"
+JOYSTICK_BACKEND = "sdl3-joystick"
 
-    @property
-    def center(self) -> float:
-        return (float(self.minimum) + float(self.maximum)) * 0.5
+FFB_MODES: tuple[str, ...] = ("auto", "autocenter", "constant_force")
+"""Supported SDL3 wheel force-feedback strategies."""
 
-    @property
-    def span(self) -> float:
-        return max(1.0, float(self.maximum - self.minimum))
+_DEFAULT_BINDINGS = {
+    "steering": ("axis", "left_x"),
+    "throttle": ("axis", "right_trigger"),
+    "brake": ("axis", "left_trigger"),
+    "reverse": ("button", "b"),
+    "reset": ("button", "y"),
+    "exit": ("button", "back"),
+}
 
-
-@dataclass(frozen=True)
-class EvdevDevice:
-    path: Path
-    name: str
+_SWAPPED_FACE_BUTTONS = {"a": "b", "b": "a", "x": "y", "y": "x"}
+_JOYSTICK_AXIS_RE = re.compile(r"axis_(\d+)$")
+_JOYSTICK_BUTTON_RE = re.compile(r"button_(\d+)$")
 
 
 @dataclass(frozen=True)
 class DeviceSpec:
-    """One physical evdev device a profile binds, matched by name at launch."""
+    """Stable description of one SDL3 joystick used by a profile.
 
-    detection_patterns: tuple[str, ...]
-    display_name: str = ""
+    GUID matching is preferred for a local profile. VID/PID and exact device
+    name are retained as fallbacks because SDL documents GUIDs as
+    platform-dependent. ``ordinal`` disambiguates two identical devices.
+    """
+
+    name: str
+    guid: str = ""
+    vendor_id: int = 0
+    product_id: int = 0
+    kind: str = "unknown"
+    ordinal: int = 0
 
 
 @dataclass(frozen=True)
 class Binding:
-    """An axis or button on a specific device (``device`` indexes ``devices``)."""
+    """An SDL3 semantic control or a raw joystick axis/button.
 
-    device: int
-    code: int
+    ``device`` indexes :attr:`WheelProfile.devices` for joystick bindings.
+    ``rest`` stores a pedal's released value in SDL's normalized ``[-1, 1]``
+    range; ``invert`` means engagement moves toward ``-1``.
+    """
+
+    kind: str
+    control: str
+    device: int = 0
+    rest: float | None = None
+    invert: bool = False
+
+    def __post_init__(self) -> None:
+        if self.kind not in {"axis", "button"}:
+            raise ValueError(f"Unknown SDL3 binding type: {self.kind!r}")
+        semantic = SDL3_AXES if self.kind == "axis" else SDL3_BUTTONS
+        raw_pattern = _JOYSTICK_AXIS_RE if self.kind == "axis" else _JOYSTICK_BUTTON_RE
+        if self.control not in semantic and raw_pattern.fullmatch(self.control) is None:
+            raise ValueError(f"Unknown SDL3 {self.kind}: {self.control!r}")
+        if self.device < 0:
+            raise ValueError("SDL3 joystick device index must be non-negative")
+        if self.rest is not None and not -1.0 <= float(self.rest) <= 1.0:
+            raise ValueError("SDL3 joystick rest value must be in [-1, 1]")
+
+    @property
+    def raw_index(self) -> int | None:
+        pattern = _JOYSTICK_AXIS_RE if self.kind == "axis" else _JOYSTICK_BUTTON_RE
+        match = pattern.fullmatch(self.control)
+        return None if match is None else int(match.group(1))
+
+    @property
+    def is_raw_joystick(self) -> bool:
+        return self.raw_index is not None
 
 
 @dataclass(frozen=True)
 class WheelProfile:
-    """A driving-input profile (steering wheel or game controller).
-
-    A profile binds one or more :class:`DeviceSpec` devices; each axis and
-    button is a :class:`Binding` naming the device (by index into
-    ``devices``) and its evdev code. This lets a profile span devices -- a
-    wheel base plus a separate-brand pedal set, say.
-
-    ``inverted_pedals`` is shared by throttle and brake: ``True`` when the
-    control rests at its axis maximum and falls toward the minimum when
-    engaged (typical of wheel pedals), ``False`` when it rests at the
-    minimum and rises when engaged (typical of controller triggers).
-    """
+    """Driving input profile for either SDL3 Gamepad or Joystick input."""
 
     name: str
     display_name: str
-    devices: tuple[DeviceSpec, ...]
-    axis_map: dict[str, Binding]
-    inverted_pedals: bool = True
+    bindings: dict[str, Binding] = field(default_factory=dict)
+    backend: str = GAMEPAD_BACKEND
+    devices: tuple[DeviceSpec, ...] = ()
+    swap_face_buttons: bool = False
     invert_steering: bool = False
+    steering_range: float = 0.75
+    steering_deadzone: float = 0.08
     ffb_enabled: bool = False
-    ffb_gain: float = 0.5
-    # "auto" chooses from the device's advertised effects; "autocenter" or
-    # "constant_force" force a specific backend.
     ffb_mode: str = "auto"
-    threshold: float = 0.12
+    ffb_gain: float = 0.5
     is_default: bool = False
-    # Buttons (EV_KEY) bound to actions; empty when unbound.
-    reverse_buttons: tuple[Binding, ...] = ()
-    reset_buttons: tuple[Binding, ...] = ()
-    # Button(s) that exit the running scene and return to the scene
-    # selector (the HUD's ``x`` key does the same). Lets long-running
-    # demos drop back to "select a scene" from the wheel without a
-    # keyboard.
-    exit_buttons: tuple[Binding, ...] = ()
-    # Steering feel: output scale (``< 1`` = less sensitive) and a center
-    # deadzone fraction (hides analog-stick drift on game controllers).
-    steering_range: float = 1.0
-    steering_deadzone: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.backend not in {GAMEPAD_BACKEND, JOYSTICK_BACKEND}:
+            raise ValueError(f"Unknown SDL3 input backend: {self.backend!r}")
+        if self.ffb_mode not in FFB_MODES:
+            raise ValueError(f"Unknown SDL3 force-feedback mode: {self.ffb_mode!r}")
 
     @property
-    def detection_patterns(self) -> tuple[str, ...]:
-        """Patterns of the first (primary) device, for single-device callers."""
-        return self.devices[0].detection_patterns if self.devices else ()
+    def is_joystick(self) -> bool:
+        return self.backend == JOYSTICK_BACKEND
+
+    def binding(self, action: str) -> Binding | None:
+        return self.bindings.get(action)
+
+    def map_button(self, name: str) -> str:
+        if self.swap_face_buttons:
+            return _SWAPPED_FACE_BUTTONS.get(name, name)
+        return name
+
+
+ControllerProfile = WheelProfile
+
+
+@dataclass
+class ControllerState:
+    steering: float = 0.0
+    throttle: float = 0.0
+    brake: float = 0.0
+    target_speed_mps: float = 0.0
+    connected: bool = False
+    reverse: bool = False
+    axes: dict[str, float] = field(default_factory=dict)
+    buttons: frozenset[str] = frozenset()
+    device_names: tuple[str, ...] = ()
+    input_kind: str = "gamepad"
+
+    def copy(self) -> ControllerState:
+        return replace(self, axes=dict(self.axes), buttons=frozenset(self.buttons))
+
+
+def joystick_control_key(device: int, control: str) -> str:
+    """Return the internal state key for one raw joystick control."""
+    return f"d{device}:{control}"
+
+
+def parse_joystick_control_key(value: str) -> tuple[int, str] | None:
+    match = re.fullmatch(r"d(\d+):(axis_\d+|button_\d+)", value)
+    return None if match is None else (int(match.group(1)), match.group(2))
+
+
+def default_controller_profile() -> WheelProfile:
+    return WheelProfile(
+        name="sdl3-default",
+        display_name="SDL3 game controller",
+        bindings={
+            action: Binding(kind, control)
+            for action, (kind, control) in _DEFAULT_BINDINGS.items()
+        },
+        invert_steering=True,
+        is_default=True,
+    )
+
+
+def default_wheel_profile() -> WheelProfile:
+    """Return an empty generic-wheel profile used while configuring devices."""
+    return WheelProfile(
+        name="sdl3-wheel",
+        display_name="SDL3 wheel and pedals",
+        backend=JOYSTICK_BACKEND,
+        steering_range=1.0,
+        steering_deadzone=0.01,
+    )
 
 
 def apply_steering_curve(
     value: float, *, deadzone: float = 0.0, scale: float = 1.0
 ) -> float:
-    """Shape a normalized steering value in ``[-1, 1]``.
-
-    ``deadzone`` (a fraction of the range) is removed around center and the
-    remainder rescaled so motion just past it starts from zero -- this hides
-    analog-stick drift. ``scale`` then limits the output magnitude (``< 1``
-    makes steering less sensitive). The result stays in ``[-1, 1]``.
-    """
-    if deadzone > 0.0:
-        magnitude = abs(value)
-        if magnitude <= deadzone:
-            return 0.0
-        sign = 1.0 if value > 0.0 else -1.0
-        value = sign * (magnitude - deadzone) / (1.0 - deadzone)
-    return max(-1.0, min(1.0, value * scale))
-
-
-def name_match_strength(device_name: str, patterns) -> int:
-    """Score a device name against a profile's detection patterns.
-
-    ``2`` when the name equals a pattern exactly, ``1`` when a pattern is a
-    substring of the name, ``0`` otherwise (case-insensitive). Exact beats
-    substring so a profile captured as ``"Wireless Controller"`` binds that
-    node rather than a sibling like ``"Wireless Controller Motion Sensors"``
-    whose name merely contains the pattern.
-    """
-    name = device_name.lower()
-    lowered = [str(pattern).lower() for pattern in patterns]
-    if any(name == pattern for pattern in lowered):
-        return 2
-    if any(pattern and pattern in name for pattern in lowered):
-        return 1
-    return 0
-
-
-# --- evdev device discovery / queries ----------------------------------
-
-
-def read_evdev_name(path: Path) -> str | None:
-    """Return the evdev device name at *path*, or ``None`` if unreadable."""
-    if fcntl is None:  # no evdev on this platform (e.g. Windows)
-        return None
-    try:
-        with path.open("rb") as handle:
-            name_buf = array.array("B", [0] * 256)
-            fcntl.ioctl(handle.fileno(), EVIOCGNAME(256), name_buf)
-            return name_buf.tobytes().split(b"\x00")[0].decode("utf-8")
-    except (OSError, UnicodeDecodeError):
-        return None
-
-
-def query_axis_range(path: Path, axis: int) -> AxisRange | None:
-    """Read an absolute axis' [min, max] via ``EVIOCGABS``.
-
-    Returns ``None`` when the device has no such axis (which is also how
-    callers test whether a candidate device exposes a required axis).
-    """
-    try:
-        with path.open("rb") as handle:
-            payload = array.array("i", [0, 0, 0, 0, 0, 0])
-            fcntl.ioctl(handle.fileno(), EVIOCGABS(axis), payload, True)
-            return AxisRange(minimum=int(payload[1]), maximum=int(payload[2]))
-    except OSError:
-        return None
-
-
-def query_ff_features(path: Path) -> frozenset[int]:
-    """Return the FF effect codes the device supports via ``EVIOCGBIT(EV_FF)``.
-
-    Thrustmaster and Logitech advertise ``FF_AUTOCENTER``; Fanatec's
-    ``hid-fanatecff`` advertises ``FF_CONSTANT`` but not autocenter. Empty
-    when the device exposes no FFB or cannot be read.
-    """
-    try:
-        with path.open("rb") as handle:
-            nbytes = (FF_CNT + 7) // 8
-            buf = array.array("B", [0] * nbytes)
-            fcntl.ioctl(handle.fileno(), EVIOCGBIT_FF(nbytes), buf)
-            return frozenset(
-                code for code in range(nbytes * 8) if buf[code // 8] & (1 << (code % 8))
-            )
-    except OSError:
-        return frozenset()
-
-
-def scan_evdev_devices() -> tuple[EvdevDevice, ...]:
-    """Enumerate readable evdev devices.
-
-    Scans ``/dev/input/by-id`` first (stable, descriptive symlinks) then
-    ``/dev/input/event*``, de-duplicating by resolved path.
-    """
-    if fcntl is None:  # no evdev on this platform (e.g. Windows)
-        return ()
-    candidates: list[Path] = []
-    by_id = Path("/dev/input/by-id")
-    if by_id.is_dir():
-        candidates.extend(
-            sorted(path for path in by_id.glob("*event*") if path.exists())
+    deadzone = max(0.0, min(0.95, float(deadzone)))
+    if abs(value) <= deadzone:
+        value = 0.0
+    elif deadzone:
+        value = (1.0 if value > 0.0 else -1.0) * (
+            (abs(value) - deadzone) / (1.0 - deadzone)
         )
-    candidates.extend(sorted(Path("/dev/input").glob("event*")))
-
-    devices: list[EvdevDevice] = []
-    seen: set[Path] = set()
-    for path in candidates:
-        try:
-            resolved = path.resolve()
-        except OSError:
-            resolved = path
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        name = read_evdev_name(path)
-        if name is not None:
-            devices.append(EvdevDevice(path=path, name=name))
-    return tuple(devices)
+    return max(-1.0, min(1.0, value * float(scale)))
 
 
-def read_axis_states(path: Path) -> dict[int, tuple[int, AxisRange]]:
-    """Return ``{abs_code: (current_value, range)}`` for every absolute axis.
-
-    Probes the common ABS code range (0x00-0x3F, which covers sticks,
-    triggers, pedals, and hats) via the same ``EVIOCGABS`` ioctl ``evtest``
-    uses. That ioctl reports the axis' *current* value alongside its
-    min/max, so the configuration tool can seed a live readout and
-    normalize movement immediately, without waiting for the device to emit
-    its first event.
-    """
-    states: dict[int, tuple[int, AxisRange]] = {}
-    try:
-        with path.open("rb") as handle:
-            for axis in range(0x40):
-                payload = array.array("i", [0, 0, 0, 0, 0, 0])
-                try:
-                    fcntl.ioctl(handle.fileno(), EVIOCGABS(axis), payload, True)
-                except OSError:
-                    continue
-                value, minimum, maximum = (
-                    int(payload[0]),
-                    int(payload[1]),
-                    int(payload[2]),
-                )
-                if maximum != minimum:
-                    states[axis] = (value, AxisRange(minimum=minimum, maximum=maximum))
-    except OSError:
-        return {}
-    return states
-
-
-def list_device_axes(path: Path) -> dict[int, AxisRange]:
-    """Return the min/max range of every absolute axis the device exposes."""
-    return {code: rng for code, (_value, rng) in read_axis_states(path).items()}
-
-
-# --- profile IO ---------------------------------------------------------
+def normalize_pedal(value: float, binding: Binding) -> float:
+    """Normalize a raw SDL joystick pedal from its captured resting value."""
+    value = max(-1.0, min(1.0, float(value)))
+    rest = binding.rest
+    if rest is None:
+        normalized = (value + 1.0) * 0.5
+        return 1.0 - normalized if binding.invert else normalized
+    if binding.invert:
+        span = max(1e-6, rest + 1.0)
+        return max(0.0, min(1.0, (rest - value) / span))
+    span = max(1e-6, 1.0 - rest)
+    return max(0.0, min(1.0, (value - rest) / span))
 
 
 def user_wheel_profiles_dir() -> Path:
-    """User-writable directory where generated profiles are stored.
-
-    Resolves to ``$FLASHDREAMS_CACHE_DIR/interactive-drive/wheels`` (the
-    same cache convention the scene staging uses). Read on every call so
-    tests that monkeypatch :data:`omnidreams.scenes.FLASHDREAMS_CACHE_DIR`
-    see the override.
-    """
     from omnidreams.scenes import FLASHDREAMS_CACHE_DIR
 
     return FLASHDREAMS_CACHE_DIR / "interactive-drive" / "wheels"
 
 
-def _binding_from_data(value, fallback_device: int = 0) -> Binding:
-    """Parse one axis/button binding from YAML.
-
-    Accepts the structured ``{device, code}`` mapping or a bare int code
-    (legacy single-device profiles), which binds to *fallback_device*.
-    """
-    if isinstance(value, dict):
-        return Binding(
-            device=int(value.get("device", fallback_device)),
-            code=int(value["code"]),
-        )
-    return Binding(device=fallback_device, code=int(value))
-
-
-def _buttons_from_data(value) -> tuple[Binding, ...]:
-    return tuple(_binding_from_data(item) for item in (value or ()))
-
-
-def _devices_from_data(data: dict) -> tuple[DeviceSpec, ...]:
-    """Read the device list, migrating legacy top-level ``detection_patterns``."""
-    raw_devices = data.get("devices")
-    if raw_devices:
-        return tuple(
-            DeviceSpec(
-                detection_patterns=tuple(
-                    str(p) for p in (entry.get("detection_patterns") or ())
-                ),
-                display_name=str(entry.get("display_name", "")),
-            )
-            for entry in raw_devices
-        )
-    return (
-        DeviceSpec(
-            detection_patterns=tuple(
-                str(pattern) for pattern in data.get("detection_patterns", ())
-            )
-        ),
-    )
-
-
-def _profile_from_data(data: dict, fallback_name: str) -> WheelProfile:
-    axis_map = {
-        str(key): _binding_from_data(value)
-        for key, value in (data.get("axis_map") or {}).items()
-    }
-    pedal = data.get("pedal", {}) or {}
-    ffb = data.get("ffb", {}) or {}
-    return WheelProfile(
-        name=str(data.get("name", fallback_name)),
-        display_name=str(data.get("display_name", data.get("name", fallback_name))),
-        devices=_devices_from_data(data),
-        axis_map=axis_map,
-        inverted_pedals=bool(pedal.get("inverted", data.get("inverted_pedals", True))),
-        invert_steering=bool(data.get("invert_steering", False)),
-        ffb_enabled=bool(ffb.get("enabled", False)),
-        ffb_gain=float(ffb.get("gain", 0.5)),
-        ffb_mode=str(ffb.get("mode", "auto")),
-        threshold=float(data.get("threshold", 0.12)),
-        is_default=bool(data.get("is_default", False)),
-        reverse_buttons=_buttons_from_data(data.get("reverse_buttons")),
-        reset_buttons=_buttons_from_data(data.get("reset_buttons")),
-        exit_buttons=_buttons_from_data(data.get("exit_buttons")),
-        steering_range=float(data.get("steering_range", 1.0)),
-        steering_deadzone=float(data.get("steering_deadzone", 0.0)),
-    )
-
-
-def load_wheel_profile_files(
-    profiles_dir: Path,
-) -> tuple[tuple[Path, WheelProfile], ...]:
-    """Load ``(path, profile)`` for every ``*.yaml`` in *profiles_dir*.
-
-    The configuration tool needs the source path to edit or delete a
-    profile in place; the runtime only needs the profiles themselves
-    (:func:`load_wheel_profiles`).
-    """
-    if not profiles_dir.is_dir():
-        return tuple()
-    entries: list[tuple[Path, WheelProfile]] = []
-    for path in sorted(profiles_dir.glob("*.yaml")):
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        entries.append((path, _profile_from_data(data, path.stem)))
-    return tuple(entries)
-
-
-def load_wheel_profiles(profiles_dir: Path) -> tuple[WheelProfile, ...]:
-    """Load every ``*.yaml`` profile in *profiles_dir* (empty if missing)."""
-    return tuple(profile for _path, profile in load_wheel_profile_files(profiles_dir))
-
-
-def wheel_profile_to_yaml_dict(profile: WheelProfile) -> dict:
-    """Serialize a profile to the dict shape :func:`load_wheel_profiles` reads.
-
-    Key order is preserved on dump for human-friendly files; round-tripping
-    the result back through :func:`load_wheel_profiles` reproduces an equal
-    :class:`WheelProfile`.
-    """
-
-    def _binding(b: Binding) -> dict:
-        return {"device": int(b.device), "code": int(b.code)}
-
-    return {
-        "name": profile.name,
-        "display_name": profile.display_name,
-        "is_default": profile.is_default,
-        "devices": [
-            {
-                "display_name": device.display_name,
-                "detection_patterns": list(device.detection_patterns),
-            }
-            for device in profile.devices
-        ],
-        "axis_map": {
-            "steering": _binding(profile.axis_map["steering"]),
-            "throttle": _binding(profile.axis_map["throttle"]),
-            "brake": _binding(profile.axis_map["brake"]),
-        },
-        "pedal": {"inverted": profile.inverted_pedals},
-        "invert_steering": profile.invert_steering,
-        "ffb": {
-            "enabled": profile.ffb_enabled,
-            "gain": profile.ffb_gain,
-            "mode": profile.ffb_mode,
-        },
-        "threshold": profile.threshold,
-        "reverse_buttons": [_binding(b) for b in profile.reverse_buttons],
-        "reset_buttons": [_binding(b) for b in profile.reset_buttons],
-        "exit_buttons": [_binding(b) for b in profile.exit_buttons],
-        "steering_range": profile.steering_range,
-        "steering_deadzone": profile.steering_deadzone,
-    }
-
-
 def profile_filename(name: str) -> str:
-    """Filesystem-safe ``<slug>.yaml`` filename for a profile *name*."""
-    slug = "".join(ch if ch.isalnum() else "-" for ch in name.strip().lower())
-    slug = "-".join(part for part in slug.split("-") if part)
+    slug = re.sub(r"[^a-z0-9]+", "-", str(name).lower()).strip("-")
     return f"{slug or 'profile'}.yaml"
 
 
-def _write_profile_yaml(path: Path, profile: WheelProfile) -> None:
-    header = (
-        "# Generated by interactive-drive-configuration.\n"
-        "# Local input-device profile -- not tracked by the repository.\n\n"
+def _binding_from_data(value: Any) -> Binding:
+    if isinstance(value, str):
+        kind = "axis" if value in SDL3_AXES or value.startswith("axis_") else "button"
+        return Binding(kind, value)
+    if not isinstance(value, dict):
+        raise TypeError(f"SDL3 binding must be a mapping, got {value!r}")
+    return Binding(
+        str(value.get("type", value.get("kind", ""))),
+        str(value["control"]),
+        device=int(value.get("device", 0)),
+        rest=None if value.get("rest") is None else float(value["rest"]),
+        invert=bool(value.get("invert", False)),
     )
-    body = yaml.safe_dump(
-        wheel_profile_to_yaml_dict(profile), sort_keys=False, default_flow_style=False
-    )
-    path.write_text(header + body, encoding="utf-8")
 
 
-def save_wheel_profile(profile: WheelProfile, profiles_dir: Path) -> Path:
-    """Write *profile* as a new YAML in *profiles_dir* and return the path."""
-    profiles_dir.mkdir(parents=True, exist_ok=True)
-    path = profiles_dir / profile_filename(profile.name)
-    _write_profile_yaml(path, profile)
+def _device_from_data(value: Any) -> DeviceSpec:
+    if not isinstance(value, dict):
+        raise TypeError(f"SDL3 joystick device must be a mapping, got {value!r}")
+    patterns = value.get("detection_patterns") or ()
+    name = (
+        value.get("name")
+        or value.get("display_name")
+        or (patterns[0] if patterns else "")
+    )
+    return DeviceSpec(
+        name=str(name or "SDL3 joystick"),
+        guid=str(value.get("guid") or ""),
+        vendor_id=int(value.get("vendor_id", 0)),
+        product_id=int(value.get("product_id", 0)),
+        kind=str(value.get("kind") or "unknown"),
+        ordinal=int(value.get("ordinal", 0)),
+    )
+
+
+def _legacy_binding(value: Any, kind: str, *, invert: bool = False) -> Binding | None:
+    if not value:
+        return None
+    item = value[0] if isinstance(value, list) else value
+    if isinstance(item, dict):
+        device, code = int(item.get("device", 0)), item.get("code")
+    else:
+        device, code = 0, item
+    try:
+        index = int(code)
+    except (TypeError, ValueError):
+        return None
+    return Binding(kind, f"{kind}_{index}", device=device, invert=invert)
+
+
+def _migrate_legacy_profile(data: dict[str, Any]) -> WheelProfile:
+    """Preserve version-1 wheel/pedal profiles using SDL joystick indices."""
+    raw_devices = data.get("devices")
+    if isinstance(raw_devices, list) and raw_devices:
+        devices = tuple(_device_from_data(item) for item in raw_devices)
+    else:
+        patterns = tuple(str(item) for item in data.get("detection_patterns", ()))
+        devices = (DeviceSpec(name=patterns[0] if patterns else "SDL3 joystick"),)
+
+    inverted_pedals = bool((data.get("pedal") or {}).get("inverted", True))
+    bindings: dict[str, Binding] = {}
+    for action, raw in (data.get("axis_map") or {}).items():
+        if str(action) not in {"steering", "throttle", "brake"}:
+            continue
+        if isinstance(raw, dict):
+            device, code = int(raw.get("device", 0)), raw.get("code")
+        else:
+            device, code = 0, raw
+        try:
+            bindings[str(action)] = Binding(
+                "axis",
+                f"axis_{int(code)}",
+                device=device,
+                invert=inverted_pedals and action in {"throttle", "brake"},
+            )
+        except (TypeError, ValueError):
+            continue
+    for action in ("reverse", "reset", "exit", "throttle", "brake"):
+        binding = _legacy_binding(data.get(f"{action}_buttons"), "button")
+        if binding is not None:
+            bindings[action] = binding
+
+    ffb = data.get("ffb") or {}
+    logger.warning(
+        "Migrated legacy raw profile {!r} to SDL3 joystick indices; verify the "
+        "mapping once in interactive-drive-configuration.",
+        data.get("name", "profile"),
+    )
+    return WheelProfile(
+        name=str(data.get("name") or "sdl3-wheel"),
+        display_name=str(data.get("display_name") or "SDL3 wheel and pedals"),
+        backend=JOYSTICK_BACKEND,
+        devices=devices,
+        bindings=bindings,
+        invert_steering=bool(data.get("invert_steering", False)),
+        steering_range=float(data.get("steering_range", 1.0)),
+        steering_deadzone=float(data.get("steering_deadzone", 0.01)),
+        ffb_enabled=bool(ffb.get("enabled", False)),
+        ffb_mode=str(ffb.get("mode", "auto")),
+        ffb_gain=float(ffb.get("gain", 0.5)),
+        is_default=bool(data.get("is_default", False)),
+    )
+
+
+def wheel_profile_from_yaml_dict(data: dict[str, Any]) -> WheelProfile:
+    raw_bindings = data.get("bindings")
+    if not isinstance(raw_bindings, dict):
+        return _migrate_legacy_profile(data)
+    backend_value = str(data.get("backend") or GAMEPAD_BACKEND).lower()
+    backend = JOYSTICK_BACKEND if "joystick" in backend_value else GAMEPAD_BACKEND
+    bindings = {
+        str(action): _binding_from_data(value)
+        for action, value in raw_bindings.items()
+        if str(action) in DRIVE_ACTIONS
+    }
+    if backend == GAMEPAD_BACKEND:
+        defaults = default_controller_profile().bindings
+        for required in ("steering", "throttle", "brake"):
+            bindings.setdefault(required, defaults[required])
+    raw_devices = data.get("devices") or ()
+    ffb = data.get("ffb") or {}
+    return WheelProfile(
+        name=str(data.get("name") or "sdl3-controller"),
+        display_name=str(data.get("display_name") or "SDL3 input device"),
+        bindings=bindings,
+        backend=backend,
+        devices=tuple(_device_from_data(item) for item in raw_devices),
+        swap_face_buttons=bool(data.get("swap_face_buttons", False)),
+        invert_steering=bool(data.get("invert_steering", False)),
+        steering_range=float(data.get("steering_range", 0.75)),
+        steering_deadzone=float(data.get("steering_deadzone", 0.08)),
+        ffb_enabled=bool(ffb.get("enabled", False)),
+        ffb_mode=str(ffb.get("mode", "auto")),
+        ffb_gain=float(ffb.get("gain", 0.5)),
+        is_default=bool(data.get("is_default", False)),
+    )
+
+
+def _binding_to_data(binding: Binding) -> dict[str, Any]:
+    data: dict[str, Any] = {"type": binding.kind, "control": binding.control}
+    if binding.is_raw_joystick:
+        data["device"] = binding.device
+        if binding.rest is not None:
+            data["rest"] = round(float(binding.rest), 6)
+        if binding.invert:
+            data["invert"] = True
+    return data
+
+
+def wheel_profile_to_yaml_dict(profile: WheelProfile) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "schema_version": 3,
+        "backend": profile.backend,
+        "name": profile.name,
+        "display_name": profile.display_name,
+        "is_default": profile.is_default,
+        "bindings": {
+            action: _binding_to_data(binding)
+            for action, binding in profile.bindings.items()
+        },
+        "swap_face_buttons": profile.swap_face_buttons,
+        "invert_steering": profile.invert_steering,
+        "steering_range": profile.steering_range,
+        "steering_deadzone": profile.steering_deadzone,
+    }
+    if profile.is_joystick:
+        data["devices"] = [
+            {
+                "name": device.name,
+                "guid": device.guid,
+                "vendor_id": device.vendor_id,
+                "product_id": device.product_id,
+                "kind": device.kind,
+                "ordinal": device.ordinal,
+            }
+            for device in profile.devices
+        ]
+        data["ffb"] = {
+            "enabled": profile.ffb_enabled,
+            "mode": profile.ffb_mode,
+            "gain": profile.ffb_gain,
+        }
+    return data
+
+
+def load_wheel_profile_files(directory: Path) -> tuple[tuple[Path, WheelProfile], ...]:
+    if not directory.is_dir():
+        return ()
+    loaded: list[tuple[Path, WheelProfile]] = []
+    for path in sorted((*directory.glob("*.yaml"), *directory.glob("*.yml"))):
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise TypeError("profile root must be a mapping")
+            loaded.append((path, wheel_profile_from_yaml_dict(data)))
+        except (OSError, TypeError, ValueError, yaml.YAMLError) as exc:
+            logger.warning(f"Skipping invalid input profile {path}: {exc}")
+    return tuple(loaded)
+
+
+def load_wheel_profiles(directory: Path) -> tuple[WheelProfile, ...]:
+    return tuple(profile for _path, profile in load_wheel_profile_files(directory))
+
+
+def save_wheel_profile(profile: WheelProfile, directory: Path) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / profile_filename(profile.name)
+    update_profile_file(path, profile)
     return path
 
 
 def update_profile_file(path: Path, profile: WheelProfile) -> None:
-    """Rewrite an existing profile file in place (used by the editor)."""
-    _write_profile_yaml(path, profile)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        yaml.safe_dump(wheel_profile_to_yaml_dict(profile), sort_keys=False),
+        encoding="utf-8",
+    )
 
 
 def delete_profile_file(path: Path) -> None:
-    """Delete a profile file, ignoring a missing file."""
     path.unlink(missing_ok=True)
 
 
-# --- force feedback -----------------------------------------------------
-#
-# Two interchangeable backends share one lifecycle (init / update / cleanup),
-# so the runtime can swap them; :func:`create_ffb_backend` picks one.
+class Sdl3ControllerBridge:
+    """Translate SlangPy/SDL3 gamepad callbacks into drive commands."""
 
-
-class _FFBBackend:
-    """Common base: an opened device fd plus a timestamped event writer.
-
-    Subclasses implement the effect strategy. Everything is a no-op until
-    :meth:`init` opens the device, so an unsupported or unopenable wheel does
-    nothing rather than raising.
-    """
-
-    def __init__(self) -> None:
-        self._fd: int | None = None
+    def __init__(
+        self,
+        *,
+        profile: WheelProfile,
+        control: Any | None = None,
+        on_input: Callable[[ControllerState], None] | None = None,
+    ) -> None:
+        self._profile = profile
+        self._control = control
+        self._on_input = on_input
+        self._window: Any | None = None
+        self._button_enum: Any | None = None
+        self._state = ControllerState(axes={axis: 0.0 for axis in SDL3_AXES})
+        self._last_update_s = time.monotonic()
+        self._last_button_down: str | None = None
+        self._signed_triggers = False
 
     @property
-    def available(self) -> bool:
-        return self._fd is not None
+    def profile(self) -> WheelProfile:
+        return self._profile
 
-    def init(self, device_path: Path, gain: float) -> None:  # pragma: no cover
-        raise NotImplementedError
-
-    def update(
-        self,
-        *,
-        speed_mps: float,
-        steering_raw: int,
-        center: int,
-        gain: float,
-    ) -> None:  # pragma: no cover
-        raise NotImplementedError
-
-    def cleanup(self) -> None:  # pragma: no cover
-        raise NotImplementedError
-
-    def _open(self, device_path: Path) -> bool:
-        """Open *device_path* for read/write FFB; report problems once."""
-        try:
-            self._fd = os.open(device_path, os.O_RDWR | os.O_NONBLOCK)
-            return True
-        except PermissionError:
-            logger.info(
-                "[wheel] FFB permission denied; add user to input group or adjust udev",
+    @profile.setter
+    def profile(self, value: WheelProfile) -> None:
+        if value.swap_face_buttons != self._profile.swap_face_buttons:
+            raw_buttons = {
+                self._profile.map_button(name) for name in self._state.buttons
+            }
+            self._state.buttons = frozenset(
+                value.map_button(name) for name in raw_buttons
             )
-            self._fd = None
-            return False
-        except OSError as exc:
-            logger.info(f"[wheel] FFB unavailable on {device_path}: {exc}")
-            self._fd = None
-            return False
+            self._last_button_down = None
+        self._profile = value
+        self._publish()
 
-    def _write_event(self, code: int, value: int) -> None:
-        if self._fd is None:
-            return
-        now = time.time()
-        sec = int(now)
-        usec = int((now - sec) * 1_000_000)
-        try:
-            os.write(
-                self._fd, struct.pack(EVDEV_EVENT_FORMAT, sec, usec, EV_FF, code, value)
+    @property
+    def state(self) -> ControllerState:
+        return self._state.copy()
+
+    @property
+    def last_button_down(self) -> str | None:
+        return self._last_button_down
+
+    def take_last_button_down(self) -> str | None:
+        value = self._last_button_down
+        self._last_button_down = None
+        return value
+
+    def attach(self, window: Any, gamepad_button_enum: Any) -> None:
+        self._window = window
+        self._button_enum = gamepad_button_enum
+        window.on_gamepad_event = self._on_gamepad_event
+        window.on_gamepad_state = self._on_gamepad_state
+
+    def start(self) -> None:
+        """Compatibility no-op; SDL3 input starts when attached."""
+
+    def poll(self) -> None:
+        """Compatibility no-op; SlangPy pushes gamepad state callbacks."""
+
+    def stop(self) -> None:
+        if self._window is not None:
+            self._window.on_gamepad_event = None
+            self._window.on_gamepad_state = None
+        self._window = None
+        self._state.connected = False
+        self._state.buttons = frozenset()
+        if self._control is not None:
+            release = getattr(self._control, "release_all", None)
+            if release is not None:
+                release()
+
+    def _on_gamepad_event(self, event: Any) -> None:
+        if event.is_connect():
+            self._state.connected = True
+        elif event.is_disconnect():
+            self._state.connected = False
+            self._state.buttons = frozenset()
+            self._signed_triggers = False
+            if self._control is not None:
+                release = getattr(self._control, "release_all", None)
+                if release is not None:
+                    release()
+        elif event.is_button_down() or event.is_button_up():
+            raw_name = getattr(event.button, "name", str(event.button)).lower()
+            name = self._profile.map_button(raw_name)
+            buttons = set(self._state.buttons)
+            if event.is_button_down():
+                buttons.add(name)
+                self._last_button_down = name
+                self._handle_action_button(name)
+            else:
+                buttons.discard(name)
+            self._state.buttons = frozenset(buttons)
+            self._state.connected = True
+        self._publish()
+
+    def _on_gamepad_state(self, state: Any) -> None:
+        axes = {
+            axis: max(-1.0, min(1.0, float(getattr(state, axis, 0.0))))
+            for axis in SDL3_AXES
+        }
+        if min(axes["left_trigger"], axes["right_trigger"]) <= -0.5:
+            self._signed_triggers = True
+        if self._signed_triggers:
+            for axis in ("left_trigger", "right_trigger"):
+                axes[axis] = (axes[axis] + 1.0) * 0.5
+        self._state.axes = axes
+        if self._button_enum is not None:
+            self._state.buttons = frozenset(
+                self._profile.map_button(raw_name)
+                for raw_name in SDL3_BUTTONS
+                if (button := getattr(self._button_enum, raw_name, None)) is not None
+                and state.is_button_down(button)
             )
-        except OSError:
-            return
+        self._state.connected = True
+        self._publish()
 
+    def _handle_action_button(self, name: str) -> None:
+        if self._matches("reverse", name):
+            self._state.reverse = not self._state.reverse
+        elif self._matches("reset", name) and self._control is not None:
+            callback = getattr(self._control, "request_reset", None)
+            if callback is not None:
+                callback()
+        elif self._matches("exit", name) and self._control is not None:
+            callback = getattr(self._control, "request_exit_scene", None)
+            if callback is not None:
+                callback()
 
-class AutocenterFFB(_FFBBackend):
-    """Speed-scaled autocenter force feedback via ``FF_AUTOCENTER``.
+    def _matches(self, action: str, name: str) -> bool:
+        binding = self._profile.binding(action)
+        return (
+            binding is not None and binding.kind == "button" and binding.control == name
+        )
 
-    The driver renders a managed spring; we only adjust its strength. Works
-    on Thrustmaster and Logitech wheels (and is a no-op on devices without
-    an autocenter motor, e.g. game controllers).
-    """
+    def _value(self, action: str) -> float:
+        binding = self._profile.binding(action)
+        if binding is None:
+            return 0.0
+        if binding.kind == "button":
+            return 1.0 if binding.control in self._state.buttons else 0.0
+        value = self._state.axes.get(binding.control, 0.0)
+        if "trigger" in binding.control:
+            return max(0.0, min(1.0, value))
+        return max(-1.0, min(1.0, value))
 
-    def __init__(self) -> None:
-        super().__init__()
-        self._last_strength = -1
-        self._smoothed = 0.0
+    def _publish(self) -> None:
+        steering = self._value("steering")
+        if self._profile.invert_steering:
+            steering = -steering
+        steering = apply_steering_curve(
+            steering,
+            deadzone=self._profile.steering_deadzone,
+            scale=self._profile.steering_range,
+        )
+        throttle = max(0.0, self._value("throttle"))
+        brake = max(0.0, self._value("brake"))
+        self._state.steering = steering
+        self._state.throttle = throttle
+        self._state.brake = brake
+        self._state.target_speed_mps = self._update_target_speed(throttle, brake)
+        if self._control is not None and self._state.connected:
+            self._control.set_drive(
+                steer=steering,
+                throttle=throttle,
+                brake=brake,
+                reverse=self._state.reverse,
+            )
+        if self._on_input is not None:
+            self._on_input(self.state)
 
-    def init(self, device_path: Path, gain: float) -> None:
-        if not self._open(device_path):
-            return
-        self._write_event(FF_AUTOCENTER, 0)
-        self._write_event(FF_GAIN, int(max(0.0, min(1.0, gain)) * 0xFFFF))
-
-    def update(
-        self,
-        *,
-        speed_mps: float,
-        steering_raw: int = 0,
-        center: int = 0,
-        gain: float,
-    ) -> None:
-        if self._fd is None:
-            return
-        if speed_mps < 0.1:
-            target = 0.15
+    def _update_target_speed(self, throttle: float, brake: float) -> float:
+        now = time.monotonic()
+        dt = max(0.0, min(0.1, now - self._last_update_s))
+        self._last_update_s = now
+        speed = self._state.target_speed_mps
+        direction = -1.0 if self._state.reverse else 1.0
+        if throttle > 0.01 and brake <= 0.05:
+            speed += direction * 2.0 * throttle * dt
+        elif brake > 0.01:
+            delta = 12.0 * brake * dt
+            speed = max(0.0, speed - delta) if speed >= 0 else min(0.0, speed + delta)
+        elif self._state.reverse:
+            speed = min(0.0, speed + 0.5 * dt)
+        elif speed < 4.47:
+            speed += (4.47 - speed) * 0.18 * dt
         else:
-            norm = min(1.0, speed_mps / 14.0)
-            target = 0.35 + 0.65 * norm
-        self._smoothed += 0.12 * (target - self._smoothed)
-        strength = int(self._smoothed * max(0.0, min(1.0, gain)) * 0xFFFF)
-        strength = max(0, min(0xFFFF, strength))
-        if abs(strength - self._last_strength) > 500:
-            self._write_event(FF_AUTOCENTER, strength)
-            self._last_strength = strength
-
-    def set_autocenter(self, fraction: float) -> None:
-        """Directly set the autocenter strength (used by the FFB test slider)."""
-        if self._fd is None:
-            return
-        strength = max(0, min(0xFFFF, int(max(0.0, min(1.0, fraction)) * 0xFFFF)))
-        self._write_event(FF_AUTOCENTER, strength)
-        self._last_strength = strength
-
-    def cleanup(self) -> None:
-        if self._fd is None:
-            return
-        try:
-            self._write_event(FF_AUTOCENTER, 0)
-            os.close(self._fd)
-        except OSError:
-            pass
-        self._fd = None
+            speed = max(0.0, speed - 0.5 * dt)
+        return max(-36.0, min(36.0, speed))
 
 
-class ConstantForceFFB(_FFBBackend):
-    """Self-rendered centering spring via the ``FF_CONSTANT`` effect.
+def create_input_bridge(
+    *,
+    profile: WheelProfile,
+    control: Any | None = None,
+    on_input: Callable[[ControllerState], None] | None = None,
+):
+    """Create the appropriate SDL3 bridge for a saved profile."""
+    if profile.is_joystick:
+        from omnidreams.interactive_drive.input.sdl3_joystick import (
+            Sdl3JoystickBridge,
+        )
 
-    Uploads a single constant-force effect (via the ``EVIOCSFF`` ioctl),
-    plays it, then re-uploads its signed force level every tick. Because the
-    application computes the spring itself, this works on wheels whose driver
-    does not expose ``FF_AUTOCENTER`` -- notably Fanatec's ``hid-fanatecff``
-    -- as well as Thrustmaster and Logitech.
-    """
-
-    # Re-upload only on a meaningful change to avoid flooding the device.
-    _LEVEL_EPSILON = 100
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._effect_id: int = -1
-        self._last_level: int = 0
-        self._smoothed: float = 0.0
-
-    def init(self, device_path: Path, gain: float) -> None:
-        if not self._open(device_path):
-            return
-        self._effect_id = -1
-        eid = self._upload_constant(1)
-        if eid < 0:
-            print(
-                f"[wheel] FFB constant-force upload failed on {device_path}",
-                flush=True,
-            )
-            try:
-                if self._fd is not None:
-                    os.close(self._fd)
-            except OSError:
-                pass
-            self._fd = None
-            return
-        self._effect_id = eid
-        self._play(eid, 1)
-        self._upload_constant(0)
-
-    def update(
-        self,
-        *,
-        speed_mps: float,
-        steering_raw: int,
-        center: int,
-        gain: float,
-    ) -> None:
-        if self._fd is None or self._effect_id < 0 or center <= 0:
-            return
-        if speed_mps < 0.1:
-            target = 0.0
-        else:
-            target = 0.25 + 0.75 * min(1.0, speed_mps / 13.9)
-        self._smoothed += 0.15 * (target - self._smoothed)
-
-        displacement = (steering_raw - center) / center
-        sign = 1.0 if displacement >= 0 else -1.0
-        shaped = sign * (abs(displacement) ** 0.5)
-
-        force = shaped * self._smoothed * max(0.0, min(1.0, gain))
-        level = max(-0x7FFF, min(0x7FFF, int(force * 0x7FFF)))
-        if abs(level - self._last_level) > self._LEVEL_EPSILON:
-            self._upload_constant(level)
-            self._last_level = level
-
-    def set_test_force(self, fraction: float) -> None:
-        """Apply a sideways force (used by the FFB test button).
-
-        A constant-force wheel produces nothing at rest, so the test drives a
-        signed *fraction* of full scale (positive and negative) to prove the
-        motor and permissions work; the caller oscillates it to wiggle.
-        """
-        if self._fd is None or self._effect_id < 0:
-            return
-        fraction = max(-1.0, min(1.0, fraction))
-        level = max(-0x7FFF, min(0x7FFF, int(fraction * 0x7FFF)))
-        self._upload_constant(level)
-        self._last_level = level
-
-    def cleanup(self) -> None:
-        if self._fd is None:
-            return
-        try:
-            if self._effect_id >= 0:
-                self._upload_constant(0)
-                self._play(self._effect_id, 0)
-            os.close(self._fd)
-        except OSError:
-            pass
-        self._fd = None
-
-    def _upload_constant(self, level: int) -> int:
-        """Upload/update the ``FF_CONSTANT`` effect; return its effect id.
-
-        The 48-byte buffer mirrors ``struct ff_effect``: type at offset 0,
-        id at offset 2 (``-1`` asks the kernel to allocate one), direction at
-        offset 4, and the constant force level at offset 16.
-        """
-        if self._fd is None:
-            return -1
-        try:
-            buf = bytearray(48)
-            struct.pack_into("Hh", buf, 0, FF_CONSTANT, self._effect_id)
-            struct.pack_into("H", buf, 4, 0x4000)
-            struct.pack_into("h", buf, 16, max(-0x7FFF, min(0x7FFF, level)))
-            fcntl.ioctl(self._fd, EVIOCSFF, buf)
-            result_id = struct.unpack_from("Hh", buf, 0)[1]
-            self._effect_id = result_id
-            return result_id
-        except OSError as exc:
-            print(f"[wheel] FFB constant-force upload error: {exc}", flush=True)
-            return -1
-
-    def _play(self, effect_id: int, value: int) -> None:
-        self._write_event(effect_id, value)
-
-
-def create_ffb_backend(mode: str, features: frozenset[int]) -> _FFBBackend:
-    """Pick an FFB backend from a profile's ``mode`` and device *features*.
-
-    ``"autocenter"`` / ``"constant_force"`` force a specific backend.
-    ``"auto"`` (or any unknown value) resolves from the device's advertised
-    effects: prefer the driver-managed ``FF_AUTOCENTER`` spring when present,
-    fall back to self-rendered ``FF_CONSTANT`` otherwise (e.g. Fanatec), and
-    default to a harmless autocenter no-op when neither is advertised.
-    """
-    if mode == "autocenter":
-        return AutocenterFFB()
-    if mode == "constant_force":
-        return ConstantForceFFB()
-    if FF_AUTOCENTER in features:
-        return AutocenterFFB()
-    if FF_CONSTANT in features:
-        return ConstantForceFFB()
-    return AutocenterFFB()
+        return Sdl3JoystickBridge(profile=profile, control=control, on_input=on_input)
+    return Sdl3ControllerBridge(profile=profile, control=control, on_input=on_input)

@@ -1,17 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Tkinter wizard for ``interactive-drive-configuration``.
-
-Walks the user through selecting an input device (steering wheel or game
-controller), calibrating its steering / throttle / brake axes by listening
-to live input, optionally binding reverse / reset buttons and testing force
-feedback, then writing a local profile YAML the demo runtime auto-discovers.
-
-The GUI is intentionally thin: all calibration logic lives in
-:mod:`omnidreams.interactive_drive.input_config.capture` and all profile
-IO in :mod:`omnidreams.interactive_drive.input.wheel_profiles`.
-"""
+"""Tkinter wizard for SDL3 controller, wheel, and pedal configuration."""
 
 from __future__ import annotations
 
@@ -19,194 +9,298 @@ import math
 import sys
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import yaml
 from loguru import logger
 from omnidreams.interactive_drive.input.wheel_profiles import (
-    AutocenterFFB,
+    FFB_MODES,
+    GAMEPAD_BACKEND,
+    JOYSTICK_BACKEND,
+    SDL3_AXES,
     Binding,
-    ConstantForceFFB,
+    ControllerState,
     DeviceSpec,
-    EvdevDevice,
+    WheelProfile,
     apply_steering_curve,
-    create_ffb_backend,
+    create_input_bridge,
+    default_controller_profile,
+    default_wheel_profile,
     delete_profile_file,
-    list_device_axes,
+    joystick_control_key,
     load_wheel_profile_files,
-    name_match_strength,
+    normalize_pedal,
+    parse_joystick_control_key,
     profile_filename,
-    query_ff_features,
     save_wheel_profile,
-    scan_evdev_devices,
     update_profile_file,
     user_wheel_profiles_dir,
     wheel_profile_to_yaml_dict,
 )
-from omnidreams.interactive_drive.input_config.capture import (
-    CaptureSession,
-    build_profile,
-    infer_pedal_inverted,
-    infer_steering_invert,
-    peak_from_observed,
-    pressed_button_across,
-    select_axis_across,
-)
+from omnidreams.interactive_drive.input_config.capture import CaptureSession
 from omnidreams.interactive_drive.log import configure_logging
 
 try:  # Tkinter is stdlib but needs the system Tk package installed.
     import tkinter as tk
     from tkinter import messagebox, ttk
 except ImportError:  # pragma: no cover - exercised only on Tk-less hosts
-    tk = None  # type: ignore[assignment]
+    tk = None
+    ttk = None
+    messagebox = None
 
-# Common absolute-axis code names, purely for nicer labels in the override
-# menu and live readout. Falls back to the raw code for anything unlisted.
-_ABS_NAMES = {
-    0x00: "ABS_X",
-    0x01: "ABS_Y",
-    0x02: "ABS_Z",
-    0x03: "ABS_RX",
-    0x04: "ABS_RY",
-    0x05: "ABS_RZ",
-    0x06: "ABS_THROTTLE",
-    0x07: "ABS_RUDDER",
-    0x08: "ABS_WHEEL",
-    0x09: "ABS_GAS",
-    0x0A: "ABS_BRAKE",
-    0x10: "ABS_HAT0X",
-    0x11: "ABS_HAT0Y",
+_REFERENCE_SCREEN_WIDTH = 1920
+"""Reference display width for resolution-aware UI scaling."""
+
+_REFERENCE_SCREEN_HEIGHT = 1080
+"""Reference display height for resolution-aware UI scaling."""
+
+_REFERENCE_DPI = 96.0
+"""Tk/Windows baseline display density in pixels per inch."""
+
+_MAX_UI_SCALE = 3.0
+"""Upper bound for incorrect display metadata."""
+
+_CANVAS_W = 690
+"""Logical width of the persistent live-input panel."""
+
+_CANVAS_H = 164
+"""Logical height of the persistent live-input panel."""
+
+_WHEEL_MAX_DEG = 120.0
+"""Maximum wheel rotation drawn in either direction."""
+
+_TICK_MS = 60
+"""UI and SDL3 polling period."""
+
+_ACTION_LABELS = {
+    "steering": "Steering",
+    "throttle": "Throttle",
+    "brake": "Brake",
+    "reverse": "Reverse",
+    "reset": "Reset / respawn",
+    "exit": "Exit scene",
 }
 
-# Steps whose live panel shows axis activity / status text.
-_AXIS_LIVE_STEPS = ("device", "controls")
-# Max wheel rotation drawn in the live panel, degrees each direction.
-_WHEEL_MAX_DEG = 120.0
-# Live-panel canvas size. Fixed so populating it never reflows the window.
-_CANVAS_W = 690
-_CANVAS_H = 150
-# Minimum movement (fraction of an axis' full range) before a calibration
-# step auto-binds that axis. The leeway keeps idle jitter or an accidental
-# nudge of a different control from being picked.
-_DETECT_FRACTION = 0.18
-# Live loop period and the rate the constant-force FFB test wiggles the wheel.
-_TICK_MS = 60
-_FFB_WIGGLE_HZ = 1.2
+
+def _enable_high_dpi_awareness() -> None:
+    """Enable per-monitor DPI awareness before Tk creates a Windows window."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        if ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4)):
+            return
+    except (AttributeError, OSError):
+        pass
+    try:
+        import ctypes
+
+        if ctypes.windll.shcore.SetProcessDpiAwareness(2) == 0:
+            return
+    except (AttributeError, OSError):
+        pass
+    try:
+        import ctypes
+
+        ctypes.windll.user32.SetProcessDPIAware()
+    except (AttributeError, OSError):
+        pass
 
 
-def _axis_label(code: int) -> str:
-    return f"0x{code:02x} ({_ABS_NAMES.get(code, f'ABS_{code}')})"
+def _ui_scale_for_display(width: int, height: int, dpi: float) -> float:
+    """Return a bounded scale derived from display resolution and density."""
+    width = max(1, int(width))
+    height = max(1, int(height))
+    dpi_scale = max(1.0, float(dpi) / _REFERENCE_DPI)
+    resolution_ratio = min(
+        width / _REFERENCE_SCREEN_WIDTH,
+        height / _REFERENCE_SCREEN_HEIGHT,
+    )
+    resolution_scale = max(1.0, math.sqrt(resolution_ratio))
+    fit_scale = max(1.0, min(width / 840.0, height / 790.0))
+    return min(_MAX_UI_SCALE, max(dpi_scale, resolution_scale), fit_scale)
+
+
+def _display_scale(root) -> float:
+    """Read monitor metrics from Tk and choose a UI scale."""
+    try:
+        dpi = float(root.winfo_fpixels("1i"))
+    except (TypeError, ValueError, tk.TclError):
+        dpi = _REFERENCE_DPI
+    return _ui_scale_for_display(
+        root.winfo_screenwidth(), root.winfo_screenheight(), dpi
+    )
+
+
+def _device_spec(device, ordinal: int) -> DeviceSpec:
+    """Build a persistent profile device descriptor from an SDL3 device."""
+    return DeviceSpec(
+        name=device.name,
+        guid=device.guid,
+        vendor_id=device.vendor_id,
+        product_id=device.product_id,
+        kind=device.kind,
+        ordinal=ordinal,
+    )
 
 
 class ConfigApp:
     """Wizard controller built around a single ``tk.Tk`` root."""
 
-    def __init__(self, root) -> None:
+    def __init__(self, root, *, spy=None) -> None:
+        if spy is None:
+            try:
+                import slangpy as spy
+            except ImportError as exc:
+                raise RuntimeError(
+                    "Input configuration requires the interactive-drive extra: "
+                    "uv sync --package flashdreams-omnidreams --extra interactive-drive"
+                ) from exc
+
         self.root = root
+        self.spy = spy
+        self.ui_scale = _display_scale(root)
+        self.root.tk.call("tk", "scaling", (_REFERENCE_DPI / 72.0) * self.ui_scale)
         self.root.title("interactive-drive input configuration")
-        self.root.geometry("780x740")
-        self.root.minsize(760, 700)
+        self.root.geometry(f"{self._px(780)}x{self._px(740)}")
+        self.root.minsize(self._px(760), self._px(700))
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
-        self.state: dict = {}
-        # One capture session per selected device, keyed by device path (in
-        # selection order). A profile can bind controls across several.
-        self.sessions: dict[Path, CaptureSession] = {}
-        self.devices: tuple[EvdevDevice, ...] = ()
-        self._device_by_path: dict[Path, EvdevDevice] = {}
-        self._ffb: AutocenterFFB | ConstantForceFFB | None = None
-        # Constant-force test oscillation (wiggle): amplitude + running phase.
-        self._ffb_wiggle_gain = 0.0
-        self._ffb_wiggle_phase = 0.0
-        self._saved = False
-        self._step_index = 0
-        # When set to ``(path, profile)`` the editor screen is shown instead
-        # of the new-profile wizard.
-        self._editing: tuple | None = None
-        # Capture coordination: only one axis capture can listen at a time
-        # (they share the session's observed buffer). ``_recording_key`` is
-        # the section currently listening; ``_button_listening`` is the
-        # button binding currently waiting for a press.
-        self._recording_key: str | None = None
-        self._record_buttons: dict = {}
-        self._detect_callbacks: dict = {}
-        self._button_listening: str | None = None
-        self._button_result_vars: dict = {}
-
+        self.state: dict[str, Any] = {}
         self.device_type_var = tk.StringVar(value="wheel")
         self.activity_var = tk.StringVar(value="")
+        self._saved = False
+        self._step_index = 0
+        self._editing: tuple[Path, WheelProfile] | None = None
+        self._capture = CaptureSession()
+        self._capture_buttons: dict[str, Any] = {}
+        self._capture_results: dict[str, Any] = {}
+        self._last_state = ControllerState(input_kind="joystick")
+        self._bindings: dict[str, Binding] = {}
+        self._available_devices: tuple[Any, ...] = ()
+        self._available_specs: tuple[DeviceSpec, ...] = ()
+        self._ffb_testing = False
+        self._ffb_test_phase = 0.0
+        self._closing = False
+
+        self._event_window = spy.Window(
+            width=1,
+            height=1,
+            title="interactive-drive SDL3 input host",
+            mode=spy.WindowMode.minimized,
+            resizable=False,
+        )
+        self._working_profile = replace(
+            default_wheel_profile(), bindings={}, is_default=False
+        )
+        self._bridge = self._new_bridge(self._working_profile)
 
         self._build_chrome()
         self._render()
-        self._tick()
+        self.root.after(0, self._tick)
 
-    # -- window chrome ---------------------------------------------------
+    def _px(self, value: float) -> int:
+        return max(1, round(float(value) * self.ui_scale))
+
+    def _canvas_coords(self, *values: float) -> tuple[float, ...]:
+        return tuple(float(value) * self.ui_scale for value in values)
+
+    def _new_bridge(self, profile: WheelProfile):
+        bridge_profile = (
+            replace(profile, ffb_enabled=False) if profile.is_joystick else profile
+        )
+        bridge = create_input_bridge(profile=bridge_profile, on_input=self._on_input)
+        bridge.attach(self._event_window, self.spy.GamepadButton)
+        bridge.start()
+        return bridge
+
+    def _sync_bridge_profile(self) -> None:
+        profile = self._working_profile
+        self._bridge.profile = (
+            replace(profile, ffb_enabled=False) if profile.is_joystick else profile
+        )
+
+    def _replace_bridge(self, profile: WheelProfile) -> None:
+        self._bridge.stop()
+        self._working_profile = profile
+        self._bindings = dict(profile.bindings)
+        self._last_state = ControllerState(
+            input_kind="joystick" if profile.is_joystick else "gamepad"
+        )
+        self._bridge = self._new_bridge(profile)
+
+    ## Window chrome
 
     def _build_chrome(self) -> None:
-        # Pack the footer and live panel against the bottom FIRST so they
-        # always keep their space. The content area is packed last with
-        # ``expand`` so it gives up room when the window is small, instead
-        # of squeezing the Back/Next buttons off-screen.
-        footer = ttk.Frame(self.root, padding=(16, 10))
+        footer = ttk.Frame(self.root, padding=(self._px(16), self._px(10)))
         footer.pack(side="bottom", fill="x")
         ttk.Button(footer, text="Cancel", command=self._on_close).pack(side="left")
         self.primary_btn = ttk.Button(footer, text="Next", command=self._on_primary)
         self.primary_btn.pack(side="right")
         self.back_btn = ttk.Button(footer, text="Back", command=self._on_back)
-        self.back_btn.pack(side="right", padx=(0, 8))
+        self.back_btn.pack(side="right", padx=(0, self._px(8)))
 
-        live = ttk.LabelFrame(self.root, text="Live inputs", padding=(8, 4))
-        live.pack(side="bottom", fill="x", padx=12, pady=(0, 4))
+        live = ttk.LabelFrame(
+            self.root,
+            text="Live inputs",
+            padding=(self._px(8), self._px(4)),
+        )
+        live.pack(
+            side="bottom",
+            fill="x",
+            padx=self._px(12),
+            pady=(0, self._px(4)),
+        )
         ttk.Label(live, textvariable=self.activity_var, foreground="#2f8f2f").pack(
             anchor="w"
         )
-        # Fixed-size canvas: steering-wheel + pedal visualization plus a
-        # compact per-axis activity strip.
         self.live_canvas = tk.Canvas(
-            live, width=_CANVAS_W, height=_CANVAS_H, highlightthickness=0
+            live,
+            width=self._px(_CANVAS_W),
+            height=self._px(_CANVAS_H),
+            highlightthickness=0,
         )
         self.live_canvas.pack(anchor="w")
 
-        header = ttk.Frame(self.root, padding=(16, 10))
+        header = ttk.Frame(self.root, padding=(self._px(16), self._px(10)))
         header.pack(side="top", fill="x")
         self.title_var = tk.StringVar()
         ttk.Label(
-            header, textvariable=self.title_var, font=("TkDefaultFont", 15, "bold")
+            header,
+            textvariable=self.title_var,
+            font=("TkDefaultFont", 15, "bold"),
         ).pack(anchor="w")
         self.step_var = tk.StringVar()
         ttk.Label(header, textvariable=self.step_var, foreground="#888").pack(
             anchor="w"
         )
 
-        self.content = ttk.Frame(self.root, padding=(16, 4))
+        self.content = ttk.Frame(self.root, padding=(self._px(16), self._px(4)))
         self.content.pack(side="top", fill="both", expand=True)
 
     def _clear_content(self) -> None:
         for child in self.content.winfo_children():
             child.destroy()
 
-    # -- step navigation -------------------------------------------------
+    ## Step navigation
 
     def _steps(self) -> list[str]:
         steps = ["welcome", "device", "controls", "buttons"]
-        if self.state.get("device_type") == "wheel":
+        if self.state.get("device_type", self.device_type_var.get()) == "wheel":
             steps.append("ffb")
-        steps += ["details", "review"]
-        return steps
+        return [*steps, "details", "review"]
 
     def _current_step(self) -> str:
         steps = self._steps()
         return steps[min(self._step_index, len(steps) - 1)]
 
     def _render(self) -> None:
-        # Stop any active FFB test so the wheel is never left under force when
-        # navigating away from an FFB page (the backend holds its own fd).
-        self._ffb_stop()
+        self._stop_ffb_test()
+        self._capture.cancel()
+        self._capture_buttons = {}
+        self._capture_results = {}
         self._clear_content()
-        self._recording_key = None
-        self._record_buttons = {}
-        self._detect_callbacks = {}
-        self._button_listening = None
-        self._button_result_vars = {}
         if self._editing is not None:
             self.step_var.set("Editing an existing profile")
             self.back_btn.state(["!disabled"])
@@ -240,61 +334,71 @@ class ConfigApp:
 
     def _on_back(self) -> None:
         if self._editing is not None:
-            self._stop_sessions()
             self._editing = None
+            self._step_index = 0
+            self._replace_bridge(
+                replace(default_wheel_profile(), bindings={}, is_default=False)
+            )
             self._render()
             return
         if self._step_index > 0:
             self._step_index -= 1
             self._render()
 
-    # -- steps -----------------------------------------------------------
+    ## Welcome and profile management
 
     def _build_welcome(self) -> None:
         self.title_var.set("Input device configuration")
         entries = load_wheel_profile_files(user_wheel_profiles_dir())
-        saved = ttk.LabelFrame(self.content, text="Saved profiles", padding=(10, 6))
-        saved.pack(fill="x", pady=(0, 10))
+        saved = ttk.LabelFrame(
+            self.content,
+            text="Saved profiles",
+            padding=(self._px(10), self._px(6)),
+        )
+        saved.pack(fill="x", pady=(0, self._px(10)))
         if not entries:
             ttk.Label(saved, text="No saved profiles yet.").pack(anchor="w")
         else:
             for path, profile in entries:
                 row = ttk.Frame(saved)
-                row.pack(fill="x", pady=2)
+                row.pack(fill="x", pady=self._px(2))
                 tag = "  [default]" if profile.is_default else ""
                 ttk.Label(
-                    row, text=f"{profile.display_name}{tag}", width=30, anchor="w"
+                    row,
+                    text=f"{profile.display_name}{tag}",
+                    width=30,
+                    anchor="w",
                 ).pack(side="left")
                 ttk.Button(
                     row,
                     text="Edit",
                     width=6,
                     command=lambda p=path, pr=profile: self._start_edit(p, pr),
-                ).pack(side="left", padx=2)
+                ).pack(side="left", padx=self._px(2))
                 ttk.Button(
                     row,
-                    text=("Unset default" if profile.is_default else "Make default"),
+                    text="Unset default" if profile.is_default else "Make default",
                     width=13,
                     command=lambda p=path, pr=profile: self._toggle_default(p, pr),
-                ).pack(side="left", padx=2)
+                ).pack(side="left", padx=self._px(2))
                 ttk.Button(
                     row,
                     text="Delete",
                     width=7,
                     command=lambda p=path, pr=profile: self._delete_profile(p, pr),
-                ).pack(side="left", padx=2)
+                ).pack(side="left", padx=self._px(2))
 
         ttk.Label(
             self.content,
             text="Create a new profile",
             font=("TkDefaultFont", 11, "bold"),
-        ).pack(anchor="w", pady=(6, 2))
+        ).pack(anchor="w", pady=(self._px(6), self._px(2)))
         ttk.Label(
             self.content,
-            wraplength=680,
+            wraplength=self._px(680),
             justify="left",
             text="Pick the device type, then click Next to detect and calibrate it.",
-        ).pack(anchor="w", pady=(0, 6))
+        ).pack(anchor="w", pady=(0, self._px(6)))
         ttk.Radiobutton(
             self.content,
             text="Steering wheel + pedals",
@@ -308,260 +412,210 @@ class ConfigApp:
             variable=self.device_type_var,
         ).pack(anchor="w")
 
-    # -- existing-profile management + editor ---------------------------
-
-    def _refresh_welcome(self) -> None:
-        self._stop_sessions()
-        self._editing = None
-        self._step_index = 0
-        self._render()
-
-    def _stop_sessions(self) -> None:
-        for session in self.sessions.values():
-            session.stop()
-        self.sessions.clear()
-
-    def _reset_all_observed(self) -> None:
-        for session in self.sessions.values():
-            session.reset_observed()
-
-    def _primary_session(self) -> CaptureSession | None:
-        """First open session, used for generic 'a device is selected' checks."""
-        return next(iter(self.sessions.values()), None)
-
-    def _short_name(self, path: Path) -> str:
-        """Short device label for axis/binding menus."""
-        device = self._device_by_path.get(path)
-        return device.name if device is not None else str(path)
-
-    def _start_edit(self, path, profile) -> None:
+    def _start_edit(self, path: Path, profile: WheelProfile) -> None:
         self._editing = (path, profile)
+        self._replace_bridge(profile)
         self._render()
 
-    def _delete_profile(self, path, profile) -> None:
+    def _delete_profile(self, path: Path, profile: WheelProfile) -> None:
         if messagebox.askyesno("Delete profile", f"Delete '{profile.display_name}'?"):
             delete_profile_file(path)
-            self._refresh_welcome()
+            self._editing = None
+            self._render()
 
-    def _toggle_default(self, path, profile) -> None:
+    def _toggle_default(self, path: Path, profile: WheelProfile) -> None:
         make_default = not profile.is_default
         for other_path, other in load_wheel_profile_files(user_wheel_profiles_dir()):
-            if other_path == path:
-                desired = make_default
-            elif make_default:
-                desired = False  # single default: clear the others
-            else:
-                desired = other.is_default
+            desired = (
+                make_default
+                if other_path == path
+                else (False if make_default else other.is_default)
+            )
             if desired != other.is_default:
                 update_profile_file(other_path, replace(other, is_default=desired))
-        self._refresh_welcome()
-
-    def _slider_row(self, label: str, var, low: float, high: float) -> None:
-        row = ttk.Frame(self.content)
-        row.pack(fill="x", pady=2)
-        ttk.Label(row, text=label, width=26, anchor="w").pack(side="left")
-        ttk.Scale(
-            row, from_=low, to=high, orient="horizontal", length=220, variable=var
-        ).pack(side="left", padx=8)
-        value_label = ttk.Label(row, width=5)
-        value_label.pack(side="left")
-
-        def _update(*_args) -> None:
-            value_label.config(text=f"{float(var.get()):.2f}")
-
-        var.trace_add("write", _update)
-        _update()
+        self._render()
 
     def _build_edit(self) -> None:
-        path, profile = self._editing
+        _path, profile = self._editing
         self.title_var.set(f"Edit: {profile.display_name}")
         self._edit_display_name = tk.StringVar(value=profile.display_name)
         self._edit_invert_steer = tk.BooleanVar(value=profile.invert_steering)
-        self._edit_invert_pedals = tk.BooleanVar(value=profile.inverted_pedals)
-        self._edit_ffb = tk.BooleanVar(value=profile.ffb_enabled)
-        self._edit_ffb_gain = tk.DoubleVar(value=profile.ffb_gain)
-        self._edit_ffb_mode = tk.StringVar(value=profile.ffb_mode or "auto")
         self._edit_range = tk.DoubleVar(value=profile.steering_range)
         self._edit_deadzone = tk.DoubleVar(value=profile.steering_deadzone)
         self._edit_default = tk.BooleanVar(value=profile.is_default)
+        self._edit_swap = tk.BooleanVar(value=profile.swap_face_buttons)
+        self._edit_ffb = tk.BooleanVar(value=profile.ffb_enabled)
+        self._edit_ffb_mode = tk.StringVar(value=profile.ffb_mode)
+        self._edit_ffb_gain = tk.DoubleVar(value=profile.ffb_gain)
 
-        # Open a session per connected device for the live preview;
-        # ``_edit_sessions_by_index`` lets it resolve per-device bindings.
-        self._stop_sessions()
-        self._edit_sessions_by_index = {}
-        primary_device = None
-        for index in range(len(profile.devices)):
-            found = self._find_device_for_spec(profile, index)
-            if found is None:
-                continue
-            if primary_device is None:
-                primary_device = found
-            session = self.sessions.get(found.path)
-            if session is None:
-                try:
-                    session = CaptureSession(found.path)
-                    session.start()
-                except OSError:
-                    continue
-                self.sessions[found.path] = session
-                self._device_by_path[found.path] = found
-            self._edit_sessions_by_index[index] = session
-        device = primary_device
+        status = (
+            "Operate the controls to preview this profile live."
+            if self._last_state.connected
+            else "Connect the saved device to preview it live."
+        )
         ttk.Label(
             self.content,
             foreground="#2f8f2f",
-            wraplength=680,
-            text=(
-                f"Live preview from {device.name} -- operate the controls to see the feel."
-                if device is not None
-                else "Connect this device to preview the steering feel live."
-            ),
-        ).pack(anchor="w", pady=(0, 6))
+            wraplength=self._px(680),
+            text=status,
+        ).pack(anchor="w", pady=(0, self._px(6)))
 
         form = ttk.Frame(self.content)
         form.pack(fill="x")
-        ttk.Label(form, text="Display name").grid(row=0, column=0, sticky="w", pady=4)
+        ttk.Label(form, text="Display name").grid(
+            row=0, column=0, sticky="w", pady=self._px(4)
+        )
         ttk.Entry(form, textvariable=self._edit_display_name, width=44).grid(
             row=0, column=1, sticky="w"
         )
-
-        axis_map = profile.axis_map
-
-        def _axis_desc(key: str) -> str:
-            binding = axis_map.get(key)
-            if binding is None:
-                return f"{key} unset"
-            text = f"{key} 0x{binding.code:02x}"
-            # Name the device only when the profile spans more than one.
-            if len(profile.devices) > 1 and binding.device < len(profile.devices):
-                spec = profile.devices[binding.device]
-                name = (
-                    spec.display_name
-                    or (spec.detection_patterns[0] if spec.detection_patterns else "")
-                    or f"device {binding.device}"
-                )
-                text += f" on {name}"
-            return text
-
         ttk.Label(
             self.content,
             foreground="#666",
-            text=(
-                "Axes (recalibrate by creating a new profile): "
-                + ", ".join(_axis_desc(k) for k in ("steering", "throttle", "brake"))
-            ),
-        ).pack(anchor="w", pady=(4, 6))
-
+            wraplength=self._px(680),
+            text="Bindings: " + self._profile_binding_summary(profile),
+        ).pack(anchor="w", pady=(self._px(4), self._px(6)))
+        if not profile.is_joystick:
+            ttk.Checkbutton(
+                self.content,
+                text="Swap controller labels (Nintendo through XInput: A/B and X/Y)",
+                variable=self._edit_swap,
+                command=self._apply_edit_preview,
+            ).pack(anchor="w", pady=(0, self._px(6)))
         ttk.Checkbutton(
-            self.content, text="Invert steering", variable=self._edit_invert_steer
+            self.content,
+            text="Invert steering",
+            variable=self._edit_invert_steer,
+            command=self._apply_edit_preview,
         ).pack(anchor="w")
+        self._slider_row(
+            "Steering range (sensitivity)",
+            self._edit_range,
+            0.1,
+            1.0,
+            self._apply_edit_preview,
+        )
+        self._slider_row(
+            "Steering deadzone",
+            self._edit_deadzone,
+            0.0,
+            0.3,
+            self._apply_edit_preview,
+        )
+        if profile.is_joystick:
+            ffb_row = ttk.Frame(self.content)
+            ffb_row.pack(fill="x", pady=self._px(2))
+            ttk.Checkbutton(
+                ffb_row, text="Wheel centering", variable=self._edit_ffb
+            ).pack(side="left")
+            ttk.Label(ffb_row, text="Mode").pack(
+                side="left", padx=(self._px(8), self._px(3))
+            )
+            ttk.Combobox(
+                ffb_row,
+                textvariable=self._edit_ffb_mode,
+                values=FFB_MODES,
+                state="readonly",
+                width=15,
+            ).pack(side="left")
+            ttk.Scale(
+                ffb_row,
+                from_=0.0,
+                to=1.0,
+                length=self._px(220),
+                variable=self._edit_ffb_gain,
+            ).pack(side="left", padx=self._px(8))
+            ttk.Button(ffb_row, text="Test", command=self._edit_ffb_test).pack(
+                side="left"
+            )
+            ttk.Button(ffb_row, text="Stop", command=self._stop_ffb_test).pack(
+                side="left", padx=self._px(4)
+            )
+            device_text = "\n".join(
+                f"• {device.name} ({device.kind}, {device.guid or 'no GUID'})"
+                for device in profile.devices
+            )
+            ttk.Label(
+                self.content,
+                text="Matched SDL3 devices:\n" + (device_text or "• none"),
+                justify="left",
+                wraplength=self._px(680),
+            ).pack(anchor="w", pady=(self._px(8), 0))
         ttk.Checkbutton(
-            self.content, text="Invert pedals", variable=self._edit_invert_pedals
-        ).pack(anchor="w")
-        self._slider_row("Steering range (sensitivity)", self._edit_range, 0.1, 1.0)
-        self._slider_row("Steering deadzone", self._edit_deadzone, 0.0, 0.3)
-        ffb_row = ttk.Frame(self.content)
-        ffb_row.pack(fill="x", pady=2)
-        ttk.Checkbutton(ffb_row, text="Force feedback", variable=self._edit_ffb).pack(
-            side="left"
-        )
-        ttk.Scale(
-            ffb_row,
-            from_=0.0,
-            to=1.0,
-            orient="horizontal",
-            length=200,
-            variable=self._edit_ffb_gain,
-        ).pack(side="left", padx=8)
-        ttk.Label(ffb_row, text="Mode").pack(side="left", padx=(8, 2))
-        ttk.Combobox(
-            ffb_row,
-            textvariable=self._edit_ffb_mode,
-            values=("auto", "autocenter", "constant_force"),
-            state="readonly",
-            width=14,
-        ).pack(side="left")
-        ttk.Button(ffb_row, text="Test", command=self._edit_ffb_test).pack(
-            side="left", padx=(8, 0)
-        )
-        ttk.Button(ffb_row, text="Stop", command=self._ffb_stop).pack(
-            side="left", padx=4
-        )
-
-        ttk.Label(self.content, text="Detection patterns (one per line):").pack(
-            anchor="w", pady=(6, 0)
-        )
-        self._edit_patterns = tk.Text(self.content, height=3, width=60)
-        self._edit_patterns.pack(anchor="w", pady=2)
-        self._edit_patterns.insert("1.0", "\n".join(profile.detection_patterns))
-
-        ttk.Checkbutton(
-            self.content, text="Use as the default profile", variable=self._edit_default
-        ).pack(anchor="w", pady=(6, 0))
+            self.content,
+            text="Use as the default profile",
+            variable=self._edit_default,
+        ).pack(anchor="w", pady=(self._px(8), 0))
         ttk.Button(
             self.content,
             text="Delete this profile",
-            command=lambda: self._delete_profile(path, profile),
-        ).pack(anchor="w", pady=(10, 0))
+            command=lambda: self._delete_profile(*self._editing),
+        ).pack(anchor="w", pady=(self._px(10), 0))
+
+    def _profile_binding_summary(self, profile: WheelProfile) -> str:
+        return ", ".join(
+            f"{_ACTION_LABELS[action]}={self._binding_label(binding, profile)}"
+            for action, binding in profile.bindings.items()
+        )
+
+    def _apply_edit_preview(self, *_args) -> None:
+        if self._editing is None:
+            return
+        _path, profile = self._editing
+        preview = replace(
+            profile,
+            invert_steering=bool(self._edit_invert_steer.get()),
+            steering_range=float(self._edit_range.get()),
+            steering_deadzone=float(self._edit_deadzone.get()),
+            swap_face_buttons=bool(self._edit_swap.get()),
+        )
+        self._working_profile = preview
+        self._sync_bridge_profile()
 
     def _save_edit(self) -> None:
         path, profile = self._editing
-        patterns = tuple(
-            line.strip()
-            for line in self._edit_patterns.get("1.0", "end").splitlines()
-            if line.strip()
-        )
-        if not patterns:
-            messagebox.showwarning("Not ready", "Add at least one detection pattern.")
-            return
-        # The editor's pattern box maps to the primary device; keep any other
-        # devices' patterns untouched. ``detection_patterns`` is a read-only
-        # accessor, so update the device list rather than that property.
-        if profile.devices:
-            devices = (
-                replace(profile.devices[0], detection_patterns=patterns),
-                *profile.devices[1:],
-            )
-        else:
-            devices = (DeviceSpec(detection_patterns=patterns),)
         updated = replace(
             profile,
             display_name=self._edit_display_name.get().strip() or profile.display_name,
             invert_steering=bool(self._edit_invert_steer.get()),
-            inverted_pedals=bool(self._edit_invert_pedals.get()),
-            ffb_enabled=bool(self._edit_ffb.get()),
-            ffb_gain=float(self._edit_ffb_gain.get()),
-            ffb_mode=str(self._edit_ffb_mode.get() or "auto"),
             steering_range=float(self._edit_range.get()),
             steering_deadzone=float(self._edit_deadzone.get()),
-            devices=devices,
+            swap_face_buttons=bool(self._edit_swap.get()),
+            ffb_enabled=bool(self._edit_ffb.get()) if profile.is_joystick else False,
+            ffb_mode=self._edit_ffb_mode.get() if profile.is_joystick else "auto",
+            ffb_gain=float(self._edit_ffb_gain.get()),
             is_default=bool(self._edit_default.get()),
         )
         update_profile_file(path, updated)
-        if updated.is_default:
-            for other_path, other in load_wheel_profile_files(
-                user_wheel_profiles_dir()
-            ):
-                if other_path != path and other.is_default:
-                    update_profile_file(other_path, replace(other, is_default=False))
+        self._demote_other_defaults(path, updated)
         messagebox.showinfo("Saved", f"Updated {path.name}.")
-        self._refresh_welcome()
+        self._editing = None
+        self._step_index = 0
+        self._replace_bridge(
+            replace(default_wheel_profile(), bindings={}, is_default=False)
+        )
+        self._render()
+
+    ## Device selection
 
     def _build_device(self) -> None:
+        if self._working_profile.is_joystick:
+            self._build_wheel_device_selection()
+        else:
+            self._build_controller_connection()
+
+    def _build_wheel_device_selection(self) -> None:
         self.title_var.set("Select your device(s)")
         ttk.Label(
             self.content,
-            wraplength=680,
+            wraplength=self._px(680),
             justify="left",
             text=(
-                "Pick your device, then operate any control -- the Live inputs panel "
-                "below updates so you can confirm you chose the right one (some "
-                "devices expose several nodes). Ctrl+click to select more than one "
-                "device when your controls are split across devices (for example a "
-                "wheel base plus a separate-brand pedal set). Then click Next."
+                "Select the wheel and every pedal device it uses. Ctrl+click to "
+                "select more than one device when the wheel base and pedals are "
+                "separate USB devices. Operate a control and confirm activity in "
+                "the Live inputs panel, then click Next."
             ),
-        ).pack(anchor="w", pady=(0, 8))
-
+        ).pack(anchor="w", pady=(0, self._px(8)))
         row = ttk.Frame(self.content)
         row.pack(fill="both", expand=True)
         self.device_list = tk.Listbox(
@@ -572,429 +626,479 @@ class ConfigApp:
         scroll.pack(side="right", fill="y")
         self.device_list.config(yscrollcommand=scroll.set)
         self.device_list.bind("<<ListboxSelect>>", self._on_device_selected)
-
         ttk.Button(self.content, text="Rescan", command=self._refresh_devices).pack(
-            anchor="w", pady=8
+            anchor="w", pady=self._px(8)
         )
         self._refresh_devices()
-        self._restore_device_selection()
 
     def _refresh_devices(self) -> None:
-        self.devices = scan_evdev_devices()
-        self._device_by_path = {device.path: device for device in self.devices}
+        self._bridge.poll()
+        self._available_devices = tuple(self._bridge.available_devices)
+        seen: dict[tuple[str, int, int], int] = {}
+        specs: list[DeviceSpec] = []
+        for device in self._available_devices:
+            fingerprint = (device.name.casefold(), device.vendor_id, device.product_id)
+            ordinal = seen.get(fingerprint, 0)
+            seen[fingerprint] = ordinal + 1
+            specs.append(_device_spec(device, ordinal))
+        self._available_specs = tuple(specs)
         self.device_list.delete(0, "end")
-        for device in self.devices:
-            self.device_list.insert("end", f"{device.name}  [{device.path}]")
-        if not self.devices:
-            self.device_list.insert("end", "(no readable input devices found)")
-
-    def _restore_device_selection(self) -> None:
-        """Reselect already-open devices when returning to the device step."""
-        for i, device in enumerate(self.devices):
-            if device.path in self.sessions:
-                self.device_list.selection_set(i)
+        selected = tuple(self.state.get("devices", ()))
+        for index, device in enumerate(self._available_devices):
+            self.device_list.insert(
+                "end",
+                f"{device.name}  [{device.kind}; {device.axis_count} axes; "
+                f"{device.button_count} buttons; "
+                f"{device.vendor_id:04x}:{device.product_id:04x}]",
+            )
+            if (
+                index < len(self._available_specs)
+                and self._available_specs[index] in selected
+            ):
+                self.device_list.selection_set(index)
+        if not self._available_devices:
+            self.device_list.insert("end", "(no SDL3 joystick devices found)")
+        if selected:
+            self._apply_device_selection(selected)
 
     def _on_device_selected(self, _event=None) -> None:
-        if not self.devices:
+        selected = tuple(
+            self._available_specs[index]
+            for index in self.device_list.curselection()
+            if index < len(self._available_specs)
+        )
+        self._apply_device_selection(selected)
+
+    def _apply_device_selection(self, selected: tuple[DeviceSpec, ...]) -> None:
+        previous = tuple(self.state.get("devices", ()))
+        self.state["devices"] = selected
+        if selected != previous:
+            self._bindings = {}
+            self.state.pop("_profile", None)
+        self._working_profile = replace(
+            self._working_profile,
+            backend=JOYSTICK_BACKEND,
+            devices=selected,
+            bindings=dict(self._bindings),
+        )
+        self._sync_bridge_profile()
+
+    def _build_controller_connection(self) -> None:
+        self.title_var.set("Controller settings and connection")
+        ttk.Label(
+            self.content,
+            wraplength=self._px(680),
+            justify="left",
+            text=(
+                "Connect the controller over USB or Bluetooth, then operate a stick "
+                "or button. SDL3 supplies one standardized Xbox-style layout for "
+                "Switch Pro, Xbox/XInput, and PlayStation controllers."
+            ),
+        ).pack(anchor="w", pady=(0, self._px(10)))
+        self.controller_swap_var = tk.BooleanVar(
+            value=bool(self.state.get("swap_face_buttons", False))
+        )
+        ttk.Checkbutton(
+            self.content,
+            text="Swap controller labels (Nintendo through XInput: A/B and X/Y)",
+            variable=self.controller_swap_var,
+            command=self._apply_controller_swap,
+        ).pack(anchor="w", pady=(0, self._px(10)))
+        self.controller_status_var = tk.StringVar()
+        ttk.Label(
+            self.content,
+            textvariable=self.controller_status_var,
+            foreground="#2f8f2f",
+        ).pack(anchor="w")
+        self._update_controller_status()
+
+    def _apply_controller_swap(self) -> None:
+        enabled = bool(self.controller_swap_var.get())
+        self.state["swap_face_buttons"] = enabled
+        self._working_profile = replace(
+            self._working_profile, swap_face_buttons=enabled
+        )
+        self._sync_bridge_profile()
+
+    def _update_controller_status(self) -> None:
+        if not hasattr(self, "controller_status_var"):
             return
-        selected_paths = [
-            self.devices[i].path
-            for i in self.device_list.curselection()
-            if i < len(self.devices)
-        ]
-        # Close sessions for devices that were deselected.
-        for path in list(self.sessions):
-            if path not in selected_paths:
-                self.sessions.pop(path).stop()
-        # Open a session for each newly selected device.
-        for path in selected_paths:
-            if path in self.sessions:
-                continue
-            session = CaptureSession(path)
-            try:
-                session.start()
-            except PermissionError:
-                messagebox.showerror(
-                    "Permission denied",
-                    f"Cannot read {path}.\n\nAdd your user to the 'input' group "
-                    "(then log out/in) or add a udev rule, and try again.",
-                )
-                continue
-            except OSError as exc:
-                messagebox.showerror("Cannot open device", f"{path}: {exc}")
-                continue
-            self.sessions[path] = session
+        self.controller_status_var.set(
+            "Controller connected — operate it to confirm below."
+            if self._last_state.connected
+            else "Waiting for an SDL3 game controller…"
+        )
+
+    ## Control and button capture
 
     def _build_controls(self) -> None:
         self.title_var.set("Calibrate controls")
-        self.invert_pedals_var = tk.BooleanVar(
-            value=self.state.get("inverted_pedals", True)
-        )
+        is_wheel = self._working_profile.is_joystick
         ttk.Label(
             self.content,
-            wraplength=680,
+            wraplength=self._px(680),
             justify="left",
             text=(
-                "For each control: click Start listening, then move it a little -- "
-                "it auto-detects the axis (one at a time)."
+                "For each control, click Start listening and move it a little. "
+                "SDL3 captures the axis, device, released position, and pedal "
+                "direction. The axis menu is a manual fallback."
             ),
-        ).pack(anchor="w", pady=(0, 8))
+        ).pack(anchor="w", pady=(0, self._px(8)))
+        self._control_section(
+            "steering", "Turn the wheel LEFT" if is_wheel else "Move the stick LEFT"
+        )
+        self._control_section(
+            "throttle",
+            "Press the throttle pedal" if is_wheel else "Press the throttle trigger",
+        )
+        self._control_section(
+            "brake", "Press the brake pedal" if is_wheel else "Press the brake trigger"
+        )
 
-        is_wheel = self.state.get("device_type") == "wheel"
-        steer = ttk.LabelFrame(self.content, text="Steering", padding=(10, 6))
-        steer.pack(fill="x", pady=3)
-        self._steering_section(steer, "wheel" if is_wheel else "stick")
-        thr = ttk.LabelFrame(self.content, text="Throttle", padding=(10, 6))
-        thr.pack(fill="x", pady=3)
-        self._pedal_section(
-            thr, "throttle", "throttle pedal" if is_wheel else "throttle trigger"
-        )
-        brk = ttk.LabelFrame(self.content, text="Brake", padding=(10, 6))
-        brk.pack(fill="x", pady=3)
-        self._pedal_section(
-            brk, "brake", "brake pedal" if is_wheel else "brake trigger"
-        )
-        # Single shared pedal-invert flag (the schema stores one for both
-        # pedals). Auto-set from calibration; here as a manual safety net.
-        ttk.Checkbutton(
+    def _control_section(self, action: str, instruction: str) -> None:
+        frame = ttk.LabelFrame(
             self.content,
-            text="Invert pedals (toggle if pressing throttle/brake reads backwards)",
-            variable=self.invert_pedals_var,
-            command=self._apply_pedal_invert,
-        ).pack(anchor="w", pady=(6, 0))
-
-    def _control_label(self, path: Path, code: int) -> str:
-        """Device-qualified axis label, e.g. ``"Fanatec CSL: 0x00 (ABS_X)"``."""
-        return f"{self._short_name(path)}: {_axis_label(code)}"
-
-    def _steering_section(self, parent, control: str) -> None:
-        self.invert_steering_var = tk.BooleanVar(
-            value=self.state.get("invert_steering", False)
+            text=_ACTION_LABELS[action],
+            padding=(self._px(10), self._px(6)),
         )
-        choice = tk.StringVar(value=self.state.get("_steering_axis_label", ""))
-        result = tk.StringVar(value=self.state.get("_steering_summary", ""))
-        ttk.Label(
-            parent, text=f"Click Start, then turn the {control} a little to the LEFT."
-        ).pack(anchor="w")
-
-        def on_detect(path: Path, axis: int, base: int, peak: int) -> None:
-            rng = self.sessions[path].axis_ranges[axis]
-            # ``peak`` is the deflected value; if turning left lowered the raw
-            # value the steering sign must be flipped.
-            invert = bool(infer_steering_invert(peak, base))
-            label = self._control_label(path, axis)
-            self.state["steering_axis"] = axis
-            self.state["steering_device_path"] = str(path)
-            self.state["invert_steering"] = invert
-            self.state["_steering_axis_label"] = label
-            self.state["_steering_summary"] = (
-                f"Steering on {label} (range {rng.minimum}..{rng.maximum}), invert={invert}"
-            )
-            self.invert_steering_var.set(invert)
-            choice.set(label)
-            result.set(self.state["_steering_summary"])
-
-        row = ttk.Frame(parent)
-        row.pack(anchor="w", fill="x", pady=4)
-        self._record_button(row, "steering", on_detect, result)
-        self._axis_override(row, "steering", choice, result)
-        ttk.Label(
-            parent, textvariable=result, foreground="#2f6fbf", wraplength=660
-        ).pack(anchor="w")
-        ttk.Checkbutton(
-            parent,
-            text="Invert steering (toggle if left/right feels reversed)",
-            variable=self.invert_steering_var,
-            command=self._apply_invert,
-        ).pack(anchor="w")
-
-    def _pedal_section(self, parent, key: str, control: str) -> None:
-        choice = tk.StringVar(value=self.state.get(f"_{key}_axis_label", ""))
-        result = tk.StringVar(value=self.state.get(f"_{key}_summary", ""))
-        ttk.Label(parent, text=f"Click Start, then press the {control} a little.").pack(
+        frame.pack(fill="x", pady=self._px(3))
+        ttk.Label(frame, text=f"Click Start, then {instruction} a little.").pack(
             anchor="w"
         )
-
-        def on_detect(path: Path, axis: int, base: int, peak: int) -> None:
-            inverted = bool(infer_pedal_inverted(base, peak))
-            label = self._control_label(path, axis)
-            self.state[f"{key}_axis"] = axis
-            self.state[f"{key}_device_path"] = str(path)
-            self.state[f"{key}_inverted"] = inverted
-            # Throttle defines the shared pedal-invert flag; brake seeds it
-            # only when throttle hasn't been calibrated yet.
-            if key == "throttle" or "throttle_inverted" not in self.state:
-                self.state["inverted_pedals"] = inverted
-                self.invert_pedals_var.set(inverted)
-            self.state[f"_{key}_axis_label"] = label
-            self.state[f"_{key}_summary"] = (
-                f"{key.capitalize()} on {label} (inverted={inverted})"
-            )
-            choice.set(label)
-            result.set(self.state[f"_{key}_summary"])
-
-        row = ttk.Frame(parent)
-        row.pack(anchor="w", fill="x", pady=4)
-        self._record_button(row, key, on_detect, result)
-        self._axis_override(row, key, choice, result)
+        row = ttk.Frame(frame)
+        row.pack(anchor="w", fill="x", pady=self._px(4))
+        button = ttk.Button(
+            row,
+            text="Start listening",
+            command=lambda selected=action: self._start_capture(selected),
+        )
+        button.pack(side="left")
+        self._capture_buttons[action] = button
+        self._axis_override(row, action)
+        result = tk.StringVar(value=self._binding_summary(action))
+        self._capture_results[action] = result
         ttk.Label(
-            parent, textvariable=result, foreground="#2f6fbf", wraplength=660
+            frame,
+            textvariable=result,
+            foreground="#2f6fbf",
+            wraplength=self._px(660),
         ).pack(anchor="w")
+        if action == "steering":
+            self.invert_steering_var = tk.BooleanVar(
+                value=self._working_profile.invert_steering
+            )
+            ttk.Checkbutton(
+                frame,
+                text="Invert steering (toggle if left/right feels reversed)",
+                variable=self.invert_steering_var,
+                command=self._apply_steering_invert,
+            ).pack(anchor="w")
+        elif self._working_profile.is_joystick:
+            binding = self._bindings.get(action)
+            pedal_var = tk.BooleanVar(value=bool(binding and binding.invert))
+            setattr(self, f"{action}_invert_var", pedal_var)
+            ttk.Checkbutton(
+                frame,
+                text=f"Invert {action} travel",
+                variable=pedal_var,
+                command=lambda selected=action: self._apply_pedal_invert(selected),
+            ).pack(anchor="w")
 
-    def _record_button(self, parent, key: str, on_detect, result_var) -> None:
-        """A Start/cancel listening toggle.
-
-        Clicking starts listening; the axis auto-binds as soon as one moves
-        past the leeway threshold (handled in :meth:`_tick`), so there is no
-        Stop click. Clicking again before that cancels. Only one section
-        listens at a time, since they share the sessions' observed buffers.
-        """
-        btn = ttk.Button(parent, text="Start listening")
-        self._record_buttons[key] = btn
-        self._detect_callbacks[key] = on_detect
-
-        def toggle() -> None:
-            if not self.sessions:
-                messagebox.showwarning(
-                    "No device", "Go back and select a device first."
-                )
-                return
-            if self._recording_key == key:
-                self._recording_key = None
-                btn.config(text="Start listening")
-                result_var.set("Cancelled.")
-            else:
-                if self._recording_key is not None:
-                    other = self._record_buttons.get(self._recording_key)
-                    if other is not None:
-                        other.config(text="Start listening")
-                self._reset_all_observed()
-                self._recording_key = key
-                btn.config(text="Listening... (click to cancel)")
-                result_var.set("Move the control a little to bind it.")
-
-        btn.config(command=toggle)
-        btn.pack(side="left")
-
-    def _apply_invert(self) -> None:
-        # Reflect the checkbox in state immediately so the live wheel flips.
-        self.state["invert_steering"] = bool(self.invert_steering_var.get())
-
-    def _apply_pedal_invert(self) -> None:
-        # Reflect the checkbox in state immediately so the live pedal bars flip.
-        self.state["inverted_pedals"] = bool(self.invert_pedals_var.get())
-
-    def _axis_override(self, parent, key: str, choice_var, summary_var) -> None:
-        """Manual axis picker spanning every selected device.
-
-        Each entry is a device-qualified axis; selecting one binds *key* to
-        that (device, axis) directly, the manual fallback to auto-detect.
-        """
+    def _axis_override(self, parent, action: str) -> None:
         ttk.Label(parent, text="  Axis:").pack(side="left")
-        options: dict[str, tuple[Path, int]] = {}
-        for path, session in self.sessions.items():
-            for code in sorted(session.axis_ranges):
-                options[self._control_label(path, code)] = (path, code)
+        options: dict[str, Binding] = {}
+        for key in sorted(self._last_state.axes):
+            raw = parse_joystick_control_key(key)
+            if raw is None:
+                if key not in SDL3_AXES:
+                    continue
+                binding = Binding("axis", key)
+            else:
+                rest = (
+                    self._last_state.axes[key]
+                    if action in {"throttle", "brake"}
+                    else None
+                )
+                binding = Binding("axis", raw[1], device=raw[0], rest=rest)
+            options[self._binding_label(binding, self._working_profile)] = binding
         labels = list(options) or ["(none)"]
-        if choice_var.get() not in options:
-            choice_var.set(labels[0])
+        current = self._bindings.get(action)
+        current_label = (
+            self._binding_label(current, self._working_profile)
+            if current is not None
+            else labels[0]
+        )
+        choice = tk.StringVar(
+            value=current_label if current_label in labels else labels[0]
+        )
 
         def on_pick(label: str) -> None:
-            picked = options.get(label)
-            if picked is None:
-                return
-            path, code = picked
-            self.state[f"{key}_axis"] = code
-            self.state[f"{key}_device_path"] = str(path)
-            self.state[f"_{key}_axis_label"] = label
-            summary_var.set(f"{key.capitalize()} on {label}")
+            binding = options.get(label)
+            if binding is not None:
+                self._set_binding(action, binding)
 
-        ttk.OptionMenu(
-            parent, choice_var, choice_var.get(), *labels, command=on_pick
-        ).pack(side="left", padx=6)
+        ttk.OptionMenu(parent, choice, choice.get(), *labels, command=on_pick).pack(
+            side="left", padx=self._px(6)
+        )
+
+    def _start_capture(self, action: str) -> None:
+        if not self._last_state.connected:
+            messagebox.showwarning(
+                "No device", "Connect and select the SDL3 input device first."
+            )
+            return
+        if self._capture.listening and self._capture.action == action:
+            self._capture.cancel()
+            self._capture_buttons[action].config(text="Start listening")
+            self._capture_results[action].set("Cancelled.")
+            return
+        for button in self._capture_buttons.values():
+            button.config(text="Start listening")
+        self._bridge.take_last_button_down()
+        self._capture.start(action, self._bridge.state)
+        self._capture_buttons[action].config(text="Listening... (click to cancel)")
+        self._capture_results[action].set("Move or press the control to bind it.")
+
+    def _on_input(self, state: ControllerState) -> None:
+        self._last_state = state
+        self._update_controller_status()
+        if not self._capture.listening:
+            return
+        baseline = self._capture.baseline
+        result = self._capture.feed(
+            state, last_button_down=self._bridge.take_last_button_down()
+        )
+        if result is None:
+            return
+        action, binding = result
+        if action == "steering" and binding.kind == "axis" and baseline is not None:
+            key = self._binding_state_key(binding)
+            invert = state.axes.get(key, 0.0) < baseline.axes.get(key, 0.0)
+            self._working_profile = replace(
+                self._working_profile, invert_steering=invert
+            )
+            if hasattr(self, "invert_steering_var"):
+                self.invert_steering_var.set(invert)
+        self._set_binding(action, binding)
+        button = self._capture_buttons.get(action)
+        if button is not None:
+            button.config(text="Start listening")
+
+    def _set_binding(self, action: str, binding: Binding) -> None:
+        self._bindings[action] = binding
+        self._working_profile = replace(
+            self._working_profile, bindings=dict(self._bindings)
+        )
+        self._sync_bridge_profile()
+        result = self._capture_results.get(action)
+        if result is not None:
+            result.set(self._binding_summary(action))
+        if action in {"throttle", "brake"} and binding.is_raw_joystick:
+            pedal_var = getattr(self, f"{action}_invert_var", None)
+            if pedal_var is not None:
+                pedal_var.set(binding.invert)
+
+    def _binding_state_key(self, binding: Binding) -> str:
+        return (
+            joystick_control_key(binding.device, binding.control)
+            if binding.is_raw_joystick
+            else binding.control
+        )
+
+    def _binding_label(self, binding: Binding, profile: WheelProfile) -> str:
+        control = binding.control.replace("_", " ").title()
+        if binding.is_raw_joystick:
+            device = (
+                profile.devices[binding.device].name
+                if binding.device < len(profile.devices)
+                else f"Device {binding.device + 1}"
+            )
+            return f"{device}: {control}"
+        return control
+
+    def _binding_summary(self, action: str) -> str:
+        binding = self._bindings.get(action)
+        if binding is None:
+            return "Not bound"
+        detail = self._binding_label(binding, self._working_profile)
+        if binding.kind == "axis" and action in {"throttle", "brake"}:
+            direction = "inverted" if binding.invert else "normal"
+            return f"{detail} ({direction} travel)"
+        return detail
+
+    def _apply_steering_invert(self) -> None:
+        self._working_profile = replace(
+            self._working_profile,
+            invert_steering=bool(self.invert_steering_var.get()),
+        )
+        self._sync_bridge_profile()
+
+    def _apply_pedal_invert(self, action: str) -> None:
+        binding = self._bindings.get(action)
+        if binding is None or binding.kind != "axis":
+            return
+        pedal_var = getattr(self, f"{action}_invert_var")
+        self._set_binding(action, replace(binding, invert=bool(pedal_var.get())))
 
     def _build_buttons(self) -> None:
         self.title_var.set("Bind buttons (optional)")
         ttk.Label(
             self.content,
-            wraplength=680,
+            wraplength=self._px(680),
             justify="left",
             text=(
-                "Optionally bind one button to toggle reverse, one to reset / "
-                "respawn, and one to exit the scene (back to the scene selector). "
-                "Click Bind, then press the button on your device. Leave unbound "
-                "to skip -- you can always reset with the R key and exit with the "
-                "X key."
+                "Optionally bind reverse, reset / respawn, and exit scene. Click "
+                "Bind, then press the button. Keyboard shortcuts remain available."
             ),
-        ).pack(anchor="w", pady=(0, 8))
-        for key, label in (
-            ("reverse", "Reverse"),
-            ("reset", "Reset / respawn"),
-            ("exit", "Exit scene"),
-        ):
-            frame = ttk.LabelFrame(self.content, text=label, padding=(10, 6))
-            frame.pack(fill="x", pady=4)
-            result = tk.StringVar(value=self._button_summary(key))
-            self._button_result_vars[key] = result
+        ).pack(anchor="w", pady=(0, self._px(8)))
+        for action in ("reverse", "reset", "exit"):
+            frame = ttk.LabelFrame(
+                self.content,
+                text=_ACTION_LABELS[action],
+                padding=(self._px(10), self._px(6)),
+            )
+            frame.pack(fill="x", pady=self._px(4))
+            result = tk.StringVar(value=self._binding_summary(action))
+            self._capture_results[action] = result
             row = ttk.Frame(frame)
             row.pack(anchor="w", fill="x")
+            button = ttk.Button(
+                row,
+                text="Bind button",
+                command=lambda selected=action: self._start_capture(selected),
+            )
+            button.pack(side="left")
+            self._capture_buttons[action] = button
             ttk.Button(
                 row,
-                text=f"Bind {label.split()[0].lower()} button",
-                command=lambda k=key: self._start_button_listen(k),
-            ).pack(side="left")
-            ttk.Button(
-                row, text="Clear", command=lambda k=key: self._clear_button(k)
-            ).pack(side="left", padx=8)
+                text="Clear",
+                command=lambda selected=action: self._clear_binding(selected),
+            ).pack(side="left", padx=self._px(8))
             ttk.Label(frame, textvariable=result, foreground="#2f6fbf").pack(
-                anchor="w", pady=(4, 0)
+                anchor="w", pady=(self._px(4), 0)
             )
 
-    def _button_summary(self, key: str) -> str:
-        bindings = self.state.get(f"{key}_buttons", ())
-        if not bindings:
-            return "Not bound"
-        path_str, code = bindings[0]
-        return f"Bound to button {code} on {self._short_name(Path(path_str))}"
+    def _clear_binding(self, action: str) -> None:
+        self._bindings.pop(action, None)
+        self._working_profile = replace(
+            self._working_profile, bindings=dict(self._bindings)
+        )
+        self._sync_bridge_profile()
+        self._capture.cancel()
+        result = self._capture_results.get(action)
+        if result is not None:
+            result.set("Not bound")
 
-    def _start_button_listen(self, key: str) -> None:
-        if not self.sessions:
-            messagebox.showwarning("No device", "Go back and select a device first.")
-            return
-        self._reset_all_observed()
-        self._button_listening = key
-        var = self._button_result_vars.get(key)
-        if var is not None:
-            var.set("Press the button on your device now...")
-
-    def _clear_button(self, key: str) -> None:
-        self.state[f"{key}_buttons"] = ()
-        if self._button_listening == key:
-            self._button_listening = None
-        var = self._button_result_vars.get(key)
-        if var is not None:
-            var.set("Not bound")
+    ## Force feedback and details
 
     def _build_ffb(self) -> None:
         self.title_var.set("Force feedback (optional)")
-        self.ffb_enabled_var = tk.BooleanVar(value=self.state.get("ffb_enabled", True))
-        self.ffb_gain_var = tk.DoubleVar(value=self.state.get("ffb_gain", 0.6))
+        self.ffb_enabled_var = tk.BooleanVar(
+            value=bool(self.state.get("ffb_enabled", False))
+        )
         self.ffb_mode_var = tk.StringVar(value=self.state.get("ffb_mode", "auto"))
+        self.ffb_gain_var = tk.DoubleVar(value=float(self.state.get("ffb_gain", 0.6)))
         ttk.Label(
             self.content,
-            wraplength=680,
+            wraplength=self._px(680),
             justify="left",
             text=(
-                "Force feedback makes the wheel resist turning and return to center, "
-                "scaled by speed. 'Auto' picks the right method for your wheel: a "
-                "driver-managed autocenter spring (Thrustmaster, Logitech) or a "
-                "self-rendered constant force (Fanatec, which has no autocenter). "
-                "Force 'constant_force' if a Logitech's autocenter feels too weak, or "
-                "leave FFB off for devices with no motor."
+                "SDL3 wheel centering makes a compatible wheel resist turning and "
+                "return to center. Auto prefers hardware autocenter, then falls back "
+                "to a constant-force effect for wheels such as Fanatec. Leave it off "
+                "for devices without a motor."
             ),
-        ).pack(anchor="w", pady=(0, 10))
+        ).pack(anchor="w", pady=(0, self._px(10)))
         ttk.Checkbutton(
             self.content,
-            text="Enable force feedback",
+            text="Enable wheel centering",
             variable=self.ffb_enabled_var,
         ).pack(anchor="w")
         mode_row = ttk.Frame(self.content)
-        mode_row.pack(anchor="w", pady=(8, 0), fill="x")
+        mode_row.pack(anchor="w", pady=(self._px(8), 0))
         ttk.Label(mode_row, text="Mode").pack(side="left")
         ttk.Combobox(
             mode_row,
             textvariable=self.ffb_mode_var,
-            values=("auto", "autocenter", "constant_force"),
+            values=FFB_MODES,
             state="readonly",
-            width=16,
-        ).pack(side="left", padx=8)
+            width=18,
+        ).pack(side="left", padx=self._px(8))
         gain_row = ttk.Frame(self.content)
-        gain_row.pack(anchor="w", pady=8, fill="x")
+        gain_row.pack(anchor="w", pady=self._px(8), fill="x")
         ttk.Label(gain_row, text="Gain").pack(side="left")
         ttk.Scale(
             gain_row,
             from_=0.0,
             to=1.0,
-            orient="horizontal",
-            length=300,
+            length=self._px(300),
             variable=self.ffb_gain_var,
-        ).pack(side="left", padx=8)
+        ).pack(side="left", padx=self._px(8))
         test_row = ttk.Frame(self.content)
-        test_row.pack(anchor="w", pady=4)
+        test_row.pack(anchor="w", pady=self._px(4))
         ttk.Button(test_row, text="Test", command=self._ffb_test).pack(side="left")
-        ttk.Button(test_row, text="Stop", command=self._ffb_stop).pack(
-            side="left", padx=8
+        ttk.Button(test_row, text="Stop", command=self._stop_ffb_test).pack(
+            side="left", padx=self._px(8)
         )
-
-    def _ffb_device_path(self) -> Path | None:
-        """Device that produces FFB: the steering device, else the first open."""
-        path_str = self.state.get("steering_device_path")
-        if path_str is not None and Path(path_str) in self.sessions:
-            return Path(path_str)
-        primary = self._primary_session()
-        return primary.device_path if primary is not None else None
-
-    def _edit_ffb_device_path(self) -> Path | None:
-        """Steering device's path for the editor's FFB test (its open session)."""
-        if self._editing is None:
-            return None
-        _path, profile = self._editing
-        steering_index = profile.axis_map["steering"].device
-        session = self._edit_sessions_by_index.get(steering_index)
-        return session.device_path if session is not None else None
-
-    def _run_ffb_test(self, device_path: Path | None, gain: float, mode: str) -> None:
-        """Shared FFB test used by the wizard and the editor."""
-        self._ffb_stop()
-        if device_path is None:
-            messagebox.showinfo(
-                "Force feedback unavailable",
-                "Connect the wheel and select it so it can be tested.",
-            )
-            return
-        ffb = create_ffb_backend(mode, query_ff_features(device_path))
-        ffb.init(device_path, gain)
-        if not ffb.available:
-            messagebox.showinfo(
-                "Force feedback unavailable",
-                "Could not open the device for force feedback (it may not support "
-                "the selected effect, or write permission is missing).",
-            )
-            return
-        # Constant force does nothing at rest. Autocenter just stiffens; for
-        # constant force we wiggle the wheel back and forth (driven in _tick).
-        if isinstance(ffb, ConstantForceFFB):
-            self._ffb_wiggle_gain = gain
-            self._ffb_wiggle_phase = 0.0
-        else:
-            ffb.set_autocenter(gain)
-        self._ffb = ffb
 
     def _ffb_test(self) -> None:
-        self._run_ffb_test(
-            self._ffb_device_path(),
-            float(self.ffb_gain_var.get()),
-            self.ffb_mode_var.get(),
+        gain = float(self.ffb_gain_var.get())
+        mode = self.ffb_mode_var.get()
+        self._ffb_testing = True
+        self._ffb_test_phase = 0.0
+        self._bridge.profile = replace(
+            self._working_profile, ffb_enabled=True, ffb_mode=mode, ffb_gain=gain
         )
+        self.activity_var.set(f"Testing SDL3 wheel {mode} at {gain:.0%}")
 
     def _edit_ffb_test(self) -> None:
-        self._run_ffb_test(
-            self._edit_ffb_device_path(),
-            float(self._edit_ffb_gain.get()),
-            self._edit_ffb_mode.get(),
+        gain = float(self._edit_ffb_gain.get())
+        mode = self._edit_ffb_mode.get()
+        self._ffb_testing = True
+        self._ffb_test_phase = 0.0
+        self._bridge.profile = replace(
+            self._working_profile, ffb_enabled=True, ffb_mode=mode, ffb_gain=gain
         )
+        self.activity_var.set(f"Testing SDL3 wheel {mode} at {gain:.0%}")
 
-    def _ffb_stop(self) -> None:
-        self._ffb_wiggle_gain = 0.0
-        if self._ffb is not None:
-            self._ffb.cleanup()
-            self._ffb = None
+    def _stop_ffb_test(self) -> None:
+        if not self._ffb_testing:
+            return
+        self._ffb_testing = False
+        self._bridge.set_ffb_test_force(None)
+        self._bridge.profile = replace(self._working_profile, ffb_enabled=False)
+
+    def _slider_row(
+        self, label: str, var, low: float, high: float, callback=None
+    ) -> None:
+        row = ttk.Frame(self.content)
+        row.pack(fill="x", pady=self._px(2))
+        ttk.Label(row, text=label, width=26, anchor="w").pack(side="left")
+        ttk.Scale(
+            row,
+            from_=low,
+            to=high,
+            length=self._px(220),
+            variable=var,
+        ).pack(side="left", padx=self._px(8))
+        value_label = ttk.Label(row, width=5)
+        value_label.pack(side="left")
+
+        def update(*_args) -> None:
+            value_label.config(text=f"{float(var.get()):.2f}")
+            if callback is not None:
+                callback()
+
+        var.trace_add("write", update)
+        update()
 
     def _build_details(self) -> None:
         self.title_var.set("Settings & detection")
-        steer_path = self.state.get("steering_device_path")
-        default_name = self._short_name(Path(steer_path)) if steer_path else "My device"
-        controller = self.state.get("device_type") == "controller"
+        default_name = (
+            self._working_profile.devices[0].name
+            if self._working_profile.devices
+            else "SDL3 game controller"
+        )
         self.display_name_var = tk.StringVar(
             value=self.state.get("display_name", default_name)
         )
@@ -1002,80 +1106,69 @@ class ConfigApp:
             value=self.state.get("name", profile_filename(default_name)[:-5])
         )
         self.is_default_var = tk.BooleanVar(value=self.state.get("is_default", True))
-        # Controllers default to a reduced range + small deadzone (sticks are
-        # sensitive and tend to drift); wheels default to full range, none.
         self.steering_range_var = tk.DoubleVar(
-            value=self.state.get("steering_range", 0.6 if controller else 1.0)
+            value=self.state.get("steering_range", self._working_profile.steering_range)
         )
         self.steering_deadzone_var = tk.DoubleVar(
-            value=self.state.get("steering_deadzone", 0.08 if controller else 0.0)
+            value=self.state.get(
+                "steering_deadzone", self._working_profile.steering_deadzone
+            )
         )
-        # Seed state so the live wheel preview reflects these immediately, and
-        # keep it updated as the sliders move.
-        self.state["steering_range"] = float(self.steering_range_var.get())
-        self.state["steering_deadzone"] = float(self.steering_deadzone_var.get())
-        self.steering_range_var.trace_add(
-            "write",
-            lambda *_: self.state.__setitem__(
-                "steering_range", float(self.steering_range_var.get())
-            ),
-        )
-        self.steering_deadzone_var.trace_add(
-            "write",
-            lambda *_: self.state.__setitem__(
-                "steering_deadzone", float(self.steering_deadzone_var.get())
-            ),
-        )
-
         form = ttk.Frame(self.content)
         form.pack(fill="x")
-        ttk.Label(form, text="Display name").grid(row=0, column=0, sticky="w", pady=4)
+        ttk.Label(form, text="Display name").grid(
+            row=0, column=0, sticky="w", pady=self._px(4)
+        )
         ttk.Entry(form, textvariable=self.display_name_var, width=46).grid(
             row=0, column=1, sticky="w"
         )
-        ttk.Label(form, text="Profile name").grid(row=1, column=0, sticky="w", pady=4)
+        ttk.Label(form, text="Profile name").grid(
+            row=1, column=0, sticky="w", pady=self._px(4)
+        )
         ttk.Entry(form, textvariable=self.profile_name_var, width=46).grid(
             row=1, column=1, sticky="w"
         )
-
         ttk.Label(
             self.content, text="Steering feel (turn the device to preview):"
-        ).pack(anchor="w", pady=(8, 0))
+        ).pack(anchor="w", pady=(self._px(8), 0))
         self._slider_row(
-            "Steering range (sensitivity)", self.steering_range_var, 0.1, 1.0
+            "Steering range (sensitivity)",
+            self.steering_range_var,
+            0.1,
+            1.0,
+            self._apply_detail_preview,
         )
-        self._slider_row("Steering deadzone", self.steering_deadzone_var, 0.0, 0.3)
-
-        ttk.Label(
-            self.content,
-            wraplength=680,
-            justify="left",
-            text=(
-                "\nDetection patterns -- one per line, per device. Each device is "
-                "auto-selected at launch when its name contains any of its patterns."
-            ),
-        ).pack(anchor="w")
-        # One pattern box per device a binding actually uses, seeded from the
-        # device's evdev name. ``_device_pattern_texts`` maps device path ->
-        # widget so validation can read them back.
-        self._device_pattern_texts = {}
-        saved_patterns = self.state.get("device_patterns", {})
-        for path_str in self._ordered_device_paths():
-            short = self._short_name(Path(path_str))
-            ttk.Label(self.content, text=short, foreground="#444").pack(
-                anchor="w", pady=(6, 0)
-            )
-            box = tk.Text(self.content, height=2, width=62)
-            box.pack(anchor="w", pady=2)
-            existing = saved_patterns.get(path_str)
-            box.insert("1.0", "\n".join(existing) if existing else short)
-            self._device_pattern_texts[path_str] = box
-
+        self._slider_row(
+            "Steering deadzone",
+            self.steering_deadzone_var,
+            0.0,
+            0.3,
+            self._apply_detail_preview,
+        )
+        if self._working_profile.is_joystick and self._working_profile.devices:
+            ttk.Label(
+                self.content,
+                text="SDL3 matches: "
+                + " + ".join(device.name for device in self._working_profile.devices),
+                foreground="#555",
+                wraplength=self._px(680),
+            ).pack(anchor="w", pady=(self._px(8), 0))
         ttk.Checkbutton(
             self.content,
             text="Use as the default profile",
             variable=self.is_default_var,
-        ).pack(anchor="w", pady=6)
+        ).pack(anchor="w", pady=self._px(6))
+
+    def _apply_detail_preview(self) -> None:
+        if not hasattr(self, "steering_range_var"):
+            return
+        self._working_profile = replace(
+            self._working_profile,
+            steering_range=float(self.steering_range_var.get()),
+            steering_deadzone=float(self.steering_deadzone_var.get()),
+            swap_face_buttons=bool(self.state.get("swap_face_buttons", False)),
+        )
+        self._sync_bridge_profile()
 
     def _build_review(self) -> None:
         self.title_var.set("Review and save")
@@ -1088,171 +1181,125 @@ class ConfigApp:
         )
         ttk.Label(
             self.content,
-            text=f"Will be written to:\n{user_wheel_profiles_dir() / profile_filename(profile.name)}",
+            text=(
+                "Will be written to:\n"
+                f"{user_wheel_profiles_dir() / profile_filename(profile.name)}"
+            ),
             justify="left",
-        ).pack(anchor="w", pady=(0, 8))
+        ).pack(anchor="w", pady=(0, self._px(8)))
         text = tk.Text(self.content, height=15, width=66)
         text.pack(fill="both", expand=True)
         text.insert("1.0", preview)
         text.config(state="disabled")
 
-    # -- validation + compose -------------------------------------------
+    ## Validation and save
 
     def _validate(self, step: str) -> tuple[bool, str]:
         if step == "welcome":
-            self.state["device_type"] = self.device_type_var.get()
+            kind = self.device_type_var.get()
+            previous_swap = bool(self.state.get("swap_face_buttons", False))
+            self.state = {"device_type": kind}
+            profile = (
+                default_wheel_profile()
+                if kind == "wheel"
+                else default_controller_profile()
+            )
+            if kind == "controller":
+                self.state["swap_face_buttons"] = previous_swap
+                profile = replace(profile, swap_face_buttons=previous_swap)
+            self._replace_bridge(replace(profile, bindings={}, is_default=False))
             return True, ""
         if step == "device":
-            if not self.sessions:
-                return False, "Select a device from the list first."
+            if self._working_profile.is_joystick:
+                devices = tuple(self.state.get("devices", ()))
+                if not devices:
+                    return False, "Select at least one wheel or pedal device."
+                connected = self._bridge.connected_device_indices
+                if connected != frozenset(range(len(devices))):
+                    return False, "Reconnect every selected wheel/pedal device."
+            elif not self._last_state.connected:
+                return False, "Connect and operate the game controller first."
             return True, ""
         if step == "controls":
-            for axis_key, human in (
-                ("steering", "steering"),
-                ("throttle", "throttle"),
-                ("brake", "brake"),
-            ):
-                if (
-                    f"{axis_key}_axis" not in self.state
-                    or f"{axis_key}_device_path" not in self.state
-                ):
-                    return (
-                        False,
-                        f"Calibrate {human} first (Start listening, then move it).",
-                    )
-            self.state["invert_steering"] = bool(self.invert_steering_var.get())
-            self.state["inverted_pedals"] = bool(self.invert_pedals_var.get())
-            return True, ""
-        if step == "buttons":
-            self.state.setdefault("reverse_buttons", ())
-            self.state.setdefault("reset_buttons", ())
-            self.state.setdefault("exit_buttons", ())
+            missing = [
+                _ACTION_LABELS[action]
+                for action in ("steering", "throttle", "brake")
+                if action not in self._bindings
+            ]
+            if missing:
+                return False, "Calibrate these controls first: " + ", ".join(missing)
             return True, ""
         if step == "ffb":
-            self._ffb_stop()
+            self._stop_ffb_test()
             self.state["ffb_enabled"] = bool(self.ffb_enabled_var.get())
+            self.state["ffb_mode"] = self.ffb_mode_var.get()
             self.state["ffb_gain"] = float(self.ffb_gain_var.get())
-            self.state["ffb_mode"] = str(self.ffb_mode_var.get() or "auto")
             return True, ""
         if step == "details":
             name = self.profile_name_var.get().strip()
             if not name:
                 return False, "Profile name cannot be empty."
-            device_patterns: dict[str, tuple[str, ...]] = {}
-            for path_str, box in self._device_pattern_texts.items():
-                patterns = tuple(
-                    line.strip()
-                    for line in box.get("1.0", "end").splitlines()
-                    if line.strip()
-                )
-                if not patterns:
-                    short = self._short_name(Path(path_str))
-                    return False, f"Add at least one detection pattern for {short}."
-                device_patterns[path_str] = patterns
-            self.state["name"] = name
-            self.state["display_name"] = self.display_name_var.get().strip() or name
-            self.state["device_patterns"] = device_patterns
-            self.state["is_default"] = bool(self.is_default_var.get())
-            self.state["steering_range"] = float(self.steering_range_var.get())
-            self.state["steering_deadzone"] = float(self.steering_deadzone_var.get())
+            self.state.update(
+                name=name,
+                display_name=self.display_name_var.get().strip() or name,
+                is_default=bool(self.is_default_var.get()),
+                steering_range=float(self.steering_range_var.get()),
+                steering_deadzone=float(self.steering_deadzone_var.get()),
+            )
             return True, ""
         return True, ""
 
-    def _ordered_device_paths(self) -> list[str]:
-        """Device paths referenced by any binding, steering device first.
-
-        The order becomes the profile's device-index order, so device 0 is the
-        steering device (the FFB device convention the runtime relies on).
-        """
-        ordered: list[str] = []
-
-        def add(path_str) -> None:
-            if path_str and path_str not in ordered:
-                ordered.append(path_str)
-
-        add(self.state.get("steering_device_path"))
-        add(self.state.get("throttle_device_path"))
-        add(self.state.get("brake_device_path"))
-        for key in ("reverse", "reset", "exit"):
-            for path_str, _code in self.state.get(f"{key}_buttons", ()):
-                add(path_str)
-        return ordered
-
-    def _compose_profile(self):
-        if self.state.get("device_type") == "controller":
-            ffb_enabled, ffb_gain = False, 0.0
-        else:
-            ffb_enabled = bool(self.state.get("ffb_enabled", False))
-            ffb_gain = float(self.state.get("ffb_gain", 0.0))
-
-        ordered_paths = self._ordered_device_paths()
-        index_of = {path: i for i, path in enumerate(ordered_paths)}
-        device_patterns = self.state.get("device_patterns", {})
-        devices = tuple(
-            DeviceSpec(
-                detection_patterns=tuple(device_patterns.get(path, ())),
-                display_name=self._short_name(Path(path)),
+    def _compose_profile(self) -> WheelProfile:
+        bindings = dict(self._bindings)
+        devices = self._working_profile.devices
+        if self._working_profile.is_joystick:
+            used = sorted(
+                {
+                    binding.device
+                    for binding in bindings.values()
+                    if binding.is_raw_joystick
+                }
             )
-            for path in ordered_paths
-        )
-
-        def axis_binding(key: str) -> Binding:
-            return Binding(
-                device=index_of[self.state[f"{key}_device_path"]],
-                code=int(self.state[f"{key}_axis"]),
-            )
-
-        def button_bindings(key: str) -> tuple[Binding, ...]:
-            return tuple(
-                Binding(device=index_of[path], code=int(code))
-                for path, code in self.state.get(f"{key}_buttons", ())
-            )
-
-        return build_profile(
+            remap = {old: new for new, old in enumerate(used)}
+            devices = tuple(devices[index] for index in used)
+            bindings = {
+                action: replace(binding, device=remap[binding.device])
+                if binding.is_raw_joystick
+                else binding
+                for action, binding in bindings.items()
+            }
+        return WheelProfile(
             name=self.state["name"],
             display_name=self.state["display_name"],
+            bindings=bindings,
+            backend=(
+                JOYSTICK_BACKEND
+                if self._working_profile.is_joystick
+                else GAMEPAD_BACKEND
+            ),
             devices=devices,
-            axis_map={
-                "steering": axis_binding("steering"),
-                "throttle": axis_binding("throttle"),
-                "brake": axis_binding("brake"),
-            },
-            invert_steering=self.state["invert_steering"],
-            inverted_pedals=bool(self.state.get("inverted_pedals", True)),
-            ffb_enabled=ffb_enabled,
-            ffb_gain=ffb_gain,
-            ffb_mode=str(self.state.get("ffb_mode", "auto")),
-            is_default=self.state["is_default"],
-            reverse_buttons=button_bindings("reverse"),
-            reset_buttons=button_bindings("reset"),
-            exit_buttons=button_bindings("exit"),
+            swap_face_buttons=bool(self.state.get("swap_face_buttons", False)),
+            invert_steering=self._working_profile.invert_steering,
             steering_range=float(self.state.get("steering_range", 1.0)),
             steering_deadzone=float(self.state.get("steering_deadzone", 0.0)),
+            ffb_enabled=(
+                bool(self.state.get("ffb_enabled", False))
+                if self._working_profile.is_joystick
+                else False
+            ),
+            ffb_mode=str(self.state.get("ffb_mode", "auto")),
+            ffb_gain=float(self.state.get("ffb_gain", 0.5)),
+            is_default=bool(self.state.get("is_default", True)),
         )
 
     def _save(self) -> None:
         profile = self.state.get("_profile") or self._compose_profile()
-        brake_inverted = self.state.get("brake_inverted")
-        if brake_inverted is not None and brake_inverted != profile.inverted_pedals:
-            if not messagebox.askyesno(
-                "Pedal direction mismatch",
-                "Throttle and brake appear to rest in opposite directions, but the "
-                "profile stores a single shared 'Invert pedals' setting. Check that "
-                "checkbox matches your throttle. Save anyway?",
-            ):
-                return
         try:
             path = save_wheel_profile(profile, user_wheel_profiles_dir())
         except OSError as exc:
             messagebox.showerror("Could not save", str(exc))
             return
-        # Saving as default demotes any other default, so there's only one.
-        if profile.is_default:
-            for other_path, other in load_wheel_profile_files(
-                user_wheel_profiles_dir()
-            ):
-                if other_path != path and other.is_default:
-                    update_profile_file(other_path, replace(other, is_default=False))
+        self._demote_other_defaults(path, profile)
         self._saved = True
         self.primary_btn.config(text="Close")
         self.back_btn.state(["disabled"])
@@ -1262,246 +1309,145 @@ class ConfigApp:
             "uv run --package flashdreams-omnidreams interactive-drive",
         )
 
-    # -- live loop + teardown -------------------------------------------
+    def _demote_other_defaults(self, path: Path, profile: WheelProfile) -> None:
+        if not profile.is_default:
+            return
+        for other_path, other in load_wheel_profile_files(user_wheel_profiles_dir()):
+            if other_path != path and other.is_default:
+                update_profile_file(other_path, replace(other, is_default=False))
+
+    ## Live panel
 
     def _tick(self) -> None:
-        if self.sessions and self._button_listening is not None:
-            hit = pressed_button_across(self.sessions)
-            if hit is not None:
-                path, code = hit
-                key = self._button_listening
-                self.state[f"{key}_buttons"] = ((str(path), code),)
-                self._button_listening = None
-                var = self._button_result_vars.get(key)
-                if var is not None:
-                    var.set(f"Bound to button {code} on {self._short_name(path)}")
-        if self.sessions and self._recording_key is not None:
-            hit = select_axis_across(self.sessions, min_fraction=_DETECT_FRACTION)
-            if hit is not None:
-                path, axis = hit
-                session = self.sessions[path]
-                key = self._recording_key
-                self._recording_key = None
-                button = self._record_buttons.get(key)
-                if button is not None:
-                    button.config(text="Start listening")
-                observed = session.observed_ranges()
-                base = session.baseline().get(
-                    axis, int(session.axis_ranges[axis].center)
-                )
-                peak = peak_from_observed(observed[axis], base)
-                callback = self._detect_callbacks.get(key)
-                if callback is not None:
-                    callback(path, axis, base, peak)
-        self._drive_ffb_wiggle()
+        if self._closing:
+            return
+        if self._event_window.should_close():
+            self._on_close()
+            return
+        self._event_window.process_events()
+        if self._ffb_testing:
+            self._ffb_test_phase += (_TICK_MS / 1000.0) * math.tau * 0.8
+            self._bridge.set_ffb_test_force(math.sin(self._ffb_test_phase) * 0.55)
+        self._bridge.poll()
         self._draw_live()
         self.root.after(_TICK_MS, self._tick)
-
-    def _drive_ffb_wiggle(self) -> None:
-        """Oscillate the constant-force test so the wheel rocks left/right."""
-        if self._ffb_wiggle_gain <= 0.0 or not isinstance(self._ffb, ConstantForceFFB):
-            return
-        self._ffb_wiggle_phase += 2.0 * math.pi * _FFB_WIGGLE_HZ * (_TICK_MS / 1000.0)
-        self._ffb.set_test_force(
-            self._ffb_wiggle_gain * math.sin(self._ffb_wiggle_phase)
-        )
-
-    # -- live wheel / pedal / axis visualization ------------------------
-
-    def _find_device_for_spec(self, profile, index: int):
-        """Best connected device for ``profile.devices[index]`` (exact name first).
-
-        Requires the device to expose every axis the profile binds to this
-        device index, so a same-named sibling node without those axes loses.
-        """
-        spec = profile.devices[index]
-        required = {b.code for b in profile.axis_map.values() if b.device == index}
-        best = None  # (strength, device)
-        for device in scan_evdev_devices():
-            if not required.issubset(set(list_device_axes(device.path))):
-                continue
-            strength = name_match_strength(device.name, spec.detection_patterns)
-            if strength > 0 and (best is None or strength > best[0]):
-                best = (strength, device)
-        return best[1] if best is not None else None
-
-    def _live_feel(self) -> dict:
-        """Steering-feel + invert flags for the live preview.
-
-        In the editor it reads the edit widgets (so dragging sliders updates
-        the preview live); otherwise the new-profile wizard state.
-        """
-        if self._editing is not None and hasattr(self, "_edit_range"):
-            return {
-                "invert_steering": bool(self._edit_invert_steer.get()),
-                "inverted_pedals": bool(self._edit_invert_pedals.get()),
-                "steering_range": float(self._edit_range.get()),
-                "steering_deadzone": float(self._edit_deadzone.get()),
-            }
-        return {
-            "invert_steering": bool(self.state.get("invert_steering", False)),
-            "inverted_pedals": bool(self.state.get("inverted_pedals", True)),
-            "steering_range": float(self.state.get("steering_range", 1.0) or 1.0),
-            "steering_deadzone": float(self.state.get("steering_deadzone", 0.0) or 0.0),
-        }
-
-    def _live_binding(self, key: str):
-        """Return ``(CaptureSession, code)`` for *key*'s live preview, or None."""
-        if self._editing is not None and hasattr(self, "_edit_range"):
-            _path, profile = self._editing
-            binding = profile.axis_map.get(key)
-            if binding is None:
-                return None
-            session = self._edit_sessions_by_index.get(binding.device)
-            return (session, binding.code) if session is not None else None
-        path_str = self.state.get(f"{key}_device_path")
-        code = self.state.get(f"{key}_axis")
-        if path_str is None or code is None:
-            return None
-        session = self.sessions.get(Path(path_str))
-        return (session, int(code)) if session is not None else None
-
-    def _aggregate_axes(self) -> tuple[dict, dict]:
-        """Merge every session's axes/ranges for the activity strip."""
-        axes: dict = {}
-        ranges: dict = {}
-        for session in self.sessions.values():
-            ranges.update(session.axis_ranges)
-            axes.update(session.axes())
-        return axes, ranges
 
     def _draw_live(self) -> None:
         canvas = self.live_canvas
         canvas.delete("all")
-        if not self.sessions:
-            self.activity_var.set("")
-            return
         editing = self._editing is not None
         step = self._current_step()
-        if not editing and step in ("welcome", "review"):
+        if not editing and step in {"welcome", "review"}:
             self.activity_var.set("")
             return
-        if editing:
-            self.activity_var.set("Move the stick / wheel to preview the steering feel")
-        elif step == "buttons":
+        if self._capture.listening:
+            self.activity_var.set("Listening — move or press the control…")
+        elif self._last_state.connected:
+            names = " + ".join(self._last_state.device_names)
             self.activity_var.set(
-                "Press the button on your device..." if self._button_listening else ""
+                f"Activity from {names}" if names else "SDL3 controller connected"
             )
-        elif step in _AXIS_LIVE_STEPS:
-            if self._recording_key is not None:
-                self.activity_var.set("Listening -- move the control...")
-            elif any(s.is_active() for s in self.sessions.values()):
-                self.activity_var.set("Activity detected")
-            else:
-                self.activity_var.set("Operate a control to see it move")
         else:
-            self.activity_var.set("")
+            self.activity_var.set("Waiting for SDL3 input…")
 
-        steer, throttle, brake = self._sim_values()
+        steer, throttle, brake = self._preview_values()
         self._draw_wheel(canvas, 78, 70, 56, steer)
         self._draw_pedal(canvas, 168, throttle, "Throttle", "#76b900")
         self._draw_pedal(canvas, 226, brake, "Brake", "#d05a5a")
-        axes, ranges = self._aggregate_axes()
-        self._draw_axis_strip(canvas, 300, axes, ranges)
-        if not editing and step == "buttons":
-            held = sorted(
-                code
-                for session in self.sessions.values()
-                for code, value in session.buttons().items()
-                if value == 1
-            )
-            canvas.create_text(
-                10,
-                _CANVAS_H - 8,
-                anchor="w",
-                fill="#666",
-                font=("TkFixedFont", 8),
-                text="Buttons held: "
-                + (", ".join(str(c) for c in held) if held else "(none)"),
-            )
+        self._draw_axis_strip(canvas, 300, self._last_state.axes)
+        held = sorted(self._last_state.buttons)
+        canvas.create_text(
+            10,
+            _CANVAS_H - 6,
+            anchor="w",
+            fill="#666",
+            font=("TkFixedFont", 8),
+            text="Buttons held: " + (", ".join(held[:8]) if held else "(none)"),
+        )
+        canvas.scale("all", 0, 0, self.ui_scale, self.ui_scale)
 
-    def _sim_values(self) -> tuple[float, float, float]:
-        """Normalized (steer, throttle, brake) for the live preview.
+    def _preview_values(self) -> tuple[float, float, float]:
+        steer = self._binding_value("steering")
+        if self._working_profile.invert_steering:
+            steer = -steer
+        steer = apply_steering_curve(
+            steer,
+            deadzone=self._working_profile.steering_deadzone,
+            scale=self._working_profile.steering_range,
+        )
+        return (
+            steer,
+            max(0.0, self._binding_value("throttle")),
+            max(0.0, self._binding_value("brake")),
+        )
 
-        Each control is read from its own device's session; unmapped controls
-        read as neutral. The steering curve (deadzone + sensitivity) is applied
-        so the preview matches what the runtime does.
-        """
-        feel = self._live_feel()
-        steer = throttle = brake = 0.0
-        steer_bind = self._live_binding("steering")
-        if steer_bind is not None:
-            session, code = steer_bind
-            ranges, axes = session.axis_ranges, session.axes()
-            if code in ranges and code in axes:
-                rng = ranges[code]
-                value = (axes[code] - rng.center) / (rng.span / 2.0)
-                if feel["invert_steering"]:
-                    value = -value
-                steer = apply_steering_curve(
-                    value,
-                    deadzone=feel["steering_deadzone"],
-                    scale=feel["steering_range"],
-                )
-        for key in ("throttle", "brake"):
-            bind = self._live_binding(key)
-            if bind is None:
-                continue
-            session, code = bind
-            ranges, axes = session.axis_ranges, session.axes()
-            if code not in ranges or code not in axes:
-                continue
-            rng = ranges[code]
-            if feel["inverted_pedals"]:
-                value = (rng.maximum - axes[code]) / rng.span
-            else:
-                value = (axes[code] - rng.minimum) / rng.span
-            value = max(0.0, min(1.0, value))
-            if key == "throttle":
-                throttle = value
-            else:
-                brake = value
-        return steer, throttle, brake
+    def _binding_value(self, action: str) -> float:
+        binding = self._bindings.get(action)
+        if binding is None:
+            return 0.0
+        key = self._binding_state_key(binding)
+        if binding.kind == "button":
+            return 1.0 if key in self._last_state.buttons else 0.0
+        if key not in self._last_state.axes:
+            return 0.0
+        value = self._last_state.axes[key]
+        if action in {"throttle", "brake"} and binding.is_raw_joystick:
+            return normalize_pedal(value, binding)
+        if action in {"throttle", "brake"} and "trigger" in binding.control:
+            return max(0.0, min(1.0, value))
+        return max(-1.0, min(1.0, value))
 
-    def _draw_wheel(self, canvas, cx: int, cy: int, r: int, steer: float) -> None:
-        canvas.create_oval(cx - r, cy - r, cx + r, cy + r, outline="#999", width=5)
-        # Positive steer = left, which reads as a counter-clockwise turn.
+    def _draw_wheel(self, canvas, cx: int, cy: int, radius: int, steer: float) -> None:
+        canvas.create_oval(
+            cx - radius,
+            cy - radius,
+            cx + radius,
+            cy + radius,
+            outline="#999",
+            width=self._px(5),
+        )
         angle = math.radians(-steer * _WHEEL_MAX_DEG)
         for spoke in range(3):
-            a = angle + spoke * (2.0 * math.pi / 3.0)
-            x = cx + r * math.sin(a)
-            y = cy - r * math.cos(a)
-            is_top = spoke == 0
+            spoke_angle = angle + spoke * (2.0 * math.pi / 3.0)
+            x = cx + radius * math.sin(spoke_angle)
+            y = cy - radius * math.cos(spoke_angle)
             canvas.create_line(
                 cx,
                 cy,
                 x,
                 y,
-                fill="#76b900" if is_top else "#bbb",
-                width=5 if is_top else 3,
+                fill="#76b900" if spoke == 0 else "#bbb",
+                width=self._px(5 if spoke == 0 else 3),
             )
         canvas.create_oval(cx - 8, cy - 8, cx + 8, cy + 8, fill="#555", outline="")
         canvas.create_text(
             cx,
-            cy + r + 14,
+            cy + radius + 14,
             fill="#666",
-            text=f"{int(round(steer * _WHEEL_MAX_DEG)):+d}\u00b0",
+            text=f"{round(steer * _WHEEL_MAX_DEG):+d}°",
         )
 
     def _draw_pedal(self, canvas, x: int, value: float, label: str, color: str) -> None:
         top, bottom, width = 16, 118, 34
         value = max(0.0, min(1.0, value))
-        canvas.create_rectangle(x, top, x + width, bottom, outline="#999")
-        fill_h = value * (bottom - top)
         canvas.create_rectangle(
-            x, bottom - fill_h, x + width, bottom, fill=color, outline=""
+            x, top, x + width, bottom, outline="#999", width=self._px(1)
+        )
+        fill_height = value * (bottom - top)
+        canvas.create_rectangle(
+            x,
+            bottom - fill_height,
+            x + width,
+            bottom,
+            fill=color,
+            outline="",
         )
         canvas.create_text(
             x + width / 2,
             top - 8,
             fill="#666",
             font=("TkDefaultFont", 8),
-            text=f"{int(value * 100)}%",
+            text=f"{value:.0%}",
         )
         canvas.create_text(
             x + width / 2,
@@ -1511,8 +1457,8 @@ class ConfigApp:
             text=label,
         )
 
-    def _draw_axis_strip(self, canvas, x0: int, axes: dict, ranges: dict) -> None:
-        bar_x, bar_w, row_h = x0 + 52, 150, 16
+    def _draw_axis_strip(self, canvas, x0: int, axes: dict[str, float]) -> None:
+        bar_x, bar_width, row_height = x0 + 78, 130, 16
         canvas.create_text(
             x0,
             6,
@@ -1521,56 +1467,74 @@ class ConfigApp:
             font=("TkDefaultFont", 8, "bold"),
             text="Axes",
         )
-        for i, code in enumerate(sorted(ranges)):
-            if i >= 8:
-                break
-            rng = ranges[code]
-            value = axes.get(code, rng.minimum)
-            frac = max(0.0, min(1.0, (value - rng.minimum) / rng.span))
-            y = 20 + i * row_h
+        for index, (name, value) in enumerate(sorted(axes.items())[:8]):
+            fraction = (
+                max(0.0, min(1.0, value))
+                if "trigger" in name
+                else max(0.0, min(1.0, (value + 1.0) * 0.5))
+            )
+            y = 20 + index * row_height
+            short_name = name.replace("button_", "b").replace("axis_", "a")
             canvas.create_text(
                 x0,
                 y,
                 anchor="w",
                 fill="#666",
                 font=("TkFixedFont", 8),
-                text=f"0x{code:02x}",
+                text=short_name[:12],
             )
-            canvas.create_rectangle(bar_x, y - 5, bar_x + bar_w, y + 5, outline="#aaa")
             canvas.create_rectangle(
-                bar_x, y - 5, bar_x + frac * bar_w, y + 5, fill="#5a9bd5", outline=""
+                bar_x,
+                y - 5,
+                bar_x + bar_width,
+                y + 5,
+                outline="#aaa",
+                width=self._px(1),
+            )
+            canvas.create_rectangle(
+                bar_x,
+                y - 5,
+                bar_x + fraction * bar_width,
+                y + 5,
+                fill="#5a9bd5",
+                outline="",
             )
             canvas.create_text(
-                bar_x + bar_w + 6,
+                bar_x + bar_width + 6,
                 y,
                 anchor="w",
                 fill="#666",
                 font=("TkFixedFont", 8),
-                text=str(value),
+                text=f"{value:+.2f}",
             )
 
     def _on_close(self) -> None:
-        self._ffb_stop()
-        self._stop_sessions()
-        self.root.destroy()
+        if self._closing:
+            return
+        self._closing = True
+        self._stop_ffb_test()
+        try:
+            self._bridge.stop()
+            self._event_window.close()
+        finally:
+            self.root.destroy()
 
 
 def main() -> None:
     configure_logging()
-    if not sys.platform.startswith("linux") or not Path("/dev/input").exists():
-        logger.error(
-            "interactive-drive-configuration requires Linux with evdev input "
-            "devices under /dev/input.",
-        )
-        raise SystemExit(1)
     if tk is None:
         logger.error(
-            "Tkinter is not available. Install your platform's Tk package "
-            "(e.g. 'sudo apt-get install python3-tk') and retry.",
+            "Tkinter is not available. Install your platform's Tk package and retry."
         )
         raise SystemExit(1)
+    _enable_high_dpi_awareness()
     root = tk.Tk()
-    ConfigApp(root)
+    try:
+        ConfigApp(root)
+    except RuntimeError as exc:
+        root.destroy()
+        logger.error(str(exc))
+        raise SystemExit(1) from exc
     root.mainloop()
 
 

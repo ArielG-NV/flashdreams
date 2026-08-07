@@ -60,6 +60,13 @@ opencv-python-headless Apache-2.0   https://github.com/opencv/opencv-python
 grpcio, grpcio-tools   Apache-2.0   https://github.com/grpc/grpc
 shapely                BSD-3-Clause https://github.com/shapely/shapely
 ludus-renderer         Apache-2.0   (NVIDIA, internal distribution)
+PySDL3                 MIT          https://github.com/Aermoss/PySDL3
+SDL                    Zlib         https://github.com/libsdl-org/SDL
+
+The optional ``interactive-drive`` extra uses PySDL3 for generic joystick and
+haptic access. On first use, PySDL3 downloads the matching SDL shared library
+into the user's FlashDreams cache; neither project is redistributed as source
+in this repository.
 
 Files in
     integrations/omnidreams/omnidreams/conditioning/world_scenario/
@@ -116,9 +123,25 @@ opencv-python-headless Apache-2.0   https://github.com/opencv/opencv-python
 Source-level redistributions
 ================================================================================
 
-The following third-party source is physically present in this repository
-(not just consumed at runtime). Each file retains its original copyright
-notice inline; license texts are reproduced under LICENSES/.
+The following third-party source or assets are physically present in this
+repository (not just consumed at runtime). Source files retain their original
+copyright notices inline where applicable; license texts are reproduced under
+LICENSES/ or attached directly beside binary assets.
+
+--------------------------------------------------------------------------------
+Google Material Design input-device icons
+--------------------------------------------------------------------------------
+
+Path:     integrations/omnidreams/omnidreams/interactive_drive/assets/
+          {controller,keyboard}/
+License:  Apache-2.0 (see each directory's LICENSE.apache-2.0.txt and
+          LICENSES/Apache-2.0.txt)
+Upstream: https://github.com/google/material-design-icons
+
+The gamepad and keyboard PNGs are redistributed unchanged from Google's
+Material Design Icons repository. Each asset directory includes exact source
+path and checksum provenance in SOURCE.md. FlashDreams only scales and recolors
+the monochrome icons at runtime.
 
 --------------------------------------------------------------------------------
 HPG-2011 NVIDIA CUDA Rasterizer port

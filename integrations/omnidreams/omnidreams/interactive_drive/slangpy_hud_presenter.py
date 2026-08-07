@@ -18,12 +18,15 @@ import math as _math
 import time
 from collections import OrderedDict
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import numpy as np
+from flashdreams.infra.acceleration.frame_prefetch import prefetch_to_numpy
 from loguru import logger
 from omnidreams.interactive_drive.config import RasterConfig
 from omnidreams.interactive_drive.cuda_env import DISABLE_CUDA_INTEROP_ENV
+from omnidreams.interactive_drive.input.input_guides import active_input_guide
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.presenter import (
     _CudaRGBInterop,
@@ -31,8 +34,6 @@ from omnidreams.interactive_drive.presenter import (
 )
 from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
 from PIL import Image, ImageDraw, ImageFont
-
-from flashdreams.infra.acceleration.frame_prefetch import prefetch_to_numpy
 
 # Colour palette mirrors :mod:`omnidreams.interactive_drive.demo` for a
 # consistent visual identity.
@@ -59,6 +60,10 @@ BEV_PANEL_TOP_GAP = 12
 BEV_PANEL_SIDE_MARGIN = 14
 BEV_PANEL_BOTTOM_MARGIN = 12
 BEV_PANEL_MIN_HEIGHT = 100
+INPUT_GUIDE_HEIGHT = 146
+INPUT_GUIDE_SEPARATOR_GAP = 12
+INPUT_GUIDE_ICON_SIZE = 64
+_INPUT_ASSETS_DIR = Path(__file__).with_name("assets")
 
 # Quantisation buckets for the steering-wheel rotation cache. ±450° / 3°
 # = 300 buckets in the worst case; cached PIL images are small (radius
@@ -176,6 +181,22 @@ def _measure_text(font: Any, text: str) -> tuple[int, int, int, int]:
     return (0, 0, int(width), int(height))
 
 
+def _load_input_icon(path: Path) -> Image.Image | None:
+    """Load and tint a bundled monochrome input-device icon."""
+    try:
+        with Image.open(path) as source:
+            icon = source.convert("RGBA").resize(
+                (INPUT_GUIDE_ICON_SIZE, INPUT_GUIDE_ICON_SIZE),
+                Image.Resampling.LANCZOS,
+            )
+    except (OSError, ValueError):
+        logger.warning(f"[presenter] input-guide asset unavailable: {path}")
+        return None
+    tinted = Image.new("RGBA", icon.size, NVIDIA_GREEN + (255,))
+    tinted.putalpha(icon.getchannel("A"))
+    return tinted
+
+
 def _truncate_text_to_width(
     font: Any, text: str, max_width: int, ellipsis: str = "\u2026"
 ) -> str:
@@ -200,7 +221,7 @@ def _truncate_text_to_width(
 class KeyboardStateDriveSink:
     """Duck-typed control sink that writes drive commands straight to ``KeyboardState``.
 
-    Consumed by :class:`~omnidreams.interactive_drive.demo.WheelBridge` and
+    Consumed by the SDL3 input bridges and
     :class:`~omnidreams.interactive_drive.demo.KeyboardDriveState`. ``set_key`` /
     ``pulse`` are unused no-ops kept only so the full control surface exists.
     """
@@ -347,12 +368,22 @@ class SlangPyHudPresenter:
         self._window.on_resize = self._on_resize
         self._window.on_keyboard_event = self._on_keyboard_event
         self._window.on_mouse_event = self._on_mouse_event
+        if self._wheel is not None:
+            self._wheel.attach(self._window, spy.GamepadButton)
 
         self._font_tiny = _resolve_font(14)
         self._font_small = _resolve_font(18)
         self._font_medium = _resolve_font(22)
         self._font_large = _resolve_font(44)
         self._font_speed = _resolve_font(76)
+        self._input_icons = {
+            "controller": _load_input_icon(
+                _INPUT_ASSETS_DIR / "controller" / "gamepad.png"
+            ),
+            "keyboard": _load_input_icon(
+                _INPUT_ASSETS_DIR / "keyboard" / "keyboard.png"
+            ),
+        }
 
         self._panel_chrome_cache_key: tuple[Any, ...] | None = None
         self._panel_chrome_cache: Image.Image | None = None
@@ -491,9 +522,11 @@ class SlangPyHudPresenter:
 
     def process_events(self) -> None:
         self._window.process_events()
-        # A wheel/controller's bound exit button posts its request onto the
-        # shared ``KeyboardState`` from the wheel reader thread; drain it here
-        # on the main thread and convert it into the presenter's own
+        if self._wheel is not None:
+            self._wheel.poll()
+        # A controller's bound exit button posts its request onto the shared
+        # ``KeyboardState`` from SDL3's event callback; drain it here on the
+        # main thread and convert it into the presenter's own
         # exit-to-selection signal (the ``x`` key takes the direct path in
         # ``_on_keyboard_event``).
         if self._keyboard.consume_exit_scene_request():
@@ -1476,6 +1509,7 @@ class SlangPyHudPresenter:
 
         controls_bottom_y = pedals_y + 220
         self._draw_bev(canvas, draw, panel_rect, controls_bottom_y)
+        self._draw_input_guide(canvas, draw, panel_rect, controls_bottom_y)
 
     def _get_panel_chrome(self, panel_size: tuple[int, int]) -> Image.Image:
         current_scene_option = self._current_scene_option()
@@ -1653,7 +1687,9 @@ class SlangPyHudPresenter:
         pedals_y = speed_y + 365
         controls_bottom_y = pedals_y + 220
         bev_top = controls_bottom_y + BEV_PANEL_TOP_GAP
-        bev_height = panel_h - bev_top - BEV_PANEL_BOTTOM_MARGIN
+        guide_top = panel_h - INPUT_GUIDE_HEIGHT
+        separator_y = guide_top - INPUT_GUIDE_SEPARATOR_GAP
+        bev_height = separator_y - BEV_PANEL_BOTTOM_MARGIN - bev_top
         if bev_height >= BEV_PANEL_MIN_HEIGHT:
             bev_left = BEV_PANEL_SIDE_MARGIN
             bev_right = panel_w - BEV_PANEL_SIDE_MARGIN
@@ -1668,6 +1704,15 @@ class SlangPyHudPresenter:
             d.rounded_rectangle(bev_rect, radius=10, fill=GMAPS_LAND_RGB + (255,))
             d.rounded_rectangle(
                 bev_rect, radius=10, outline=NVIDIA_GREEN + (255,), width=2
+            )
+            d.rectangle(
+                (
+                    BEV_PANEL_SIDE_MARGIN,
+                    separator_y,
+                    panel_w - BEV_PANEL_SIDE_MARGIN,
+                    separator_y + 2,
+                ),
+                fill=NVIDIA_GREEN + (255,),
             )
 
         self._panel_chrome_cache = chrome
@@ -1914,7 +1959,9 @@ class SlangPyHudPresenter:
         controls_bottom_y: int,
     ) -> None:
         bev_top = controls_bottom_y + BEV_PANEL_TOP_GAP
-        bev_height = panel_rect[3] - bev_top - BEV_PANEL_BOTTOM_MARGIN
+        guide_top = panel_rect[3] - INPUT_GUIDE_HEIGHT
+        separator_y = guide_top - INPUT_GUIDE_SEPARATOR_GAP
+        bev_height = separator_y - BEV_PANEL_BOTTOM_MARGIN - bev_top
         if bev_height < BEV_PANEL_MIN_HEIGHT:
             return
         bev_left = panel_rect[0] + BEV_PANEL_SIDE_MARGIN
@@ -1948,6 +1995,48 @@ class SlangPyHudPresenter:
         marker_cy = inner[1] + int(inner_h * self._bev_marker_y_rel())
         marker_size = max(10, min(inner_w, inner_h) // 14)
         self._draw_bev_marker(draw, marker_cx, marker_cy, marker_size)
+
+    def _draw_input_guide(
+        self,
+        canvas: Image.Image,
+        draw: ImageDraw.ImageDraw,
+        panel_rect: tuple[int, int, int, int],
+        controls_bottom_y: int,
+    ) -> None:
+        """Draw the active keyboard/controller mapping below the BEV map."""
+        left, _top, right, bottom = panel_rect
+        guide_top = bottom - INPUT_GUIDE_HEIGHT
+        separator_y = guide_top - INPUT_GUIDE_SEPARATOR_GAP
+        bev_top = controls_bottom_y + BEV_PANEL_TOP_GAP
+        if separator_y - BEV_PANEL_BOTTOM_MARGIN - bev_top < BEV_PANEL_MIN_HEIGHT:
+            return
+        kind, device_name, rows = active_input_guide(self._wheel)
+        title = _truncate_text_to_width(
+            self._font_small, device_name, right - left - 34
+        )
+        draw.text(
+            (left + 16, guide_top + 4),
+            title,
+            fill=TEXT_COLOR,
+            font=self._font_small,
+        )
+
+        icon = self._input_icons.get(kind)
+        if icon is not None:
+            canvas.alpha_composite(icon, (left + 18, guide_top + 42))
+
+        rows = rows[:6]
+        row_x = left + 104
+        column_w = max(1, (right - row_x - 12) // 2)
+        for index, (control, action) in enumerate(rows):
+            column = index // 3
+            row = index % 3
+            x = row_x + column * column_w
+            y = guide_top + 38 + row * 31
+            control = _truncate_text_to_width(self._font_tiny, control, column_w - 10)
+            action = _truncate_text_to_width(self._font_tiny, action, column_w - 10)
+            draw.text((x, y), control, fill=NVIDIA_GREEN, font=self._font_tiny)
+            draw.text((x, y + 15), action, fill=LABEL_COLOR, font=self._font_tiny)
 
     def _get_bev_panel_image(self, target_size: tuple[int, int]) -> Image.Image | None:
         if self._latest_bev_source is None:
@@ -2637,13 +2726,16 @@ class SlangPyHudPresenter:
         self._pending_drive_releases.clear()
 
     def set_wheel(self, wheel: Any | None) -> None:
-        """Attach (or detach) a :class:`WheelBridge` after construction.
+        """Attach (or detach) SDL3 controller/wheel input after construction.
 
-        The demo builds the wheel after the engine (so its sink targets the
-        app's keyboard) and attaches it here, before the selection wait, so the
-        steering / pedal chrome reacts to the device while picking a scene.
+        SDL3 owns detection, hot-plugging, and mapping. Generic joystick
+        profiles are polled from this presenter's normal event loop.
         """
+        if self._wheel is not None and self._wheel is not wheel:
+            self._wheel.stop()
         self._wheel = wheel
+        if wheel is not None:
+            wheel.attach(self._window, self._spy.GamepadButton)
 
     def bind_keyboard(self, keyboard: KeyboardState) -> None:
         """Rebind to the engine's long-lived ``KeyboardState``.

@@ -16,9 +16,14 @@ from omnidreams.interactive_drive.presenter import (
     _CudaRGBInterop,
     _NonBlockingCudaStream,
 )
-from omnidreams.interactive_drive.slangpy_hud_presenter import SlangPyHudPresenter
+from omnidreams.interactive_drive.slangpy_hud_presenter import (
+    _INPUT_ASSETS_DIR,
+    SlangPyHudPresenter,
+    _load_input_icon,
+    _resolve_font,
+)
 from omnidreams.interactive_drive.types import PresentedFrame
-from PIL import Image
+from PIL import Image, ImageDraw
 
 
 class _LazyFrame:
@@ -40,6 +45,31 @@ def _presenter_without_window() -> SlangPyPresenter:
 
 def _hud_presenter_without_window() -> SlangPyHudPresenter:
     return SlangPyHudPresenter.__new__(SlangPyHudPresenter)
+
+
+def test_hud_draws_keyboard_guide_below_bev() -> None:
+    presenter = _hud_presenter_without_window()
+    presenter._wheel = None
+    presenter._font_tiny = _resolve_font(14)
+    presenter._font_small = _resolve_font(18)
+    presenter._input_icons = {
+        "controller": _load_input_icon(
+            _INPUT_ASSETS_DIR / "controller" / "gamepad.png"
+        ),
+        "keyboard": _load_input_icon(_INPUT_ASSETS_DIR / "keyboard" / "keyboard.png"),
+    }
+    canvas = Image.new("RGBA", (500, 1080), (25, 25, 35, 255))
+
+    presenter._draw_input_guide(
+        canvas,
+        ImageDraw.Draw(canvas),
+        (0, 0, 500, 1080),
+        controls_bottom_y=709,
+    )
+
+    guide_pixels = np.asarray(canvas.crop((0, 934, 500, 1080)))
+    green_pixels = int(np.all(guide_pixels[:, :, :3] == (118, 185, 0), axis=2).sum())
+    assert green_pixels > 100
 
 
 def test_cuda_existing_device_handles_uses_current_context_by_default(

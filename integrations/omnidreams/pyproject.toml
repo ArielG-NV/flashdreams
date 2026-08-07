@@ -22,7 +22,9 @@ name = "flashdreams-omnidreams"
 version = "0.1.0"
 description = "Omnidreams inference with flashdreams (webrtc / gRPC servers + the interactive-drive desktop demo)"
 readme = "README.md"
-requires-python = ">=3.10,<3.14"
+# PyNvVideoCodec 2.1 publishes wheels through CPython 3.12 only. Keep uv from
+# selecting 3.13 for this package and failing after it has created the venv.
+requires-python = ">=3.10,<3.13"
 dependencies = [
     # Core inference / serving deps (consumed by ``omnidreams.webrtc``,
     # ``omnidreams.grpc``, and the ``omnidreams.interactive_drive`` desktop
@@ -76,6 +78,8 @@ ludus-renderer = { workspace = true }
 # the abstract capability so the install command is self-documenting.
 interactive-drive = [
     "slangpy==0.42.0",
+    # Full SDL3 joystick/haptic API for generic wheels and separate pedals.
+    "PySDL3==0.9.11b1",
 ]
 # Optional NVIDIA VFX runtime for selecting RTX postprocess presets such as
 # ``--postprocess-preset rtx-super-resolution`` in the WebRTC or local demo.
@@ -109,9 +113,8 @@ omnidreams-eval = "omnidreams.eval.cli:main"
 # presenter import fails fast with a clear message.
 interactive-drive = "omnidreams.interactive_drive.demo:main"
 
-# Tkinter wizard that calibrates a connected steering wheel or game
-# controller and writes a local input profile the demo auto-discovers.
-# Stdlib-only (Tkinter); does not need the ``interactive-drive`` extra.
+# Tkinter UI for SDL3 gamepads, generic wheels, and separate pedal devices.
+# Install the ``interactive-drive`` extra first.
 interactive-drive-configuration = "omnidreams.interactive_drive.input_config.app:main"
 
 # Each entry registers one ``runner_name`` slug with ``flashdreams-run``.
@@ -139,6 +142,12 @@ exclude = ["tests"]
     "configs/wheels/*.yaml",
     "assets/README.md",
     "assets/wheel_and_pedals/*.png",
+    "assets/controller/*.png",
+    "assets/controller/*.md",
+    "assets/controller/*.txt",
+    "assets/keyboard/*.png",
+    "assets/keyboard/*.md",
+    "assets/keyboard/*.txt",
     "README.md",
     "hdmap.png",
     "screenshot.jpg",

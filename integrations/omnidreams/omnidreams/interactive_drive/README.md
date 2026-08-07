@@ -233,7 +233,7 @@ flags:
 
 | Mode | When to use | How |
 |---|---|---|
-| **HUD (default)** | You have a graphical desktop session and want the full demo: scene/variant selector, steering wheel + pedals overlay, BEV minimap, keyboard *and* wheel input. | `interactive-drive ...` |
+| **HUD (default)** | You have a graphical desktop session and want the full demo: scene/variant selector, steering + pedals overlay, BEV minimap, keyboard and SDL3 controller input. | `interactive-drive ...` |
 | **Bare backend, local window** | You want the lightweight setup: a single Vulkan window showing the world-model output, no HUD chrome. | `interactive-drive --no-hud ...` |
 | **Bare backend, browser** | The demo machine has no graphics-capable GPU (e.g. compute-only GB300) or you want to view from a laptop browser while the model runs elsewhere. Implies `--no-hud`. | `interactive-drive --stream-mjpeg [HOST:]PORT ...` |
 
@@ -242,11 +242,9 @@ latency than an in-process MJPEG stream, prefer the separate
 `omnidreams.webrtc.server` entry point (see
 [`integrations/omnidreams/README.md`](../../README.md)).
 
-The HUD itself uses pygame/SDL2 for rendering, which keeps the demo responsive
-in fullscreen at high display resolutions (press `F11` to toggle). It supervises
-the headless backend as a subprocess on `127.0.0.1:<--port>` so the world model
-keeps running across scene / variant switches without restarting the entire
-process.
+The HUD renders into one SlangPy Vulkan window. Its event loop handles keyboard,
+mouse, SDL3 controllers, and polled SDL3 wheel/pedal state. The presenter and backend stay alive
+across scene/variant switches so the warmed world model is not rebuilt.
 
 ### HUD mode (default)
 
@@ -270,96 +268,69 @@ force-unsets the env var.
 
 The HUD also subscribes to the backend's `/bev_stream` and shows a top-down
 BEV minimap below the steering and pedal controls; pass `--no-bev` to skip
-the extra rasterizer dispatch when you don't need it.
+the extra rasterizer dispatch when you don't need it. Beneath the BEV, a green
+divider introduces an input guide for the active device. It shows the bundled
+keyboard mapping until an SDL3 input profile is active, then switches to the
+active controller or wheel/pedal mapping.
 
-**Steering wheel support.** Drop a profile YAML (devices, axis map, FFB
-settings) into `configs/wheels/` and the HUD will pick it up at startup. With
-`--wheel-profile auto` (the default), the HUD scans `/dev/input/by-id` first,
-then `/dev/input/event*`, and matches detected device names against each
-profile's devices. To name a specific profile use `--wheel-profile <name>`
-(matching the YAML filename); to bind a known device path directly use
-`--wheel-device /dev/input/eventX` (this names the wheel/steering device);
-to disable wheel input entirely use `--no-wheel`. No profiles ship with the
-repo — keyboard-only driving works fine without one.
+**SDL3 controller support.** The local HUD uses the gamepad callbacks on its
+existing SlangPy window. SlangPy is built on SDL3, so controller discovery,
+hot-plugging, Bluetooth/USB transport differences, and vendor mappings are all
+handled by one cross-platform backend on Linux x86-64/ARM64 and Windows
+x86-64. Xbox 360 controllers use SDL3's XInput mapping, with LT and RT kept as
+independent analog `left_trigger` / `right_trigger` values.
 
-**Multi-device profiles.** A profile binds one or more devices, so steering,
-throttle, brake, and buttons can each live on a different device — a wheel
-base plus a separate-brand or separately-connected pedal set, for example.
-Each device is listed under `devices` with its own `detection_patterns`, and
-every axis/button is a `{device, code}` binding naming the device by index:
+Generic racing wheels, combined wheel/pedal units, and separate USB pedal sets
+use SDL3's raw Joystick API through PySDL3. A single saved profile can bind axes
+and buttons from multiple devices, and SDL3 GUID/VID/PID/name matching reconnects
+them without evdev paths, WinMM slots, HID reports, or input threads. This path
+supports Linux x86-64/ARM64 and Windows x86-64. PySDL3 downloads the matching
+native SDL3 library to `$FLASHDREAMS_CACHE_DIR/interactive-drive/sdl3/` the first
+time generic joystick input is opened, so that first launch needs network access.
 
-```yaml
-devices:
-  - {display_name: Base, detection_patterns: ["Fanatec CSL DD"]}
-  - {display_name: Pedals, detection_patterns: ["Heusinkveld"]}
-axis_map:
-  steering: {device: 0, code: 0}   # wheel base
-  throttle: {device: 1, code: 0}   # separate pedals
-  brake:    {device: 1, code: 1}
-```
+The portable mapping works without configuration:
 
-At launch each device is matched independently by name; the steering device
-is required, while a device used only by other controls degrades gracefully
-(a warning, those controls inactive) if unplugged. Older single-device
-profiles (top-level `detection_patterns` + bare integer codes) still load.
-Device 0 (the steering device) is the one that produces force feedback.
+- left stick X — steering
+- right trigger / Switch Pro ZR — throttle
+- left trigger / Switch Pro ZL — brake
+- B / east button — toggle reverse
+- Y / north button — reset
+- Back / Switch Pro − — exit scene
 
-**Force feedback (multi-vendor).** A profile's `ffb.mode` selects how the
-centering force is rendered, and defaults to `auto`, which inspects the
-device's advertised Linux FF effects and picks the right backend:
+SDL3 exposes positional controls, so Nintendo's printed button labels may differ
+from the Xbox-style semantic names shown in a mapping file. When a Switch Pro is
+presented as a virtual XInput controller, SDL cannot recover the hidden physical
+device identity. Enable **Nintendo labels through XInput** in the configurator
+to swap A/B and X/Y consistently for live feedback, capture, and runtime actions.
 
-- `autocenter` — a driver-managed spring written via `FF_AUTOCENTER`.
-  Used by Thrustmaster and Logitech wheels.
-- `constant_force` — a self-rendered spring uploaded via the `FF_CONSTANT`
-  effect, where the app computes the force each tick. This is the universal
-  path and is required for Fanatec wheels, whose `hid-fanatecff` driver does
-  not expose `FF_AUTOCENTER`.
-
-With `mode: auto` (or the wizard's "Auto"), a Fanatec base automatically
-falls back to constant force while Thrustmaster/Logitech keep their managed
-autocenter. Set `mode: constant_force` explicitly if a Logitech's in-kernel
-autocenter feels too weak. Driver prerequisites: most modern Thrustmaster
-wheels (T300RS, T248, TX, T-GT II, TS-PC, TS-XW, …) need the out-of-tree
-[`hid-tmff2`](https://github.com/Kimplul/hid-tmff2) module plus a wheel-mode
-init (`hid-tminit`, or `tmdrv` for TX/TS-XW); Fanatec needs the
-[`hid-fanatecff`](https://github.com/gotzl/hid-fanatecff) module with the
-base in PC mode (red LED); Logitech G29/G27/G923-PS use the in-kernel
-`hid-lg4ff` or [`new-lg4ff`](https://github.com/berarma/new-lg4ff), while the
-G920 and Xbox/PC G923 use the HID++ driver (kernel >= 6.3). FFB writes need
-access to `/dev/input/*` (add your user to the `input` group).
-
-**Generate an input profile (wheel or game controller).** Instead of
-hand-writing that YAML, run the calibration wizard:
+To remap controls, install the desktop extra and launch:
 
 ```bash
+uv sync --package flashdreams-omnidreams --extra interactive-drive
 uv run --package flashdreams-omnidreams interactive-drive-configuration
 ```
 
-It shows a live panel -- a steering-wheel and pedal visualization plus a
-per-axis activity strip -- so you can confirm the right device and watch each
-control move. Ctrl+click to select more than one device when your controls
-are split across devices (e.g. a wheel base plus a separate pedal set); the
-wizard listens to all selected devices at once and binds each control to
-whichever device it actually moved on. It then listens while you move each
-control to capture the correct axes and directions (self-centering sticks and
-force-feedback wheels work because it peak-holds each axis' range rather than
-snapshotting after you let go), lets you bind reverse / reset / exit-scene
-buttons and test force feedback, then writes the profile to
-`$FLASHDREAMS_CACHE_DIR/interactive-drive/wheels/` (by default under
-`~/.cache/flashdreams/`). The next `interactive-drive` launch discovers it
-automatically through the same `--wheel-profile auto` detection. The wizard
-supports both steering wheels (with pedals) and game controllers (analog
-stick plus triggers); the generated file stays on your machine and is never
-committed. It needs a graphical session and read access to `/dev/input/*`
-(add your user to the `input` group if no devices are found).
+Choose **Game controller** for Switch Pro, Xbox/XInput, and PlayStation-style
+devices, or **Wheel / pedals** for arbitrary SDL3 joystick axes. The UI reports
+connection/hot-plug state, shows input live, and has a **Listen** action for each
+driving command. Pedal capture records the released position and travel direction,
+including inverted pedals and pedals on a separate USB device. Its canvas is
+retained: SDL3 state changes move or recolor existing items instead of rebuilding
+the scene on a timer. Optional SDL3 wheel-centering mode and strength are saved
+with the profile. The default `auto` mode prefers hardware autocenter and falls
+back to a constant-force centering effect for wheels such as Fanatec; it degrades
+cleanly if the device has no compatible haptic support.
+**Save as default** writes YAML to
+`$FLASHDREAMS_CACHE_DIR/interactive-drive/wheels/`; existing raw-code profiles
+are migrated to SDL3 joystick indices and should then be reviewed in the mapper.
 
-The opening screen also lists your saved profiles so you can edit their
-settings (display name, steering range and deadzone, inversion, force
-feedback mode and gain, detection patterns), choose which one is the
-default, or delete them. Steering range and deadzone are most useful for game controllers,
-whose sticks are sensitive and tend to drift -- lower the range to make
-steering less twitchy and raise the deadzone to ignore a drifting stick at
-rest.
+Use `--controller-profile <name>` to select a saved mapping, or
+`--controller-profile auto` (the default) to choose the saved default and then
+fall back to the portable mapping. `--no-controller` disables local SDL3
+controller input. The former `--wheel-profile`, `--wheel-profiles-dir`, and
+`--no-wheel` spellings remain accepted as command-line aliases. Platform-specific
+raw device and axis-code command-line options remain removed; the configurator
+now owns portable raw SDL3 wheel and pedal mapping.
 
 ### `--no-hud`: bare backend, local Vulkan window
 

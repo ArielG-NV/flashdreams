@@ -2,7 +2,16 @@
 
 This directory holds the unpacked-scene-bundle loader
 (`scene_bundle.py`) plus the bundled HUD control sprites under
-`wheel_and_pedals/`.
+`wheel_and_pedals/`. It is the shared packaged-asset location used by
+interactive-drive presenters.
+
+## Input-device guides
+
+`controller/gamepad.png` and `keyboard/keyboard.png` are the generic device
+illustrations shown in the native HUD's active input mapping. They come from
+Google's Apache-2.0-licensed Material Design Icons repository. Each directory
+contains the upstream license and a `SOURCE.md` with the exact original path
+and local SHA-256 checksum.
 
 ## `wheel_and_pedals/`
 
