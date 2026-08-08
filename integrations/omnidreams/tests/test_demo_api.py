@@ -5,10 +5,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, cast
+from types import SimpleNamespace
+from typing import Any
 
+import omnidreams.demo as demo_package
 import omnidreams.demo.spec as spec_module
-import omnidreams.demo.webrtc as demo_webrtc_module
 import pytest
 import torch
 from aiohttp import web
@@ -20,29 +21,32 @@ from omnidreams.demo import (
     OmnidreamsReplayScenario,
     OmnidreamsWebRTCScenario,
 )
-from omnidreams.demo.cli import _replay_spec, _webrtc_spec, parse_args
+from omnidreams.demo.app import _replay_spec, _webrtc_spec, parse_args
 from omnidreams.demo.replay import (
     OmnidreamsReplayRuntime,
     OmnidreamsReplayRuntimeOptions,
 )
-from omnidreams.demo.webrtc import OmnidreamsDemoWebRTCSessionManager
+from omnidreams.demo.webrtc import (
+    OmnidreamsWebRTCModelRuntime,
+    OmnidreamsWebRTCModelRuntimeConfig,
+    serve_omnidreams_webrtc_demo,
+)
 
-from flashdreams.infra.video_output import VideoStepResult
 from flashdreams.runtime import (
     InferenceConfig,
     InferenceInput,
     OutputArtifact,
     OutputTarget,
+    StepRequest,
     StepResult,
 )
 from flashdreams.runtime.demo import (
     DemoSpec,
     Mp4OutputSpec,
     WebRTCOutputSpec,
-    serve_flashdreams_demo,
 )
 from flashdreams.runtime.demo.replay import run_replay_demo
-from flashdreams.runtime.demo.webrtc import WebRTCDemo, build_webrtc_demo
+from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 from flashdreams.serving.webrtc.server import SESSION_MANAGER_KEY
 
 pytestmark = pytest.mark.ci_cpu
@@ -55,12 +59,19 @@ def test_omnidreams_demo_defaults_to_stable_non_perf_preset() -> None:
     assert not args.preset_id.endswith("-perf")
 
 
-def test_omnidreams_demo_adapter_declares_mp4_and_webrtc_modes() -> None:
+def test_omnidreams_demo_adapter_declares_replay_modes_only() -> None:
     adapter = OmnidreamsDemoAdapter()
 
     assert adapter.model_id == OMNIDREAMS_MODEL_ID
-    assert adapter.supported_input_modes() == ("replay", "keyboard-driving")
-    assert adapter.supported_output_modes() == ("mp4", "webrtc")
+    assert adapter.supported_input_modes() == ("replay",)
+    assert adapter.supported_output_modes() == ("mp4",)
+
+
+def test_omnidreams_demo_does_not_import_legacy_webrtc_package() -> None:
+    demo_dir = Path(demo_package.__file__).parent
+
+    for path in demo_dir.glob("*.py"):
+        assert "omnidreams.webrtc" not in path.read_text(encoding="utf-8"), path
 
 
 def test_omnidreams_replay_demo_uses_shared_runner(tmp_path: Path) -> None:
@@ -251,9 +262,9 @@ def test_omnidreams_replay_runtime_generates_video_step_result(
 
     assert result.step_index == 0
     assert result.frame_count == 1
-    assert isinstance(result.output, VideoStepResult)
-    assert result.output.layout == "bvtchw"
-    assert result.output.video_chunk.shape == (1, 1, 1, 3, 2, 2)
+    assert isinstance(result, StepResult)
+    assert result.layout == "bvtchw"
+    assert result.video_chunk.shape == (1, 1, 1, 3, 2, 2)
     assert result.metrics["denoise_s"] == 0.25
     assert session.next_step_request() is None
     assert pipeline.initialize_cache_calls == [
@@ -331,7 +342,6 @@ def test_omnidreams_webrtc_cli_builds_keyboard_driving_spec(tmp_path: Path) -> N
 
 def test_omnidreams_webrtc_demo_uses_shared_manager_with_model_config() -> None:
     pipeline_config = object()
-    adapter = OmnidreamsDemoAdapter(webrtc_runtime_factory=_FakeWebRTCRuntime)
     spec = DemoSpec(
         model_id=OMNIDREAMS_MODEL_ID,
         preset_id=DEFAULT_OMNIDREAMS_PRESET,
@@ -360,47 +370,55 @@ def test_omnidreams_webrtc_demo_uses_shared_manager_with_model_config() -> None:
         ),
     )
 
-    demo = build_webrtc_demo(spec=spec, adapter=adapter)
+    calls: list[dict[str, Any]] = []
+    serve_omnidreams_webrtc_demo(
+        spec=spec,
+        world_rank=1,
+        runtime_factory=_FakeWebRTCRuntime,
+        server_runner=lambda **kwargs: calls.append(kwargs),
+    )
 
-    assert isinstance(demo.runtime, _FakeWebRTCRuntime)
-    assert isinstance(demo.session_manager, OmnidreamsDemoWebRTCSessionManager)
-    assert demo.session_manager._runtime is demo.runtime
-    assert demo.session_manager.runtime_config is demo.runtime.config
-    assert demo.runtime_config is demo.runtime.config
-    assert demo.runtime_config.pipeline_config is pipeline_config
-    assert demo.runtime_config.pipeline_config_name == DEFAULT_OMNIDREAMS_PRESET
-    assert demo.runtime_config.scene_uuid == "scene-1"
-    assert demo.runtime_config.scene_variant == "rain"
-    assert demo.runtime_config.seed == 123
-    assert demo.runtime_config.device == "cuda:7"
-    assert demo.runtime_config.video_width == 64
-    assert demo.runtime_config.video_height == 32
-    assert demo.runtime_config.fps == 24
-    assert demo.runtime_config.debug_serve_hdmaps is True
-    assert demo.runtime_config.encoder_backend == "default"
-    assert demo.session_manager._model_name() == DEFAULT_OMNIDREAMS_PRESET
-    assert demo.host == "0.0.0.0"
-    assert demo.port == 8082
+    manager = calls[0]["session_manager"]
+    runtime = manager._runtime
+    assert isinstance(runtime, _FakeWebRTCRuntime)
+    assert type(manager) is BaseWebRTCSessionManager
+    assert manager.runtime_config is runtime.config
+    assert runtime.config.pipeline_config is pipeline_config
+    assert runtime.config.pipeline_config_name == DEFAULT_OMNIDREAMS_PRESET
+    assert runtime.config.scene_uuid == "scene-1"
+    assert runtime.config.scene_variant == "rain"
+    assert runtime.config.seed == 123
+    assert runtime.config.device == "cuda:7"
+    assert runtime.config.video_width == 64
+    assert runtime.config.video_height == 32
+    assert runtime.config.fps == 24
+    assert runtime.config.debug_serve_hdmaps is True
+    assert runtime.config.encoder_backend == "default"
+    assert manager.identity == DEFAULT_OMNIDREAMS_PRESET
+    assert calls[0]["host"] == "0.0.0.0"
+    assert calls[0]["port"] == 8082
 
 
-def test_omnidreams_webrtc_demo_installs_model_routes(
+def test_omnidreams_webrtc_demo_installs_model_assets_without_routes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import flashdreams.runtime.demo.webrtc as shared_webrtc_module
+
     app_calls: list[dict[str, Any]] = []
 
     def fake_create_packaged_webrtc_app(**kwargs: Any) -> web.Application:
         app_calls.append(kwargs)
         app = web.Application()
         app[SESSION_MANAGER_KEY] = kwargs["session_manager"]
-        kwargs["configure_app"](app)
+        if configure_app := kwargs["configure_app"]:
+            configure_app(app)
         return app
 
     monkeypatch.setattr(
-        demo_webrtc_module,
+        shared_webrtc_module,
         "create_packaged_webrtc_app",
         fake_create_packaged_webrtc_app,
     )
-    adapter = OmnidreamsDemoAdapter(webrtc_runtime_factory=_FakeWebRTCRuntime)
     spec = DemoSpec(
         model_id=OMNIDREAMS_MODEL_ID,
         preset_id=DEFAULT_OMNIDREAMS_PRESET,
@@ -419,40 +437,44 @@ def test_omnidreams_webrtc_demo_installs_model_routes(
         ),
     )
 
-    demo = build_webrtc_demo(spec=spec, adapter=adapter, create_app=True)
+    app = serve_omnidreams_webrtc_demo(
+        spec=spec,
+        runtime_factory=_FakeWebRTCRuntime,
+        server_runner=lambda **kwargs: None,
+    )
 
-    assert demo.app is not None
-    assert app_calls[0]["session_manager"] is demo.session_manager
+    assert isinstance(app, web.Application)
+    assert app_calls[0]["session_manager"] is app[SESSION_MANAGER_KEY]
     assert app_calls[0]["request_session_url"] == (
         "http://127.0.0.1:8082/request_session"
     )
     assert app_calls[0]["preload_name"] == "Test Omnidreams"
-    assert str(app_calls[0]["model_web_resource"]).endswith("omnidreams/webrtc/web")
-    route_paths = {resource.canonical for resource in demo.app.router.resources()}
-    assert "/api/postprocess/options" in route_paths
-    assert "/api/session/input" in route_paths
+    assert str(app_calls[0]["model_web_resource"]).endswith("omnidreams/demo/web")
+    assert app_calls[0]["configure_app"] is None
 
 
 def test_omnidreams_webrtc_demo_serves_through_shared_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import flashdreams.runtime.demo.webrtc as shared_webrtc_module
+
     server_calls: list[dict[str, Any]] = []
 
     def fake_create_packaged_webrtc_app(**kwargs: Any) -> web.Application:
         app = web.Application()
         app[SESSION_MANAGER_KEY] = kwargs["session_manager"]
-        kwargs["configure_app"](app)
+        if configure_app := kwargs["configure_app"]:
+            configure_app(app)
         return app
 
     def fake_server_runner(**kwargs: Any) -> None:
         server_calls.append(kwargs)
 
     monkeypatch.setattr(
-        demo_webrtc_module,
+        shared_webrtc_module,
         "create_packaged_webrtc_app",
         fake_create_packaged_webrtc_app,
     )
-    adapter = OmnidreamsDemoAdapter(webrtc_runtime_factory=_FakeWebRTCRuntime)
     spec = DemoSpec(
         model_id=OMNIDREAMS_MODEL_ID,
         preset_id=DEFAULT_OMNIDREAMS_PRESET,
@@ -470,23 +492,59 @@ def test_omnidreams_webrtc_demo_serves_through_shared_runner(
         ),
     )
 
-    demo = cast(
-        WebRTCDemo,
-        serve_flashdreams_demo(
-            spec=spec,
-            adapter=adapter,
-            world_rank=0,
-            server_runner=fake_server_runner,
-        ),
+    app = serve_omnidreams_webrtc_demo(
+        spec=spec,
+        world_rank=0,
+        runtime_factory=_FakeWebRTCRuntime,
+        server_runner=fake_server_runner,
     )
 
     assert len(server_calls) == 1
     assert server_calls[0]["world_rank"] == 0
-    assert server_calls[0]["session_manager"] is demo.session_manager
-    assert server_calls[0]["app"] is demo.app
+    assert server_calls[0]["app"] is app
     assert server_calls[0]["host"] == "0.0.0.0"
     assert server_calls[0]["port"] == 8082
-    assert isinstance(demo.session_manager, OmnidreamsDemoWebRTCSessionManager)
+    assert type(server_calls[0]["session_manager"]) is BaseWebRTCSessionManager
+
+
+@pytest.mark.asyncio
+async def test_omnidreams_demo_runtime_generates_directly_from_controls() -> None:
+    config = OmnidreamsWebRTCModelRuntimeConfig(
+        pipeline_config_name="fake",
+        pipeline_config=object(),
+        device="cpu",
+        fps=30,
+        warmup_chunks=0,
+    )
+    runtime = OmnidreamsWebRTCModelRuntime(config=config)
+    wrapper = _FakeConditioningWrapper()
+    runtime._wrapper = wrapper  # ty:ignore[invalid-assignment]
+    runtime._renderer = _FakeRenderer()
+    runtime._scene_data = SimpleNamespace(ego_poses=[SimpleNamespace(timestamp=1_000)])
+    runtime._initial_rgb_frames = torch.zeros((1, 1, 3, 4, 5), dtype=torch.uint8)
+    runtime._text_prompts = []
+    runtime._camera_to_rig = torch.eye(4)
+    runtime._initial_ego_pose = torch.eye(4).numpy()
+    runtime.pose_integrator.reset()
+    runtime._next_timestamp_us = 1_000
+
+    first = runtime._generate_one_chunk_sync(
+        segments=[(0.0, 2 / 30, frozenset({"w"}))],
+        frame_times=[1 / 30, 2 / 30],
+    )
+    second = runtime._generate_one_chunk_sync(
+        segments=[(2 / 30, 5 / 30, frozenset({"d"}))],
+        frame_times=[3 / 30, 4 / 30, 5 / 30],
+    )
+
+    assert (first.step_index, first.frame_count) == (0, 2)
+    assert (second.step_index, second.frame_count) == (1, 3)
+    assert wrapper.calls == [
+        ("start", (2, 4, 4), [1_000, 34_333]),
+        ("continue", (3, 4, 4), [67_666, 100_999, 134_332]),
+    ]
+    assert wrapper.finalized == [0, 1]
+    await runtime.close()
 
 
 class _RecordingOutputTarget:
@@ -543,6 +601,63 @@ class _FakeOmnidreamsPipeline:
         return {"denoise_s": 0.25}
 
 
+class _FakeRenderer:
+    def __init__(self) -> None:
+        self.closed = False
+
+    def cleanup(self) -> None:
+        self.closed = True
+
+
+class _FakeConditioningWrapper:
+    initial_frame_chunk_size = 2
+    frame_chunk_size = 3
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, tuple[int, ...], list[int]]] = []
+        self.finalized: list[int] = []
+        self.cleaned = False
+
+    def start_generation(self, **kwargs: Any) -> SimpleNamespace:
+        return self._output("start", kwargs=kwargs, frame_count=2, step_index=0)
+
+    def continue_generation(self, **kwargs: Any) -> SimpleNamespace:
+        return self._output("continue", kwargs=kwargs, frame_count=3, step_index=1)
+
+    def _output(
+        self,
+        operation: str,
+        *,
+        kwargs: dict[str, Any],
+        frame_count: int,
+        step_index: int,
+    ) -> SimpleNamespace:
+        poses = kwargs["camera_poses_per_view"]["camera_front_wide_120fov"]
+        timestamps = kwargs["frame_timestamps_us"]
+        self.calls.append((operation, tuple(poses.shape), timestamps))
+        state = kwargs.get("state") or SimpleNamespace(pipeline_cache=object())
+        return SimpleNamespace(
+            state=state,
+            condition_frames=torch.zeros(
+                (1, 1, frame_count, 3, 4, 5), dtype=torch.uint8
+            ),
+            rgb_frames=torch.zeros((1, 1, frame_count, 3, 4, 5), dtype=torch.uint8),
+            finalization_state={"autoregressive_index": step_index},
+        )
+
+    def finalize_block_generation(
+        self,
+        pipeline_cache: object,
+        finalization_state: dict[str, int],
+    ) -> None:
+        del pipeline_cache
+        self.finalized.append(finalization_state["autoregressive_index"])
+
+    def cleanup(self, state: object) -> None:
+        del state
+        self.cleaned = True
+
+
 class _FakeWebRTCRuntime:
     def __init__(self, config: Any) -> None:
         self.config = config
@@ -553,19 +668,23 @@ class _FakeWebRTCRuntime:
     async def reset_for_new_session(self, *args: Any, **kwargs: Any) -> None:
         return None
 
-    def peek_steady_chunk_num_frames(self) -> int:
+    def peek_input_fps(self) -> float:
+        return 30.0
+
+    def peek_steady_output_num_frames(self) -> int:
         return 1
 
-    def peek_next_chunk_num_frames(self) -> int:
-        return 1
+    def next_step_request(self) -> StepRequest:
+        return StepRequest(step_index=0, metadata={"input_frame_count": 1})
 
-    async def generate_chunk(
+    async def step(
         self,
         *,
+        request: StepRequest,
         segments: list[Any],
         frame_times: list[float],
     ) -> Any:
-        del segments, frame_times
+        del request, segments, frame_times
         return None
 
     async def close(self) -> None:

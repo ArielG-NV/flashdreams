@@ -5,12 +5,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 import torch
 
-from flashdreams.infra.video_output import VideoStepResult
 from flashdreams.runtime import (
     CanonicalInputs,
     CanonicalInputSchema,
@@ -39,11 +39,14 @@ from flashdreams.runtime.demo import (
     Mp4OutputSpec,
     NullOutputSpec,
     PreparedScenario,
+    WebRTCAppResources,
     WebRTCOutputSpec,
     build_output_target,
     run_replay_demo,
 )
-from flashdreams.runtime.demo.webrtc import build_webrtc_demo
+from flashdreams.runtime.demo.webrtc import (
+    serve_webrtc_demo,
+)
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 
 pytestmark = pytest.mark.ci_cpu
@@ -170,11 +173,11 @@ def test_replay_demo_fails_before_runtime_creation_when_scenario_invalid() -> No
 def test_demo_adapter_declares_supported_modes() -> None:
     adapter = _FakeDemoAdapter(
         input_modes=("replay",),
-        output_modes=("null", "mp4", "webrtc"),
+        output_modes=("null", "mp4"),
     )
 
     assert adapter.supported_input_modes() == ("replay",)
-    assert adapter.supported_output_modes() == ("null", "mp4", "webrtc")
+    assert adapter.supported_output_modes() == ("null", "mp4")
 
     with pytest.raises(ValueError, match="input_mode='keyboard-driving'"):
         run_replay_demo(
@@ -191,8 +194,7 @@ def test_demo_adapter_declares_supported_modes() -> None:
     assert not adapter.create_runtime_called
 
 
-def test_webrtc_demo_uses_existing_session_manager_with_adapter_runtime() -> None:
-    adapter = _FakeDemoAdapter()
+def test_webrtc_demo_serves_a_prepared_session_manager() -> None:
     spec = DemoSpec(
         model_id="fake-demo",
         scenario="valid-scenario",
@@ -208,20 +210,46 @@ def test_webrtc_demo_uses_existing_session_manager_with_adapter_runtime() -> Non
         ),
     )
 
-    demo = build_webrtc_demo(spec=spec, adapter=adapter)
+    assert isinstance(spec.output, WebRTCOutputSpec)
+    runtime = _FakeWebRTCRuntime(
+        SimpleNamespace(
+            video_width=16,
+            video_height=8,
+            warmup_chunks=0,
+            warmup_timeout_s=1.0,
+        )
+    )
+    manager = BaseWebRTCSessionManager(
+        runtime=runtime,
+        runtime_config=runtime.config,
+        fps=24,
+        identity="fake-demo",
+        client_liveness_timeout_s=spec.output.client_liveness_timeout_s,
+    )
+    calls: list[dict[str, Any]] = []
 
-    assert isinstance(demo.session_manager, BaseWebRTCSessionManager)
-    assert demo.runtime is adapter.webrtc_runtime
-    assert demo.session_manager._runtime is adapter.webrtc_runtime
-    assert demo.session_manager.runtime_config.video_width == 16
-    assert demo.session_manager.runtime_config.video_height == 8
-    assert demo.session_manager.fps == 24
-    assert demo.session_manager._model_name() == "fake-demo"
-    assert demo.app is None
-    assert demo.host == "0.0.0.0"
-    assert demo.port == 8082
-    assert adapter.create_webrtc_runtime_calls == [spec]
-    assert not adapter.create_runtime_called
+    def fake_server_runner(**kwargs: Any) -> None:
+        calls.append(kwargs)
+
+    app = serve_webrtc_demo(
+        output=spec.output,
+        model_id=spec.model_id,
+        session_manager=manager,
+        app_resources=WebRTCAppResources(preload_name="Fake demo"),
+        world_rank=1,
+        server_runner=fake_server_runner,
+    )
+
+    assert app is None
+    assert calls == [
+        {
+            "world_rank": 1,
+            "session_manager": manager,
+            "app": None,
+            "host": "0.0.0.0",
+            "port": 8082,
+        }
+    ]
 
 
 class _ChunkIndexMapping:
@@ -276,8 +304,8 @@ class _FakeDemoAdapter:
         *,
         scenario_valid: bool = True,
         video_output: bool = False,
-        input_modes: tuple[str, ...] = ("replay", "keyboard-driving"),
-        output_modes: tuple[str, ...] = ("null", "mp4", "webrtc"),
+        input_modes: tuple[str, ...] = ("replay",),
+        output_modes: tuple[str, ...] = ("null", "mp4"),
     ) -> None:
         self._scenario_valid = scenario_valid
         self._video_output = video_output
@@ -296,8 +324,6 @@ class _FakeDemoAdapter:
         self.prepare_scenario_calls: list[DemoSpec] = []
         self.create_runtime_called = False
         self.runtime: _FakeRuntime | None = None
-        self.webrtc_runtime: _FakeWebRTCRuntime | None = None
-        self.create_webrtc_runtime_calls: list[DemoSpec] = []
 
     def supported_input_modes(self) -> tuple[str, ...]:
         return self._input_modes
@@ -326,11 +352,6 @@ class _FakeDemoAdapter:
         if not self._scenario_valid:
             raise ValueError("invalid scenario")
         return self.prepared_scenario
-
-    def create_webrtc_runtime(self, spec: DemoSpec) -> "_FakeWebRTCRuntime":
-        self.create_webrtc_runtime_calls.append(spec)
-        self.webrtc_runtime = _FakeWebRTCRuntime()
-        return self.webrtc_runtime
 
 
 class _FakeRuntime:
@@ -382,28 +403,30 @@ class _FakeSession:
 
     def step(self, inputs: InferenceInput) -> StepResult:
         self._inference_input_schema.require_step(inputs)
-        output: object
         if self._video_output:
-            output = VideoStepResult.from_video_chunk(
-                chunk_index=self.step_index,
+            result = StepResult.from_video_chunk(
+                step_index=self.step_index,
                 video_chunk=torch.full(
                     (1, 1, 1, 3, 2, 2),
                     self.step_index,
                     dtype=torch.float32,
                 ),
                 layout="bvtchw",
+                output_window=TimeWindow(
+                    start_s=0.5 * self.step_index,
+                    end_s=0.5 * (self.step_index + 1),
+                ),
             )
         else:
-            output = f"chunk-{self.step_index}"
-        result = StepResult(
-            step_index=self.step_index,
-            output=output,
-            frame_count=1,
-            output_window=TimeWindow(
-                start_s=0.5 * self.step_index,
-                end_s=0.5 * (self.step_index + 1),
-            ),
-        )
+            result = StepResult(
+                step_index=self.step_index,
+                output=f"chunk-{self.step_index}",
+                frame_count=1,
+                output_window=TimeWindow(
+                    start_s=0.5 * self.step_index,
+                    end_s=0.5 * (self.step_index + 1),
+                ),
+            )
         self.step_index += 1
         return result
 
@@ -427,25 +450,32 @@ class _RecordingOutputTarget:
 
 
 class _FakeWebRTCRuntime:
+    def __init__(self, config: Any) -> None:
+        self.config = config
+
     async def initialize(self) -> None:
         return None
 
-    async def reset_for_new_session(self) -> None:
-        return None
+    async def reset_for_new_session(self, *, session_input: Any = None) -> None:
+        del session_input
 
-    def peek_steady_chunk_num_frames(self) -> int:
+    def peek_input_fps(self) -> float:
+        return 24.0
+
+    def peek_steady_output_num_frames(self) -> int:
         return 1
 
-    def peek_next_chunk_num_frames(self) -> int:
-        return 1
+    def next_step_request(self) -> StepRequest:
+        return StepRequest(step_index=0, metadata={"input_frame_count": 1})
 
-    async def generate_chunk(
+    async def step(
         self,
         *,
+        request: StepRequest,
         segments: list[Any],
         frame_times: list[float],
     ) -> Any:
-        del segments, frame_times
+        del request, segments, frame_times
         return None
 
     async def close(self) -> None:

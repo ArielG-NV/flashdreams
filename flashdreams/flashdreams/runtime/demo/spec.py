@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypeAlias
@@ -87,6 +87,15 @@ OutputSpec: TypeAlias = NullOutputSpec | Mp4OutputSpec | WebRTCOutputSpec
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
+class WebRTCAppResources:
+    """Model-owned resources attached to the shared WebRTC application."""
+
+    model_web_resource: Any | None = None
+    configure_app: Callable[[Any], None] | None = None
+    preload_name: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
 class DemoSpec:
     """User-facing shared demo run description."""
 
@@ -146,7 +155,7 @@ class PreparedScenario:
 
 
 class DemoAdapter(ModelAdapter, Protocol):
-    """Model-owned adapter surface consumed by shared demo launchers."""
+    """Transport-neutral model adapter consumed by demo runners."""
 
     def supported_input_modes(self) -> tuple[str, ...]:
         """Return demo input modes this adapter can prepare."""
@@ -160,10 +169,6 @@ class DemoAdapter(ModelAdapter, Protocol):
         """Validate and materialize scenario inputs before runtime creation."""
         ...
 
-    def create_webrtc_runtime(self, spec: DemoSpec) -> Any:
-        """Create the model-owned runtime consumed by the shared WebRTC manager."""
-        ...
-
 
 __all__ = [
     "DemoAdapter",
@@ -173,4 +178,5 @@ __all__ = [
     "OutputSpec",
     "PreparedScenario",
     "WebRTCOutputSpec",
+    "WebRTCAppResources",
 ]

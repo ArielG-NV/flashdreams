@@ -18,10 +18,10 @@ from omnidreams.runner import (
     _example_camera_names,
 )
 from omnidreams.scenes import SCENE_VARIANT_DEFAULT
-from omnidreams.webrtc.session import DEFAULT_WEBRTC_SCENE_UUID
 
 DEFAULT_OMNIDREAMS_PRESET = "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
 OMNIDREAMS_MODEL_ID = "omnidreams"
+DEFAULT_OMNIDREAMS_WEBRTC_SCENE_UUID = "0d404ff7-2b66-498c-b047-1ed8cded60d4"
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -74,11 +74,10 @@ class OmnidreamsWebRTCScenario:
     """Scene/options for the shared WebRTC demo path."""
 
     scene_dir: Path | None = None
-    scene_uuid: str | None = DEFAULT_WEBRTC_SCENE_UUID
+    scene_uuid: str | None = DEFAULT_OMNIDREAMS_WEBRTC_SCENE_UUID
     scene_variant: str = SCENE_VARIANT_DEFAULT
     camera_name: str = "camera_front_wide_120fov"
     debug_serve_hdmaps: bool = False
-    postprocess_preset: str = ""
     prefer_sw_encoder: bool = False
 
     def __post_init__(self) -> None:
@@ -166,11 +165,10 @@ def resolve_webrtc_scenario(value: Any) -> OmnidreamsWebRTCScenario:
     scene_dir = value.get("scene_dir")
     return OmnidreamsWebRTCScenario(
         scene_dir=Path(scene_dir) if scene_dir is not None else None,
-        scene_uuid=value.get("scene_uuid", DEFAULT_WEBRTC_SCENE_UUID),
+        scene_uuid=value.get("scene_uuid", DEFAULT_OMNIDREAMS_WEBRTC_SCENE_UUID),
         scene_variant=str(value.get("scene_variant", SCENE_VARIANT_DEFAULT)),
         camera_name=str(value.get("camera_name", "camera_front_wide_120fov")),
         debug_serve_hdmaps=bool(value.get("debug_serve_hdmaps", False)),
-        postprocess_preset=str(value.get("postprocess_preset", "")),
         prefer_sw_encoder=bool(value.get("prefer_sw_encoder", False)),
     )
 
@@ -263,6 +261,7 @@ def _require_existing_paths(paths: tuple[Path, ...], *, label: str) -> None:
 
 __all__ = [
     "DEFAULT_OMNIDREAMS_PRESET",
+    "DEFAULT_OMNIDREAMS_WEBRTC_SCENE_UUID",
     "OMNIDREAMS_MODEL_ID",
     "OmnidreamsReplayScenario",
     "OmnidreamsWebRTCScenario",

@@ -5,8 +5,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import torch
@@ -14,58 +13,94 @@ import torch
 from flashdreams.infra.video_output import (
     LazyRGBFrame,
     VideoOutputStream,
-    VideoStepResult,
+    VideoResultCollector,
     infer_video_num_frames,
     lazy_rgb_frames_from_video_tensor,
+    prepare_video_for_mp4,
     video_tensor_to_hwc_uint8,
 )
+from flashdreams.runtime import StepResult
 
 pytestmark = pytest.mark.ci_cpu
 
 
-def test_video_step_result_infers_num_frames_from_layout() -> None:
+def test_step_result_infers_video_frame_count_from_layout() -> None:
     video = torch.zeros((1, 2, 4, 3, 5, 6), dtype=torch.float32)
 
-    result = VideoStepResult.from_video_chunk(
-        chunk_index=7,
+    result = StepResult.from_video_chunk(
+        step_index=7,
         video_chunk=video,
         layout="bvtchw",
-        stats={"total_ms": 12.5},
+        metrics={"total_ms": 12.5},
         metadata={"stream": "rgb"},
     )
 
-    assert result.chunk_index == 7
-    assert result.num_frames == 4
+    assert result.step_index == 7
+    assert result.frame_count == 4
     assert result.video_chunk is video
-    assert result.stats == {"total_ms": 12.5}
+    assert result.metrics == {"total_ms": 12.5}
     assert result.layout == "bvtchw"
     assert result.metadata == {"stream": "rgb"}
     assert infer_video_num_frames(video, layout="bvtchw") == 4
 
 
-def test_video_output_stream_makes_step_result_without_host_copy() -> None:
+def test_step_result_validates_video_step_and_layout_shape() -> None:
+    with pytest.raises(ValueError, match="step_index"):
+        StepResult.from_video_chunk(
+            step_index=-1,
+            video_chunk=torch.zeros((1, 3, 2, 4, 5)),
+            layout="bcthw",
+        )
+
+    with pytest.raises(ValueError, match="expects a 5D tensor"):
+        StepResult.from_video_chunk(
+            step_index=0,
+            video_chunk=torch.zeros((2, 3, 4, 5)),
+            layout="bcthw",
+        )
+
+
+def test_step_result_freezes_video_metadata_and_metrics() -> None:
+    metadata = {"stream": "rgb"}
+    metrics = {"model_step_s": 0.5}
+    result = StepResult.from_video_chunk(
+        step_index=0,
+        video_chunk=torch.zeros((2, 3, 4, 5)),
+        layout="tchw",
+        metadata=metadata,
+        metrics=metrics,
+    )
+
+    metadata["stream"] = "debug"
+    metrics["model_step_s"] = 1.0
+
+    assert result.metadata == {"stream": "rgb"}
+    assert result.metrics == {"model_step_s": 0.5}
+    with pytest.raises(TypeError):
+        cast(Any, result.metadata)["stream"] = "debug"
+
+
+def test_video_output_stream_returns_step_result_without_host_copy() -> None:
     video = torch.zeros((3, 3, 4, 5), dtype=torch.float32, requires_grad=True)
     output_stream = VideoOutputStream(
         postprocess_stream=None,
         output_layout="tchw",
-        collect_output=False,
-        move_to_cpu=False,
     )
 
-    result = output_stream.make_step_result(
+    result = output_stream.process(
         video,
         autoregressive_index=4,
-        stats={"decode_ms": 1.5},
+        metrics={"decode_ms": 1.5},
     )
 
-    assert isinstance(result, VideoStepResult)
-    assert result.chunk_index == 4
-    assert result.num_frames == 3
+    assert isinstance(result, StepResult)
+    assert result.step_index == 4
+    assert result.frame_count == 3
     assert result.video_chunk.device == video.device
     assert result.video_chunk.data_ptr() == video.data_ptr()
     assert result.video_chunk.requires_grad is False
     assert result.layout == "tchw"
-    assert result.stats == {"decode_ms": 1.5}
+    assert result.metrics == {"decode_ms": 1.5}
 
 
 def test_video_tensor_to_hwc_uint8_preserves_device_layout_conversion() -> None:
@@ -93,9 +128,9 @@ def test_lazy_rgb_frames_from_video_tensor_materializes_on_demand() -> None:
     assert frames[1].to_numpy()[2, 3].tolist() == [255, 255, 255]
 
 
-def test_video_step_result_exposes_lazy_rgb_frames() -> None:
-    result = VideoStepResult.from_video_chunk(
-        chunk_index=0,
+def test_step_result_exposes_lazy_rgb_frames() -> None:
+    result = StepResult.from_video_chunk(
+        step_index=0,
         video_chunk=torch.zeros((1, 2, 1, 3, 4, 5), dtype=torch.float32),
         layout="bvtchw",
     )
@@ -106,50 +141,52 @@ def test_video_step_result_exposes_lazy_rgb_frames() -> None:
     assert frames[0].to_numpy().shape == (4, 5, 3)
 
 
-def test_video_output_stream_collects_chunks_and_stats() -> None:
+def test_video_result_collector_collects_chunks_and_stats() -> None:
     output_stream = VideoOutputStream(
         postprocess_stream=None,
         output_layout="tchw",
-        move_to_cpu=False,
     )
+    collector = VideoResultCollector(output_layout="tchw", move_to_cpu=False)
     chunk = torch.zeros((2, 3, 4, 5), dtype=torch.float32)
 
-    processed = output_stream.process(
+    result = output_stream.process(
         chunk,
         autoregressive_index=3,
-        stats={"total_ms": 8.0},
-        stats_extra={"frames": 2, "fps": 250.0},
+        metrics={"total_ms": 8.0, "pipeline_fps": 250.0},
     )
-    collected = output_stream.finish()
+    collector.add(result)
+    assert output_stream.finish() is None
+    collected = collector.finish()
 
     assert collected is not None
     assert collected.shape == chunk.shape
     assert collected.data_ptr() == chunk.data_ptr()
-    assert processed is chunk
-    assert output_stream.stats_history == [
+    assert result.video_chunk.data_ptr() == chunk.data_ptr()
+    assert collector.stats_history == [
         {
-            "autoregressive_index": 3,
-            "total_ms": 8.0,
+            "step_index": 3,
             "frames": 2,
-            "fps": 250.0,
+            "total_ms": 8.0,
+            "pipeline_fps": 250.0,
         }
     ]
 
 
-def test_video_output_stream_collects_noop_chunks_without_postprocess() -> None:
+def test_video_result_collector_skips_empty_chunks() -> None:
     output_stream = VideoOutputStream(
         postprocess_stream=None,
         output_layout="bcthw",
-        move_to_cpu=False,
     )
+    collector = VideoResultCollector(output_layout="bcthw", move_to_cpu=False)
     first = torch.ones((1, 3, 2, 4, 5))
     empty = torch.empty((1, 3, 0, 4, 5))
     second = torch.full((1, 3, 1, 4, 5), 2.0)
 
-    output_stream.process(first, autoregressive_index=0)
-    output_stream.process(empty, autoregressive_index=1)
-    output_stream.process(second, autoregressive_index=2)
-    output = output_stream.finish()
+    collector.add(output_stream.process(first, autoregressive_index=0))
+    collector.add(output_stream.process(empty, autoregressive_index=1))
+    collector.add(output_stream.process(second, autoregressive_index=2))
+    assert output_stream.finish() is None
+    output = collector.finish()
 
     assert output is not None
     assert output.shape == (1, 3, 3, 4, 5)
@@ -157,41 +194,81 @@ def test_video_output_stream_collects_noop_chunks_without_postprocess() -> None:
     assert torch.equal(output[:, :, 2:], second)
 
 
-def test_video_output_stream_finishes_to_mp4_with_multiview_tiling() -> None:
-    calls: list[dict[str, Any]] = []
+def test_video_output_stream_returns_postprocess_tail_as_step_result() -> None:
+    class _TailPostprocess:
+        last_process_stats = None
 
-    def fake_writer(
-        video: torch.Tensor,
-        path: Path,
-        *,
-        fps: int | float,
-        layout: str,
-        install_hint: str,
-    ) -> Path:
-        calls.append(
-            {
-                "shape": tuple(video.shape),
-                "path": path,
-                "fps": fps,
-                "layout": layout,
-                "install_hint": install_hint,
-            }
-        )
-        return path
+        def process(
+            self,
+            output: torch.Tensor,
+            *,
+            autoregressive_index: int,
+        ) -> torch.Tensor:
+            del autoregressive_index
+            return output[:, :, :0]
+
+        def finish(self) -> torch.Tensor:
+            return torch.ones((1, 3, 2, 4, 5))
 
     output_stream = VideoOutputStream(
-        postprocess_stream=None,
-        output_layout="bvtchw",
-        move_to_cpu=False,
+        postprocess_stream=cast(Any, _TailPostprocess()),
+        output_layout="bcthw",
     )
-    output_stream.process(
-        torch.zeros((1, 2, 3, 3, 4, 5)), autoregressive_index=0
-    )
-
-    written = output_stream.finish_to_mp4(
-        Path("output.mp4"), fps=24, writer=fake_writer
+    result = output_stream.process(
+        torch.zeros((1, 3, 2, 4, 5)),
+        autoregressive_index=6,
     )
 
-    assert written is not None
-    assert written == Path("output.mp4")
-    assert calls[0]["shape"] == (3, 4, 10, 3)
+    tail = output_stream.finish()
+
+    assert result.frame_count == 0
+    assert tail is not None
+    assert tail.step_index == 6
+    assert tail.frame_count == 2
+    assert tail.metadata == {"postprocess_tail": True}
+
+
+def test_video_output_stream_state_is_isolated_per_session() -> None:
+    class _StatefulPostprocess:
+        last_process_stats = None
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def process(
+            self,
+            output: torch.Tensor,
+            *,
+            autoregressive_index: int,
+        ) -> torch.Tensor:
+            del autoregressive_index
+            self.calls += 1
+            return output + self.calls
+
+        def finish(self) -> None:
+            return None
+
+    first = VideoOutputStream(
+        postprocess_stream=cast(Any, _StatefulPostprocess()),
+        output_layout="tchw",
+    )
+    second = VideoOutputStream(
+        postprocess_stream=cast(Any, _StatefulPostprocess()),
+        output_layout="tchw",
+    )
+    video = torch.zeros((1, 3, 2, 2))
+
+    first_result = first.process(video, autoregressive_index=0)
+    second_result = second.process(video, autoregressive_index=0)
+
+    assert torch.equal(first_result.video_chunk, second_result.video_chunk)
+    assert first.postprocess_stream is not second.postprocess_stream
+
+
+def test_prepare_video_for_mp4_tiles_multiview_video() -> None:
+    video = torch.zeros((1, 2, 3, 3, 4, 5))
+
+    writable, layout = prepare_video_for_mp4(video, layout="bvtchw")
+
+    assert writable.shape == (3, 4, 10, 3)
+    assert layout == "thwc"

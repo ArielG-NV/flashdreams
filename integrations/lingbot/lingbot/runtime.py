@@ -6,11 +6,10 @@
 from __future__ import annotations
 
 import os
-import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import torch
@@ -24,13 +23,14 @@ from flashdreams.infra.runner_io import (
     runner_artifact_path,
     write_runner_stats,
 )
-from flashdreams.infra.video_output import VideoOutputStream, VideoStepResult
+from flashdreams.infra.video_output import VideoOutputStream
 from flashdreams.runtime import (
     CanonicalInputSchema,
     InferenceConfig,
     InferenceInput,
     InferenceInputSchema,
     InputField,
+    Mp4VideoOutputTarget,
     OutputArtifact,
 )
 from flashdreams.runtime.interfaces import InferenceRuntime, InferenceSession
@@ -54,6 +54,7 @@ from lingbot.input_mapping import (
     LingbotInputMapping,
     load_camera_trace,
 )
+from lingbot.model_session import LingbotModelSessionCore
 
 LINGBOT_MODEL_ID = "lingbot"
 DEFAULT_LINGBOT_PRESET = "lingbot-world-fast-taehv-window15-sink3"
@@ -302,13 +303,21 @@ class LingbotModelAdapter:
 
     def create_runtime(self, config: InferenceConfig) -> InferenceRuntime:
         self.validate_config(config)
+        output_layout = config.runtime_options.get("output_layout", "tchw")
+        if not isinstance(output_layout, str) or output_layout not in {
+            "tchw",
+            "btchw",
+            "bcthw",
+            "bvtchw",
+        }:
+            raise ValueError(f"Unsupported Lingbot output layout: {output_layout!r}.")
         return self._runtime_factory(
             config=config,
             options=LingbotReplayRuntimeOptions(
                 pipeline_config=self.pipeline_config(config),
                 pipeline=config.runtime_options.get("pipeline"),
                 pipeline_factory=self._pipeline_factory,
-                output_layout=str(config.runtime_options.get("output_layout", "tchw")),
+                output_layout=cast(VideoTensorLayout, output_layout),
             ),
         )
 
@@ -419,10 +428,16 @@ class LingbotReplaySession:
         self.output_layout = output_layout
         self.dtype = torch.bfloat16
         self._closed = False
-        self._step_index = 0
         self._frame_start = 0
         self._active_prompt = session_inputs.prompt
-        self._cache = self._initialize_cache()
+        self._model_session = LingbotModelSessionCore(
+            pipeline=pipeline,
+            output_stream_factory=lambda: VideoOutputStream(
+                postprocess_stream=None,
+                output_layout=self.output_layout,
+            ),
+        )
+        self._reset_model_session()
         if self.device.type == "cuda" and torch.cuda.is_available():
             torch.cuda.synchronize(device=self.device)
         if dist.is_initialized():
@@ -431,16 +446,17 @@ class LingbotReplaySession:
     def next_step_request(self) -> StepRequest | None:
         if self._closed:
             return None
-        if self._step_index >= self.inputs.total_blocks:
+        step_index = self._model_session.step_index
+        if step_index >= self.inputs.total_blocks:
             return None
-        num_frames = int(self.pipeline.get_num_output_frames(self._step_index))
+        num_frames = self._model_session.next_num_frames()
         frame_end = self._frame_start + num_frames
         total_frames = self.inputs.total_camera_frames
         if total_frames is not None and frame_end > total_frames:
             return None
         fps = self.inputs.fps
         return StepRequest(
-            step_index=self._step_index,
+            step_index=step_index,
             # The window is what lets a mapping slice user events for exactly
             # this chunk instead of replaying the whole session history.
             user_input_window=TimeWindow(
@@ -457,8 +473,8 @@ class LingbotReplaySession:
         if self._closed:
             raise RuntimeError("Lingbot replay session is closed.")
 
-        step_index = self._step_index
-        num_frames = int(self.pipeline.get_num_output_frames(step_index))
+        step_index = self._model_session.step_index
+        num_frames = self._model_session.next_num_frames()
         self._apply_global_conditioning_update(inputs)
         camera_poses = _require_step_tensor(
             inputs,
@@ -485,49 +501,23 @@ class LingbotReplaySession:
             poses=camera_poses.to(device=self.device, dtype=torch.float32),
             world_scale=self.inputs.world_scale,
         )
-        start_t = time.perf_counter()
-        video_chunk = self.pipeline.generate(
-            autoregressive_index=step_index,
-            cache=self._cache,
-            input=camctrl_input,
-        )
-        stats = self.pipeline.finalize(
-            autoregressive_index=step_index,
-            cache=self._cache,
-        )
-        elapsed_s = time.perf_counter() - start_t
-        self._step_index += 1
-        self._frame_start = frame_end
-
-        metrics = _numeric_stats(stats)
-        metrics.setdefault("model_step_s", elapsed_s)
-        return StepResult(
-            step_index=step_index,
-            output=VideoStepResult.from_video_chunk(
-                chunk_index=step_index,
-                video_chunk=video_chunk,
-                layout=self.output_layout,
-                stats=metrics,
-            ),
-            frame_count=num_frames,
+        result = self._model_session.step(
+            camctrl_input,
             output_window=TimeWindow(
                 start_s=frame_start / self.inputs.fps,
                 end_s=frame_end / self.inputs.fps,
             ),
-            metrics=metrics,
         )
+        self._frame_start = frame_end
+        return result
 
     def reset(self, inputs: InferenceInput | None = None) -> None:
         if inputs is not None:
             session_inputs = session_inputs_from_inference_input(inputs)
             if session_inputs != self.inputs:
                 raise ValueError("Lingbot replay reset cannot swap inputs.")
-        cache = getattr(self, "_cache", None)
-        if cache is not None:
-            del self._cache
         self._active_prompt = self.inputs.prompt
-        self._cache = self._initialize_cache()
-        self._step_index = 0
+        self._reset_model_session()
         self._frame_start = 0
 
     def _apply_global_conditioning_update(self, inputs: InferenceInput) -> None:
@@ -551,18 +541,19 @@ class LingbotReplaySession:
             )
         self.pipeline._ensure_oneshot_encoders_loaded()
         embeddings = self.pipeline.text_encoder([prompt]).to(device=self.device)
-        replace_text_embeddings(self._cache.transformer_cache, embeddings)
+        self._model_session.replace_text_embeddings(embeddings)
         self._active_prompt = prompt
         if self.is_rank_zero:
-            logger.info("Lingbot text context updated at step {}", self._step_index)
+            logger.info(
+                "Lingbot text context updated at step {}",
+                self._model_session.step_index,
+            )
 
     def close(self) -> None:
         self._closed = True
-        cache = getattr(self, "_cache", None)
-        if cache is not None:
-            del self._cache
+        self._model_session.close()
 
-    def _initialize_cache(self) -> Any:
+    def _reset_model_session(self) -> None:
         first_frames = load_first_frame_tensor(
             self.inputs.first_frame_path,
             pixel_height=self.inputs.pixel_height,
@@ -572,9 +563,9 @@ class LingbotReplaySession:
             interpolation="cubic",
             install_hint=_INSTALL_HINT,
         )
-        return self.pipeline.initialize_cache(
-            text=[self.inputs.prompt],
-            image=first_frames,
+        self._model_session.reset(
+            prompt=self.inputs.prompt,
+            first_frames=first_frames,
         )
 
 
@@ -611,49 +602,61 @@ class LingbotRunnerOutputTarget:
     fps: int | float
     install_hint: str = _INSTALL_HINT
     _opened: bool = False
+    _mp4_target: Mp4VideoOutputTarget | None = None
 
     def open(self) -> None:
+        video_path = runner_artifact_path(self.output_dir, self.runner_name, "mp4")
+        self._mp4_target = Mp4VideoOutputTarget(
+            output_path=video_path,
+            fps=self.fps,
+            output_layout=self.output_stream.output_layout,
+            install_hint=self.install_hint,
+        )
+        self._mp4_target.open()
         self._opened = True
 
     def write(self, result: StepResult) -> None:
         if not self._opened:
             raise RuntimeError("Cannot write to a closed Lingbot output target.")
-        video_result = result.output
-        if not isinstance(video_result, VideoStepResult):
+        if result.layout is None:
             raise TypeError(
-                "LingbotRunnerOutputTarget requires VideoStepResult output, "
-                f"got {type(video_result).__name__}."
+                "LingbotRunnerOutputTarget requires a video StepResult with layout."
             )
-        self.output_stream.process(
-            video_result.video_chunk,
-            autoregressive_index=video_result.chunk_index,
-            stats=video_result.stats or dict(result.metrics),
+        if self._mp4_target is None:
+            raise RuntimeError("Lingbot MP4 target is not open.")
+        processed = self.output_stream.process(
+            result.video_chunk,
+            autoregressive_index=result.step_index,
+            metrics=result.metrics,
+            metadata=result.metadata,
+            output_window=result.output_window,
         )
+        self._mp4_target.write(processed)
 
     def close(self) -> tuple[OutputArtifact, ...]:
         self._opened = False
-        artifacts: list[OutputArtifact] = []
-        video_path = runner_artifact_path(self.output_dir, self.runner_name, "mp4")
-        video_path = self.output_stream.finish_to_mp4(
-            video_path,
-            fps=self.fps,
-            install_hint=self.install_hint,
-        )
-        if video_path is None:
+        target = self._mp4_target
+        self._mp4_target = None
+        if target is None:
             return ()
+        tail = self.output_stream.finish()
+        if tail is not None:
+            target.write(tail)
+        artifacts = list(target.close())
+        if not artifacts:
+            return ()
+        video_path = Path(artifacts[0].uri)
         logger.info(
             "[{}] wrote video -> {}",
             self.runner_name,
             video_path.resolve(),
         )
-        artifacts.append(
-            OutputArtifact(kind="video/mp4", uri=str(video_path.resolve()))
-        )
-        if self.output_stream.stats_history:
+        stats_history = artifacts[0].metadata.get("stats_history", ())
+        if stats_history:
             stats_path = write_runner_stats(
                 self.output_dir,
                 self.runner_name,
-                self.output_stream.stats_history,
+                list(stats_history),
             )
             logger.info(
                 "[{}] wrote per-AR-step stats -> {}",
@@ -930,7 +933,9 @@ def build_lingbot_webrtc_runtime_config(
     return _apply_webrtc_runtime_options(runtime_config, runtime_options or {})
 
 
-def _apply_webrtc_runtime_options(runtime_config: Any, options: Mapping[str, Any]) -> Any:
+def _apply_webrtc_runtime_options(
+    runtime_config: Any, options: Mapping[str, Any]
+) -> Any:
     overrides: dict[str, Any] = {}
     for name in (
         "world_scale",
@@ -950,16 +955,6 @@ def _apply_webrtc_runtime_options(runtime_config: Any, options: Mapping[str, Any
 
 def _default_pipeline_factory(pipeline_config: Any, device: str) -> Any:
     return pipeline_config.setup().to(device=device).eval()
-
-
-def _numeric_stats(stats: Any) -> dict[str, float | int]:
-    if not isinstance(stats, Mapping):
-        return {}
-    return {
-        str(key): value
-        for key, value in stats.items()
-        if isinstance(value, (float, int)) and not isinstance(value, bool)
-    }
 
 
 def _resolve_prompt(
@@ -984,15 +979,19 @@ def _resolve_example_data_default(value: Mapping[str, Any]) -> bool:
     explicit = value.get("example_data")
     if explicit is not None:
         return _bool_value(explicit)
-    return not (
-        _has_nonempty_value(value, FIELD_FIRST_FRAME_PATH)
-        or _has_nonempty_value(value, "image_path")
-    ) or not (
-        _has_nonempty_value(value, FIELD_CAMERA_POSES_PATH)
-        or _has_nonempty_value(value, "pose_path")
-    ) or not (
-        _has_nonempty_value(value, FIELD_CAMERA_INTRINSICS_PATH)
-        or _has_nonempty_value(value, "intrinsic_path")
+    return (
+        not (
+            _has_nonempty_value(value, FIELD_FIRST_FRAME_PATH)
+            or _has_nonempty_value(value, "image_path")
+        )
+        or not (
+            _has_nonempty_value(value, FIELD_CAMERA_POSES_PATH)
+            or _has_nonempty_value(value, "pose_path")
+        )
+        or not (
+            _has_nonempty_value(value, FIELD_CAMERA_INTRINSICS_PATH)
+            or _has_nonempty_value(value, "intrinsic_path")
+        )
     )
 
 
@@ -1029,7 +1028,9 @@ def _require_path_value(value: Path | None, *, label: str) -> Path:
 
 def _require_existing_replay_paths(replay_inputs: LingbotReplayInputs) -> None:
     _require_existing_path(replay_inputs.first_frame_path, label=FIELD_FIRST_FRAME_PATH)
-    _require_existing_path(replay_inputs.camera_poses_path, label=FIELD_CAMERA_POSES_PATH)
+    _require_existing_path(
+        replay_inputs.camera_poses_path, label=FIELD_CAMERA_POSES_PATH
+    )
     _require_existing_path(
         replay_inputs.camera_intrinsics_path,
         label=FIELD_CAMERA_INTRINSICS_PATH,

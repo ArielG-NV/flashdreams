@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 import torch
 
+from flashdreams.runtime import StepRequest, StepResult
 from flashdreams.serving.webrtc import manager as manager_module
 from flashdreams.serving.webrtc.controls import WSAD_SUPPORTED_KEYS
 from flashdreams.serving.webrtc.encoders import ChunkDeliveryResult
@@ -18,7 +19,6 @@ from flashdreams.serving.webrtc.manager import (
     BaseWebRTCSessionManager,
     ManagedWebRTCSession,
 )
-from flashdreams.infra.video_output import VideoStepResult
 from flashdreams.serving.webrtc.server import SessionBusyError
 
 pytestmark = pytest.mark.ci_cpu
@@ -33,14 +33,21 @@ def _runtime_config() -> SimpleNamespace:
     )
 
 
+def _step_request(step_index: int = 0, input_frame_count: int = 1) -> StepRequest:
+    return StepRequest(
+        step_index=step_index,
+        metadata={"input_frame_count": input_frame_count},
+    )
+
+
 class _FakeVideoTrack:
     fps = 30
 
     def __init__(self) -> None:
         self.closed = False
 
-    async def enqueue_chunk(self, chunk: Any) -> int:
-        del chunk
+    async def enqueue_result(self, result: StepResult) -> int:
+        del result
         return 1
 
     def qsize(self) -> int:
@@ -53,8 +60,8 @@ class _FakeVideoTrack:
 class _FakeVideoEncoder:
     """``VideoEncoder``-shaped stub for ``ManagedWebRTCSession`` construction
     and the base manager's generation-worker path. ``deliver_chunk``
-    delegates to the paired track's ``enqueue_chunk`` so the manager
-    tests that drive one chunk end-to-end see the frames land."""
+    delegates to the paired track's ``enqueue_result`` so the manager
+    tests that drive one result end-to-end see the frames land."""
 
     fps = 30
     backend = "fake"
@@ -62,13 +69,13 @@ class _FakeVideoEncoder:
 
     async def deliver_chunk(
         self,
-        chunk: Any,
+        result: StepResult,
         track: Any,
         *,
         force_keyframe: bool = False,
     ) -> ChunkDeliveryResult:
         del force_keyframe
-        enqueued = await track.enqueue_chunk(chunk)
+        enqueued = await track.enqueue_result(result)
         return ChunkDeliveryResult(
             backend=self.backend,
             num_frames=enqueued,
@@ -116,13 +123,12 @@ class _RecordingResampler(_FakeResampler):
 
 
 class _CountingVideoTrack(_FakeVideoTrack):
-    async def enqueue_chunk(self, chunk: Any) -> int:
-        return int(chunk.shape[0])
+    async def enqueue_result(self, result: StepResult) -> int:
+        return result.frame_count
 
 
 class _BaseTestManager(BaseWebRTCSessionManager):
-    def _model_name(self) -> str:
-        return "fake-model"
+    pass
 
 
 class _WOnlyTestManager(_BaseTestManager):
@@ -130,28 +136,36 @@ class _WOnlyTestManager(_BaseTestManager):
 
 
 def _make_manager(
-    manager_cls: type[BaseWebRTCSessionManager], runtime: Any
+    manager_cls: type[BaseWebRTCSessionManager], runtime: Any, **kwargs: Any
 ) -> BaseWebRTCSessionManager:
     return manager_cls(
         runtime=runtime,
         runtime_config=_runtime_config(),
         fps=30,
+        identity="fake-model",
+        **kwargs,
     )
 
 
-def test_runtime_frame_timing_hooks_default_to_legacy_methods() -> None:
-    class _LegacyRuntime:
-        def peek_next_chunk_num_frames(self) -> int:
-            return 2
+def test_runtime_frame_timing_contract() -> None:
+    class _Runtime:
+        def peek_input_fps(self) -> float:
+            return 30.0
 
-        def peek_steady_chunk_num_frames(self) -> int:
+        def next_step_request(self) -> StepRequest:
+            return _step_request(input_frame_count=2)
+
+        def peek_steady_output_num_frames(self) -> int:
             return 3
 
-    runtime = _LegacyRuntime()
+    runtime = _Runtime()
     manager = _make_manager(_BaseTestManager, runtime)
 
     assert manager._runtime_input_fps(runtime) == pytest.approx(30.0)
-    assert manager._runtime_next_input_num_frames(runtime) == 2
+    assert manager._runtime_next_step_request(runtime) == (
+        _step_request(input_frame_count=2),
+        2,
+    )
     assert manager._runtime_steady_output_num_frames(runtime) == 3
 
 
@@ -160,8 +174,8 @@ def test_runtime_frame_timing_hooks_can_split_input_and_output() -> None:
         def peek_input_fps(self) -> float:
             return 6.0
 
-        def peek_next_input_num_frames(self) -> int:
-            return 4
+        def next_step_request(self) -> StepRequest:
+            return _step_request(input_frame_count=4)
 
         def peek_steady_output_num_frames(self) -> int:
             return 16
@@ -174,7 +188,10 @@ def test_runtime_frame_timing_hooks_can_split_input_and_output() -> None:
     )
 
     assert resampler.dt == pytest.approx(1.0 / 6.0)
-    assert manager._runtime_next_input_num_frames(runtime) == 4
+    assert manager._runtime_next_step_request(runtime) == (
+        _step_request(input_frame_count=4),
+        4,
+    )
     assert manager._runtime_steady_output_num_frames(runtime) == 16
 
 
@@ -474,21 +491,22 @@ async def test_generation_worker_closes_session_when_flag_set() -> None:
         def __init__(self) -> None:
             self.generate_calls = 0
 
-        def peek_next_chunk_num_frames(self) -> int:
-            return 1
+        def next_step_request(self) -> StepRequest:
+            return _step_request(step_index=self.generate_calls)
 
-        async def generate_chunk(
-            self, *, segments: Any, frame_times: Any
-        ) -> VideoStepResult:
-            del segments, frame_times
+        async def step(
+            self, *, request: StepRequest, segments: Any, frame_times: Any
+        ) -> StepResult:
+            del request, segments, frame_times
             self.generate_calls += 1
             raise RuntimeError("boom")
 
-    class _ClosingManager(_BaseTestManager):
-        _close_session_on_generation_error = True
-
     runtime = _ClosingRuntime()
-    manager = _make_manager(_ClosingManager, runtime)
+    manager = _make_manager(
+        _BaseTestManager,
+        runtime,
+        fatal_generation_errors=True,
+    )
     managed, video_track, peer, channel = _managed_session(runtime)
     manager._active_session = managed
 
@@ -511,13 +529,13 @@ async def test_generation_worker_retries_on_error_when_flag_unset() -> None:
             self.generate_calls = 0
             self.managed_session: ManagedWebRTCSession | None = None
 
-        def peek_next_chunk_num_frames(self) -> int:
-            return 1
+        def next_step_request(self) -> StepRequest:
+            return _step_request(step_index=self.generate_calls)
 
-        async def generate_chunk(
-            self, *, segments: Any, frame_times: Any
-        ) -> VideoStepResult:
-            del segments, frame_times
+        async def step(
+            self, *, request: StepRequest, segments: Any, frame_times: Any
+        ) -> StepResult:
+            del request, segments, frame_times
             self.generate_calls += 1
             # Stop the loop after the second attempt without tearing down.
             if self.generate_calls >= 2 and self.managed_session is not None:
@@ -548,28 +566,24 @@ async def test_chunk_done_payload_includes_model_and_extra() -> None:
         def __init__(self) -> None:
             self.managed_session: ManagedWebRTCSession | None = None
 
-        def peek_next_chunk_num_frames(self) -> int:
-            return 1
+        def next_step_request(self) -> StepRequest:
+            return _step_request()
 
-        async def generate_chunk(
-            self, *, segments: Any, frame_times: Any
-        ) -> VideoStepResult:
-            del segments, frame_times
+        async def step(
+            self, *, request: StepRequest, segments: Any, frame_times: Any
+        ) -> StepResult:
+            del request, segments, frame_times
             if self.managed_session is not None:
                 self.managed_session.closed = True
-            return VideoStepResult(
-                chunk_index=0,
-                num_frames=1,
+            return StepResult.from_video_chunk(
+                step_index=0,
                 video_chunk=torch.zeros((1, 1, 1, 3, 2, 2), dtype=torch.uint8),
-                stats=None,
+                layout="bvtchw",
+                metadata={"stream": "rgb"},
             )
 
-    class _ExtraManager(_BaseTestManager):
-        def _chunk_done_extra(self) -> dict[str, Any]:
-            return {"stream": "rgb"}
-
     runtime = _OneChunkRuntime()
-    manager = _make_manager(_ExtraManager, runtime)
+    manager = _make_manager(_BaseTestManager, runtime)
     managed, _video_track, _peer, channel = _managed_session(runtime)
     runtime.managed_session = managed
     manager._active_session = managed
@@ -616,21 +630,24 @@ async def test_generation_worker_uses_split_input_and_output_frame_counts() -> N
         def peek_input_fps(self) -> float:
             return 6.0
 
-        def peek_next_input_num_frames(self) -> int:
-            return 2
+        def next_step_request(self) -> StepRequest:
+            return _step_request(input_frame_count=2)
 
-        async def generate_chunk(
-            self, *, segments: Any, frame_times: list[float]
-        ) -> VideoStepResult:
-            del segments
+        async def step(
+            self,
+            *,
+            request: StepRequest,
+            segments: Any,
+            frame_times: list[float],
+        ) -> StepResult:
+            del request, segments
             self.frame_times = frame_times
             if self.managed_session is not None:
                 self.managed_session.closed = True
-            return VideoStepResult(
-                chunk_index=0,
-                num_frames=5,
-                video_chunk=torch.zeros((5, 1, 1, 3, 2, 2), dtype=torch.uint8),
-                stats=None,
+            return StepResult.from_video_chunk(
+                step_index=0,
+                video_chunk=torch.zeros((5, 3, 2, 2), dtype=torch.uint8),
+                layout="tchw",
             )
 
     runtime = _SplitRuntime()
@@ -674,22 +691,22 @@ async def test_generation_worker_logs_periodic_perf_stats(
             self.managed_session: ManagedWebRTCSession | None = None
             self.chunk_index = 0
 
-        def peek_next_chunk_num_frames(self) -> int:
-            return 1
+        def next_step_request(self) -> StepRequest:
+            return _step_request(step_index=self.chunk_index)
 
-        async def generate_chunk(
-            self, *, segments: Any, frame_times: Any
-        ) -> VideoStepResult:
-            del segments, frame_times
+        async def step(
+            self, *, request: StepRequest, segments: Any, frame_times: Any
+        ) -> StepResult:
+            del request, segments, frame_times
             chunk_index = self.chunk_index
             self.chunk_index += 1
             if chunk_index >= 2 and self.managed_session is not None:
                 self.managed_session.closed = True
-            return VideoStepResult(
-                chunk_index=chunk_index,
-                num_frames=4,
-                video_chunk=torch.zeros((4, 1, 1, 3, 2, 2), dtype=torch.uint8),
-                stats={
+            return StepResult.from_video_chunk(
+                step_index=chunk_index,
+                video_chunk=torch.zeros((4, 3, 2, 2), dtype=torch.uint8),
+                layout="tchw",
+                metrics={
                     "model_step_s": 0.02,
                     "denoise_s": 0.01,
                     "decode_s": 0.004,
@@ -725,10 +742,11 @@ async def test_generation_worker_logs_periodic_perf_stats(
 
 @pytest.mark.asyncio
 async def test_create_answer_raises_busy_with_subclass_message() -> None:
-    class _BusyManager(_BaseTestManager):
-        _busy_message = "custom busy message"
-
-    manager = _make_manager(_BusyManager, runtime=SimpleNamespace())
+    manager = _make_manager(
+        _BaseTestManager,
+        runtime=SimpleNamespace(),
+        busy_message="custom busy message",
+    )
     manager._runtime_ready = True
     manager._warmup_complete = True
     existing, *_ = _managed_session(runtime=SimpleNamespace())
@@ -739,12 +757,11 @@ async def test_create_answer_raises_busy_with_subclass_message() -> None:
 
 
 def test_make_resampler_honors_supported_keys() -> None:
-    class _WsadManager(_BaseTestManager):
-        _resampler_supported_keys = WSAD_SUPPORTED_KEYS
-
-    wsad = _make_manager(_WsadManager, runtime=SimpleNamespace())._make_resampler(
-        start_v=1.0
-    )
+    wsad = _make_manager(
+        _BaseTestManager,
+        runtime=SimpleNamespace(),
+        supported_control_keys=WSAD_SUPPORTED_KEYS,
+    )._make_resampler(start_v=1.0)
     wsad.on_edge(arrival_t=0.5, event="keydown", key="q")
     wsad_segments, _ = wsad.sample_chunk(num_frames=1)
     # 'q' is not a WSAD driving key, so it is rejected and never held.

@@ -3,7 +3,6 @@
 
 """Experimental shared demo API above the inference runtime API."""
 
-from flashdreams.runtime.demo.app import run_flashdreams_demo, serve_flashdreams_demo
 from flashdreams.runtime.demo.outputs import build_output_target
 from flashdreams.runtime.demo.replay import run_replay_demo
 from flashdreams.runtime.demo.spec import (
@@ -13,6 +12,7 @@ from flashdreams.runtime.demo.spec import (
     NullOutputSpec,
     OutputSpec,
     PreparedScenario,
+    WebRTCAppResources,
     WebRTCOutputSpec,
 )
 
@@ -23,9 +23,8 @@ __all__ = [
     "NullOutputSpec",
     "OutputSpec",
     "PreparedScenario",
+    "WebRTCAppResources",
     "WebRTCOutputSpec",
     "build_output_target",
-    "run_flashdreams_demo",
     "run_replay_demo",
-    "serve_flashdreams_demo",
 ]
