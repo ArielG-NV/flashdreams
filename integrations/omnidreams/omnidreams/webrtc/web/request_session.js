@@ -27,10 +27,14 @@ const keyAliases = new Map([
 const keySources = new Map()
 const heldKeyOrder = new Map()
 const activeKeys = new Set()
+const controllerKeys = new Set()
 const frameTimes = []
 const pendingActions = []
 const maxPendingActions = 32
 const heartbeatIntervalMs = 2000
+const controllerDeadzone = 0.12
+const controllerSendIntervalMs = 50
+const controllerKeepaliveMs = 250
 
 let peerConnection = null
 let controlChannel = null
@@ -42,6 +46,8 @@ let connected = false
 let disconnecting = false
 let heldKeySequence = 0
 let postprocessControlAvailable = false
+let lastControllerState = null
+let lastControllerSentAt = 0
 
 const metrics = {
   fps: null,
@@ -402,9 +408,14 @@ function updateControlHighlights() {
   }
   for (const button of controlButtons) {
     const key = button.dataset.controlKey
-    button.classList.toggle("is-active", activeKeys.has(key))
-    button.setAttribute("aria-pressed", activeKeys.has(key) ? "true" : "false")
+    const held = activeKeys.has(key) || controllerKeys.has(key)
+    button.classList.toggle("is-active", held)
+    button.setAttribute("aria-pressed", held ? "true" : "false")
   }
+}
+
+function hasActiveInput() {
+  return activeKeys.size > 0 || controllerKeys.size > 0
 }
 
 function actionLabel(action) {
@@ -435,6 +446,110 @@ function enqueueAction(action) {
   if (!sent) {
     setFlow(connected ? `not_sent ${actionLabel(action)}` : "connect session first")
   }
+}
+
+function deadzoneAxis(value) {
+  const magnitude = Math.abs(Number(value) || 0)
+  if (magnitude <= controllerDeadzone) {
+    return 0
+  }
+  return Math.sign(value) * Math.min(
+    1,
+    (magnitude - controllerDeadzone) / (1 - controllerDeadzone)
+  )
+}
+
+function gamepadButtonValue(gamepad, index) {
+  const button = gamepad.buttons[index]
+  if (!button) {
+    return 0
+  }
+  return Math.max(
+    0,
+    Math.min(1, Number(button.value) || (button.pressed ? 1 : 0))
+  )
+}
+
+function readControllerState() {
+  if (!document.hasFocus() || typeof navigator.getGamepads !== "function") {
+    return { steering: 0, throttle: 0, brake: 0, connected: false }
+  }
+  const gamepad = Array.from(navigator.getGamepads()).find(Boolean)
+  if (!gamepad) {
+    return { steering: 0, throttle: 0, brake: 0, connected: false }
+  }
+  let steering = -deadzoneAxis(gamepad.axes[0])
+  if (gamepadButtonValue(gamepad, 14) > 0.5) {
+    steering = 1
+  }
+  if (gamepadButtonValue(gamepad, 15) > 0.5) {
+    steering = -1
+  }
+  return {
+    steering,
+    throttle: Math.max(
+      gamepadButtonValue(gamepad, 7),
+      gamepadButtonValue(gamepad, 12)
+    ),
+    brake: Math.max(
+      gamepadButtonValue(gamepad, 6),
+      gamepadButtonValue(gamepad, 13)
+    ),
+    connected: true,
+  }
+}
+
+function sameControllerState(a, b) {
+  return a && b && a.connected === b.connected
+    && Math.abs(a.steering - b.steering) < 0.01
+    && Math.abs(a.throttle - b.throttle) < 0.01
+    && Math.abs(a.brake - b.brake) < 0.01
+}
+
+function controllerDriveKeys(state) {
+  const keys = new Set()
+  if (!state.connected) {
+    return keys
+  }
+  if (state.throttle >= 0.2) keys.add("w")
+  if (state.brake >= 0.2) keys.add("s")
+  if (state.steering >= 0.2) keys.add("a")
+  if (state.steering <= -0.2) keys.add("d")
+  return keys
+}
+
+function sendControllerState(state, force = false) {
+  const now = performance.now()
+  const changed = !sameControllerState(state, lastControllerState)
+  if (!force && !changed && now - lastControllerSentAt < controllerKeepaliveMs) {
+    return false
+  }
+  if (!force && changed && now - lastControllerSentAt < controllerSendIntervalMs) {
+    return false
+  }
+  lastControllerState = state
+  lastControllerSentAt = now
+  controllerKeys.clear()
+  for (const key of controllerDriveKeys(state)) {
+    controllerKeys.add(key)
+  }
+  updateControlHighlights()
+  if (!connected || !controlChannel || controlChannel.readyState !== "open") {
+    return false
+  }
+  controlChannel.send(JSON.stringify({ type: "controller", controller: state }))
+  if (hasActiveInput()) {
+    inferenceInFlight = true
+    recordActionSent({ event: "controller" })
+    setStatus("Generating", "generating")
+    setFlow("sent controller state")
+  }
+  return true
+}
+
+function pollController() {
+  sendControllerState(readControllerState())
+  window.requestAnimationFrame(pollController)
 }
 
 function enqueueHeldKeyRepeats() {
@@ -525,7 +640,7 @@ function handleControlMessage(rawMessage) {
       parts.push(`queue=${queueDepth}`)
     }
     logEvent(parts.join(", "))
-    setStatus(activeKeys.size > 0 ? "Generating" : "Waiting", activeKeys.size > 0 ? "generating" : "waiting")
+    setStatus(hasActiveInput() ? "Generating" : "Waiting", hasActiveInput() ? "generating" : "waiting")
     setFlow(`chunk ${payload.chunk_index} complete`)
     if (activeKeys.size > 0) {
       enqueueHeldKeyRepeats()
@@ -690,6 +805,10 @@ function disconnectSession({ notify = true } = {}) {
     return
   }
   disconnecting = true
+  sendControllerState(
+    { steering: 0, throttle: 0, brake: 0, connected: false },
+    true
+  )
   releaseAllKeys()
   stopHeartbeat()
   stopStatsPolling()
@@ -737,6 +856,8 @@ async function connectSession() {
       setStatus("Waiting", "waiting")
       setFlow("connected; waiting for input")
       logEvent("control data channel open")
+      lastControllerState = null
+      sendControllerState(readControllerState(), true)
       startHeartbeat()
     }
     channel.onclose = () => {
@@ -912,6 +1033,7 @@ function initialize() {
   setFlow("waiting")
   renderMetrics()
   attachPointerControls()
+  window.requestAnimationFrame(pollController)
   window.requestAnimationFrame(drawIdleScene)
   startVideoFrameMonitor()
   void loadPostprocessOptions().catch((error) => {
@@ -935,7 +1057,23 @@ remoteVideo.addEventListener("emptied", () => {
 })
 window.addEventListener("keydown", handleKeyDown)
 window.addEventListener("keyup", handleKeyUp)
-window.addEventListener("blur", releaseAllKeys)
+window.addEventListener("blur", () => {
+  releaseAllKeys()
+  sendControllerState(
+    { steering: 0, throttle: 0, brake: 0, connected: false },
+    true
+  )
+})
+window.addEventListener("gamepadconnected", (event) => {
+  lastControllerState = null
+  logEvent(`controller connected: ${event.gamepad.id}`, { source: "client" })
+})
+window.addEventListener("gamepaddisconnected", () => {
+  sendControllerState(
+    { steering: 0, throttle: 0, brake: 0, connected: false },
+    true
+  )
+})
 window.addEventListener("pagehide", () => {
   disconnectSession()
 })

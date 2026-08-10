@@ -215,6 +215,8 @@ async def test_static_js_keeps_omnidreams_controls_and_lingbot_status_helpers() 
         assert 'const logState = document.getElementById("logState")' in body
         assert 'logState.textContent = state === "idle" ? "Waiting" : message' in body
         assert "eventLog.prepend(entry)" in body
+        assert "navigator.getGamepads" in body
+        assert 'type: "controller"' in body
     finally:
         await client.close()
 

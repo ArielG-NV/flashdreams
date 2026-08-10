@@ -1708,15 +1708,6 @@ class SlangPyHudPresenter:
             d.rounded_rectangle(
                 bev_rect, radius=10, outline=NVIDIA_GREEN + (255,), width=2
             )
-            d.rectangle(
-                (
-                    BEV_PANEL_SIDE_MARGIN,
-                    separator_y,
-                    panel_w - BEV_PANEL_SIDE_MARGIN,
-                    separator_y + 2,
-                ),
-                fill=NVIDIA_GREEN + (255,),
-            )
 
         self._panel_chrome_cache = chrome
         self._panel_chrome_cache_key = key
@@ -2013,6 +2004,15 @@ class SlangPyHudPresenter:
         bev_top = controls_bottom_y + BEV_PANEL_TOP_GAP
         if separator_y - BEV_PANEL_BOTTOM_MARGIN - bev_top < BEV_PANEL_MIN_HEIGHT:
             return
+        draw.rectangle(
+            (
+                left + BEV_PANEL_SIDE_MARGIN,
+                separator_y,
+                right - BEV_PANEL_SIDE_MARGIN,
+                separator_y + 2,
+            ),
+            fill=NVIDIA_GREEN + (255,),
+        )
         kind, device_name, rows = active_input_guide(self._controller_input)
         title = _truncate_text_to_width(
             self._font_small, device_name, right - left - 34

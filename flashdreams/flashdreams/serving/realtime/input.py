@@ -5,9 +5,11 @@
 
 from __future__ import annotations
 
+import math
 from collections import deque
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 
@@ -22,6 +24,105 @@ KEY_ALIASES = {
     "arrowdown": "s",
     "arrowright": "d",
 }
+
+WEB_CONTROLLER_KEY_THRESHOLD = 0.2
+"""Analog magnitude required before WebRTC emits a virtual drive key."""
+
+
+@dataclass(frozen=True, slots=True)
+class WebControllerState:
+    """Normalized browser controller state at a transport boundary."""
+
+    steering: float = 0.0
+    """Steering in ``[-1, 1]`` with positive values turning left."""
+
+    throttle: float = 0.0
+    """Throttle engagement in ``[0, 1]``."""
+
+    brake: float = 0.0
+    """Brake engagement in ``[0, 1]``."""
+
+    connected: bool = True
+    """Whether the browser still reports the source gamepad."""
+
+    @property
+    def active(self) -> bool:
+        """Return whether any drive control is materially engaged."""
+        return self.connected and (
+            abs(self.steering) > 0.01 or self.throttle > 0.01 or self.brake > 0.01
+        )
+
+
+def _controller_value(
+    payload: Mapping[str, Any], name: str, *, minimum: float, maximum: float
+) -> float:
+    value = payload.get(name, 0.0)
+    if isinstance(value, bool):
+        raise ValueError(f"Controller field {name!r} must be numeric.")
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Controller field {name!r} must be numeric.") from exc
+    if not math.isfinite(parsed):
+        raise ValueError(f"Controller field {name!r} must be finite.")
+    return max(minimum, min(maximum, parsed))
+
+
+def parse_web_controller_state(payload: Mapping[str, Any]) -> WebControllerState:
+    """Validate and normalize a browser controller payload.
+
+    Args:
+        payload: JSON-like controller mapping.
+
+    Returns:
+        Clamped transport-neutral state. A disconnected controller is neutral.
+
+    Raises:
+        ValueError: A field has an invalid type or non-finite value.
+    """
+    connected = payload.get("connected", True)
+    if not isinstance(connected, bool):
+        raise ValueError("Controller field 'connected' must be boolean.")
+    if not connected:
+        return WebControllerState(connected=False)
+    return WebControllerState(
+        steering=_controller_value(payload, "steering", minimum=-1.0, maximum=1.0),
+        throttle=_controller_value(payload, "throttle", minimum=0.0, maximum=1.0),
+        brake=_controller_value(payload, "brake", minimum=0.0, maximum=1.0),
+    )
+
+
+def web_controller_drive_keys(
+    state: WebControllerState,
+    *,
+    threshold: float = WEB_CONTROLLER_KEY_THRESHOLD,
+) -> frozenset[str]:
+    """Convert analog controller state to WebRTC drive keys.
+
+    Args:
+        state: Normalized browser controller state.
+        threshold: Minimum analog engagement for a virtual key edge.
+
+    Returns:
+        W/A/S/D-compatible keys supported by the realtime pose integrator.
+
+    Raises:
+        ValueError: ``threshold`` is outside ``[0, 1]``.
+    """
+    if not 0.0 <= threshold <= 1.0:
+        raise ValueError("Controller key threshold must be in [0, 1].")
+    if not state.connected:
+        return frozenset()
+    keys: set[str] = set()
+    if state.throttle >= threshold:
+        keys.add("w")
+    if state.brake >= threshold:
+        keys.add("s")
+    if state.steering >= threshold:
+        keys.add("a")
+    elif state.steering <= -threshold:
+        keys.add("d")
+    return frozenset(keys)
 
 
 @dataclass(frozen=True, slots=True)

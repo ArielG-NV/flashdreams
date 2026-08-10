@@ -70,6 +70,8 @@ def test_hud_draws_keyboard_guide_below_bev() -> None:
     guide_pixels = np.asarray(canvas.crop((0, 934, 500, 1080)))
     green_pixels = int(np.all(guide_pixels[:, :, :3] == (118, 185, 0), axis=2).sum())
     assert green_pixels > 100
+    separator = np.asarray(canvas)[922:925, 14:487, :3]
+    assert np.all(separator == (118, 185, 0))
 
 
 def test_cuda_existing_device_handles_uses_current_context_by_default(

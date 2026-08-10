@@ -10,7 +10,7 @@ import contextlib
 import inspect
 import json
 from collections import deque
-from collections.abc import Set as AbstractSet
+from collections.abc import Mapping, Set as AbstractSet
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any, Generic, TypeVar
@@ -23,7 +23,12 @@ from aiortc import (
 )
 from loguru import logger
 
-from flashdreams.serving.realtime.input import KeyboardResampler
+from flashdreams.serving.realtime.input import (
+    KeyboardResampler,
+    normalize_key,
+    parse_web_controller_state,
+    web_controller_drive_keys,
+)
 from flashdreams.serving.webrtc.encoders import (
     DefaultRTCEncoder,
     VideoEncoder,
@@ -31,6 +36,7 @@ from flashdreams.serving.webrtc.encoders import (
 from flashdreams.serving.webrtc.media import BufferedVideoTrack, NVENCVideoTrack
 from flashdreams.serving.webrtc.messages import (
     MESSAGE_TYPE_ACTION,
+    MESSAGE_TYPE_CONTROLLER,
     MESSAGE_TYPE_DISCONNECT,
     MESSAGE_TYPE_EVENT,
     MESSAGE_TYPE_HEARTBEAT,
@@ -107,6 +113,8 @@ class ManagedWebRTCSession:
     generation_task: asyncio.Task[Any] | None = None
     first_action_received: asyncio.Event = field(default_factory=asyncio.Event)
     pending_action_arrivals: deque[float] = field(default_factory=deque)
+    keyboard_keys: set[str] = field(default_factory=set)
+    controller_keys: set[str] = field(default_factory=set)
     last_client_message_at: float = 0.0
     liveness_task: asyncio.Task[Any] | None = None
     closed: bool = False
@@ -622,6 +630,46 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
     def send_exit_signal(self) -> None:
         self._runtime.send_exit_signal()
 
+    @staticmethod
+    def _replace_input_keys(
+        *,
+        managed_session: ManagedWebRTCSession,
+        source: str,
+        keys: set[str],
+        arrival_t: float,
+    ) -> bool:
+        """Replace one input source and emit edges for the merged key state.
+
+        Args:
+            managed_session: Session whose input sources are being updated.
+            source: Either ``keyboard`` or ``controller``.
+            keys: Complete normalized key set currently held by that source.
+            arrival_t: Monotonic arrival timestamp for generated edges.
+
+        Returns:
+            Whether the merged effective key set changed.
+
+        Raises:
+            ValueError: ``source`` is not a recognized input source.
+        """
+        previous = managed_session.keyboard_keys | managed_session.controller_keys
+        if source == "keyboard":
+            managed_session.keyboard_keys = keys
+        elif source == "controller":
+            managed_session.controller_keys = keys
+        else:
+            raise ValueError(f"Unknown input source {source!r}.")
+        current = managed_session.keyboard_keys | managed_session.controller_keys
+        for key in sorted(previous - current):
+            managed_session.resampler.on_edge(
+                arrival_t=arrival_t, event="keyup", key=key
+            )
+        for key in sorted(current - previous):
+            managed_session.resampler.on_edge(
+                arrival_t=arrival_t, event="keydown", key=key
+            )
+        return previous != current
+
     async def _handle_datachannel_message(
         self,
         *,
@@ -665,12 +713,37 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                 # want the model to generate an idle-camera chunk with updated text.
                 managed_session.first_action_received.set()
             return
+        if message_type == MESSAGE_TYPE_CONTROLLER:
+            controller_payload = payload.get("controller", payload)
+            if not isinstance(controller_payload, Mapping):
+                self._send_json(
+                    channel,
+                    make_error_payload("'controller' must be an object."),
+                )
+                return
+            try:
+                controller_state = parse_web_controller_state(controller_payload)
+            except ValueError as exc:
+                self._send_json(channel, make_error_payload(str(exc)))
+                return
+            arrival_t = asyncio.get_running_loop().time()
+            changed = self._replace_input_keys(
+                managed_session=managed_session,
+                source="controller",
+                keys=set(web_controller_drive_keys(controller_state)),
+                arrival_t=arrival_t,
+            )
+            if changed:
+                managed_session.pending_action_arrivals.append(arrival_t)
+                managed_session.first_action_received.set()
+            return
         if message_type != MESSAGE_TYPE_ACTION:
             self._send_json(
                 channel,
                 make_error_payload(
                     "Unsupported message type, expected "
-                    "'action', 'event', 'heartbeat', or 'disconnect'.",
+                    "'action', 'controller', 'event', 'heartbeat', or "
+                    "'disconnect'.",
                 ),
             )
             return
@@ -703,15 +776,24 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             )
             return
 
-        # Stamp arrival on the same monotonic clock that seeds the
-        # resampler's ``next_chunk_start_v`` so virtual-time comparisons in
-        # ``KeyboardResampler.sample_chunk`` are well-defined.
         arrival_t = asyncio.get_running_loop().time()
-        managed_session.resampler.on_edge(arrival_t=arrival_t, event=event, key=key)
-        managed_session.pending_action_arrivals.append(arrival_t)
-        # Releases the generation worker, which blocks on this until the
-        # user actually interacts. Idempotent once already set.
-        managed_session.first_action_received.set()
+        normalized_key = normalize_key(key)
+        keyboard_keys = set(managed_session.keyboard_keys)
+        if event == "keydown":
+            keyboard_keys.add(normalized_key)
+        else:
+            keyboard_keys.discard(normalized_key)
+        changed = self._replace_input_keys(
+            managed_session=managed_session,
+            source="keyboard",
+            keys=keyboard_keys,
+            arrival_t=arrival_t,
+        )
+        if changed:
+            managed_session.pending_action_arrivals.append(arrival_t)
+            # Releases the generation worker, which blocks on this until the
+            # user actually interacts. Idempotent once already set.
+            managed_session.first_action_received.set()
 
     async def _generation_worker(
         self, *, managed_session: ManagedWebRTCSession

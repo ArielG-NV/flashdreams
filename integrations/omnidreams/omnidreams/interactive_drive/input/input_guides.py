@@ -45,12 +45,27 @@ _CONTROL_LABELS = {
     "left": "D-pad left",
 }
 
+_NINTENDO_FACE_BUTTON_LABELS = {
+    "a": "A / East",
+    "b": "B / South",
+    "x": "X / North",
+    "y": "Y / West",
+}
+
 
 def _binding_label(profile: ControllerProfile, binding: Binding | None) -> str | None:
     if binding is None:
         return None
-    control = _CONTROL_LABELS.get(
-        binding.control, binding.control.replace("_", " ").title()
+    labels = (
+        _NINTENDO_FACE_BUTTON_LABELS
+        if profile.swap_face_buttons
+        else _CONTROL_LABELS
+    )
+    control = labels.get(
+        binding.control,
+        _CONTROL_LABELS.get(
+            binding.control, binding.control.replace("_", " ").title()
+        ),
     )
     if binding.is_raw_joystick and binding.device < len(profile.devices):
         return f"{profile.devices[binding.device].name}: {control}"

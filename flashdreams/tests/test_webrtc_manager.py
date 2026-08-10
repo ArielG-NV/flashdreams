@@ -503,6 +503,77 @@ async def test_step_action_starts_generation_without_key_edge() -> None:
     assert resampler.edges == []
 
 
+@pytest.mark.asyncio
+async def test_controller_message_emits_merged_drive_edges() -> None:
+    class _RecordingResampler(_FakeResampler):
+        def __init__(self) -> None:
+            self.edges: list[tuple[str, str]] = []
+
+        def on_edge(self, *, arrival_t: float, event: str, key: str) -> None:
+            del arrival_t
+            self.edges.append((event, key))
+
+    runtime = SimpleNamespace()
+    manager = _make_manager(_BaseTestManager, runtime)
+    managed, _video_track, _peer, _channel = _managed_session(runtime)
+    managed.first_action_received.clear()
+    resampler = _RecordingResampler()
+    managed.resampler = resampler  # ty:ignore[invalid-assignment]
+
+    await manager._handle_datachannel_message(
+        managed_session=managed,
+        raw_message=json.dumps(
+            {
+                "type": "controller",
+                "controller": {"steering": 0.8, "throttle": 0.9, "brake": 0},
+            }
+        ),
+    )
+
+    assert managed.controller_keys == {"w", "a"}
+    assert resampler.edges == [("keydown", "a"), ("keydown", "w")]
+    assert managed.first_action_received.is_set()
+    assert len(managed.pending_action_arrivals) == 1
+
+
+@pytest.mark.asyncio
+async def test_controller_release_does_not_release_keyboard_owned_key() -> None:
+    class _RecordingResampler(_FakeResampler):
+        def __init__(self) -> None:
+            self.edges: list[tuple[str, str]] = []
+
+        def on_edge(self, *, arrival_t: float, event: str, key: str) -> None:
+            del arrival_t
+            self.edges.append((event, key))
+
+    runtime = SimpleNamespace()
+    manager = _make_manager(_BaseTestManager, runtime)
+    managed, _video_track, _peer, _channel = _managed_session(runtime)
+    resampler = _RecordingResampler()
+    managed.resampler = resampler  # ty:ignore[invalid-assignment]
+
+    await manager._handle_datachannel_message(
+        managed_session=managed,
+        raw_message=json.dumps(
+            {"type": "action", "action": {"event": "keydown", "key": "w"}}
+        ),
+    )
+    await manager._handle_datachannel_message(
+        managed_session=managed,
+        raw_message=json.dumps({"type": "controller", "controller": {"throttle": 1.0}}),
+    )
+    await manager._handle_datachannel_message(
+        managed_session=managed,
+        raw_message=json.dumps(
+            {"type": "controller", "controller": {"connected": False}}
+        ),
+    )
+
+    assert resampler.edges == [("keydown", "w")]
+    assert managed.keyboard_keys == {"w"}
+    assert managed.controller_keys == set()
+
+
 def test_resolve_video_encoder_defaults_to_software_when_runtime_lacks_encoder() -> (
     None
 ):

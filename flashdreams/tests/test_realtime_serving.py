@@ -16,6 +16,9 @@ from flashdreams.serving.realtime.input import (
     PromptRequest,
     ResetRequest,
     SparseInputSnapshot,
+    WebControllerState,
+    parse_web_controller_state,
+    web_controller_drive_keys,
 )
 from flashdreams.serving.realtime.media import (
     encode_rgb_frame_to_jpeg,
@@ -24,6 +27,47 @@ from flashdreams.serving.realtime.media import (
 )
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def test_web_controller_payload_is_clamped_and_disconnect_is_neutral() -> None:
+    state = parse_web_controller_state(
+        {"steering": 2.0, "throttle": 0.75, "brake": -1.0}
+    )
+
+    assert state == WebControllerState(steering=1.0, throttle=0.75, brake=0.0)
+    assert state.active
+    assert parse_web_controller_state(
+        {"connected": False, "steering": 1.0, "throttle": 1.0}
+    ) == WebControllerState(connected=False)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"connected": "yes"},
+        {"steering": True},
+        {"throttle": float("nan")},
+        {"brake": "fast"},
+    ],
+)
+def test_web_controller_payload_rejects_invalid_values(
+    payload: dict[str, object],
+) -> None:
+    with pytest.raises(ValueError):
+        parse_web_controller_state(payload)
+
+
+def test_web_controller_maps_to_webrtc_drive_keys() -> None:
+    assert web_controller_drive_keys(
+        WebControllerState(steering=0.5, throttle=0.8, brake=0.1)
+    ) == frozenset({"w", "a"})
+    assert web_controller_drive_keys(
+        WebControllerState(steering=-0.5, brake=0.8)
+    ) == frozenset({"s", "d"})
+    assert (
+        web_controller_drive_keys(WebControllerState(steering=1.0, connected=False))
+        == frozenset()
+    )
 
 
 def test_keyboard_state_builds_sparse_snapshot_with_effective_keys() -> None:

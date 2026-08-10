@@ -76,6 +76,37 @@ def test_profile_round_trip(tmp_path: Path) -> None:
     assert load_controller_profiles(tmp_path) == (profile,)
 
 
+def test_profile_guide_uses_switch_face_button_positions_when_swapped() -> None:
+    profile = _profile(
+        swap_face_buttons=True,
+        bindings={
+            "reverse": Binding("button", "a"),
+            "reset": Binding("button", "x"),
+            "exit": Binding("button", "y"),
+        },
+    )
+
+    assert profile_guide(profile) == (
+        ("A / East", "Toggle reverse"),
+        ("X / North", "Reset / respawn"),
+        ("Y / West", "Exit scene"),
+    )
+
+
+def test_profile_guide_keeps_xbox_face_button_positions_without_swap() -> None:
+    profile = _profile(
+        bindings={
+            "reverse": Binding("button", "a"),
+            "reset": Binding("button", "x"),
+        },
+    )
+
+    assert profile_guide(profile) == (
+        ("A / South", "Toggle reverse"),
+        ("X / West", "Reset / respawn"),
+    )
+
+
 def test_yaml_schema_contains_no_platform_device_identifiers() -> None:
     data = controller_profile_to_yaml_dict(_profile())
     assert data["schema_version"] == 1

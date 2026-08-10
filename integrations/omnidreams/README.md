@@ -191,6 +191,12 @@ The request-session page only offers a **Post-process** selector when the server
 was launched with `--postprocess-preset`; the selector can toggle that launched
 preset off for the next connection.
 
+The browser viewer accepts a standard Gamepad API controller as well as WASD.
+Use the left stick or D-pad to steer, right trigger or D-pad up for throttle,
+and left trigger or D-pad down for braking. Controller state travels over the
+WebRTC control data channel and is merged with keyboard input, so releasing one
+input source does not release a direction still held by the other.
+
 ## Run gRPC server
 
 From the workspace root, run:

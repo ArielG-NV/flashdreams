@@ -17,7 +17,7 @@ import shutil
 import subprocess
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -31,6 +31,10 @@ from omnidreams.interactive_drive.loading_overlay import render_loading_overlay
 from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
 
 from flashdreams.serving.realtime.frame_bus import LatestFrameBus
+from flashdreams.serving.realtime.input import (
+    WebControllerState,
+    parse_web_controller_state,
+)
 from flashdreams.serving.realtime.media import (
     encode_rgb_frame_to_jpeg,
     rgb_frame_to_uint8,
@@ -40,6 +44,9 @@ from flashdreams.serving.realtime.media import (
 # doesn't matter as long as it never appears inside a JPEG payload (they
 # start with the JPEG SOI marker 0xFFD8 so ``--interactive_drive`` is always safe).
 _MULTIPART_BOUNDARY = "interactive_drive"
+
+_WEB_CONTROLLER_TIMEOUT_S = 1.0
+"""Maximum controller silence before the MJPEG path returns to keyboard input."""
 
 # Browser ``event.key`` values to the keysym strings that
 # :meth:`KeyboardDriveState.set_key` (in ``demo.py``) recognises. The
@@ -316,7 +323,7 @@ _INDEX_HTML = """<!doctype html>
 </head>
 <body>
 <img id="stream" src="/stream">
-<div class="hint">WASD / Arrows = Drive &middot; 1 = World-Model RGB &middot; 2 = HDMap &middot; R = Reset Rollout</div>
+<div class="hint">Controller / WASD / Arrows = Drive &middot; 1 = World-Model RGB &middot; 2 = HDMap &middot; R = Reset Rollout</div>
 <div class="scene-picker hidden" id="scene-picker">
   <button class="scene-picker-toggle" id="scene-picker-toggle" type="button">
     <span>Scenes</span>
@@ -348,11 +355,12 @@ const INDICATOR_FOR_KEY = {
   "d":"d","D":"d","ArrowRight":"d",
 };
 const PRESSED_INDICATORS = new Map();   // indicator-name -> count of held keys
+const CONTROLLER_INDICATORS = new Set();
 
 function paintIndicator(name) {
   const el = document.getElementById("key-" + name);
   if (!el) return;
-  const held = (PRESSED_INDICATORS.get(name) || 0) > 0;
+  const held = (PRESSED_INDICATORS.get(name) || 0) > 0 || CONTROLLER_INDICATORS.has(name);
   el.classList.toggle("down", held);
 }
 function bumpIndicator(name, delta) {
@@ -384,8 +392,93 @@ document.addEventListener('keyup', e => { if (!shouldIgnoreKey(e)) send(e.key, f
 window.addEventListener('blur', () => {
   DOWN_KEYS.forEach(k => send(k, false));
   PRESSED_INDICATORS.clear();
+  queueControllerState({ steering: 0, throttle: 0, brake: 0, connected: false }, true);
   ["w","a","s","d"].forEach(paintIndicator);
 });
+
+// Browser Gamepad API bridge. The first connected pad uses the standard
+// left-stick + trigger layout. Requests are serialized so a late HTTP
+// response cannot put stale input back after a newer neutral state.
+const CONTROLLER_DEADZONE = 0.12;
+const CONTROLLER_SEND_INTERVAL_MS = 50;
+const CONTROLLER_KEEPALIVE_MS = 250;
+let lastControllerState = null;
+let lastControllerSentAt = 0;
+let pendingControllerState = null;
+let controllerSending = false;
+
+function deadzoneAxis(value) {
+  const magnitude = Math.abs(Number(value) || 0);
+  if (magnitude <= CONTROLLER_DEADZONE) return 0;
+  return Math.sign(value) * Math.min(1, (magnitude - CONTROLLER_DEADZONE) / (1 - CONTROLLER_DEADZONE));
+}
+function gamepadButtonValue(gamepad, index) {
+  const button = gamepad.buttons[index];
+  return button ? Math.max(0, Math.min(1, Number(button.value) || (button.pressed ? 1 : 0))) : 0;
+}
+function readControllerState() {
+  if (!document.hasFocus() || typeof navigator.getGamepads !== 'function') {
+    return { steering: 0, throttle: 0, brake: 0, connected: false };
+  }
+  const gamepad = Array.from(navigator.getGamepads()).find(Boolean);
+  if (!gamepad) return { steering: 0, throttle: 0, brake: 0, connected: false };
+  let steering = -deadzoneAxis(gamepad.axes[0]);
+  if (gamepadButtonValue(gamepad, 14) > 0.5) steering = 1;
+  if (gamepadButtonValue(gamepad, 15) > 0.5) steering = -1;
+  const throttle = Math.max(gamepadButtonValue(gamepad, 7), gamepadButtonValue(gamepad, 12));
+  const brake = Math.max(gamepadButtonValue(gamepad, 6), gamepadButtonValue(gamepad, 13));
+  return { steering, throttle, brake, connected: true };
+}
+function sameControllerState(a, b) {
+  return a && b && a.connected === b.connected
+    && Math.abs(a.steering - b.steering) < 0.01
+    && Math.abs(a.throttle - b.throttle) < 0.01
+    && Math.abs(a.brake - b.brake) < 0.01;
+}
+function queueControllerState(state, force = false) {
+  const now = performance.now();
+  const changed = !sameControllerState(state, lastControllerState);
+  if (!force && !changed && now - lastControllerSentAt < CONTROLLER_KEEPALIVE_MS) return;
+  if (!force && changed && now - lastControllerSentAt < CONTROLLER_SEND_INTERVAL_MS) return;
+  lastControllerState = state;
+  lastControllerSentAt = now;
+  CONTROLLER_INDICATORS.clear();
+  if (state.throttle > 0.05) CONTROLLER_INDICATORS.add('w');
+  if (state.brake > 0.05) CONTROLLER_INDICATORS.add('s');
+  if (state.steering > 0.05) CONTROLLER_INDICATORS.add('a');
+  if (state.steering < -0.05) CONTROLLER_INDICATORS.add('d');
+  ["w","a","s","d"].forEach(paintIndicator);
+  pendingControllerState = state;
+  void flushControllerState();
+}
+async function flushControllerState() {
+  if (controllerSending) return;
+  controllerSending = true;
+  while (pendingControllerState) {
+    const state = pendingControllerState;
+    pendingControllerState = null;
+    try {
+      await fetch('/controller', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(state),
+        keepalive: true,
+      });
+    } catch {}
+  }
+  controllerSending = false;
+}
+function pollController() {
+  queueControllerState(readControllerState());
+  window.requestAnimationFrame(pollController);
+}
+window.addEventListener('gamepadconnected', () => {
+  lastControllerState = null;
+});
+window.addEventListener('gamepaddisconnected', () => {
+  queueControllerState({ steering: 0, throttle: 0, brake: 0, connected: false }, true);
+});
+window.requestAnimationFrame(pollController);
 // Speed readout polling. 100 ms keeps the digit lively without
 // generating meaningful HTTP load (~10 req/s of <100 B each).
 const speedEl = document.getElementById('speed');
@@ -605,7 +698,11 @@ class MJPEGStreamingPresenter:
         from omnidreams.interactive_drive.demo import KeyboardDriveState
 
         self._keyboard_drive_factory = KeyboardDriveState
-        self._keyboard_drive = KeyboardDriveState(_KeyboardDriveSink(keyboard))
+        self._controller_sink = _KeyboardDriveSink(keyboard)
+        self._keyboard_drive = KeyboardDriveState(self._controller_sink)
+        self._controller_lock = threading.Lock()
+        self._web_controller_state = WebControllerState(connected=False)
+        self._web_controller_updated_s = 0.0
 
         try:
             self._server = ThreadingHTTPServer(
@@ -714,13 +811,22 @@ class MJPEGStreamingPresenter:
     def bind_keyboard(self, keyboard: KeyboardState) -> None:
         """Re-target the presenter (and rebuild the keyboard-drive integrator) at ``keyboard``."""
         self._keyboard = keyboard
-        self._keyboard_drive = self._keyboard_drive_factory(
-            _KeyboardDriveSink(keyboard)
-        )
+        self._controller_sink = _KeyboardDriveSink(keyboard)
+        self._keyboard_drive = self._keyboard_drive_factory(self._controller_sink)
 
     def process_events(self) -> None:
-        # Per-tick integrator update so auto-crawl smoothing advances at sim
-        # cadence regardless of how often the browser posts /control events.
+        with self._controller_lock:
+            controller = self._web_controller_state
+            controller_age_s = time.monotonic() - self._web_controller_updated_s
+        if controller.active and controller_age_s <= _WEB_CONTROLLER_TIMEOUT_S:
+            self._controller_sink.set_drive(
+                steer=controller.steering,
+                throttle=controller.throttle,
+                brake=controller.brake,
+            )
+            return
+        # Per-tick keyboard integrator update so auto-crawl smoothing advances
+        # at simulation cadence whenever the web controller is neutral or stale.
         self._keyboard_drive.update()
 
     def prepare_frame(self, frame: PresentedFrame, view_mode: str) -> None:
@@ -837,6 +943,20 @@ class MJPEGStreamingPresenter:
             if key in ("r", "R"):
                 self._keyboard.request_reset()
 
+    def _apply_controller(self, payload: Mapping[str, object]) -> None:
+        """Apply a normalized browser Gamepad API payload.
+
+        Args:
+            payload: JSON controller state posted by the MJPEG viewer.
+
+        Raises:
+            ValueError: The controller payload is invalid.
+        """
+        state = parse_web_controller_state(payload)
+        with self._controller_lock:
+            self._web_controller_state = state
+            self._web_controller_updated_s = time.monotonic()
+
     def _state_snapshot(self) -> dict[str, float | None]:
         """JSON-serialisable telemetry snapshot from ``KeyboardState.vehicle_state``.
 
@@ -923,6 +1043,13 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
                 self._serve_control(parse_qs(parsed.query))
             else:
                 self.send_error(HTTPStatus.NOT_FOUND)
+
+        def do_POST(self) -> None:  # noqa: N802 (http.server mandated name)
+            parsed = urlparse(self.path)
+            if parsed.path != "/controller":
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            self._serve_controller()
 
         def _serve_index(self) -> None:
             body = _INDEX_HTML.encode("utf-8")
@@ -1064,6 +1191,28 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
                 down = False
             if key:
                 presenter._apply_control(key, down)
+            self.send_response(HTTPStatus.NO_CONTENT)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def _serve_controller(self) -> None:
+            """Accept one browser Gamepad API state as JSON."""
+            try:
+                content_length = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                self.send_error(HTTPStatus.BAD_REQUEST)
+                return
+            if content_length < 2 or content_length > 4096:
+                self.send_error(HTTPStatus.BAD_REQUEST)
+                return
+            try:
+                payload = json.loads(self.rfile.read(content_length))
+                if not isinstance(payload, dict):
+                    raise ValueError("Controller payload must be a JSON object.")
+                presenter._apply_controller(payload)
+            except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+                self.send_error(HTTPStatus.BAD_REQUEST)
+                return
             self.send_response(HTTPStatus.NO_CONTENT)
             self.send_header("Content-Length", "0")
             self.end_headers()

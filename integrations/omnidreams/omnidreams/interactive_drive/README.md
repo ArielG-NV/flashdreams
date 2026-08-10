@@ -301,7 +301,8 @@ SDL3 exposes positional controls, so Nintendo's printed button labels may differ
 from the Xbox-style semantic names shown in a mapping file. When a Switch Pro is
 presented as a virtual XInput controller, SDL cannot recover the hidden physical
 device identity. Enable **Nintendo labels through XInput** in the configurator
-to swap A/B and X/Y consistently for live feedback, capture, and runtime actions.
+to swap A/B and X/Y consistently for live feedback, capture, the HUD input guide,
+and runtime actions.
 
 To remap controls, install the desktop extra and launch:
 
@@ -361,8 +362,8 @@ uv run --package flashdreams-omnidreams interactive-drive \
   --stream-mjpeg 8080
 ```
 
-Open `http://<host-ip>:8080/` in a browser on the same network; keyboard
-events posted from the page are forwarded to the demo over the same socket.
+Open `http://<host-ip>:8080/` in a browser on the same network; keyboard and
+Gamepad API controller events posted from the page are forwarded to the demo.
 The flag accepts `8080`, `:8080`, or `0.0.0.0:8080` (all equivalent — bind
 on all interfaces); pass an explicit host (`127.0.0.1:8080`) to restrict
 the listener to a single interface.
@@ -385,7 +386,11 @@ matches the desktop modes' affordances:
 - **WASD chiclets** light up while the corresponding direction key is
   held. The page tracks the `keydown`/`keyup` set locally so the
   highlight is zero-latency (no server round-trip); arrow keys light
-  the same chiclets as their letter equivalents.
+  the same chiclets as their letter equivalents. A connected controller also
+  lights them: left stick or D-pad steers, right trigger or D-pad up applies
+  throttle, and left trigger or D-pad down applies the brake. MJPEG preserves
+  the analog stick and trigger values. If controller messages stop for one
+  second, the server drops that state and returns control to the keyboard.
 - **Auto-crawl**: releasing throttle keeps the ego creeping toward
   ~10 mph (4.47 m/s) instead of coasting to a stop, matching the
   alpasim manual-driver behaviour and the slangpy HUD's keyboard
