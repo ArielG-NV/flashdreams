@@ -7,7 +7,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from omnidreams.interactive_drive.input.wheel_profiles import Binding, WheelProfile
+from omnidreams.interactive_drive.input.controller_profiles import (
+    Binding,
+    ControllerProfile,
+)
 
 KEYBOARD_GUIDE: tuple[tuple[str, str], ...] = (
     ("W / Up", "Throttle"),
@@ -43,7 +46,7 @@ _CONTROL_LABELS = {
 }
 
 
-def _binding_label(profile: WheelProfile, binding: Binding | None) -> str | None:
+def _binding_label(profile: ControllerProfile, binding: Binding | None) -> str | None:
     if binding is None:
         return None
     control = _CONTROL_LABELS.get(
@@ -54,7 +57,7 @@ def _binding_label(profile: WheelProfile, binding: Binding | None) -> str | None
     return control
 
 
-def profile_guide(profile: WheelProfile) -> tuple[tuple[str, str], ...]:
+def profile_guide(profile: ControllerProfile) -> tuple[tuple[str, str], ...]:
     rows: list[tuple[str, str]] = []
     for action, label in (
         ("steering", "Steer"),
@@ -71,9 +74,13 @@ def profile_guide(profile: WheelProfile) -> tuple[tuple[str, str], ...]:
 
 
 def active_input_guide(
-    wheel: Any | None,
+    controller_input: Any | None,
 ) -> tuple[str, str, tuple[tuple[str, str], ...]]:
-    if wheel is not None and wheel.state.connected:
-        kind = "wheel" if wheel.profile.is_joystick else "controller"
-        return kind, wheel.profile.display_name, profile_guide(wheel.profile)
+    if controller_input is not None and controller_input.state.connected:
+        kind = "wheel" if controller_input.profile.is_joystick else "controller"
+        return (
+            kind,
+            controller_input.profile.display_name,
+            profile_guide(controller_input.profile),
+        )
     return "keyboard", "Keyboard", KEYBOARD_GUIDE

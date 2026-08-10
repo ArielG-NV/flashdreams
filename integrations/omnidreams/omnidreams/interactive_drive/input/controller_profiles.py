@@ -93,12 +93,18 @@ class DeviceSpec:
     kind: str = "unknown"
     ordinal: int = 0
 
+    def __post_init__(self) -> None:
+        if not self.name.strip():
+            raise ValueError("SDL3 joystick device name cannot be empty")
+        if self.vendor_id < 0 or self.product_id < 0 or self.ordinal < 0:
+            raise ValueError("SDL3 joystick identifiers must be non-negative")
+
 
 @dataclass(frozen=True)
 class Binding:
     """An SDL3 semantic control or a raw joystick axis/button.
 
-    ``device`` indexes :attr:`WheelProfile.devices` for joystick bindings.
+    ``device`` indexes :attr:`ControllerProfile.devices` for joystick bindings.
     ``rest`` stores a pedal's released value in SDL's normalized ``[-1, 1]``
     range; ``invert`` means engagement moves toward ``-1``.
     """
@@ -133,7 +139,7 @@ class Binding:
 
 
 @dataclass(frozen=True)
-class WheelProfile:
+class ControllerProfile:
     """Driving input profile for either SDL3 Gamepad or Joystick input."""
 
     name: str
@@ -155,6 +161,33 @@ class WheelProfile:
             raise ValueError(f"Unknown SDL3 input backend: {self.backend!r}")
         if self.ffb_mode not in FFB_MODES:
             raise ValueError(f"Unknown SDL3 force-feedback mode: {self.ffb_mode!r}")
+        unknown_actions = set(self.bindings) - set(DRIVE_ACTIONS)
+        if unknown_actions:
+            raise ValueError(f"Unknown driving actions: {sorted(unknown_actions)!r}")
+        for action, binding in self.bindings.items():
+            if self.backend == GAMEPAD_BACKEND and binding.is_raw_joystick:
+                raise ValueError(
+                    f"Gamepad action {action!r} must use an SDL3 semantic control"
+                )
+            if self.backend == GAMEPAD_BACKEND and binding.device != 0:
+                raise ValueError("SDL3 gamepad bindings cannot select a device index")
+            if self.backend == JOYSTICK_BACKEND and not binding.is_raw_joystick:
+                raise ValueError(
+                    f"Joystick action {action!r} must use an SDL3 joystick control"
+                )
+            if self.backend == JOYSTICK_BACKEND and binding.device >= len(self.devices):
+                raise ValueError(
+                    f"Joystick action {action!r} refers to missing device "
+                    f"{binding.device}"
+                )
+        if not 0.0 < self.steering_range <= 1.0:
+            raise ValueError("steering_range must be in (0, 1]")
+        if not 0.0 <= self.steering_deadzone < 1.0:
+            raise ValueError("steering_deadzone must be in [0, 1)")
+        if not 0.0 <= self.ffb_gain <= 1.0:
+            raise ValueError("ffb_gain must be in [0, 1]")
+        if self.backend == GAMEPAD_BACKEND and self.ffb_enabled:
+            raise ValueError("SDL3 gamepad profiles cannot enable wheel force feedback")
 
     @property
     def is_joystick(self) -> bool:
@@ -167,9 +200,6 @@ class WheelProfile:
         if self.swap_face_buttons:
             return _SWAPPED_FACE_BUTTONS.get(name, name)
         return name
-
-
-ControllerProfile = WheelProfile
 
 
 @dataclass
@@ -199,8 +229,8 @@ def parse_joystick_control_key(value: str) -> tuple[int, str] | None:
     return None if match is None else (int(match.group(1)), match.group(2))
 
 
-def default_controller_profile() -> WheelProfile:
-    return WheelProfile(
+def default_controller_profile() -> ControllerProfile:
+    return ControllerProfile(
         name="sdl3-default",
         display_name="SDL3 game controller",
         bindings={
@@ -212,9 +242,9 @@ def default_controller_profile() -> WheelProfile:
     )
 
 
-def default_wheel_profile() -> WheelProfile:
+def default_joystick_profile() -> ControllerProfile:
     """Return an empty generic-wheel profile used while configuring devices."""
-    return WheelProfile(
+    return ControllerProfile(
         name="sdl3-wheel",
         display_name="SDL3 wheel and pedals",
         backend=JOYSTICK_BACKEND,
@@ -250,10 +280,10 @@ def normalize_pedal(value: float, binding: Binding) -> float:
     return max(0.0, min(1.0, (value - rest) / span))
 
 
-def user_wheel_profiles_dir() -> Path:
+def user_controller_profiles_dir() -> Path:
     from omnidreams.scenes import FLASHDREAMS_CACHE_DIR
 
-    return FLASHDREAMS_CACHE_DIR / "interactive-drive" / "wheels"
+    return FLASHDREAMS_CACHE_DIR / "interactive-drive" / "controllers"
 
 
 def profile_filename(name: str) -> str:
@@ -262,13 +292,10 @@ def profile_filename(name: str) -> str:
 
 
 def _binding_from_data(value: Any) -> Binding:
-    if isinstance(value, str):
-        kind = "axis" if value in SDL3_AXES or value.startswith("axis_") else "button"
-        return Binding(kind, value)
     if not isinstance(value, dict):
         raise TypeError(f"SDL3 binding must be a mapping, got {value!r}")
     return Binding(
-        str(value.get("type", value.get("kind", ""))),
+        str(value["type"]),
         str(value["control"]),
         device=int(value.get("device", 0)),
         rest=None if value.get("rest") is None else float(value["rest"]),
@@ -279,14 +306,8 @@ def _binding_from_data(value: Any) -> Binding:
 def _device_from_data(value: Any) -> DeviceSpec:
     if not isinstance(value, dict):
         raise TypeError(f"SDL3 joystick device must be a mapping, got {value!r}")
-    patterns = value.get("detection_patterns") or ()
-    name = (
-        value.get("name")
-        or value.get("display_name")
-        or (patterns[0] if patterns else "")
-    )
     return DeviceSpec(
-        name=str(name or "SDL3 joystick"),
+        name=str(value["name"]),
         guid=str(value.get("guid") or ""),
         vendor_id=int(value.get("vendor_id", 0)),
         product_id=int(value.get("product_id", 0)),
@@ -295,95 +316,28 @@ def _device_from_data(value: Any) -> DeviceSpec:
     )
 
 
-def _legacy_binding(value: Any, kind: str, *, invert: bool = False) -> Binding | None:
-    if not value:
-        return None
-    item = value[0] if isinstance(value, list) else value
-    if isinstance(item, dict):
-        device, code = int(item.get("device", 0)), item.get("code")
-    else:
-        device, code = 0, item
-    try:
-        index = int(code)
-    except (TypeError, ValueError):
-        return None
-    return Binding(kind, f"{kind}_{index}", device=device, invert=invert)
-
-
-def _migrate_legacy_profile(data: dict[str, Any]) -> WheelProfile:
-    """Preserve version-1 wheel/pedal profiles using SDL joystick indices."""
-    raw_devices = data.get("devices")
-    if isinstance(raw_devices, list) and raw_devices:
-        devices = tuple(_device_from_data(item) for item in raw_devices)
-    else:
-        patterns = tuple(str(item) for item in data.get("detection_patterns", ()))
-        devices = (DeviceSpec(name=patterns[0] if patterns else "SDL3 joystick"),)
-
-    inverted_pedals = bool((data.get("pedal") or {}).get("inverted", True))
-    bindings: dict[str, Binding] = {}
-    for action, raw in (data.get("axis_map") or {}).items():
-        if str(action) not in {"steering", "throttle", "brake"}:
-            continue
-        if isinstance(raw, dict):
-            device, code = int(raw.get("device", 0)), raw.get("code")
-        else:
-            device, code = 0, raw
-        try:
-            bindings[str(action)] = Binding(
-                "axis",
-                f"axis_{int(code)}",
-                device=device,
-                invert=inverted_pedals and action in {"throttle", "brake"},
-            )
-        except (TypeError, ValueError):
-            continue
-    for action in ("reverse", "reset", "exit", "throttle", "brake"):
-        binding = _legacy_binding(data.get(f"{action}_buttons"), "button")
-        if binding is not None:
-            bindings[action] = binding
-
-    ffb = data.get("ffb") or {}
-    logger.warning(
-        "Migrated legacy raw profile {!r} to SDL3 joystick indices; verify the "
-        "mapping once in interactive-drive-configuration.",
-        data.get("name", "profile"),
-    )
-    return WheelProfile(
-        name=str(data.get("name") or "sdl3-wheel"),
-        display_name=str(data.get("display_name") or "SDL3 wheel and pedals"),
-        backend=JOYSTICK_BACKEND,
-        devices=devices,
-        bindings=bindings,
-        invert_steering=bool(data.get("invert_steering", False)),
-        steering_range=float(data.get("steering_range", 1.0)),
-        steering_deadzone=float(data.get("steering_deadzone", 0.01)),
-        ffb_enabled=bool(ffb.get("enabled", False)),
-        ffb_mode=str(ffb.get("mode", "auto")),
-        ffb_gain=float(ffb.get("gain", 0.5)),
-        is_default=bool(data.get("is_default", False)),
-    )
-
-
-def wheel_profile_from_yaml_dict(data: dict[str, Any]) -> WheelProfile:
+def controller_profile_from_yaml_dict(data: dict[str, Any]) -> ControllerProfile:
+    if data.get("schema_version") != 1:
+        raise ValueError("SDL3 controller profile schema_version must be 1")
     raw_bindings = data.get("bindings")
     if not isinstance(raw_bindings, dict):
-        return _migrate_legacy_profile(data)
-    backend_value = str(data.get("backend") or GAMEPAD_BACKEND).lower()
-    backend = JOYSTICK_BACKEND if "joystick" in backend_value else GAMEPAD_BACKEND
+        raise TypeError("SDL3 controller profile bindings must be a mapping")
+    backend = str(data["backend"])
+    unknown_actions = set(map(str, raw_bindings)) - set(DRIVE_ACTIONS)
+    if unknown_actions:
+        raise ValueError(f"Unknown driving actions: {sorted(unknown_actions)!r}")
     bindings = {
-        str(action): _binding_from_data(value)
-        for action, value in raw_bindings.items()
-        if str(action) in DRIVE_ACTIONS
+        str(action): _binding_from_data(value) for action, value in raw_bindings.items()
     }
-    if backend == GAMEPAD_BACKEND:
-        defaults = default_controller_profile().bindings
-        for required in ("steering", "throttle", "brake"):
-            bindings.setdefault(required, defaults[required])
-    raw_devices = data.get("devices") or ()
+    raw_devices = data.get("devices", [])
+    if not isinstance(raw_devices, list):
+        raise TypeError("SDL3 controller profile devices must be a list")
     ffb = data.get("ffb") or {}
-    return WheelProfile(
-        name=str(data.get("name") or "sdl3-controller"),
-        display_name=str(data.get("display_name") or "SDL3 input device"),
+    if not isinstance(ffb, dict):
+        raise TypeError("SDL3 controller profile ffb must be a mapping")
+    return ControllerProfile(
+        name=str(data["name"]),
+        display_name=str(data["display_name"]),
         bindings=bindings,
         backend=backend,
         devices=tuple(_device_from_data(item) for item in raw_devices),
@@ -409,9 +363,9 @@ def _binding_to_data(binding: Binding) -> dict[str, Any]:
     return data
 
 
-def wheel_profile_to_yaml_dict(profile: WheelProfile) -> dict[str, Any]:
+def controller_profile_to_yaml_dict(profile: ControllerProfile) -> dict[str, Any]:
     data: dict[str, Any] = {
-        "schema_version": 3,
+        "schema_version": 1,
         "backend": profile.backend,
         "name": profile.name,
         "display_name": profile.display_name,
@@ -445,36 +399,38 @@ def wheel_profile_to_yaml_dict(profile: WheelProfile) -> dict[str, Any]:
     return data
 
 
-def load_wheel_profile_files(directory: Path) -> tuple[tuple[Path, WheelProfile], ...]:
+def load_controller_profile_files(
+    directory: Path,
+) -> tuple[tuple[Path, ControllerProfile], ...]:
     if not directory.is_dir():
         return ()
-    loaded: list[tuple[Path, WheelProfile]] = []
+    loaded: list[tuple[Path, ControllerProfile]] = []
     for path in sorted((*directory.glob("*.yaml"), *directory.glob("*.yml"))):
         try:
             data = yaml.safe_load(path.read_text(encoding="utf-8"))
             if not isinstance(data, dict):
                 raise TypeError("profile root must be a mapping")
-            loaded.append((path, wheel_profile_from_yaml_dict(data)))
-        except (OSError, TypeError, ValueError, yaml.YAMLError) as exc:
+            loaded.append((path, controller_profile_from_yaml_dict(data)))
+        except (KeyError, OSError, TypeError, ValueError, yaml.YAMLError) as exc:
             logger.warning(f"Skipping invalid input profile {path}: {exc}")
     return tuple(loaded)
 
 
-def load_wheel_profiles(directory: Path) -> tuple[WheelProfile, ...]:
-    return tuple(profile for _path, profile in load_wheel_profile_files(directory))
+def load_controller_profiles(directory: Path) -> tuple[ControllerProfile, ...]:
+    return tuple(profile for _path, profile in load_controller_profile_files(directory))
 
 
-def save_wheel_profile(profile: WheelProfile, directory: Path) -> Path:
+def save_controller_profile(profile: ControllerProfile, directory: Path) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / profile_filename(profile.name)
     update_profile_file(path, profile)
     return path
 
 
-def update_profile_file(path: Path, profile: WheelProfile) -> None:
+def update_profile_file(path: Path, profile: ControllerProfile) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        yaml.safe_dump(wheel_profile_to_yaml_dict(profile), sort_keys=False),
+        yaml.safe_dump(controller_profile_to_yaml_dict(profile), sort_keys=False),
         encoding="utf-8",
     )
 
@@ -489,7 +445,7 @@ class Sdl3ControllerBridge:
     def __init__(
         self,
         *,
-        profile: WheelProfile,
+        profile: ControllerProfile,
         control: Any | None = None,
         on_input: Callable[[ControllerState], None] | None = None,
     ) -> None:
@@ -504,11 +460,11 @@ class Sdl3ControllerBridge:
         self._signed_triggers = False
 
     @property
-    def profile(self) -> WheelProfile:
+    def profile(self) -> ControllerProfile:
         return self._profile
 
     @profile.setter
-    def profile(self, value: WheelProfile) -> None:
+    def profile(self, value: ControllerProfile) -> None:
         if value.swap_face_buttons != self._profile.swap_face_buttons:
             raw_buttons = {
                 self._profile.map_button(name) for name in self._state.buttons
@@ -540,10 +496,10 @@ class Sdl3ControllerBridge:
         window.on_gamepad_state = self._on_gamepad_state
 
     def start(self) -> None:
-        """Compatibility no-op; SDL3 input starts when attached."""
+        """Start input handling; SDL3 gamepad callbacks begin on attachment."""
 
     def poll(self) -> None:
-        """Compatibility no-op; SlangPy pushes gamepad state callbacks."""
+        """Allow uniform bridge polling; SlangPy pushes gamepad state callbacks."""
 
     def stop(self) -> None:
         if self._window is not None:
@@ -679,7 +635,7 @@ class Sdl3ControllerBridge:
 
 def create_input_bridge(
     *,
-    profile: WheelProfile,
+    profile: ControllerProfile,
     control: Any | None = None,
     on_input: Callable[[ControllerState], None] | None = None,
 ):

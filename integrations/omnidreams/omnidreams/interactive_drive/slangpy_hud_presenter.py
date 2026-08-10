@@ -292,7 +292,7 @@ class SlangPyHudPresenter:
         args: Any,
         scene_options: tuple[Any, ...],
         control_assets: Any,
-        wheel: Any | None,
+        controller_input: Any | None,
     ) -> None:
         try:
             import slangpy as spy
@@ -308,7 +308,7 @@ class SlangPyHudPresenter:
         self._args = args
         self._scene_options = scene_options
         self._control_assets = control_assets
-        self._wheel = wheel
+        self._controller_input = controller_input
 
         # Late-imports of helpers we need at runtime; ``demo`` imports
         # this module via the presenter factory, so direct top-level
@@ -368,8 +368,8 @@ class SlangPyHudPresenter:
         self._window.on_resize = self._on_resize
         self._window.on_keyboard_event = self._on_keyboard_event
         self._window.on_mouse_event = self._on_mouse_event
-        if self._wheel is not None:
-            self._wheel.attach(self._window, spy.GamepadButton)
+        if self._controller_input is not None:
+            self._controller_input.attach(self._window, spy.GamepadButton)
 
         self._font_tiny = _resolve_font(14)
         self._font_small = _resolve_font(18)
@@ -522,8 +522,8 @@ class SlangPyHudPresenter:
 
     def process_events(self) -> None:
         self._window.process_events()
-        if self._wheel is not None:
-            self._wheel.poll()
+        if self._controller_input is not None:
+            self._controller_input.poll()
         # A controller's bound exit button posts its request onto the shared
         # ``KeyboardState`` from SDL3's event callback; drain it here on the
         # main thread and convert it into the presenter's own
@@ -641,12 +641,12 @@ class SlangPyHudPresenter:
             with contextlib.suppress(Exception):
                 interop.close()
         retired_interops.clear()
-        if self._wheel is not None:
+        if self._controller_input is not None:
             try:
-                self._wheel.stop()
+                self._controller_input.stop()
             except Exception as exc:  # noqa: BLE001 -- defensive teardown
-                logger.warning(f"[presenter] wheel.stop() failed: {exc!r}")
-            self._wheel = None
+                logger.warning(f"[presenter] controller input stop failed: {exc!r}")
+            self._controller_input = None
         with contextlib.suppress(Exception):
             self._window.close()
 
@@ -1414,8 +1414,11 @@ class SlangPyHudPresenter:
         :meth:`_update_speed` run on every tick, including ticks where
         the side panel is not drawn (narrow window / camera-only mode).
         """
-        if self._wheel is not None and self._wheel.state.connected:
-            return self._wheel.state
+        if (
+            self._controller_input is not None
+            and self._controller_input.state.connected
+        ):
+            return self._controller_input.state
         return self._keyboard_drive.update()
 
     def _draw_panel(
@@ -2010,7 +2013,7 @@ class SlangPyHudPresenter:
         bev_top = controls_bottom_y + BEV_PANEL_TOP_GAP
         if separator_y - BEV_PANEL_BOTTOM_MARGIN - bev_top < BEV_PANEL_MIN_HEIGHT:
             return
-        kind, device_name, rows = active_input_guide(self._wheel)
+        kind, device_name, rows = active_input_guide(self._controller_input)
         title = _truncate_text_to_width(
             self._font_small, device_name, right - left - 34
         )
@@ -2725,17 +2728,20 @@ class SlangPyHudPresenter:
         self._keyboard.clear_telemetry()
         self._pending_drive_releases.clear()
 
-    def set_wheel(self, wheel: Any | None) -> None:
+    def set_controller_input(self, controller_input: Any | None) -> None:
         """Attach (or detach) SDL3 controller/wheel input after construction.
 
         SDL3 owns detection, hot-plugging, and mapping. Generic joystick
         profiles are polled from this presenter's normal event loop.
         """
-        if self._wheel is not None and self._wheel is not wheel:
-            self._wheel.stop()
-        self._wheel = wheel
-        if wheel is not None:
-            wheel.attach(self._window, self._spy.GamepadButton)
+        if (
+            self._controller_input is not None
+            and self._controller_input is not controller_input
+        ):
+            self._controller_input.stop()
+        self._controller_input = controller_input
+        if controller_input is not None:
+            controller_input.attach(self._window, self._spy.GamepadButton)
 
     def bind_keyboard(self, keyboard: KeyboardState) -> None:
         """Rebind to the engine's long-lived ``KeyboardState``.

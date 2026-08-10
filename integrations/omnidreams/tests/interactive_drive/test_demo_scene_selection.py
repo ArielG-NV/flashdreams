@@ -27,6 +27,15 @@ def test_auto_start_flag_and_deprecated_alias() -> None:
     assert parser.parse_args(["--no-autoload-scene"]).auto_start is False
 
 
+@pytest.mark.parametrize(
+    "legacy_option",
+    ("--wheel-profile", "--wheel-profiles-dir", "--no-wheel"),
+)
+def test_legacy_controller_options_are_rejected(legacy_option: str) -> None:
+    with pytest.raises(SystemExit):
+        build_parser().parse_args([legacy_option])
+
+
 def test_resolve_scene_variant_prefers_weather_archive_path_for_default(
     tmp_path: Path,
 ) -> None:

@@ -20,12 +20,12 @@ from omnidreams import scenes as _scenes
 from omnidreams.interactive_drive import cli as _cli
 from omnidreams.interactive_drive.app import InteractiveDriveApp
 from omnidreams.interactive_drive.config import BevConfig, RasterConfig
-from omnidreams.interactive_drive.input.wheel_profiles import (
-    WheelProfile,
+from omnidreams.interactive_drive.input.controller_profiles import (
+    ControllerProfile,
     create_input_bridge,
     default_controller_profile,
-    load_wheel_profiles,
-    user_wheel_profiles_dir,
+    load_controller_profiles,
+    user_controller_profiles_dir,
 )
 from omnidreams.interactive_drive.log import configure_logging
 from omnidreams.interactive_drive.synthetic_scene import build_synthetic_scene_to_temp
@@ -297,18 +297,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--controller-profile",
-        "--wheel-profile",
         dest="controller_profile",
         default="auto",
         help=(
             "SDL3 controller/wheel mapping name. 'auto' uses the default profile "
-            "created by interactive-drive-configuration, then the portable "
+            "created by interactive-drive-remapper, then the portable "
             "built-in mapping."
         ),
     )
     parser.add_argument(
         "--controller-profiles-dir",
-        "--wheel-profiles-dir",
         dest="controller_profiles_dir",
         type=Path,
         default=_cli._PACKAGE_ROOT / "configs/controllers",
@@ -327,7 +325,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--no-controller",
-        "--no-wheel",
         dest="no_controller",
         action="store_true",
         help="Disable SDL3 controller, wheel, and pedal input.",
@@ -503,7 +500,7 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
         args=args,
         scene_options=scene_options,
         control_assets=control_assets,
-        wheel=None,
+        controller_input=None,
     )
 
     # Build the backend + engine ONCE, up front. Constructing the app
@@ -529,14 +526,14 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
 
     # Attach SDL3 input to the presenter's existing event loop. Gamepads use
     # semantic callbacks; wheels and pedal sets use SDL's portable joystick poll.
-    wheel: Any = None
+    controller_input: Any = None
     if controller_profile is not None:
-        wheel = create_input_bridge(
+        controller_input = create_input_bridge(
             profile=controller_profile,
             control=KeyboardStateDriveSink(app.keyboard),
         )
-        presenter.set_wheel(wheel)
-        wheel.start()
+        presenter.set_controller_input(controller_input)
+        controller_input.start()
 
     if args.preload_scenes:
         app.preload_scenes(
@@ -1091,18 +1088,20 @@ def _variant_label(variant: str) -> str:
     return labels.get(variant, variant)
 
 
-def _merged_controller_profiles(cli_profiles_dir: Path) -> tuple[WheelProfile, ...]:
+def _merged_controller_profiles(
+    cli_profiles_dir: Path,
+) -> tuple[ControllerProfile, ...]:
     """Load user mappings before optional packaged mappings."""
-    merged: dict[str, WheelProfile] = {}
+    merged: dict[str, ControllerProfile] = {}
     for profile in (
-        *load_wheel_profiles(user_wheel_profiles_dir()),
-        *load_wheel_profiles(cli_profiles_dir),
+        *load_controller_profiles(user_controller_profiles_dir()),
+        *load_controller_profiles(cli_profiles_dir),
     ):
         merged.setdefault(profile.name.lower(), profile)
     return tuple(merged.values())
 
 
-def _select_controller_profile(args: argparse.Namespace) -> WheelProfile:
+def _select_controller_profile(args: argparse.Namespace) -> ControllerProfile:
     """Choose an SDL3 semantic-gamepad or generic-joystick profile."""
     profiles = _merged_controller_profiles(args.controller_profiles_dir)
     requested = str(args.controller_profile)
@@ -1110,7 +1109,9 @@ def _select_controller_profile(args: argparse.Namespace) -> WheelProfile:
         profile = next((item for item in profiles if item.is_default), None)
         if profile is None:
             profile = profiles[0] if profiles else default_controller_profile()
-        logger.info(f"[demo] SDL3 input mapping={profile.name} backend={profile.backend}")
+        logger.info(
+            f"[demo] SDL3 input mapping={profile.name} backend={profile.backend}"
+        )
         return profile
 
     normalized = requested.lower().replace("_", "-")

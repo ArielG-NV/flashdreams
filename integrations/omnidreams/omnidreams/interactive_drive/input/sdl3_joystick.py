@@ -26,11 +26,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from loguru import logger
-from omnidreams.interactive_drive.input.wheel_profiles import (
+from omnidreams.interactive_drive.input.controller_profiles import (
+    ControllerProfile,
     ControllerState,
     DeviceSpec,
     FFB_MODES,
-    WheelProfile,
     apply_steering_curve,
     joystick_control_key,
     normalize_pedal,
@@ -71,6 +71,19 @@ def _load_sdl3():
             "flashdreams-omnidreams --extra interactive-drive`. The first "
             "use also downloads SDL3's native library into the FlashDreams cache."
         ) from exc
+    required_symbols = (
+        "SDL_InitSubSystem",
+        "SDL_GetJoysticks",
+        "SDL_OpenJoystick",
+        "SDL_UpdateJoysticks",
+    )
+    missing = [name for name in required_symbols if not hasattr(sdl3, name)]
+    if missing:
+        raise RuntimeError(
+            "The installed 'sdl3' module is not PySDL3 with joystick support "
+            f"(missing {', '.join(missing)}). Reinstall the interactive-drive "
+            "extra to replace the incompatible module."
+        )
     return sdl3
 
 
@@ -468,7 +481,7 @@ class Sdl3JoystickBridge:
     def __init__(
         self,
         *,
-        profile: WheelProfile,
+        profile: ControllerProfile,
         control: Any | None = None,
         on_input: Callable[[ControllerState], None] | None = None,
         system: Sdl3JoystickSystem | Any | None = None,
@@ -487,11 +500,11 @@ class Sdl3JoystickBridge:
         self._started = False
 
     @property
-    def profile(self) -> WheelProfile:
+    def profile(self) -> ControllerProfile:
         return self._profile
 
     @profile.setter
-    def profile(self, value: WheelProfile) -> None:
+    def profile(self, value: ControllerProfile) -> None:
         self._profile = value
         self._publish()
 

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Tkinter wizard for SDL3 controller, wheel, and pedal configuration."""
+"""Tkinter remapper for SDL3 controllers, wheels, and pedal devices."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from typing import Any
 
 import yaml
 from loguru import logger
-from omnidreams.interactive_drive.input.wheel_profiles import (
+from omnidreams.interactive_drive.input.controller_profiles import (
     FFB_MODES,
     GAMEPAD_BACKEND,
     JOYSTICK_BACKEND,
@@ -21,23 +21,23 @@ from omnidreams.interactive_drive.input.wheel_profiles import (
     Binding,
     ControllerState,
     DeviceSpec,
-    WheelProfile,
+    ControllerProfile,
     apply_steering_curve,
     create_input_bridge,
     default_controller_profile,
-    default_wheel_profile,
+    default_joystick_profile,
     delete_profile_file,
     joystick_control_key,
-    load_wheel_profile_files,
+    load_controller_profile_files,
     normalize_pedal,
     parse_joystick_control_key,
     profile_filename,
-    save_wheel_profile,
+    save_controller_profile,
     update_profile_file,
-    user_wheel_profiles_dir,
-    wheel_profile_to_yaml_dict,
+    user_controller_profiles_dir,
+    controller_profile_to_yaml_dict,
 )
-from omnidreams.interactive_drive.input_config.capture import CaptureSession
+from omnidreams.interactive_drive.controller_remapper.capture import CaptureSession
 from omnidreams.interactive_drive.log import configure_logging
 
 try:  # Tkinter is stdlib but needs the system Tk package installed.
@@ -145,8 +145,8 @@ def _device_spec(device, ordinal: int) -> DeviceSpec:
     )
 
 
-class ConfigApp:
-    """Wizard controller built around a single ``tk.Tk`` root."""
+class ControllerRemapperApp:
+    """SDL3 remapping wizard built around a single ``tk.Tk`` root."""
 
     def __init__(self, root, *, spy=None) -> None:
         if spy is None:
@@ -154,7 +154,7 @@ class ConfigApp:
                 import slangpy as spy
             except ImportError as exc:
                 raise RuntimeError(
-                    "Input configuration requires the interactive-drive extra: "
+                    "The input remapper requires the interactive-drive extra: "
                     "uv sync --package flashdreams-omnidreams --extra interactive-drive"
                 ) from exc
 
@@ -162,7 +162,7 @@ class ConfigApp:
         self.spy = spy
         self.ui_scale = _display_scale(root)
         self.root.tk.call("tk", "scaling", (_REFERENCE_DPI / 72.0) * self.ui_scale)
-        self.root.title("interactive-drive input configuration")
+        self.root.title("interactive-drive SDL3 remapper")
         self.root.geometry(f"{self._px(780)}x{self._px(740)}")
         self.root.minsize(self._px(760), self._px(700))
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -172,7 +172,7 @@ class ConfigApp:
         self.activity_var = tk.StringVar(value="")
         self._saved = False
         self._step_index = 0
-        self._editing: tuple[Path, WheelProfile] | None = None
+        self._editing: tuple[Path, ControllerProfile] | None = None
         self._capture = CaptureSession()
         self._capture_buttons: dict[str, Any] = {}
         self._capture_results: dict[str, Any] = {}
@@ -192,7 +192,7 @@ class ConfigApp:
             resizable=False,
         )
         self._working_profile = replace(
-            default_wheel_profile(), bindings={}, is_default=False
+            default_joystick_profile(), bindings={}, is_default=False
         )
         self._bridge = self._new_bridge(self._working_profile)
 
@@ -206,7 +206,7 @@ class ConfigApp:
     def _canvas_coords(self, *values: float) -> tuple[float, ...]:
         return tuple(float(value) * self.ui_scale for value in values)
 
-    def _new_bridge(self, profile: WheelProfile):
+    def _new_bridge(self, profile: ControllerProfile):
         bridge_profile = (
             replace(profile, ffb_enabled=False) if profile.is_joystick else profile
         )
@@ -221,7 +221,7 @@ class ConfigApp:
             replace(profile, ffb_enabled=False) if profile.is_joystick else profile
         )
 
-    def _replace_bridge(self, profile: WheelProfile) -> None:
+    def _replace_bridge(self, profile: ControllerProfile) -> None:
         self._bridge.stop()
         self._working_profile = profile
         self._bindings = dict(profile.bindings)
@@ -337,7 +337,7 @@ class ConfigApp:
             self._editing = None
             self._step_index = 0
             self._replace_bridge(
-                replace(default_wheel_profile(), bindings={}, is_default=False)
+                replace(default_joystick_profile(), bindings={}, is_default=False)
             )
             self._render()
             return
@@ -348,8 +348,8 @@ class ConfigApp:
     ## Welcome and profile management
 
     def _build_welcome(self) -> None:
-        self.title_var.set("Input device configuration")
-        entries = load_wheel_profile_files(user_wheel_profiles_dir())
+        self.title_var.set("SDL3 controller remapper")
+        entries = load_controller_profile_files(user_controller_profiles_dir())
         saved = ttk.LabelFrame(
             self.content,
             text="Saved profiles",
@@ -412,20 +412,22 @@ class ConfigApp:
             variable=self.device_type_var,
         ).pack(anchor="w")
 
-    def _start_edit(self, path: Path, profile: WheelProfile) -> None:
+    def _start_edit(self, path: Path, profile: ControllerProfile) -> None:
         self._editing = (path, profile)
         self._replace_bridge(profile)
         self._render()
 
-    def _delete_profile(self, path: Path, profile: WheelProfile) -> None:
+    def _delete_profile(self, path: Path, profile: ControllerProfile) -> None:
         if messagebox.askyesno("Delete profile", f"Delete '{profile.display_name}'?"):
             delete_profile_file(path)
             self._editing = None
             self._render()
 
-    def _toggle_default(self, path: Path, profile: WheelProfile) -> None:
+    def _toggle_default(self, path: Path, profile: ControllerProfile) -> None:
         make_default = not profile.is_default
-        for other_path, other in load_wheel_profile_files(user_wheel_profiles_dir()):
+        for other_path, other in load_controller_profile_files(
+            user_controller_profiles_dir()
+        ):
             desired = (
                 make_default
                 if other_path == path
@@ -551,7 +553,7 @@ class ConfigApp:
             command=lambda: self._delete_profile(*self._editing),
         ).pack(anchor="w", pady=(self._px(10), 0))
 
-    def _profile_binding_summary(self, profile: WheelProfile) -> str:
+    def _profile_binding_summary(self, profile: ControllerProfile) -> str:
         return ", ".join(
             f"{_ACTION_LABELS[action]}={self._binding_label(binding, profile)}"
             for action, binding in profile.bindings.items()
@@ -591,7 +593,7 @@ class ConfigApp:
         self._editing = None
         self._step_index = 0
         self._replace_bridge(
-            replace(default_wheel_profile(), bindings={}, is_default=False)
+            replace(default_joystick_profile(), bindings={}, is_default=False)
         )
         self._render()
 
@@ -905,7 +907,7 @@ class ConfigApp:
             else binding.control
         )
 
-    def _binding_label(self, binding: Binding, profile: WheelProfile) -> str:
+    def _binding_label(self, binding: Binding, profile: ControllerProfile) -> str:
         control = binding.control.replace("_", " ").title()
         if binding.is_raw_joystick:
             device = (
@@ -1175,7 +1177,7 @@ class ConfigApp:
         profile = self._compose_profile()
         self.state["_profile"] = profile
         preview = yaml.safe_dump(
-            wheel_profile_to_yaml_dict(profile),
+            controller_profile_to_yaml_dict(profile),
             sort_keys=False,
             default_flow_style=False,
         )
@@ -1183,7 +1185,7 @@ class ConfigApp:
             self.content,
             text=(
                 "Will be written to:\n"
-                f"{user_wheel_profiles_dir() / profile_filename(profile.name)}"
+                f"{user_controller_profiles_dir() / profile_filename(profile.name)}"
             ),
             justify="left",
         ).pack(anchor="w", pady=(0, self._px(8)))
@@ -1200,7 +1202,7 @@ class ConfigApp:
             previous_swap = bool(self.state.get("swap_face_buttons", False))
             self.state = {"device_type": kind}
             profile = (
-                default_wheel_profile()
+                default_joystick_profile()
                 if kind == "wheel"
                 else default_controller_profile()
             )
@@ -1249,7 +1251,7 @@ class ConfigApp:
             return True, ""
         return True, ""
 
-    def _compose_profile(self) -> WheelProfile:
+    def _compose_profile(self) -> ControllerProfile:
         bindings = dict(self._bindings)
         devices = self._working_profile.devices
         if self._working_profile.is_joystick:
@@ -1268,7 +1270,7 @@ class ConfigApp:
                 else binding
                 for action, binding in bindings.items()
             }
-        return WheelProfile(
+        return ControllerProfile(
             name=self.state["name"],
             display_name=self.state["display_name"],
             bindings=bindings,
@@ -1295,7 +1297,7 @@ class ConfigApp:
     def _save(self) -> None:
         profile = self.state.get("_profile") or self._compose_profile()
         try:
-            path = save_wheel_profile(profile, user_wheel_profiles_dir())
+            path = save_controller_profile(profile, user_controller_profiles_dir())
         except OSError as exc:
             messagebox.showerror("Could not save", str(exc))
             return
@@ -1309,10 +1311,12 @@ class ConfigApp:
             "uv run --package flashdreams-omnidreams interactive-drive",
         )
 
-    def _demote_other_defaults(self, path: Path, profile: WheelProfile) -> None:
+    def _demote_other_defaults(self, path: Path, profile: ControllerProfile) -> None:
         if not profile.is_default:
             return
-        for other_path, other in load_wheel_profile_files(user_wheel_profiles_dir()):
+        for other_path, other in load_controller_profile_files(
+            user_controller_profiles_dir()
+        ):
             if other_path != path and other.is_default:
                 update_profile_file(other_path, replace(other, is_default=False))
 
@@ -1530,7 +1534,7 @@ def main() -> None:
     _enable_high_dpi_awareness()
     root = tk.Tk()
     try:
-        ConfigApp(root)
+        ControllerRemapperApp(root)
     except RuntimeError as exc:
         root.destroy()
         logger.error(str(exc))

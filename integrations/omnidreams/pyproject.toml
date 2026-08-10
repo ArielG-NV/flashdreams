@@ -113,9 +113,9 @@ omnidreams-eval = "omnidreams.eval.cli:main"
 # presenter import fails fast with a clear message.
 interactive-drive = "omnidreams.interactive_drive.demo:main"
 
-# Tkinter UI for SDL3 gamepads, generic wheels, and separate pedal devices.
+# Cross-platform SDL3 remapper for gamepads, wheels, and separate pedals.
 # Install the ``interactive-drive`` extra first.
-interactive-drive-configuration = "omnidreams.interactive_drive.input_config.app:main"
+interactive-drive-remapper = "omnidreams.interactive_drive.controller_remapper.app:main"
 
 # Each entry registers one ``runner_name`` slug with ``flashdreams-run``.
 # The discovery layer (``flashdreams.plugins.registry.discover_runners``)
@@ -139,7 +139,7 @@ exclude = ["tests"]
 "omnidreams.webrtc.web" = ["*.html", "*.css", "*.js", "assets/*.svg"]
 "omnidreams.interactive_drive" = [
     "configs/*.yaml",
-    "configs/wheels/*.yaml",
+    "configs/controllers/*.yaml",
     "assets/README.md",
     "assets/wheel_and_pedals/*.png",
     "assets/controller/*.png",

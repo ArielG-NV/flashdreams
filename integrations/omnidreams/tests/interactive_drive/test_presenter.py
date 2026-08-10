@@ -49,7 +49,7 @@ def _hud_presenter_without_window() -> SlangPyHudPresenter:
 
 def test_hud_draws_keyboard_guide_below_bev() -> None:
     presenter = _hud_presenter_without_window()
-    presenter._wheel = None
+    presenter._controller_input = None
     presenter._font_tiny = _resolve_font(14)
     presenter._font_small = _resolve_font(18)
     presenter._input_icons = {

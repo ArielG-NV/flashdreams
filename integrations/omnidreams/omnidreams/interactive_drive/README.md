@@ -223,7 +223,7 @@ continues with a valid candidate.
 
 All commands below are run from the **flashdreams workspace root**. The
 `interactive-drive` CLI's defaults for `--scene`, `--manifest`,
-`--scene-dir`, and `--wheel-profiles-dir` resolve to the bundled assets in
+`--scene-dir`, and `--controller-profiles-dir` resolve to the bundled assets in
 this subpackage (via `__file__`), so you don't have to pass long
 `integrations/omnidreams/omnidreams/interactive_drive/...` paths unless
 you want to override them.
@@ -307,7 +307,7 @@ To remap controls, install the desktop extra and launch:
 
 ```bash
 uv sync --package flashdreams-omnidreams --extra interactive-drive
-uv run --package flashdreams-omnidreams interactive-drive-configuration
+uv run --package flashdreams-omnidreams interactive-drive-remapper
 ```
 
 Choose **Game controller** for Switch Pro, Xbox/XInput, and PlayStation-style
@@ -320,17 +320,17 @@ the scene on a timer. Optional SDL3 wheel-centering mode and strength are saved
 with the profile. The default `auto` mode prefers hardware autocenter and falls
 back to a constant-force centering effect for wheels such as Fanatec; it degrades
 cleanly if the device has no compatible haptic support.
-**Save as default** writes YAML to
-`$FLASHDREAMS_CACHE_DIR/interactive-drive/wheels/`; existing raw-code profiles
-are migrated to SDL3 joystick indices and should then be reviewed in the mapper.
+**Save as default** writes SDL3-only YAML to
+`$FLASHDREAMS_CACHE_DIR/interactive-drive/controllers/`. Profiles from the old
+platform-specific format are intentionally rejected; recreate them in the
+remapper so the saved controls use SDL3 semantic names or joystick indices.
 
 Use `--controller-profile <name>` to select a saved mapping, or
 `--controller-profile auto` (the default) to choose the saved default and then
 fall back to the portable mapping. `--no-controller` disables local SDL3
-controller input. The former `--wheel-profile`, `--wheel-profiles-dir`, and
-`--no-wheel` spellings remain accepted as command-line aliases. Platform-specific
-raw device and axis-code command-line options remain removed; the configurator
-now owns portable raw SDL3 wheel and pedal mapping.
+controller input. The remapper owns portable SDL3 gamepad, wheel, and pedal
+mapping; platform-specific device paths and the former `--wheel-*` options are
+not supported.
 
 ### `--no-hud`: bare backend, local Vulkan window
 

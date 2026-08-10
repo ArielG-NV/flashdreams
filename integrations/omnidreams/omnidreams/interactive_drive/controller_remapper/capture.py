@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Pure SDL3 semantic and raw-joystick capture used by the mapping UI."""
+"""Pure SDL3 semantic and raw-joystick capture used by the remapper UI."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from omnidreams.interactive_drive.input.wheel_profiles import (
+from omnidreams.interactive_drive.input.controller_profiles import (
     Binding,
     ControllerState,
     parse_joystick_control_key,

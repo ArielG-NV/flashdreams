@@ -6,16 +6,16 @@
 from __future__ import annotations
 
 import pytest
-from omnidreams.interactive_drive.input.wheel_profiles import (
+from omnidreams.interactive_drive.input.controller_profiles import (
     Binding,
     ControllerState,
 )
-from omnidreams.interactive_drive.input_config.capture import (
+from omnidreams.interactive_drive.controller_remapper.capture import (
     CaptureSession,
     captured_binding,
     moved_axis,
 )
-from omnidreams.interactive_drive.input_config.app import _ui_scale_for_display
+from omnidreams.interactive_drive.controller_remapper.app import _ui_scale_for_display
 
 pytestmark = pytest.mark.ci_cpu
 

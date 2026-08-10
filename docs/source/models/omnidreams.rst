@@ -242,27 +242,28 @@ Steering wheel and game controller
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 A steering wheel or game controller can be used to control the local window mode.
-Any device that Ubuntu detects as a standard game controller
-or joystick is viable. We provide a configuration tool to calibrate these:
+The SDL3 backend handles standard gamepads and joysticks across Windows and
+Linux. Use the remapper to bind semantic gamepad controls or raw SDL3
+wheel/pedal axes:
 
 .. code-block:: bash
 
-   uv run --package flashdreams-omnidreams interactive-drive-configuration
+   uv run --package flashdreams-omnidreams interactive-drive-remapper
 
 The demo auto-loads your default profile on subsequent launches. When you
-have more than one profile, the configuration tool's start screen lists them
+have more than one profile, the remapper's start screen lists them
 with **Make default** (plus Edit and Delete) buttons -- re-run the tool to
 choose which profile ``interactive-drive`` loads by default, tweak a profile
 (steering sensitivity, deadzone, buttons, force feedback), or remove one.
 
 **Multiple devices.** A profile can bind controls across several devices --
 for example a wheel base plus a separately-connected or different-brand pedal
-set. Ctrl+click to select more than one device on the configuration tool's
+set. Ctrl+click to select more than one device on the remapper's
 device page; each control binds to whichever selected device it moves on.
 
-**Force feedback.** The method is auto-detected per wheel: a driver-managed
+**Force feedback.** SDL3 auto-detects the method per wheel: a driver-managed
 autocenter spring (Thrustmaster, Logitech) or a self-rendered constant force
-(Fanatec, which has no autocenter). FFB needs the vendor's Linux driver and
+(Fanatec, which has no autocenter). On Linux, FFB needs the vendor's driver and
 write access to ``/dev/input/*`` (add your user to the ``input`` group):
 
 .. list-table::

@@ -6,10 +6,13 @@
 from __future__ import annotations
 
 import ctypes
+import sys
+import types
 from pathlib import Path
 
 import pytest
 import yaml
+from omnidreams import scenes
 from omnidreams.interactive_drive.input.input_guides import profile_guide
 from omnidreams.interactive_drive.input.sdl3_joystick import (
     JoystickDevice,
@@ -17,26 +20,28 @@ from omnidreams.interactive_drive.input.sdl3_joystick import (
     Sdl3JoystickBridge,
     Sdl3JoystickSystem,
 )
-from omnidreams.interactive_drive.input.wheel_profiles import (
+from omnidreams.interactive_drive.input.sdl3_joystick import _load_sdl3
+from omnidreams.interactive_drive.input.controller_profiles import (
     GAMEPAD_BACKEND,
     JOYSTICK_BACKEND,
     Binding,
     DeviceSpec,
     Sdl3ControllerBridge,
-    WheelProfile,
+    ControllerProfile,
     apply_steering_curve,
+    controller_profile_from_yaml_dict,
+    controller_profile_to_yaml_dict,
     default_controller_profile,
-    load_wheel_profiles,
+    load_controller_profiles,
     normalize_pedal,
-    save_wheel_profile,
-    user_wheel_profiles_dir,
-    wheel_profile_to_yaml_dict,
+    save_controller_profile,
+    user_controller_profiles_dir,
 )
 
 pytestmark = pytest.mark.ci_cpu
 
 
-def _profile(**overrides) -> WheelProfile:
+def _profile(**overrides) -> ControllerProfile:
     values = {
         "name": "switch-pro",
         "display_name": "Switch Pro",
@@ -53,7 +58,7 @@ def _profile(**overrides) -> WheelProfile:
         "is_default": True,
     }
     values.update(overrides)
-    return WheelProfile(**values)
+    return ControllerProfile(**values)
 
 
 def test_default_mapping_uses_sdl3_semantic_controls() -> None:
@@ -67,13 +72,13 @@ def test_default_mapping_uses_sdl3_semantic_controls() -> None:
 
 def test_profile_round_trip(tmp_path: Path) -> None:
     profile = _profile(swap_face_buttons=True)
-    save_wheel_profile(profile, tmp_path)
-    assert load_wheel_profiles(tmp_path) == (profile,)
+    save_controller_profile(profile, tmp_path)
+    assert load_controller_profiles(tmp_path) == (profile,)
 
 
 def test_yaml_schema_contains_no_platform_device_identifiers() -> None:
-    data = wheel_profile_to_yaml_dict(_profile())
-    assert data["schema_version"] == 3
+    data = controller_profile_to_yaml_dict(_profile())
+    assert data["schema_version"] == 1
     assert data["backend"] == GAMEPAD_BACKEND
     assert data["bindings"]["throttle"] == {
         "type": "axis",
@@ -84,7 +89,7 @@ def test_yaml_schema_contains_no_platform_device_identifiers() -> None:
     assert "code" not in text
 
 
-def test_legacy_raw_profile_migrates_to_sdl3_joystick_indices(tmp_path: Path) -> None:
+def test_legacy_raw_profile_is_rejected(tmp_path: Path) -> None:
     legacy = {
         "name": "old-switch-pro",
         "display_name": "Nintendo Switch Pro Controller",
@@ -94,20 +99,26 @@ def test_legacy_raw_profile_migrates_to_sdl3_joystick_indices(tmp_path: Path) ->
         "reset_buttons": [{"device": 0, "code": 315}],
         "ffb": {"enabled": True, "mode": "constant_force", "gain": 0.4},
     }
+    with pytest.raises(ValueError, match="schema_version must be 1"):
+        controller_profile_from_yaml_dict(legacy)
     (tmp_path / "legacy.yaml").write_text(yaml.safe_dump(legacy), encoding="utf-8")
-    (profile,) = load_wheel_profiles(tmp_path)
-    assert profile.backend == JOYSTICK_BACKEND
-    assert profile.binding("steering") == Binding("axis", "axis_0")
-    assert profile.binding("throttle") == Binding("button", "button_313")
-    assert profile.binding("brake") == Binding("button", "button_312")
-    assert profile.binding("reset") == Binding("button", "button_315")
-    assert profile.ffb_enabled is True
-    assert profile.ffb_mode == "constant_force"
-    assert profile.ffb_gain == 0.4
+    assert load_controller_profiles(tmp_path) == ()
 
 
-def test_multi_device_wheel_profile_round_trip(tmp_path: Path) -> None:
-    profile = WheelProfile(
+def test_string_binding_shorthand_is_rejected() -> None:
+    data = controller_profile_to_yaml_dict(_profile())
+    data["bindings"]["steering"] = "left_x"
+    with pytest.raises(TypeError, match="binding must be a mapping"):
+        controller_profile_from_yaml_dict(data)
+
+
+def test_gamepad_profile_rejects_raw_joystick_controls() -> None:
+    with pytest.raises(ValueError, match="semantic control"):
+        _profile(bindings={"steering": Binding("axis", "axis_0")})
+
+
+def test_multi_device_joystick_profile_round_trip(tmp_path: Path) -> None:
+    profile = ControllerProfile(
         name="wheel-and-pedals",
         display_name="Wheel + Pedals",
         backend=JOYSTICK_BACKEND,
@@ -125,8 +136,8 @@ def test_multi_device_wheel_profile_round_trip(tmp_path: Path) -> None:
         ffb_mode="constant_force",
         ffb_gain=0.65,
     )
-    save_wheel_profile(profile, tmp_path)
-    assert load_wheel_profiles(tmp_path) == (profile,)
+    save_controller_profile(profile, tmp_path)
+    assert load_controller_profiles(tmp_path) == (profile,)
     assert ("Generic Wheel: Axis 0", "Steer") in profile_guide(profile)
     assert ("USB Pedals: Axis 1", "Throttle") in profile_guide(profile)
 
@@ -146,6 +157,15 @@ def test_invalid_semantic_control_is_rejected() -> None:
 def test_invalid_force_feedback_mode_is_rejected() -> None:
     with pytest.raises(ValueError, match="force-feedback mode"):
         _profile(ffb_mode="fanatec-special")
+
+
+def test_sdl3_loader_rejects_an_incompatible_module(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(scenes, "FLASHDREAMS_CACHE_DIR", tmp_path)
+    monkeypatch.setitem(sys.modules, "sdl3", types.SimpleNamespace())
+    with pytest.raises(RuntimeError, match="not PySDL3 with joystick support"):
+        _load_sdl3()
 
 
 def test_auto_ffb_falls_back_to_constant_force_without_autocenter() -> None:
@@ -482,7 +502,7 @@ def test_generic_wheel_and_separate_pedals_drive_through_sdl3() -> None:
             JoystickSnapshot(pedals, (-1.0, 0.0, 1.0), frozenset()),
         )
     )
-    profile = WheelProfile(
+    profile = ControllerProfile(
         name="generic-wheel",
         display_name="Generic Wheel + USB Pedals",
         backend=JOYSTICK_BACKEND,
@@ -525,7 +545,7 @@ def test_generic_wheel_and_separate_pedals_drive_through_sdl3() -> None:
 def test_missing_separate_pedals_preserves_wheel_connection() -> None:
     wheel = _joystick_device(10, "Generic Wheel", "wheel-guid")
     system = _JoystickSystem((JoystickSnapshot(wheel, (-0.25, 0.0, 0.0), frozenset()),))
-    profile = WheelProfile(
+    profile = ControllerProfile(
         name="generic-wheel",
         display_name="Generic Wheel + USB Pedals",
         backend=JOYSTICK_BACKEND,
@@ -553,4 +573,6 @@ def test_user_dir_follows_cache_env(monkeypatch, tmp_path) -> None:
     from omnidreams import scenes
 
     monkeypatch.setattr(scenes, "FLASHDREAMS_CACHE_DIR", tmp_path)
-    assert user_wheel_profiles_dir() == tmp_path / "interactive-drive" / "wheels"
+    assert user_controller_profiles_dir() == (
+        tmp_path / "interactive-drive" / "controllers"
+    )
