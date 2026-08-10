@@ -81,15 +81,36 @@ class BufferedVideoTrack(MediaStreamTrack):
     def qsize(self) -> int:
         return self._frames.qsize()
 
-    async def enqueue_result(self, result: StepResult) -> int:
+    def prepare_result_frames(self, result: StepResult) -> tuple[np.ndarray, ...]:
+        if self._closed:
+            return ()
+        return tuple(self._frame_converter(result))
+
+    async def enqueue_frames(self, frames: Sequence[np.ndarray]) -> int:
         if self._closed:
             return 0
-        frames = await asyncio.to_thread(self._frame_converter, result)
         for i, frame in enumerate(frames):
             if self._closed:
                 return i
             await self._frames.put(frame)
         return len(frames)
+
+    async def enqueue_result(self, result: StepResult) -> int:
+        if self._closed:
+            return 0
+        frames = await asyncio.to_thread(self.prepare_result_frames, result)
+        return await self.enqueue_frames(frames)
+
+    async def flush(self) -> None:
+        """Drop queued frames while keeping the RTP timestamp sequence alive."""
+        if self._closed:
+            return
+        while True:
+            try:
+                self._frames.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        self._next_deadline_s = None
 
     async def recv(self) -> VideoFrame:
         if self._closed:
@@ -233,6 +254,17 @@ class NVENCVideoTrack(MediaStreamTrack):
                 )
         self._packets.put_nowait(packet)
         return True
+
+    async def flush(self) -> None:
+        """Drop queued encoded packets while preserving the open media track."""
+        if self._closed:
+            return
+        while True:
+            try:
+                self._packets.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        self._next_deadline_s = None
 
     async def recv(self) -> Packet:
         if self._closed:

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ from flashdreams.runtime import InferenceConfig
 from flashdreams.runtime.demo import (
     DemoSpec,
     Mp4OutputSpec,
+    NullOutputSpec,
     WebRTCOutputSpec,
 )
 from flashdreams.runtime.demo.app import DemoApplication
@@ -22,6 +24,10 @@ from flashdreams.runtime.demo.app import DemoApplication
 from .adapter import OmnidreamsDemoAdapter
 from .spec import (
     DEFAULT_OMNIDREAMS_PRESET,
+    DEFAULT_OMNIDREAMS_WEBRTC_SCENE_UUID,
+    OMNIDREAMS_CONDITIONING_LUDUS,
+    OMNIDREAMS_CONDITIONING_MODES,
+    OMNIDREAMS_CONDITIONING_PRECOMPUTED,
     OMNIDREAMS_MODEL_ID,
     OmnidreamsWebRTCScenario,
 )
@@ -33,13 +39,32 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    replay = subparsers.add_parser("replay", help="Run an MP4 replay demo.")
+    replay = subparsers.add_parser("replay", help="Run a finite replay demo.")
     replay.add_argument("--preset-id", default=DEFAULT_OMNIDREAMS_PRESET)
     replay.add_argument("--device", default="cuda")
+    replay.add_argument("--seed", type=int, default=42)
+    replay.add_argument(
+        "--conditioning-mode",
+        choices=OMNIDREAMS_CONDITIONING_MODES,
+        default=OMNIDREAMS_CONDITIONING_PRECOMPUTED,
+    )
     replay.add_argument("--prompt", default=None)
     replay.add_argument("--hdmap-video-paths", type=_split_paths, default=())
     replay.add_argument("--first-frame-paths", type=_split_paths, default=())
     replay.add_argument("--camera-names", type=_split_strings, default=())
+    replay.add_argument("--keyboard-trace", type=Path, default=None)
+    replay.add_argument("--scene-path", type=Path, default=None)
+    replay.add_argument("--scene-dir", type=Path, default=None)
+    replay.add_argument("--scene-uuid", default=DEFAULT_OMNIDREAMS_WEBRTC_SCENE_UUID)
+    replay.add_argument("--scene-variant", default="default")
+    replay.add_argument("--camera-name", default="camera_front_wide_120fov")
+    replay.add_argument("--move-speed-per-s", type=float, default=6.0)
+    replay.add_argument(
+        "--rotate-speed-rad-per-s",
+        type=float,
+        default=math.radians(35.0),
+    )
+    replay.add_argument("--ludus-backend", choices=("cuda", "vulkan"), default="cuda")
     replay.add_argument(
         "--example-data",
         action=argparse.BooleanOptionalAction,
@@ -54,7 +79,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     replay.add_argument("--pixel-height", type=int, default=704)
     replay.add_argument("--pixel-width", type=int, default=1280)
     replay.add_argument("--fps", type=int, default=30)
-    replay.add_argument("--output", type=Path, required=True)
+    replay.add_argument("--output-mode", choices=("mp4", "null"), default="mp4")
+    replay.add_argument("--output", type=Path, default=None)
 
     webrtc = subparsers.add_parser("webrtc", help="Serve a WebRTC driving demo.")
     webrtc.add_argument("--preset-id", default=DEFAULT_OMNIDREAMS_PRESET)
@@ -74,7 +100,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     webrtc.add_argument("--client-liveness-timeout-s", type=float, default=10.0)
     webrtc.add_argument("--debug-serve-hdmaps", action="store_true")
     webrtc.add_argument("--prefer-sw-encoder", action="store_true")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.command == "replay":
+        if args.output_mode == "mp4" and args.output is None:
+            parser.error("replay --output is required when --output-mode=mp4.")
+        if args.output_mode == "null" and args.output is not None:
+            parser.error("replay --output is only valid when --output-mode=mp4.")
+        if (
+            args.conditioning_mode == OMNIDREAMS_CONDITIONING_LUDUS
+            and args.keyboard_trace is None
+        ):
+            parser.error(
+                "replay --keyboard-trace is required when "
+                "--conditioning-mode=ludus-scene-driving."
+            )
+    return args
 
 
 class OmnidreamsDemoApplication(DemoApplication):
@@ -108,6 +148,7 @@ def main(argv: list[str] | None = None) -> None:
 
 def _replay_spec(args: argparse.Namespace) -> DemoSpec:
     scenario: dict[str, object] = {
+        "conditioning_mode": args.conditioning_mode,
         "example_data": args.example_data,
         "example_data_uuid": args.example_data_uuid,
         "total_blocks": args.total_blocks,
@@ -117,24 +158,53 @@ def _replay_spec(args: argparse.Namespace) -> DemoSpec:
     }
     if args.prompt:
         scenario["prompt"] = args.prompt
-    if args.hdmap_video_paths:
-        scenario["hdmap_video_paths"] = args.hdmap_video_paths
-    if args.first_frame_paths:
-        scenario["first_frame_paths"] = args.first_frame_paths
-    if args.camera_names:
-        scenario["camera_names"] = args.camera_names
+    if args.conditioning_mode == OMNIDREAMS_CONDITIONING_LUDUS:
+        scenario.update(
+            {
+                "keyboard_trace_path": args.keyboard_trace,
+                "scene_path": args.scene_path,
+                "scene_dir": args.scene_dir,
+                "scene_uuid": args.scene_uuid,
+                "scene_variant": args.scene_variant,
+                "camera_name": args.camera_name,
+                "move_speed_per_s": args.move_speed_per_s,
+                "rotate_speed_rad_per_s": args.rotate_speed_rad_per_s,
+                "ludus_backend": args.ludus_backend,
+            }
+        )
+    else:
+        if args.hdmap_video_paths:
+            scenario["hdmap_video_paths"] = args.hdmap_video_paths
+        if args.first_frame_paths:
+            scenario["first_frame_paths"] = args.first_frame_paths
+        if args.camera_names:
+            scenario["camera_names"] = args.camera_names
 
     return DemoSpec(
         model_id=OMNIDREAMS_MODEL_ID,
         preset_id=args.preset_id,
         input_mode="replay",
         scenario=scenario,
-        output=Mp4OutputSpec(path=args.output, fps=args.fps),
+        output=_replay_output_spec(args),
         config=InferenceConfig(
             model_id=OMNIDREAMS_MODEL_ID,
             preset_id=args.preset_id,
             device=args.device,
+            seed=args.seed,
+            runtime_options={"seed": args.seed},
         ),
+    )
+
+
+def _replay_output_spec(args: argparse.Namespace) -> Mp4OutputSpec | NullOutputSpec:
+    if args.output_mode == "mp4":
+        if args.output is None:
+            raise ValueError("OmniDreams MP4 replay requires --output.")
+        return Mp4OutputSpec(path=args.output, fps=args.fps)
+    if args.output_mode == "null":
+        return NullOutputSpec()
+    raise ValueError(
+        f"Unsupported OmniDreams replay output mode: {args.output_mode!r}."
     )
 
 

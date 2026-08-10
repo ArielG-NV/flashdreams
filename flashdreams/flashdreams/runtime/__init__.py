@@ -52,14 +52,20 @@ from flashdreams.runtime.mapping import (
 from flashdreams.runtime.metrics import (
     InMemoryMetricsRecorder,
     MetricsRecorder,
+    MetricsSnapshot,
     NullMetricsRecorder,
     RuntimeMetricSample,
 )
 from flashdreams.runtime.output import NullOutputTarget, OutputArtifact, OutputTarget
 from flashdreams.runtime.runner import run_inference_session
-from flashdreams.runtime.types import StepRequest, StepResult
+from flashdreams.runtime.types import (
+    StepRequest,
+    StepRequirements,
+    StepResult,
+    step_requirements_from_request,
+)
 from flashdreams.runtime.video_output import Mp4VideoOutputTarget
-from flashdreams.runtime.worker import ThreadAffineRuntimeWorker
+from flashdreams.runtime.worker import ModelExecutionWorker, ThreadAffineRuntimeWorker
 
 __all__ = [
     "CanonicalInputs",
@@ -90,7 +96,9 @@ __all__ = [
     "KeyboardToDriverCommand",
     "MappingCompatibility",
     "MetricsRecorder",
+    "MetricsSnapshot",
     "ModelAdapter",
+    "ModelExecutionWorker",
     "Mp4VideoOutputTarget",
     "NullMetricsRecorder",
     "NullOutputTarget",
@@ -100,10 +108,12 @@ __all__ = [
     "RuntimeMetricSample",
     "ScriptedModality",
     "StepRequest",
+    "StepRequirements",
     "StepResult",
     "TimeWindow",
     "ThreadAffineRuntimeWorker",
     "run_inference_session",
+    "step_requirements_from_request",
     "undeclared_inference_inputs",
     "UserInputCapability",
     "UserInputEvent",
