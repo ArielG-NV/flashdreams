@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -32,6 +32,7 @@ from omnidreams.demo import (
     PrecomputedHDMapProvider,
 )
 from omnidreams.demo.app import _replay_spec, _webrtc_spec, parse_args
+from omnidreams.demo.controls import SPARSE_KEY_SEGMENTS_METADATA_KEY
 from omnidreams.demo.replay import (
     OmnidreamsReplayRuntime,
     OmnidreamsReplayRuntimeOptions,
@@ -57,6 +58,8 @@ from flashdreams.runtime import (
     StepRequest,
     StepRequirements,
     StepResult,
+    UserInputEvent,
+    UserInputs,
 )
 from flashdreams.runtime.demo import (
     DemoSpec,
@@ -70,13 +73,14 @@ from flashdreams.runtime.demo import (
     WebRTCOutputSpec,
 )
 from flashdreams.runtime.demo.replay import run_replay_demo
-from flashdreams.runtime.demo.timing import SPARSE_KEY_SEGMENTS_METADATA_KEY
 from flashdreams.serving.webrtc.manager import (
     BaseWebRTCSessionManager,
     ManagedWebRTCSession,
 )
 from flashdreams.serving.webrtc.server import SESSION_MANAGER_KEY
 from flashdreams.serving.webrtc.services import (
+    WEBRTC_SKIPPED_INPUTS_METADATA_KEY,
+    WEBRTC_SKIPPED_WINDOW_METADATA_KEY,
     WebRTCInputSource,
     WebRTCTransportService,
 )
@@ -473,7 +477,11 @@ def test_omnidreams_ludus_provider_prepares_deterministic_hdmaps(
 
     first = provider.prepare_step(
         request=StepRequirements(step_index=0, input_frame_count=2),
-        user_window=UserInputWindow(start_s=0.0, end_s=2 / 30),
+        user_window=UserInputWindow(
+            start_s=0.0,
+            end_s=2 / 30,
+            frame_times=(1 / 30, 2 / 30),
+        ),
     )
 
     assert first.inference_input is not None
@@ -492,7 +500,11 @@ def test_omnidreams_ludus_provider_prepares_deterministic_hdmaps(
     provider.reset()
     reset_first = provider.prepare_step(
         request=StepRequirements(step_index=0, input_frame_count=2),
-        user_window=UserInputWindow(start_s=0.0, end_s=2 / 30),
+        user_window=UserInputWindow(
+            start_s=0.0,
+            end_s=2 / 30,
+            frame_times=(1 / 30, 2 / 30),
+        ),
     )
 
     assert reset_first.inference_input is not None
@@ -505,9 +517,15 @@ def test_omnidreams_ludus_provider_prepares_deterministic_hdmaps(
             start_s=0.0,
             end_s=2 / 30,
             frame_times=(1 / 30, 2 / 30),
-            metadata={
-                SPARSE_KEY_SEGMENTS_METADATA_KEY: ((0.0, 2 / 30, frozenset({"w"})),)
-            },
+            inputs=UserInputs(
+                events=(
+                    UserInputEvent(
+                        timestamp_s=0.0,
+                        event_type="key_down",
+                        payload={"key": "w"},
+                    ),
+                )
+            ),
         ),
     )
 
@@ -518,6 +536,95 @@ def test_omnidreams_ludus_provider_prepares_deterministic_hdmaps(
     )
     provider.close()
     assert rasterizers[0].closed is True
+
+
+def test_omnidreams_ludus_provider_advances_replay_trace_without_frame_times(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _scene, _rasterizers = _install_fake_ludus_provider_dependencies(monkeypatch)
+    scene_path = tmp_path / "scene.usdz"
+    scene_path.write_bytes(b"fake")
+    adapter = OmnidreamsDemoAdapter()
+    spec = _ludus_replay_demo_spec(
+        tmp_path=tmp_path,
+        scene_path=scene_path,
+        total_blocks=2,
+        keyboard_events=(
+            {"timestamp_s": 0.0, "event": "keydown", "key": "w"},
+            {"timestamp_s": 0.08, "event": "keydown", "key": "d"},
+        ),
+    )
+    prepared = adapter.prepare_scenario(spec)
+    provider = adapter.create_model_input_provider(spec, prepared)
+    assert isinstance(provider, LudusSceneConditioningProvider)
+    provider.prepare_initial_input()
+    replay_window = UserInputWindow(start_s=0.0, end_s=3600.0)
+
+    first = provider.prepare_step(
+        request=StepRequirements(step_index=0, input_frame_count=2),
+        user_window=replay_window,
+    )
+    second = provider.prepare_step(
+        request=StepRequirements(step_index=1, input_frame_count=2),
+        user_window=replay_window,
+    )
+
+    assert first.inference_input is not None
+    assert second.inference_input is not None
+    assert first.inference_input.metadata["keyboard_segments"] == (
+        (0.0, 2 / 30, ("w",)),
+    )
+    assert second.inference_input.metadata["keyboard_segments"] == (
+        (2 / 30, 0.08, ("w",)),
+        (0.08, 4 / 30, ("d", "w")),
+    )
+
+
+def test_omnidreams_ludus_provider_folds_webrtc_skipped_inputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _scene, _rasterizers = _install_fake_ludus_provider_dependencies(monkeypatch)
+    scene_path = tmp_path / "scene.usdz"
+    scene_path.write_bytes(b"fake")
+    adapter = OmnidreamsDemoAdapter()
+    spec = _ludus_replay_demo_spec(
+        tmp_path=tmp_path,
+        scene_path=scene_path,
+        total_blocks=1,
+    )
+    prepared = adapter.prepare_scenario(spec)
+    provider = adapter.create_model_input_provider(spec, prepared)
+    assert isinstance(provider, LudusSceneConditioningProvider)
+    provider.prepare_initial_input()
+
+    skipped_release = UserInputs(
+        events=(
+            UserInputEvent(
+                timestamp_s=0.1,
+                event_type="key_up",
+                payload={"key": "w"},
+            ),
+        )
+    )
+    step = provider.prepare_step(
+        request=StepRequirements(step_index=0, input_frame_count=2),
+        user_window=UserInputWindow(
+            start_s=0.25,
+            end_s=0.25 + 2 / 30,
+            frame_times=(0.25 + 1 / 30, 0.25 + 2 / 30),
+            metadata={
+                WEBRTC_SKIPPED_INPUTS_METADATA_KEY: skipped_release,
+                WEBRTC_SKIPPED_WINDOW_METADATA_KEY: (0.0, 0.25),
+            },
+        ),
+    )
+
+    assert step.inference_input is not None
+    assert step.inference_input.metadata["keyboard_segments"] == (
+        (0.25, 0.25 + 2 / 30, ()),
+    )
 
 
 def test_omnidreams_replay_run_mode_uses_precomputed_provider(
@@ -995,7 +1102,7 @@ def test_omnidreams_webrtc_demo_keeps_legacy_fallback_gates(
 def test_omnidreams_webrtc_demo_installs_model_assets_without_routes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import flashdreams.runtime.demo.webrtc as shared_webrtc_module
+    import flashdreams.serving.webrtc.demo as shared_webrtc_module
 
     app_calls: list[dict[str, Any]] = []
 
@@ -1069,7 +1176,7 @@ def test_omnidreams_webrtc_adapter_caps_video_display_size() -> None:
 def test_omnidreams_webrtc_demo_serves_through_shared_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import flashdreams.runtime.demo.webrtc as shared_webrtc_module
+    import flashdreams.serving.webrtc.demo as shared_webrtc_module
 
     server_calls: list[dict[str, Any]] = []
 
@@ -1413,6 +1520,10 @@ def _ludus_replay_demo_spec(
     tmp_path: Path,
     scene_path: Path,
     total_blocks: int,
+    keyboard_events: Sequence[Mapping[str, object]] = (
+        {"timestamp_s": 0.0, "event": "keydown", "key": "w"},
+        {"timestamp_s": 0.5, "event": "keyup", "key": "w"},
+    ),
     output: Mp4OutputSpec | NullOutputSpec | None = None,
 ) -> DemoSpec:
     return DemoSpec(
@@ -1421,10 +1532,7 @@ def _ludus_replay_demo_spec(
         input_mode="replay",
         scenario={
             "conditioning_mode": OMNIDREAMS_CONDITIONING_LUDUS,
-            "keyboard_events": (
-                {"timestamp_s": 0.0, "event": "keydown", "key": "w"},
-                {"timestamp_s": 0.5, "event": "keyup", "key": "w"},
-            ),
+            "keyboard_events": tuple(keyboard_events),
             "scene_path": scene_path,
             "scene_variant": "default",
             "camera_name": "camera_front_wide_120fov",
@@ -1641,18 +1749,12 @@ class _FakeWebRTCResampler:
     def reset(self, *, start_v: float) -> None:
         self.next_chunk_start_v = start_v
 
-    def on_edge(self, *, arrival_t: float, event: str, key: str) -> None:
-        del arrival_t, event, key
-
-    def sample_chunk(
-        self,
-        num_frames: int,
-    ) -> tuple[list[tuple[float, float, frozenset[str]]], list[float]]:
+    def sample_chunk(self, num_frames: int) -> list[float]:
         start = self.next_chunk_start_v
         frame_times = [start + (index + 1) * self.dt for index in range(num_frames)]
         end = frame_times[-1]
         self.next_chunk_start_v = end
-        return [(start, end, frozenset({"w"}))], frame_times
+        return frame_times
 
 
 class _FakeWebRTCVideoTrack:

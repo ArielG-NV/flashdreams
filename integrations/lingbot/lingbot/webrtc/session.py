@@ -27,7 +27,7 @@ import threading
 import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import cv2
 import numpy as np
@@ -46,10 +46,6 @@ from flashdreams.runtime.inputs import (
     UserInputSchema,
 )
 from flashdreams.runtime.types import StepRequest, StepResult
-from flashdreams.serving.webrtc.controls import (
-    CameraPoseIntegrator,
-    PoseSegment,
-)
 from flashdreams.serving.webrtc.encoders import EncoderBackend
 from flashdreams.serving.webrtc.manager import (
     DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
@@ -60,6 +56,7 @@ from flashdreams.serving.webrtc.runtime import (
     ThreadAffineDistributedWebRTCRuntime,
 )
 from flashdreams.serving.webrtc.server import SessionBusyError
+from lingbot.controls import CameraPoseIntegrator, PoseSegment
 from lingbot.encoder.utils import preprocess_example_poses
 from lingbot.input_mapping import (
     FIELD_CAMERA_INTRINSICS,
@@ -798,7 +795,10 @@ class LingbotInferenceRuntime(
             enable_sync_and_profile=True,
             diffusion_model=dict(
                 seed=rollout_seed,
-                transformer=dict(compile_network=self.config.compile_network),
+                transformer=dict(
+                    compile_network=self.config.compile_network,
+                    init_device=str(self._device),
+                ),
             ),
         )
         self._pipeline = pipeline_config.setup().to(device=self._device)
@@ -1095,7 +1095,7 @@ class LingbotInferenceRuntime(
     def _generate_one_chunk_sync(
         self,
         *,
-        segments: list[PoseSegment],
+        segments: list[Any],
         frame_times: list[float],
     ) -> StepResult:
         if (
@@ -1113,8 +1113,9 @@ class LingbotInferenceRuntime(
             )
         if not segments:
             raise LingbotRuntimeError(f"Chunk={step_index} received empty segments.")
+        pose_segments = cast(list[PoseSegment], segments)
         poses = self.pose_integrator.integrate_chunk(
-            segments=segments, frame_times=frame_times
+            segments=pose_segments, frame_times=frame_times
         )
         poses_t = torch.from_numpy(poses).to(device=self._device, dtype=torch.float32)
         poses_t = poses_t.view(num_frames, 4, 4)
