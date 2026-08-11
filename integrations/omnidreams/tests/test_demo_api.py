@@ -13,6 +13,7 @@ from typing import Any
 
 import numpy as np
 import omnidreams.demo as demo_package
+import omnidreams.demo.app as demo_app_module
 import omnidreams.demo.spec as spec_module
 import pytest
 import tomli as tomllib
@@ -93,6 +94,31 @@ def test_omnidreams_demo_defaults_to_stable_non_perf_preset() -> None:
 
     assert args.preset_id == "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
     assert not args.preset_id.endswith("-perf")
+
+
+def test_omnidreams_direct_runner_launch_builds_null_spec(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[DemoSpec] = []
+
+    def fake_run_replay_demo(*, spec: DemoSpec, adapter: object) -> str:
+        del adapter
+        captured.append(spec)
+        return "completed"
+
+    monkeypatch.setattr(demo_app_module, "run_replay_demo", fake_run_replay_demo)
+    config = OMNIDREAMS_RUNNERS["omnidreams"]
+
+    result = demo_app_module.launch_from_runner(
+        config=config,
+        mode="null",
+        scenario={"example_data": True, "total_blocks": 2},
+        output={},
+    )
+
+    assert result == "completed"
+    assert captured[0].preset_id == config.pipeline.name
+    assert isinstance(captured[0].output, NullOutputSpec)
 
 
 def test_omnidreams_replay_cli_builds_null_output_spec() -> None:
@@ -364,7 +390,7 @@ def test_omnidreams_replay_cli_defaults_to_hf_example_data(
     assert scenario.first_frame_paths == (first_frame,)
     assert scenario.camera_names == ("camera_front_wide_120fov",)
     assert scenario.prompts == (
-        str(getattr(OMNIDREAMS_RUNNERS[DEFAULT_OMNIDREAMS_PRESET], "prompt")),
+        str(getattr(OMNIDREAMS_RUNNERS["omnidreams"], "prompt")),
     )
 
 
