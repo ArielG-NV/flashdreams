@@ -1385,21 +1385,23 @@ int ludusCopyBatchResultsToStagingVk(
     s.currentStagingIdx = 1 - idx;
 
     size_t totalSize = (size_t)width * height * 4 * numQueries;
-    if (totalSize > s.stagingBufferSize) {
-        for (int i = 0; i < 2; i++) {
-            if (s.stagingBuffer[i]) cudaFree(s.stagingBuffer[i]);
-            cudaMalloc(&s.stagingBuffer[i], totalSize);
-            s.stagingValid[i] = 0;
-        }
-        s.stagingBufferSize = totalSize;
+    if (totalSize > s.stagingBufferSize[idx]) {
+        // Only resize the selected slot. The other slot may still be pending
+        // retrieval with different dimensions and must remain untouched.
+        if (s.stagingValid[idx])
+            cudaEventSynchronize(s.stagingReadyEvent[idx]);
+        if (s.stagingBuffer[idx]) cudaFree(s.stagingBuffer[idx]);
+        cudaMalloc(&s.stagingBuffer[idx], totalSize);
+        s.stagingBufferSize[idx] = totalSize;
+        s.stagingValid[idx] = 0;
     }
 
     ludusCopyBatchResultsVk(NVDR_CTX_PARAMS, s, stream, s.stagingBuffer[idx], width, height, numQueries);
     cudaEventRecord(s.stagingReadyEvent[idx], stream);
 
-    s.stagingWidth = width;
-    s.stagingHeight = height;
-    s.stagingNumQueries = numQueries;
+    s.stagingWidth[idx] = width;
+    s.stagingHeight[idx] = height;
+    s.stagingNumQueries[idx] = numQueries;
     s.stagingValid[idx] = 1;
 
     return idx;
@@ -1407,11 +1409,17 @@ int ludusCopyBatchResultsToStagingVk(
 
 void ludusCopyStagingToOutputVk(
     NVDR_CTX_ARGS, LudusTimestampedVkState& s, int stagingIdx,
-    uint8_t* outputPtr, int width, int height, int numQueries)
+    uint8_t* outputPtr)
 {
     (void)nvdr_ctx;
+    TORCH_CHECK(stagingIdx >= 0 && stagingIdx < 2,
+        "invalid Vulkan staging slot ", stagingIdx);
+    TORCH_CHECK(s.stagingValid[stagingIdx],
+        "Vulkan staging slot ", stagingIdx, " has no pending frame");
     cudaEventSynchronize(s.stagingReadyEvent[stagingIdx]);
-    size_t size = (size_t)width * height * 4 * numQueries;
+    size_t size = (size_t)s.stagingWidth[stagingIdx]
+        * s.stagingHeight[stagingIdx] * 4
+        * s.stagingNumQueries[stagingIdx];
     cudaMemcpy(outputPtr, s.stagingBuffer[stagingIdx], size, cudaMemcpyDeviceToDevice);
 }
 
@@ -1419,19 +1427,26 @@ int ludusStartAsyncHostTransferVk(
     NVDR_CTX_ARGS, LudusTimestampedVkState& s, int stagingIdx)
 {
     (void)nvdr_ctx;
+    TORCH_CHECK(stagingIdx >= 0 && stagingIdx < 2,
+        "invalid Vulkan staging slot ", stagingIdx);
     if (!s.stagingValid[stagingIdx]) return -1;
 
     int pinnedIdx = s.currentPinnedIdx;
     s.currentPinnedIdx = 1 - pinnedIdx;
 
-    size_t size = (size_t)s.stagingWidth * s.stagingHeight * 4 * s.stagingNumQueries;
-    if (size > s.pinnedHostBufferSize) {
-        for (int i = 0; i < 2; i++) {
-            if (s.pinnedHostBuffer[i]) cudaFreeHost(s.pinnedHostBuffer[i]);
-            cudaMallocHost(&s.pinnedHostBuffer[i], size);
-            s.pinnedValid[i] = 0;
-        }
-        s.pinnedHostBufferSize = size;
+    const int width = s.stagingWidth[stagingIdx];
+    const int height = s.stagingHeight[stagingIdx];
+    const int numQueries = s.stagingNumQueries[stagingIdx];
+    size_t size = (size_t)width * height * 4 * numQueries;
+    if (size > s.pinnedHostBufferSize[pinnedIdx]) {
+        // Preserve the other pinned result while this slot grows.
+        if (s.pinnedValid[pinnedIdx])
+            cudaEventSynchronize(s.pinnedReadyEvent[pinnedIdx]);
+        if (s.pinnedHostBuffer[pinnedIdx])
+            cudaFreeHost(s.pinnedHostBuffer[pinnedIdx]);
+        cudaMallocHost(&s.pinnedHostBuffer[pinnedIdx], size);
+        s.pinnedHostBufferSize[pinnedIdx] = size;
+        s.pinnedValid[pinnedIdx] = 0;
     }
 
     cudaEventSynchronize(s.stagingReadyEvent[stagingIdx]);
@@ -1439,9 +1454,9 @@ int ludusStartAsyncHostTransferVk(
         size, cudaMemcpyDeviceToHost, s.copyStream);
     cudaEventRecord(s.pinnedReadyEvent[pinnedIdx], s.copyStream);
 
-    s.pinnedWidth[pinnedIdx] = s.stagingWidth;
-    s.pinnedHeight[pinnedIdx] = s.stagingHeight;
-    s.pinnedNumQueries[pinnedIdx] = s.stagingNumQueries;
+    s.pinnedWidth[pinnedIdx] = width;
+    s.pinnedHeight[pinnedIdx] = height;
+    s.pinnedNumQueries[pinnedIdx] = numQueries;
     s.pinnedValid[pinnedIdx] = 1;
 
     return pinnedIdx;
@@ -1467,6 +1482,10 @@ int ludusEncodeJpegBatchStagingVk(
     std::vector<std::pair<uint8_t*, size_t>>& outJpegs)
 {
     (void)nvdr_ctx;
+    TORCH_CHECK(stagingIdx >= 0 && stagingIdx < 2,
+        "invalid Vulkan staging slot ", stagingIdx);
+    TORCH_CHECK(s.stagingValid[stagingIdx],
+        "Vulkan staging slot ", stagingIdx, " has no pending frame");
     if (!s.nvjpegInitialized) {
         nvjpegCreateSimple(&s.nvjpegHandle);
         nvjpegEncoderStateCreate(s.nvjpegHandle, &s.nvjpegEncoderState, 0);
@@ -1477,9 +1496,9 @@ int ludusEncodeJpegBatchStagingVk(
 
     cudaEventSynchronize(s.stagingReadyEvent[stagingIdx]);
 
-    int w = s.stagingWidth;
-    int h = s.stagingHeight;
-    int n = s.stagingNumQueries;
+    int w = s.stagingWidth[stagingIdx];
+    int h = s.stagingHeight[stagingIdx];
+    int n = s.stagingNumQueries[stagingIdx];
     size_t layerSize = (size_t)w * h * 4;
     size_t rgbSize = (size_t)w * h * 3;
 

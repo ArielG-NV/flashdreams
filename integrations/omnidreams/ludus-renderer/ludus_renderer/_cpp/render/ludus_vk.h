@@ -158,15 +158,17 @@ struct LudusTimestampedVkState
 
     // ---------- Double-buffered staging for async transfer ----------
     uint8_t*                stagingBuffer[2];
-    size_t                  stagingBufferSize;
-    int                     stagingWidth, stagingHeight, stagingNumQueries;
+    size_t                  stagingBufferSize[2];
+    int                     stagingWidth[2];
+    int                     stagingHeight[2];
+    int                     stagingNumQueries[2];
     int                     currentStagingIdx;
     int                     stagingValid[2];
     cudaStream_t            copyStream;
     cudaEvent_t             stagingReadyEvent[2];
 
     uint8_t*                pinnedHostBuffer[2];
-    size_t                  pinnedHostBufferSize;
+    size_t                  pinnedHostBufferSize[2];
     int                     currentPinnedIdx;
     int                     pinnedValid[2];
     int                     pinnedWidth[2], pinnedHeight[2], pinnedNumQueries[2];
@@ -306,7 +308,7 @@ int ludusCopyBatchResultsToStagingVk(
 
 void ludusCopyStagingToOutputVk(
     NVDR_CTX_ARGS, LudusTimestampedVkState& s, int stagingIdx,
-    uint8_t* outputPtr, int width, int height, int numQueries
+    uint8_t* outputPtr
 );
 
 int ludusStartAsyncHostTransferVk(

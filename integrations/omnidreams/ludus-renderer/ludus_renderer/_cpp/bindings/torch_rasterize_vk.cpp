@@ -400,17 +400,22 @@ torch::Tensor ludus_timestamped_render_batch_vk(
             width, height, numQueries);
         auto sharedState = stateWrapper.sharedState;
         const int cudaDeviceIdx = stateWrapper.cudaDeviceIdx;
+        const cudaStream_t outputStream = stream;
         torch::Tensor out = torch::from_blob(
             sharedOutput,
             {numQueries, height, width, 4},
-            [sharedState, outputSlot, cudaDeviceIdx](void*) {
-                // Record the release on the consumer's current stream. A
-                // future render stream waits this event before signaling the
-                // CUDA->Vulkan timeline value for slot reuse.
+            [sharedState, outputSlot, cudaDeviceIdx, outputStream](void*) {
+                // The deleter can run while an unrelated stream is current.
+                // Record release on the stream that exposed this tensor so
+                // same-stream consumers queued before destruction complete
+                // before Vulkan reuses the slot. As with ordinary CUDA
+                // allocations, a caller using the tensor on another stream
+                // must order that work back to its stream of origin before
+                // dropping the final reference.
                 if (cudaSetDevice(cudaDeviceIdx) == cudaSuccess &&
                     cudaEventRecord(
                         sharedState->releaseEvents[outputSlot],
-                        at::cuda::getCurrentCUDAStream(cudaDeviceIdx))
+                        outputStream)
                         == cudaSuccess) {
                     sharedState->releaseRecorded[outputSlot].store(
                         true, std::memory_order_release);
@@ -476,12 +481,18 @@ torch::Tensor ludus_timestamped_get_staging_data_vk(
 {
     std::lock_guard<std::mutex> state_lock(stateWrapper.stateMutex);
     LudusTimestampedVkState& s = *stateWrapper.pState;
-    int w = s.stagingWidth, h = s.stagingHeight, n = s.stagingNumQueries;
+    TORCH_CHECK(stagingIdx >= 0 && stagingIdx < 2,
+        "invalid Vulkan staging slot ", stagingIdx);
+    TORCH_CHECK(s.stagingValid[stagingIdx],
+        "Vulkan staging slot ", stagingIdx, " has no pending frame");
+    int w = s.stagingWidth[stagingIdx];
+    int h = s.stagingHeight[stagingIdx];
+    int n = s.stagingNumQueries[stagingIdx];
     auto opts = torch::TensorOptions().dtype(torch::kUInt8).device(torch::kCUDA, stateWrapper.cudaDeviceIdx);
     torch::Tensor out = torch::empty({n, h, w, 4}, opts);
 
-    ludusCopyStagingToOutputVk(NVDR_CTX_PARAMS, s, stagingIdx,
-        out.data_ptr<uint8_t>(), w, h, n);
+    ludusCopyStagingToOutputVk(
+        NVDR_CTX_PARAMS, s, stagingIdx, out.data_ptr<uint8_t>());
     return out;
 }
 
