@@ -8,11 +8,12 @@ from __future__ import annotations
 import asyncio
 import math
 import time
+from collections import deque
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, Protocol, runtime_checkable
 
-from flashdreams.runtime.inputs import UserInputs, UserInputSchema
+from flashdreams.runtime.inputs import UserInputEvent, UserInputs, UserInputSchema
 from flashdreams.runtime.types import StepRequirements
 
 from .session_inputs import UserInputWindow
@@ -309,7 +310,7 @@ class ResamplerRealtimeClock:
 
 @dataclass(slots=True)
 class RealtimeEventInputSource:
-    """Realtime input source backed by raw event windows."""
+    """Realtime input source backed by buffered user events."""
 
     resampler: _RealtimeTimeline
     max_lag_s: float | None = None
@@ -317,6 +318,7 @@ class RealtimeEventInputSource:
     is_finite: bool = False
     is_deterministic: bool = False
     user_input_schema: UserInputSchema = field(default_factory=UserInputSchema)
+    _events: deque[UserInputEvent] = field(default_factory=deque, init=False)
 
     def __post_init__(self) -> None:
         if self.max_lag_s is not None and (
@@ -336,6 +338,12 @@ class RealtimeEventInputSource:
 
     def reset(self, *, start_v: float) -> None:
         self.resampler.reset(start_v=start_v)
+        self._events.clear()
+
+    def record_user_event(self, event: UserInputEvent) -> None:
+        """Validate and buffer one event for a future realtime window."""
+        self.user_input_schema.validate_event(event)
+        self._events.append(event)
 
     async def next_realtime_window(
         self,
@@ -361,9 +369,22 @@ class RealtimeEventInputSource:
             start_s=start_s,
             end_s=end_s,
             frame_times=tuple(frame_times),
-            inputs=UserInputs(),
+            inputs=UserInputs(events=self._events_for_window(start_s, end_s)),
         )
+        self._prune_events(before_s=start_s)
         return RealtimeWindowResult(window=window, catch_up=catch_up)
+
+    def _events_for_window(
+        self, start_s: float, end_s: float
+    ) -> tuple[UserInputEvent, ...]:
+        return tuple(
+            event for event in self._events if start_s <= event.timestamp_s < end_s
+        )
+
+    def _prune_events(self, *, before_s: float) -> None:
+        self._events = deque(
+            event for event in self._events if event.timestamp_s >= before_s
+        )
 
 
 def input_frame_count_from_request(request: StepRequirements) -> int:

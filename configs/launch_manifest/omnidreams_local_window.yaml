@@ -1,10 +1,6 @@
 schema_version: 1
 runner: omnidreams-perf
-mode: local-window
-
-scenario:
-  auto_start: false
-  preload_scenes: false
+mode: native-window
 
 output:
-  world_model_manifest_path: ../../integrations/omnidreams/omnidreams/interactive_drive/configs/example_world_model_perf.yaml
+  title: OmniDreams

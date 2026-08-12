@@ -29,7 +29,7 @@ Usage::
     flashdreams-run --no-instantiate template-offline # resolve config only
     flashdreams-run wan21-t2v-1.3b-480p --postprocess.preset flashvsr-v1.1-sparse-2.0
     flashdreams-run lingbot-world-fast webrtc --host 0.0.0.0 --port 8080
-    flashdreams-run omnidreams local-window
+    flashdreams-run omnidreams native-window
 
     # Multi-GPU via context-parallelism (integration transformers auto-detect
     # CP size from the launcher's WORLD group). ``--no-python`` tells
@@ -44,7 +44,6 @@ import dataclasses
 import os
 import sys
 from collections.abc import Callable
-from pathlib import Path
 from typing import Annotated, Any, cast
 
 import tyro
@@ -64,7 +63,7 @@ from flashdreams.serving.launch_manifest import (
     load_launch_manifest,
 )
 
-_POSITIONAL_MODES = frozenset({"run", "mp4", "null", "webrtc", "local-window"})
+_POSITIONAL_MODES = frozenset({"run", "mp4", "null", "webrtc", "native-window"})
 
 
 def main(
@@ -74,8 +73,6 @@ def main(
     mode: LaunchMode = "run",
     host: str | None = None,
     port: int | None = None,
-    legacy_world_manifest: Path | None = None,
-    prefer_sw_encoder: bool = False,
     launch_manifest: FlashDreamsLaunchManifest | None = None,
 ) -> None:
     """Print the resolved config and (by default) run the runner.
@@ -87,9 +84,6 @@ def main(
     launch_options = LaunchOptions(
         host=host,
         port=port,
-        prefer_sw_encoder=prefer_sw_encoder,
-        legacy_world_manifest=legacy_world_manifest,
-        launch_manifest=None if launch_manifest is None else launch_manifest.path,
         scenario={} if launch_manifest is None else launch_manifest.scenario,
         output={} if launch_manifest is None else launch_manifest.output,
     )
@@ -164,7 +158,6 @@ def entrypoint(argv: list[str] | None = None) -> None:
         runners,
         launch_manifest,
         mode,
-        legacy_world_manifest,
     ) = _prepare_cli_args(raw_args)
     selected_runner_name = next(
         (value for value in normalized_args if value in runners),
@@ -173,7 +166,6 @@ def entrypoint(argv: list[str] | None = None) -> None:
     help_suffix = ""
     if selected_runner_name is not None:
         help_options = LaunchOptions(
-            legacy_world_manifest=legacy_world_manifest,
             scenario={} if launch_manifest is None else launch_manifest.scenario,
             output={} if launch_manifest is None else launch_manifest.output,
         )
@@ -186,10 +178,7 @@ def entrypoint(argv: list[str] | None = None) -> None:
             " Use --manifest PATH for scenario and output settings."
         )
         if mode == "webrtc":
-            help_suffix += (
-                " WebRTC CLI overrides: --host HOST, --port PORT, and"
-                " --prefer-sw-encoder."
-            )
+            help_suffix += " WebRTC CLI overrides: --host HOST and --port PORT."
         runners[selected_runner_name] = dataclasses.replace(
             runners[selected_runner_name],
             description=runners[selected_runner_name].description + help_suffix,
@@ -222,11 +211,6 @@ def entrypoint(argv: list[str] | None = None) -> None:
                     int | None,
                     dataclasses.field(default=None),
                 ),
-                (
-                    "prefer_sw_encoder",
-                    bool,
-                    dataclasses.field(default=False),
-                ),
             ]
         )
     args_cls = dataclasses.make_dataclass(
@@ -252,7 +236,6 @@ def entrypoint(argv: list[str] | None = None) -> None:
     no_instantiate: bool = parsed_args.no_instantiate
     host: str | None = getattr(parsed_args, "host", None)
     port: int | None = getattr(parsed_args, "port", None)
-    prefer_sw_encoder: bool = getattr(parsed_args, "prefer_sw_encoder", False)
     _run_with_disk_error_handling(
         lambda: main(
             runner_cfg,
@@ -260,8 +243,6 @@ def entrypoint(argv: list[str] | None = None) -> None:
             mode=mode,
             host=host,
             port=port,
-            legacy_world_manifest=legacy_world_manifest,
-            prefer_sw_encoder=prefer_sw_encoder,
             launch_manifest=launch_manifest,
         )
     )
@@ -274,7 +255,6 @@ def _prepare_cli_args(
     dict[str, RunnerConfig],
     FlashDreamsLaunchManifest | None,
     LaunchMode,
-    Path | None,
 ]:
     """Normalize positional launch modes and load an optional manifest."""
     normalized, manifest_path = _pop_option(args, "--manifest")
@@ -286,7 +266,7 @@ def _prepare_cli_args(
     if runner_index is None:
         if manifest_path is not None:
             raise ValueError("--manifest requires an explicit runner slug.")
-        return normalized, runners, None, "run", None
+        return normalized, runners, None, "run"
 
     runner_name = normalized[runner_index]
     positional_mode: LaunchMode | None = None
@@ -297,28 +277,21 @@ def _prepare_cli_args(
             del normalized[runner_index + 1]
 
     launch_manifest: FlashDreamsLaunchManifest | None = None
-    legacy_world_manifest: Path | None = None
     if manifest_path is not None:
-        try:
-            launch_manifest = load_launch_manifest(manifest_path)
-        except ValueError:
-            if positional_mode != "local-window":
-                raise
-            legacy_world_manifest = Path(manifest_path).expanduser().resolve()
-        else:
-            if launch_manifest.runner != runner_name:
-                raise ValueError(
-                    f"Manifest runner {launch_manifest.runner!r} does not match "
-                    f"selected runner {runner_name!r}."
-                )
-            if positional_mode is not None and launch_manifest.mode != positional_mode:
-                raise ValueError(
-                    f"Manifest mode {launch_manifest.mode!r} does not match "
-                    f"selected mode {positional_mode!r}."
-                )
-            runners[runner_name] = launch_manifest.apply_runner_overrides(
-                runners[runner_name]
+        launch_manifest = load_launch_manifest(manifest_path)
+        if launch_manifest.runner != runner_name:
+            raise ValueError(
+                f"Manifest runner {launch_manifest.runner!r} does not match "
+                f"selected runner {runner_name!r}."
             )
+        if positional_mode is not None and launch_manifest.mode != positional_mode:
+            raise ValueError(
+                f"Manifest mode {launch_manifest.mode!r} does not match "
+                f"selected mode {positional_mode!r}."
+            )
+        runners[runner_name] = launch_manifest.apply_runner_overrides(
+            runners[runner_name]
+        )
 
     raw_mode = positional_mode or (
         "run" if launch_manifest is None else launch_manifest.mode
@@ -330,7 +303,7 @@ def _prepare_cli_args(
         )
     mode = cast(LaunchMode, raw_mode)
     normalized = _hoist_global_options(normalized)
-    return normalized, runners, launch_manifest, mode, legacy_world_manifest
+    return normalized, runners, launch_manifest, mode
 
 
 def _pop_option(args: list[str], name: str) -> tuple[list[str], str | None]:

@@ -68,10 +68,7 @@ class T2VDemoAdapter(ModelAdapter):
         self.backend = backend
 
     def supported_input_modes(self) -> tuple[str, ...]:
-        return ("replay", "webrtc")
-
-    def supported_output_modes(self) -> tuple[str, ...]:
-        return ("mp4", "null", "webrtc")
+        return ("replay", "realtime")
 
     def default_input_mapping(self) -> IdentityInputMapping:
         return IdentityInputMapping()

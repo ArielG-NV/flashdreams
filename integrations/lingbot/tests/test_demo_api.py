@@ -21,7 +21,11 @@ from lingbot.demo import (
     LingbotReplayInputs,
     LingbotWebRTCScenario,
 )
-from lingbot.demo.app import _replay_spec, _webrtc_spec, parse_args
+from lingbot.demo.app import (
+    _replay_spec,
+    _webrtc_spec,
+    parse_args,
+)
 from lingbot.demo.providers import PROVIDER_INPUTS_METADATA_KEY
 from lingbot.demo.replay import (
     LingbotReplayRuntime,
@@ -147,8 +151,7 @@ def test_lingbot_demo_adapter_declares_shared_demo_modes() -> None:
     adapter = LingbotDemoAdapter()
 
     assert adapter.model_id == LINGBOT_MODEL_ID
-    assert adapter.supported_input_modes() == ("replay", "keyboard-driving")
-    assert adapter.supported_output_modes() == ("mp4", "null", "webrtc")
+    assert adapter.supported_input_modes() == ("replay", "realtime")
     fields = {
         field.name
         for field in adapter.inference_input_schema.global_conditioning_fields
@@ -632,7 +635,7 @@ def test_lingbot_webrtc_cli_builds_keyboard_driving_spec() -> None:
 
     assert spec.model_id == LINGBOT_MODEL_ID
     assert spec.preset_id == DEFAULT_LINGBOT_PRESET
-    assert spec.input_mode == "keyboard-driving"
+    assert spec.input_mode == "realtime"
     assert isinstance(spec.scenario, LingbotWebRTCScenario)
     assert spec.scenario.example_idx == 2
     assert spec.scenario.prefer_sw_encoder is True
@@ -662,7 +665,7 @@ def test_lingbot_adapter_prepares_public_webrtc_scenario_as_live_provider(
     spec = DemoSpec(
         model_id=LINGBOT_MODEL_ID,
         preset_id=DEFAULT_LINGBOT_PRESET,
-        input_mode="keyboard-driving",
+        input_mode="realtime",
         scenario=LingbotWebRTCScenario(example_idx=0),
         output=WebRTCOutputSpec(fps=16, video_width=64, video_height=32),
         config=InferenceConfig(
@@ -699,7 +702,7 @@ def test_lingbot_webrtc_demo_uses_shared_manager_with_model_config(
     spec = DemoSpec(
         model_id=LINGBOT_MODEL_ID,
         preset_id=DEFAULT_LINGBOT_PRESET,
-        input_mode="keyboard-driving",
+        input_mode="realtime",
         scenario=LingbotWebRTCScenario(example_idx=2, prefer_sw_encoder=True),
         output=WebRTCOutputSpec(
             host="0.0.0.0",
@@ -732,7 +735,7 @@ def test_lingbot_webrtc_demo_uses_shared_manager_with_model_config(
     assert type(manager) is BaseWebRTCSessionManager
     assert isinstance(manager._shared_adapter, LingbotDemoAdapter)
     assert manager._shared_spec is not None
-    assert manager._shared_spec.input_mode == "keyboard-driving"
+    assert manager._shared_spec.input_mode == "realtime"
     assert isinstance(manager._shared_spec.output, WebRTCOutputSpec)
     assert manager._shared_scenario is not None
     assert manager._shared_scenario.mapping is None
@@ -772,7 +775,7 @@ def test_lingbot_webrtc_shared_provider_reflects_pending_session_input(
     spec = DemoSpec(
         model_id=LINGBOT_MODEL_ID,
         preset_id=DEFAULT_LINGBOT_PRESET,
-        input_mode="keyboard-driving",
+        input_mode="realtime",
         scenario=LingbotWebRTCScenario(example_idx=0),
         output=WebRTCOutputSpec(
             fps=16,
@@ -874,7 +877,7 @@ def test_lingbot_webrtc_demo_uses_shared_viewer_shell(
     spec = DemoSpec(
         model_id=LINGBOT_MODEL_ID,
         preset_id=DEFAULT_LINGBOT_PRESET,
-        input_mode="keyboard-driving",
+        input_mode="realtime",
         scenario=LingbotWebRTCScenario(),
         output=WebRTCOutputSpec(
             host="0.0.0.0",
@@ -935,7 +938,7 @@ def test_lingbot_webrtc_demo_serves_through_shared_runner(
     spec = DemoSpec(
         model_id=LINGBOT_MODEL_ID,
         preset_id=DEFAULT_LINGBOT_PRESET,
-        input_mode="keyboard-driving",
+        input_mode="realtime",
         scenario={"example_idx": 0},
         output=WebRTCOutputSpec(
             host="0.0.0.0",

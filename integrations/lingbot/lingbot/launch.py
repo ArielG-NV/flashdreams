@@ -1,150 +1,100 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""LingBot launch capability for ``flashdreams-run``."""
+"""Target-neutral LingBot demo construction."""
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
-from functools import partial
-from typing import Literal, cast
+from typing import Any
 
 from flashdreams.infra.runner import RunnerConfig
+from flashdreams.runtime import InferenceConfig
+from flashdreams.runtime.demo import DemoAdapter
 from flashdreams.serving.launch import (
-    LaunchMode,
-    LaunchOptions,
-    ResolvedLaunch,
+    DemoDefinition,
+    DemoInputMode,
 )
 
-_REPLAY_SCENARIO_FIELDS = frozenset(
-    {
-        "prompt",
-        "prompt_path",
-        "image_path",
-        "pose_path",
-        "intrinsic_path",
-        "example_data",
-        "example_idx",
-        "total_blocks",
-        "pixel_height",
-        "pixel_width",
-        "fps",
-    }
-)
-_WEBRTC_SCENARIO_FIELDS = frozenset({"example_idx"})
-_WEBRTC_OUTPUT_FIELDS = frozenset(
-    {
-        "host",
-        "port",
-        "seed",
-        "fps",
-        "video_height",
-        "video_width",
-        "warmup_chunks",
-        "warmup_timeout_s",
-        "client_liveness_timeout_s",
-        "prefer_sw_encoder",
-    }
+from .demo.adapter import LingbotDemoAdapter
+from .demo.spec import (
+    DEFAULT_FPS,
+    DEFAULT_PIXEL_HEIGHT,
+    DEFAULT_PIXEL_WIDTH,
+    LINGBOT_MODEL_ID,
 )
 
 
 class LingbotLaunchCapability:
-    """Construct LingBot replay and WebRTC launches directly."""
+    """Build LingBot inputs and emitted video-track defaults."""
 
-    def supported_modes(
-        self,
-        config: RunnerConfig,
-        options: LaunchOptions,
-    ) -> tuple[LaunchMode, ...]:
-        del config, options
-        return ("mp4", "webrtc")
+    def adapter(self, config: RunnerConfig) -> DemoAdapter:
+        del config
+        return LingbotDemoAdapter()
 
-    def resolve(
+    def demo(
         self,
         config: RunnerConfig,
         *,
-        mode: LaunchMode,
-        options: LaunchOptions,
-    ) -> ResolvedLaunch | None:
-        if mode == "mp4":
-            _validate_fields("scenario", options.scenario, _REPLAY_SCENARIO_FIELDS)
-            _validate_fields("output", options.output, {"path", "output", "fps"})
-            output_path = options.output.get("path") or options.output.get("output")
-            if output_path is None:
-                raise ValueError(
-                    "LingBot mp4 mode requires output.path in the manifest."
-                )
-            return _resolved(config, mode, options, output_path=output_path)
-        if mode == "webrtc":
-            _validate_fields("scenario", options.scenario, _WEBRTC_SCENARIO_FIELDS)
-            _validate_fields("output", options.output, _WEBRTC_OUTPUT_FIELDS)
-            return _resolved(config, mode, options)
-        return None
-
-
-def _resolved(
-    config: RunnerConfig,
-    mode: LaunchMode,
-    options: LaunchOptions,
-    *,
-    output_path: object | None = None,
-) -> ResolvedLaunch:
-    summary: dict[str, object] = {
-        "runner": config.runner_name,
-        "mode": mode,
-        "device": config.device,
-    }
-    if output_path is not None:
-        summary["output_path"] = output_path
-    if mode == "webrtc":
-        summary["host"] = options.host or options.output.get("host", "0.0.0.0")
-        summary["port"] = (
-            options.port
-            if options.port is not None
-            else options.output.get("port", 8080)
+        input_mode: DemoInputMode,
+        scenario: Mapping[str, object],
+    ) -> DemoDefinition:
+        scenario = dict(scenario)
+        scenario.setdefault("example_idx", getattr(config, "example_idx", 0))
+        if input_mode == "replay":
+            for name in (
+                "prompt",
+                "prompt_path",
+                "image_path",
+                "pose_path",
+                "intrinsic_path",
+                "example_data",
+                "total_blocks",
+                "pixel_height",
+                "pixel_width",
+                "fps",
+            ):
+                value = getattr(config, name, None)
+                if value not in (None, "", ()):
+                    scenario.setdefault(name, value)
+        preset_id = str(getattr(config.pipeline, "name", config.runner_name))
+        return DemoDefinition(
+            model_id=LINGBOT_MODEL_ID,
+            preset_id=preset_id,
+            input_mode=input_mode,
+            scenario=scenario,
+            fps=int(getattr(config, "fps", DEFAULT_FPS)),
+            video_width=int(getattr(config, "pixel_width", DEFAULT_PIXEL_WIDTH)),
+            video_height=int(getattr(config, "pixel_height", DEFAULT_PIXEL_HEIGHT)),
+            output_layout="tchw",
+            config=InferenceConfig(
+                model_id=LINGBOT_MODEL_ID,
+                preset_id=preset_id,
+                device=str(config.device),
+                compile=_runner_compile(config),
+                runtime_options={
+                    "seed": _pipeline_seed(config),
+                    "context_parallel_size": int(os.environ.get("WORLD_SIZE", "1")),
+                    "example_idx": scenario["example_idx"],
+                    "total_blocks": getattr(config, "total_blocks", 1_000_000),
+                },
+            ),
         )
-    return ResolvedLaunch(
-        mode=mode,
-        label=f"LingBot {'MP4 replay' if mode == 'mp4' else 'WebRTC server'}",
-        summary=summary,
-        launch=partial(
-            _launch,
-            config=config,
-            mode=mode,
-            options=options,
-        ),
+
+
+def _runner_compile(config: RunnerConfig) -> bool:
+    transformer = getattr(
+        getattr(config.pipeline, "diffusion_model", None),
+        "transformer",
+        None,
     )
+    return bool(getattr(transformer, "compile_network", True))
 
 
-def _launch(
-    *,
-    config: RunnerConfig,
-    mode: LaunchMode,
-    options: LaunchOptions,
-) -> object:
-    from lingbot.demo.app import launch_from_runner
-
-    if mode not in {"mp4", "webrtc"}:
-        raise ValueError(f"Unsupported LingBot launch mode: {mode!r}.")
-    return launch_from_runner(
-        config=config,
-        mode=cast(Literal["mp4", "webrtc"], mode),
-        scenario=dict(options.scenario),
-        output=dict(options.output),
-        host=options.host,
-        port=options.port,
-        prefer_sw_encoder=options.prefer_sw_encoder,
-    )
-
-
-def _validate_fields(
-    section: str,
-    values: Mapping[str, object],
-    allowed: set[str] | frozenset[str],
-) -> None:
-    unknown = sorted(set(values) - allowed)
-    if unknown:
-        raise ValueError(f"Unsupported LingBot {section} fields: {', '.join(unknown)}.")
+def _pipeline_seed(config: RunnerConfig) -> int:
+    diffusion_model: Any = getattr(config.pipeline, "diffusion_model", None)
+    return int(getattr(diffusion_model, "seed", 42))
 
 
 LAUNCH_CAPABILITY = LingbotLaunchCapability()

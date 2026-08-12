@@ -51,9 +51,10 @@ from .session_inputs import PreparedStep, ProviderCapabilities, UserInputWindow
 from .spec import (
     DemoAdapter,
     DemoSpec,
+    Mp4OutputSpec,
+    NullOutputSpec,
     OutputSpec,
     PreparedScenario,
-    WebRTCOutputSpec,
 )
 
 OutputTargetFactory = Callable[[OutputSpec], OutputTarget]
@@ -81,13 +82,11 @@ def run_replay_demo(
             "run_replay_demo requires input_mode='replay', "
             f"got input_mode={spec.input_mode!r}."
         )
-    _require_supported_mode(
-        mode=spec.output.mode,
-        supported=adapter.supported_output_modes(),
-        label="output.mode",
-    )
-    if isinstance(spec.output, WebRTCOutputSpec):
-        raise ValueError("run_replay_demo does not support WebRTC output.")
+    if not isinstance(spec.output, (Mp4OutputSpec, NullOutputSpec)):
+        raise ValueError(
+            "run_replay_demo requires an MP4 or null output target, "
+            f"got output.mode={spec.output.mode!r}."
+        )
 
     prepared = adapter.prepare_scenario(spec)
     mapping = _scenario_mapping(prepared=prepared, adapter=adapter)
@@ -353,9 +352,6 @@ class _ReplayProviderAdapter:
 
     def supported_input_modes(self) -> tuple[str, ...]:
         return self._adapter.supported_input_modes()
-
-    def supported_output_modes(self) -> tuple[str, ...]:
-        return self._adapter.supported_output_modes()
 
     def validate_config(self, config: InferenceConfig) -> None:
         self._adapter.validate_config(config)

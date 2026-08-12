@@ -8,7 +8,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Literal, Protocol, TypeAlias
+from typing import Any, Literal, Protocol, TypeAlias, runtime_checkable
 
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.runtime._utils import freeze_mapping
@@ -85,7 +85,62 @@ class WebRTCOutputSpec:
             object.__setattr__(self, "web_dir", Path(self.web_dir))
 
 
-OutputSpec: TypeAlias = NullOutputSpec | Mp4OutputSpec | WebRTCOutputSpec
+@dataclass(frozen=True, kw_only=True, slots=True)
+class NativeWindowOutputSpec:
+    """Shared local native-window presentation output."""
+
+    mode: Literal["native-window"] = "native-window"
+    """Stable presentation API mode name."""
+
+    fps: int = 30
+    """Target display frame rate."""
+
+    video_width: int = 1280
+    """Displayed video width in pixels."""
+
+    video_height: int = 720
+    """Displayed video height in pixels."""
+
+    title: str = "FlashDreams"
+    """Native window title."""
+
+    max_queued_chunks: int = 2
+    """Maximum generated chunks retained for presentation."""
+
+    def __post_init__(self) -> None:
+        if self.fps <= 0:
+            raise ValueError("NativeWindowOutputSpec.fps must be > 0.")
+        if self.video_width <= 0 or self.video_height <= 0:
+            raise ValueError("NativeWindowOutputSpec video dimensions must be > 0.")
+        if not self.title.strip():
+            raise ValueError("NativeWindowOutputSpec.title must be non-empty.")
+        if self.max_queued_chunks <= 0:
+            raise ValueError("NativeWindowOutputSpec.max_queued_chunks must be > 0.")
+
+
+@runtime_checkable
+class RealtimeOutputSpec(Protocol):
+    """Common presentation settings required by realtime output targets."""
+
+    mode: str
+    fps: int
+    video_width: int
+    video_height: int
+
+
+def require_realtime_output(output: OutputSpec) -> RealtimeOutputSpec:
+    """Return shared realtime settings without coupling to a target type."""
+    if not isinstance(output, RealtimeOutputSpec):
+        raise ValueError(
+            "Realtime input requires an output target with fps, video_width, "
+            f"and video_height settings; got output.mode={output.mode!r}."
+        )
+    return output
+
+
+OutputSpec: TypeAlias = (
+    NullOutputSpec | Mp4OutputSpec | WebRTCOutputSpec | NativeWindowOutputSpec
+)
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -163,10 +218,6 @@ class DemoAdapter(ModelAdapter, Protocol):
         """Return demo input modes this adapter can prepare."""
         ...
 
-    def supported_output_modes(self) -> tuple[str, ...]:
-        """Return demo output modes this adapter can run."""
-        ...
-
     def prepare_scenario(self, spec: DemoSpec) -> PreparedScenario:
         """Validate and materialize scenario inputs before runtime creation."""
         ...
@@ -189,9 +240,12 @@ __all__ = [
     "DemoSpec",
     "ModelWarmupAdapter",
     "Mp4OutputSpec",
+    "NativeWindowOutputSpec",
     "NullOutputSpec",
     "OutputSpec",
     "PreparedScenario",
+    "RealtimeOutputSpec",
+    "require_realtime_output",
     "WebRTCOutputSpec",
     "WebRTCAppResources",
 ]

@@ -23,6 +23,7 @@ from flashdreams.runtime import (
 from flashdreams.runtime.demo import (
     DemoSpec,
     PreparedScenario,
+    require_realtime_output,
 )
 from flashdreams.runtime.demo.session_inputs import ModelInputProvider
 from flashdreams.runtime.interfaces import InferenceRuntime
@@ -97,34 +98,19 @@ class OmnidreamsDemoAdapter:
         return self._mapping
 
     def supported_input_modes(self) -> tuple[str, ...]:
-        return ("replay", "keyboard-driving")
-
-    def supported_output_modes(self) -> tuple[str, ...]:
-        return ("mp4", "null", "webrtc")
+        return ("replay", "realtime")
 
     def supported_conditioning_modes(self) -> tuple[str, ...]:
         return OMNIDREAMS_CONDITIONING_MODES
 
     def prepare_scenario(self, spec: DemoSpec) -> PreparedScenario:
-        if spec.output.mode not in self.supported_output_modes():
-            raise ValueError(
-                "OmniDreams demo supports output modes "
-                f"{self.supported_output_modes()}, got {spec.output.mode!r}."
-            )
-        if spec.input_mode == "keyboard-driving":
-            if spec.output.mode != "webrtc":
-                raise ValueError(
-                    "OmniDreams keyboard-driving input currently requires "
-                    f"output.mode='webrtc', got {spec.output.mode!r}."
-                )
-            return self._prepare_webrtc_scenario(spec)
+        if spec.input_mode == "realtime":
+            return self._prepare_realtime_scenario(spec)
         if spec.input_mode != "replay":
             raise ValueError(
                 "OmniDreams prepare_scenario supports input modes "
                 f"{self.supported_input_modes()}, got {spec.input_mode!r}."
             )
-        if spec.output.mode == "webrtc":
-            raise ValueError("OmniDreams replay input does not support WebRTC output.")
         conditioning_mode = conditioning_mode_from_scenario(spec.scenario)
         if conditioning_mode == OMNIDREAMS_CONDITIONING_PRECOMPUTED:
             scenario = resolve_replay_scenario(
@@ -184,7 +170,7 @@ class OmnidreamsDemoAdapter:
         spec: DemoSpec,
         scenario: PreparedScenario,
     ) -> ModelInputProvider:
-        if spec.input_mode not in {"replay", "keyboard-driving"}:
+        if spec.input_mode not in {"replay", "realtime"}:
             raise ValueError(
                 "OmniDreams providers support input modes "
                 f"{self.supported_input_modes()}, got {spec.input_mode!r}."
@@ -211,7 +197,7 @@ class OmnidreamsDemoAdapter:
             config=spec.config,
         )
 
-    def _prepare_webrtc_scenario(self, spec: DemoSpec) -> PreparedScenario:
+    def _prepare_realtime_scenario(self, spec: DemoSpec) -> PreparedScenario:
         if spec.config is None:
             raise RuntimeError("DemoSpec.config was not initialized.")
         scenario = self._webrtc_ludus_scenario(
@@ -242,10 +228,10 @@ class OmnidreamsDemoAdapter:
         config = spec.config
         if config is None:
             raise RuntimeError("DemoSpec.config was not initialized.")
-        output = spec.output
-        fps = int(getattr(output, "fps", 30))
-        video_height = int(getattr(output, "video_height", 704))
-        video_width = int(getattr(output, "video_width", 1280))
+        output = require_realtime_output(spec.output)
+        fps = output.fps
+        video_height = output.video_height
+        video_width = output.video_width
         options = config.runtime_options
         return OmnidreamsLudusReplayScenario(
             keyboard_events=(),

@@ -192,8 +192,7 @@ def test_omnidreams_demo_adapter_declares_shared_modes() -> None:
     adapter = OmnidreamsDemoAdapter()
 
     assert adapter.model_id == OMNIDREAMS_MODEL_ID
-    assert adapter.supported_input_modes() == ("replay", "keyboard-driving")
-    assert adapter.supported_output_modes() == ("mp4", "null", "webrtc")
+    assert adapter.supported_input_modes() == ("replay", "realtime")
     assert adapter.supported_conditioning_modes() == (
         OMNIDREAMS_CONDITIONING_PRECOMPUTED,
         OMNIDREAMS_CONDITIONING_LUDUS,
@@ -953,7 +952,7 @@ def test_omnidreams_webrtc_cli_builds_keyboard_driving_spec(tmp_path: Path) -> N
 
     assert spec.model_id == OMNIDREAMS_MODEL_ID
     assert spec.preset_id == DEFAULT_OMNIDREAMS_PRESET
-    assert spec.input_mode == "keyboard-driving"
+    assert spec.input_mode == "realtime"
     assert isinstance(spec.scenario, OmnidreamsWebRTCScenario)
     assert spec.scenario.scene_dir == tmp_path / "scene"
     assert spec.scenario.scene_uuid == "scene-1"
@@ -983,7 +982,7 @@ def test_omnidreams_webrtc_demo_uses_shared_manager_with_model_config() -> None:
     spec = DemoSpec(
         model_id=OMNIDREAMS_MODEL_ID,
         preset_id=DEFAULT_OMNIDREAMS_PRESET,
-        input_mode="keyboard-driving",
+        input_mode="realtime",
         scenario=OmnidreamsWebRTCScenario(
             scene_uuid="scene-1",
             scene_variant="rain",
@@ -1066,7 +1065,7 @@ def test_omnidreams_webrtc_demo_keeps_legacy_runtime_factory_path() -> None:
     spec = DemoSpec(
         model_id=OMNIDREAMS_MODEL_ID,
         preset_id=DEFAULT_OMNIDREAMS_PRESET,
-        input_mode="keyboard-driving",
+        input_mode="realtime",
         scenario=OmnidreamsWebRTCScenario(),
         output=WebRTCOutputSpec(
             host="0.0.0.0",
@@ -1148,7 +1147,7 @@ def test_omnidreams_webrtc_demo_installs_model_assets_without_routes(
     spec = DemoSpec(
         model_id=OMNIDREAMS_MODEL_ID,
         preset_id=DEFAULT_OMNIDREAMS_PRESET,
-        input_mode="keyboard-driving",
+        input_mode="realtime",
         scenario=OmnidreamsWebRTCScenario(),
         output=WebRTCOutputSpec(
             host="0.0.0.0",
@@ -1224,7 +1223,7 @@ def test_omnidreams_webrtc_demo_serves_through_shared_runner(
     spec = DemoSpec(
         model_id=OMNIDREAMS_MODEL_ID,
         preset_id=DEFAULT_OMNIDREAMS_PRESET,
-        input_mode="keyboard-driving",
+        input_mode="realtime",
         scenario={"scene_uuid": "scene-1"},
         output=WebRTCOutputSpec(
             host="0.0.0.0",
@@ -1392,7 +1391,7 @@ async def test_omnidreams_webrtc_manager_drives_shared_session(
     spec = DemoSpec(
         model_id=OMNIDREAMS_MODEL_ID,
         preset_id=DEFAULT_OMNIDREAMS_PRESET,
-        input_mode="keyboard-driving",
+        input_mode="realtime",
         scenario=OmnidreamsWebRTCScenario(
             scene_dir=scene_path,
             scene_uuid="scene-1",

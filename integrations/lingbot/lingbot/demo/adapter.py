@@ -15,10 +15,9 @@ from flashdreams.runtime import (
 )
 from flashdreams.runtime.demo import (
     DemoSpec,
-    Mp4OutputSpec,
-    NullOutputSpec,
     PreparedScenario,
-    WebRTCOutputSpec,
+    RealtimeOutputSpec,
+    require_realtime_output,
 )
 from flashdreams.runtime.interfaces import InferenceRuntime
 from lingbot.runtime import (
@@ -62,28 +61,21 @@ class LingbotDemoAdapter(LingbotModelAdapter):
         )
 
     def supported_input_modes(self) -> tuple[str, ...]:
-        return ("replay", "keyboard-driving")
-
-    def supported_output_modes(self) -> tuple[str, ...]:
-        return ("mp4", "null", "webrtc")
+        return ("replay", "realtime")
 
     def prepare_scenario(self, spec: DemoSpec) -> PreparedScenario:
         if spec.input_mode == "replay":
-            if not isinstance(spec.output, (Mp4OutputSpec, NullOutputSpec)):
-                raise ValueError("Lingbot replay demo requires MP4 or null output.")
             scenario = spec.scenario
             live_camera = False
-        elif spec.input_mode == "keyboard-driving":
-            if not isinstance(spec.output, WebRTCOutputSpec):
-                raise ValueError(
-                    "Lingbot keyboard-driving demo requires WebRTC output."
-                )
-            scenario = _keyboard_driving_scenario(spec, output=spec.output)
+        elif spec.input_mode == "realtime":
+            scenario = _keyboard_driving_scenario(
+                spec, output=require_realtime_output(spec.output)
+            )
             live_camera = True
         else:
             raise ValueError(
                 "Lingbot prepare_scenario supports input_mode='replay' or "
-                f"'keyboard-driving', got {spec.input_mode!r}."
+                f"'realtime', got {spec.input_mode!r}."
             )
 
         replay_inputs = resolve_replay_inputs(
@@ -133,7 +125,7 @@ def _camera_source(scenario: Any) -> str:
 def _keyboard_driving_scenario(
     spec: DemoSpec,
     *,
-    output: WebRTCOutputSpec,
+    output: RealtimeOutputSpec,
 ) -> Mapping[str, Any]:
     webrtc_scenario = resolve_webrtc_scenario(spec.scenario)
     scenario: dict[str, Any] = (

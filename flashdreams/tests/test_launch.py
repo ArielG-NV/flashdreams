@@ -3,19 +3,22 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
 from flashdreams.infra.runner import RunnerConfig
+from flashdreams.runtime import InferenceConfig
 from flashdreams.scripts import cli
 from flashdreams.serving import launch as launch_module
 from flashdreams.serving.launch import (
+    DemoDefinition,
+    DemoInputMode,
     LaunchModeUnavailableError,
     LaunchOptions,
-    ResolvedLaunch,
     available_launch_modes,
     resolve_launch,
 )
@@ -26,7 +29,6 @@ pytestmark = pytest.mark.ci_cpu
 def _runner_config(
     *,
     runner_name: str,
-    num_views: int = 1,
     pipeline_name: str | None = None,
 ) -> RunnerConfig:
     launch_capability = None
@@ -38,7 +40,7 @@ def _runner_config(
         name=pipeline_name or runner_name,
         diffusion_model=SimpleNamespace(
             seed=42,
-            transformer=SimpleNamespace(num_views=num_views, compile_network=True),
+            transformer=SimpleNamespace(num_views=1, compile_network=True),
         ),
     )
     return cast(
@@ -58,48 +60,53 @@ def _runner_config(
     )
 
 
-def test_lingbot_mp4_launch_validates_manifest_sections(tmp_path: Path) -> None:
+def test_output_targets_are_inferred_from_lingbot_input_capabilities() -> None:
+    assert available_launch_modes(_runner_config(runner_name="lingbot-world-fast")) == (
+        "run",
+        "mp4",
+        "null",
+        "webrtc",
+        "native-window",
+    )
+
+
+def test_shared_mp4_target_builds_output_spec(tmp_path: Path) -> None:
     resolved = resolve_launch(
         _runner_config(runner_name="lingbot-world-fast"),
         mode="mp4",
-        options=LaunchOptions(
-            scenario={"example_idx": 2, "total_blocks": 4},
-            output={"path": tmp_path / "demo.mp4", "fps": 12},
-        ),
+        options=LaunchOptions(output={"path": tmp_path / "demo.mp4", "fps": 12}),
     )
 
     assert resolved.mode == "mp4"
     assert resolved.summary["output_path"] == tmp_path / "demo.mp4"
 
 
-def test_lingbot_launch_rejects_unknown_integration_fields() -> None:
-    with pytest.raises(ValueError, match="Unsupported LingBot scenario fields: typo"):
+def test_shared_target_validates_output_fields() -> None:
+    with pytest.raises(ValueError, match="Unsupported output fields: typo"):
         resolve_launch(
             _runner_config(runner_name="lingbot-world-fast"),
             mode="webrtc",
-            options=LaunchOptions(scenario={"typo": True}),
+            options=LaunchOptions(output={"typo": True}),
         )
 
 
-def test_omnidreams_webrtc_is_rejected_for_multi_view() -> None:
+def test_output_compatibility_does_not_depend_on_model_variant() -> None:
     config = _runner_config(
-        runner_name="omnidreams-mv-2steps-chunk4-loc8-pshuffle-lighttae",
-        num_views=4,
+        runner_name="omnidreams-mv-2steps-chunk4-loc8-pshuffle-lighttae"
     )
 
-    assert available_launch_modes(config) == ("run", "mp4", "null")
-    with pytest.raises(
-        LaunchModeUnavailableError,
-        match="Supported modes: run, mp4, null",
-    ):
-        resolve_launch(config, mode="webrtc")
+    assert available_launch_modes(config) == (
+        "run",
+        "mp4",
+        "null",
+        "webrtc",
+        "native-window",
+    )
 
 
-def test_omnidreams_webrtc_honors_explicit_network_precedence() -> None:
+def test_shared_webrtc_target_honors_explicit_network_precedence() -> None:
     resolved = resolve_launch(
-        _runner_config(
-            runner_name="omnidreams",
-        ),
+        _runner_config(runner_name="omnidreams"),
         mode="webrtc",
         options=LaunchOptions(
             host="127.0.0.1",
@@ -112,107 +119,100 @@ def test_omnidreams_webrtc_honors_explicit_network_precedence() -> None:
     assert resolved.summary["port"] == 9011
 
 
-def test_omnidreams_mp4_short_slug_uses_default_output_path(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from omnidreams.demo import app
-
-    calls: list[dict[str, object]] = []
-    monkeypatch.setattr(
-        app, "launch_from_runner", lambda **kwargs: calls.append(kwargs)
+def test_shared_mp4_target_supplies_default_output_path() -> None:
+    resolved = resolve_launch(
+        _runner_config(
+            runner_name="omnidreams",
+            pipeline_name="omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae",
+        ),
+        mode="mp4",
     )
-    config = _runner_config(
-        runner_name="omnidreams",
-        pipeline_name="omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae",
-    )
-
-    resolved = resolve_launch(config, mode="mp4")
 
     assert resolved.summary == {
         "runner": "omnidreams",
-        "mode": "mp4",
+        "output_target": "mp4",
         "device": "cuda:1",
         "output_path": Path("outputs/omnidreams.mp4"),
     }
-    resolved.launch()
-    assert calls[0]["config"] is config
-    assert calls[0]["mode"] == "mp4"
-    assert calls[0]["output"] == {"path": Path("outputs/omnidreams.mp4")}
 
 
-def test_omnidreams_local_window_accepts_legacy_world_manifest() -> None:
-    config = _runner_config(
-        runner_name="omnidreams-perf",
-        pipeline_name="omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf",
-    )
-    manifest = Path("custom.yaml")
-    options = LaunchOptions(legacy_world_manifest=manifest)
+class _ReplayOnlyAdapter:
+    model_id = "plugin-demo"
 
-    assert available_launch_modes(config, options) == (
-        "run",
-        "mp4",
-        "null",
-        "webrtc",
-        "local-window",
-    )
-    resolved = resolve_launch(config, mode="local-window", options=options)
-    assert resolved.summary["world_model_manifest"] == manifest
+    def supported_input_modes(self) -> tuple[str, ...]:
+        return ("replay",)
 
 
-def test_capabilities_extend_launch_without_shared_routing_changes(
+class _ReplayOnlyCapability:
+    def adapter(self, config: RunnerConfig) -> Any:
+        del config
+        return _ReplayOnlyAdapter()
+
+    def demo(
+        self,
+        config: RunnerConfig,
+        *,
+        input_mode: DemoInputMode,
+        scenario: Mapping[str, object],
+    ) -> DemoDefinition:
+        del config, scenario
+        return DemoDefinition(
+            model_id="plugin-demo",
+            input_mode=input_mode,
+            config=InferenceConfig(model_id="plugin-demo"),
+        )
+
+
+def test_registered_targets_are_filtered_by_input_capability(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class _FakeCapability:
-        def supported_modes(self, config, options):
-            del config, options
-            return ("webrtc",)
-
-        def resolve(self, config, *, mode, options):
-            del config, options
-            if mode != "webrtc":
-                return None
-            return ResolvedLaunch(
-                mode="webrtc",
-                label="plugin launch",
-                launch=lambda: None,
-            )
-
     config = _runner_config(runner_name="third-party-model")
     config.launch_capability = "plugin:capability"
     monkeypatch.setattr(
         launch_module,
         "_load_launch_capability",
-        lambda path: _FakeCapability(),
+        lambda path: _ReplayOnlyCapability(),
     )
 
-    assert available_launch_modes(config) == ("run", "webrtc")
-    assert resolve_launch(config, mode="webrtc").label == "plugin launch"
+    assert available_launch_modes(config) == ("run", "mp4", "null")
+    with pytest.raises(LaunchModeUnavailableError, match="not compatible"):
+        resolve_launch(config, mode="webrtc")
 
 
-def test_resolved_launch_calls_integration_directly(
+def test_demo_capability_receives_only_input_mode_and_scenario(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from lingbot.demo import app
+    captured: dict[str, object] = {}
 
-    calls: list[dict[str, object]] = []
+    class _Capability(_ReplayOnlyCapability):
+        def demo(self, config, *, input_mode, scenario):
+            captured.update(input_mode=input_mode, scenario=scenario)
+            return super().demo(config, input_mode=input_mode, scenario=scenario)
+
+    config = _runner_config(runner_name="third-party-model")
+    config.launch_capability = "plugin:capability"
     monkeypatch.setattr(
-        app, "launch_from_runner", lambda **kwargs: calls.append(kwargs)
+        launch_module, "_load_launch_capability", lambda path: _Capability()
     )
-    config = _runner_config(runner_name="lingbot-world-fast")
+
+    resolved = resolve_launch(config, mode="mp4")
+
+    assert captured == {"input_mode": "replay", "scenario": {}}
+    assert resolved.summary["output_target"] == "mp4"
+
+
+def test_shared_registry_builds_webrtc_output_spec() -> None:
     resolved = resolve_launch(
-        config,
+        _runner_config(runner_name="lingbot-world-fast"),
         mode="webrtc",
         options=LaunchOptions(port=9000),
     )
 
-    resolved.launch()
-
-    assert calls[0]["config"] is config
-    assert calls[0]["mode"] == "webrtc"
-    assert calls[0]["port"] == 9000
+    assert resolved.summary["port"] == 9000
+    assert resolved.label == "webrtc output"
 
 
-def test_no_instantiate_reports_launch_without_setting_up_model(
+def test_no_instantiate_reports_targets_without_setting_up_model(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     config = _runner_config(runner_name="lingbot-world-fast")
@@ -226,6 +226,6 @@ def test_no_instantiate_reports_launch_without_setting_up_model(
     )
 
     output = capsys.readouterr().out
-    assert "Available modes: run, mp4, webrtc" in output
-    assert "Selected launch: LingBot WebRTC server" in output
+    assert "Available modes: run, mp4, null, webrtc, native-window" in output
+    assert "Selected launch: webrtc output" in output
     assert "'host': '127.0.0.1'" in output

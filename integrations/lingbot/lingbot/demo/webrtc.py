@@ -51,10 +51,9 @@ def serve_lingbot_webrtc_demo(
     server_runner: RunWebRTCServer = run_webrtc_server,
 ) -> object:
     """Create Lingbot's runtime and serve it through the shared WebRTC transport."""
-    if spec.input_mode != "keyboard-driving":
+    if spec.input_mode != "realtime":
         raise ValueError(
-            "Lingbot WebRTC requires input_mode='keyboard-driving', "
-            f"got {spec.input_mode!r}."
+            f"Lingbot WebRTC requires input_mode='realtime', got {spec.input_mode!r}."
         )
     if not isinstance(spec.output, WebRTCOutputSpec):
         raise ValueError("Lingbot WebRTC requires WebRTC output.")

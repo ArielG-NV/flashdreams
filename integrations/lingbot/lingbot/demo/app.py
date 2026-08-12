@@ -345,7 +345,7 @@ def _webrtc_spec(
     return DemoSpec(
         model_id=LINGBOT_MODEL_ID,
         preset_id=args.preset_id,
-        input_mode="keyboard-driving",
+        input_mode="realtime",
         scenario=LingbotWebRTCScenario(
             example_idx=args.example_idx,
             prefer_sw_encoder=args.prefer_sw_encoder,

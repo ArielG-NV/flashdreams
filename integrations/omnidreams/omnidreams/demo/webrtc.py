@@ -68,9 +68,9 @@ def serve_omnidreams_webrtc_demo(
         raise ValueError(
             "Specify either legacy runtime_factory or shared_runtime_factory, not both."
         )
-    if spec.input_mode != "keyboard-driving":
+    if spec.input_mode != "realtime":
         raise ValueError(
-            "OmniDreams WebRTC requires input_mode='keyboard-driving', "
+            "OmniDreams WebRTC requires input_mode='realtime', "
             f"got {spec.input_mode!r}."
         )
     if not isinstance(spec.output, WebRTCOutputSpec):

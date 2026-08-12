@@ -484,9 +484,6 @@ class _LegacyWebRTCDemoAdapter:
     def supported_input_modes(self) -> tuple[str, ...]:
         return ("webrtc",)
 
-    def supported_output_modes(self) -> tuple[str, ...]:
-        return ("webrtc",)
-
     def default_input_mapping(self) -> InputMapping | None:
         return None
 

@@ -120,7 +120,7 @@ output:
     )
     monkeypatch.setattr(cli, "all_runners", lambda: {"demo-runner": _config()})
 
-    args, runners, manifest, mode, legacy_manifest = cli._prepare_cli_args(
+    args, runners, manifest, mode = cli._prepare_cli_args(
         ["demo-runner", "webrtc", "--manifest", str(manifest_path)]
     )
 
@@ -129,7 +129,6 @@ output:
     assert manifest is not None
     assert manifest.scenario["scene_dir"] == tmp_path / "scenes"
     assert mode == "webrtc"
-    assert legacy_manifest is None
 
 
 def test_positional_mode_must_match_manifest(
@@ -152,14 +151,13 @@ def test_run_mode_preserves_default_runner_dispatch(
 ) -> None:
     monkeypatch.setattr(cli, "all_runners", lambda: {"demo-runner": _config()})
 
-    args, _, manifest, mode, legacy_manifest = cli._prepare_cli_args(
+    args, _, manifest, mode = cli._prepare_cli_args(
         ["demo-runner", "run"]
     )
 
     assert args == ["demo-runner"]
     assert manifest is None
     assert mode == "run"
-    assert legacy_manifest is None
 
 
 def test_short_omnidreams_slug_and_mp4_mode_are_parsed(
@@ -171,7 +169,7 @@ def test_short_omnidreams_slug_and_mp4_mode_are_parsed(
         lambda: {"omnidreams": _config("omnidreams")},
     )
 
-    args, runners, manifest, mode, legacy_manifest = cli._prepare_cli_args(
+    args, runners, manifest, mode = cli._prepare_cli_args(
         ["omnidreams", "mp4"]
     )
 
@@ -179,7 +177,6 @@ def test_short_omnidreams_slug_and_mp4_mode_are_parsed(
     assert runners["omnidreams"].runner_name == "omnidreams"
     assert manifest is None
     assert mode == "mp4"
-    assert legacy_manifest is None
 
 
 def test_central_options_are_allowed_after_runner(
@@ -187,7 +184,7 @@ def test_central_options_are_allowed_after_runner(
 ) -> None:
     monkeypatch.setattr(cli, "all_runners", lambda: {"demo-runner": _config()})
 
-    args, _, _, mode, _ = cli._prepare_cli_args(
+    args, _, _, mode = cli._prepare_cli_args(
         [
             "demo-runner",
             "webrtc",
@@ -206,24 +203,6 @@ def test_central_options_are_allowed_after_runner(
     assert mode == "webrtc"
 
 
-def test_legacy_local_window_manifest_is_routed_without_second_cli(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    path = tmp_path / "example_world_model.yaml"
-    path.write_text("resolution_wh: [1280, 704]\n", encoding="utf-8")
-    monkeypatch.setattr(cli, "all_runners", lambda: {"demo-runner": _config()})
-
-    args, _, launch_manifest, mode, legacy_manifest = cli._prepare_cli_args(
-        ["demo-runner", "local-window", "--manifest", str(path)]
-    )
-
-    assert args == ["demo-runner"]
-    assert launch_manifest is None
-    assert mode == "local-window"
-    assert legacy_manifest == path.resolve()
-
-
 def test_mode_help_lists_only_mode_specific_central_overrides(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -231,7 +210,7 @@ def test_mode_help_lists_only_mode_specific_central_overrides(
         cli.entrypoint(["lingbot-world-fast", "webrtc", "--help"])
     assert webrtc_exit.value.code == 0
     webrtc_help = capsys.readouterr().out
-    assert "Available modes: run, mp4, webrtc" in webrtc_help
+    assert "Available modes: run, mp4, null, webrtc, native-window" in webrtc_help
     assert "--host HOST" in webrtc_help
 
     with pytest.raises(SystemExit) as mp4_exit:
@@ -304,7 +283,6 @@ def test_documented_launch_manifests_resolve(filename: str) -> None:
             config,
             mode=cast(Any, manifest.mode),
             options=cli.LaunchOptions(
-                launch_manifest=manifest.path,
                 scenario=manifest.scenario,
                 output=manifest.output,
             ),

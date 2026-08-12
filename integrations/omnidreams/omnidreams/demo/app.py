@@ -343,7 +343,7 @@ def _webrtc_spec(args: argparse.Namespace, *, device: str) -> DemoSpec:
     return DemoSpec(
         model_id=OMNIDREAMS_MODEL_ID,
         preset_id=args.preset_id,
-        input_mode="keyboard-driving",
+        input_mode="realtime",
         scenario=OmnidreamsWebRTCScenario(
             scene_dir=args.scene_dir,
             scene_uuid=args.scene_uuid,

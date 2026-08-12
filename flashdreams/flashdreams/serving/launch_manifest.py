@@ -19,7 +19,7 @@ SCHEMA_VERSION = 1
 _TOP_LEVEL_FIELDS = frozenset(
     {"schema_version", "runner", "mode", "runner_overrides", "scenario", "output"}
 )
-_MODES = frozenset({"run", "mp4", "null", "webrtc", "local-window"})
+_MODES = frozenset({"run", "mp4", "null", "webrtc", "native-window"})
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)

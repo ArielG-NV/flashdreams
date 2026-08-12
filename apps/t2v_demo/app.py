@@ -135,7 +135,7 @@ def launch_t2v(
         config,
         adapter=adapter,
         scenario=scenario,
-        input_mode="webrtc",
+        input_mode="realtime",
         output=output,
         device=str(context.device),
     )
@@ -202,7 +202,7 @@ def _spec(
     *,
     adapter: T2VDemoAdapter,
     scenario: dict[str, object],
-    input_mode: Literal["replay", "webrtc"],
+    input_mode: Literal["replay", "realtime"],
     output: Mp4OutputSpec | NullOutputSpec | WebRTCOutputSpec,
     device: str | None = None,
 ) -> DemoSpec:
