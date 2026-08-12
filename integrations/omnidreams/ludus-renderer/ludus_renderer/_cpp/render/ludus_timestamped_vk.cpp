@@ -1379,10 +1379,12 @@ void ludusCopyBatchResultsVk(
 
 int ludusCopyBatchResultsToStagingVk(
     NVDR_CTX_ARGS, LudusTimestampedVkState& s, cudaStream_t stream,
-    int width, int height, int numQueries)
+    int idx, int width, int height, int numQueries)
 {
-    int idx = s.currentStagingIdx;
-    s.currentStagingIdx = 1 - idx;
+    TORCH_CHECK(idx >= 0 && idx < 2,
+        "invalid Vulkan staging slot ", idx);
+    TORCH_CHECK(s.stagingValid[idx],
+        "Vulkan staging slot ", idx, " was not reserved");
 
     size_t totalSize = (size_t)width * height * 4 * numQueries;
     if (totalSize > s.stagingBufferSize[idx]) {
@@ -1393,7 +1395,6 @@ int ludusCopyBatchResultsToStagingVk(
         if (s.stagingBuffer[idx]) cudaFree(s.stagingBuffer[idx]);
         cudaMalloc(&s.stagingBuffer[idx], totalSize);
         s.stagingBufferSize[idx] = totalSize;
-        s.stagingValid[idx] = 0;
     }
 
     ludusCopyBatchResultsVk(NVDR_CTX_PARAMS, s, stream, s.stagingBuffer[idx], width, height, numQueries);
@@ -1402,8 +1403,6 @@ int ludusCopyBatchResultsToStagingVk(
     s.stagingWidth[idx] = width;
     s.stagingHeight[idx] = height;
     s.stagingNumQueries[idx] = numQueries;
-    s.stagingValid[idx] = 1;
-
     return idx;
 }
 

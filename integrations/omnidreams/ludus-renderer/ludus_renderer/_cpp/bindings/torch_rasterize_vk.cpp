@@ -135,6 +135,26 @@ public:
         hasLastUseEvent = true;
     }
 
+    int acquireStagingSlot()
+    {
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            const int slot = (pState->currentStagingIdx + attempt) % 2;
+            if (!pState->stagingValid[slot]) {
+                // Reserve before submitting any work. stateMutex serializes
+                // acquisition and consumption, so no atomic is needed here.
+                pState->stagingValid[slot] = 1;
+                pState->currentStagingIdx = (slot + 1) % 2;
+                return slot;
+            }
+        }
+        return -1;
+    }
+
+    void releaseStagingSlot(int slot)
+    {
+        pState->stagingValid[slot] = 0;
+    }
+
     int acquireOutputSlot()
     {
         for (int attempt = 0; attempt < LUDUS_VK_OUTPUT_SLOTS; ++attempt) {
@@ -455,23 +475,31 @@ std::tuple<int, bool> ludus_timestamped_render_to_staging_vk(
     int width = std::get<1>(resolution);
 
     torch::Tensor poses_rdf = flu_to_rdf(camera_poses).transpose(-2, -1).contiguous();
-    const int outputSlot = stateWrapper.acquireOutputSlot();
+    const int stagingIdx = stateWrapper.acquireStagingSlot();
+    if (stagingIdx < 0)
+        return std::make_tuple(-1, false);
+
+    int outputSlot = -1;
     try {
+        outputSlot = stateWrapper.acquireOutputSlot();
         stateWrapper.waitForOutputRelease(stream, outputSlot);
         ludusRenderBatchVk(NVDR_CTX_PARAMS, s, stream,
             reinterpret_cast<const RenderQuery*>(queries.data_ptr<uint8_t>()),
             reinterpret_cast<const CameraPose*>(poses_rdf.data_ptr<float>()),
             numQueries, width, height, outputSlot);
 
-        int stagingIdx = ludusCopyBatchResultsToStagingVk(
-            NVDR_CTX_PARAMS, s, stream, width, height, numQueries);
+        ludusCopyBatchResultsToStagingVk(
+            NVDR_CTX_PARAMS, s, stream, stagingIdx,
+            width, height, numQueries);
         stateWrapper.recordLastUse(stream);
         // The staging copy is ordered before lastUseEvent, so the next wrapper
         // call cannot reuse this slot until that copy has completed.
         stateWrapper.releaseOutputSlot(outputSlot);
         return std::make_tuple(stagingIdx, true);
     } catch (...) {
-        stateWrapper.releaseOutputSlot(outputSlot);
+        if (outputSlot >= 0)
+            stateWrapper.releaseOutputSlot(outputSlot);
+        stateWrapper.releaseStagingSlot(stagingIdx);
         throw;
     }
 }
@@ -493,6 +521,7 @@ torch::Tensor ludus_timestamped_get_staging_data_vk(
 
     ludusCopyStagingToOutputVk(
         NVDR_CTX_PARAMS, s, stagingIdx, out.data_ptr<uint8_t>());
+    stateWrapper.releaseStagingSlot(stagingIdx);
     return out;
 }
 
@@ -509,6 +538,7 @@ py::list ludus_timestamped_encode_jpeg_batch_staging_vk(
         result.append(py::bytes(reinterpret_cast<char*>(data), size));
         free(data);
     }
+    stateWrapper.releaseStagingSlot(stagingIdx);
     return result;
 }
 

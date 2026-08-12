@@ -303,7 +303,7 @@ void ludusCopyBatchResultsVk(
 
 int ludusCopyBatchResultsToStagingVk(
     NVDR_CTX_ARGS, LudusTimestampedVkState& s, cudaStream_t stream,
-    int width, int height, int numQueries
+    int stagingIdx, int width, int height, int numQueries
 );
 
 void ludusCopyStagingToOutputVk(
