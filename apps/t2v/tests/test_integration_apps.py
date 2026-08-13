@@ -52,6 +52,6 @@ def test_concrete_t2v_app_is_owned_by_integration(
 
     assert app_path.is_file()
     assert manifest["project"]["entry-points"]["flashdreams.applications"][slug] == (
-        f"{module}.t2v.app:createApp"
+        f"{module}.t2v.app:create_app"
     )
     assert "flashdreams-t2v" in manifest["project"]["dependencies"]

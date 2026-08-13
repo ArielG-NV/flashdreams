@@ -1260,55 +1260,52 @@ def _bridge_result() -> StepResult:
 
 
 @pytest.mark.asyncio
-async def test_buffered_track_bridge_times_out_stalled_handoff(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(manager_module, "_TRACK_HANDOFF_TIMEOUT_S", 0.01)
+async def test_buffered_track_bridge_does_not_block_on_stalled_handoff() -> None:
     track = _BlockingBufferedTrack()
     bridge = BufferedTrackOutputBridge(
         loop=asyncio.get_running_loop(),
         track=cast(Any, track),
     )
 
-    decision = await asyncio.to_thread(
-        bridge.submit_chunk,
-        _bridge_result(),
-        generation=0,
-    )
-
-    assert decision.should_stop
-    assert decision.dropped
-    assert decision.metadata["reason"] == "handoff timeout"
-
-
-@pytest.mark.asyncio
-async def test_buffered_track_bridge_close_wakes_blocked_producer(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(manager_module, "_TRACK_HANDOFF_TIMEOUT_S", 60.0)
-    track = _BlockingBufferedTrack()
-    bridge = BufferedTrackOutputBridge(
-        loop=asyncio.get_running_loop(),
-        track=cast(Any, track),
-    )
-    producer = asyncio.create_task(
+    decision = await asyncio.wait_for(
         asyncio.to_thread(
             bridge.submit_chunk,
             _bridge_result(),
             generation=0,
-        )
+        ),
+        timeout=0.1,
     )
-    await track.started.wait()
 
+    assert decision.accepted
+    assert not decision.should_stop
+    assert not decision.dropped
+    await asyncio.wait_for(track.started.wait(), timeout=1.0)
     bridge.close()
-    decision = await asyncio.wait_for(producer, timeout=1.0)
-
-    assert decision.should_stop
-    assert decision.metadata["reason"] == "closed"
 
 
 @pytest.mark.asyncio
-async def test_application_manager_close_awaits_generation_before_release() -> None:
+async def test_buffered_track_bridge_drops_transient_overflow_without_stopping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(manager_module, "_MAX_PENDING_TRACK_CHUNKS", 1)
+    track = _BlockingBufferedTrack()
+    bridge = BufferedTrackOutputBridge(
+        loop=asyncio.get_running_loop(),
+        track=cast(Any, track),
+    )
+
+    first = bridge.submit_chunk(_bridge_result(), generation=0)
+    second = bridge.submit_chunk(_bridge_result(), generation=0)
+
+    assert first.accepted
+    assert second.dropped
+    assert not second.should_stop
+    assert second.metadata["reason"] == "track queue busy"
+    bridge.close()
+
+
+@pytest.mark.asyncio
+async def test_application_manager_close_awaits_application_before_release() -> None:
     class _Peer:
         connectionState = "connected"
 
@@ -1327,22 +1324,14 @@ async def test_application_manager_close_awaits_generation_before_release() -> N
         def close(self) -> None:
             self.closed = True
 
-    manager = ApplicationWebRTCSessionManager(
-        application_slug="test",
-        commandline_args=(),
-    )
+    manager = ApplicationWebRTCSessionManager()
     peer = _Peer()
     track = _Track()
     bridge = _Bridge()
-    generation_finished = asyncio.Event()
-
-    async def finish_generation() -> None:
-        await generation_finished.wait()
 
     manager._peer = cast(Any, peer)
     manager._track = cast(Any, track)
     manager._bridge = cast(Any, bridge)
-    manager._generation_task = asyncio.create_task(finish_generation())
 
     closing = asyncio.create_task(manager._close_peer(cast(Any, peer)))
     await asyncio.sleep(0)
@@ -1352,11 +1341,10 @@ async def test_application_manager_close_awaits_generation_before_release() -> N
     assert manager.has_active_session()
     assert manager._peer is peer
 
-    generation_finished.set()
+    manager.finish_application()
     await closing
 
     assert not manager.has_active_session()
     assert manager._peer is None
     assert manager._track is None
     assert manager._bridge is None
-    assert manager._generation_task is None

@@ -25,7 +25,7 @@ from typing import Literal, Protocol, runtime_checkable
 
 from flashdreams.infra.results import StepResult
 from flashdreams.runtime._utils import freeze_mapping
-from flashdreams.runtime.inputs import CanonicalInputs, CanonicalInputSchema
+from flashdreams.runtime.inputs import CanonicalInputSchema, CanonicalInputWindow
 from flashdreams.runtime.output import OutputArtifact
 
 
@@ -85,23 +85,18 @@ class OutputDecision:
     drop_policy: Literal["none", "drop_newest", "drop_oldest"] = "none"
     """Queue policy responsible for a dropped chunk."""
 
-    backpressure_s: float = 0.0
-    """Synchronous delay requested before the next model step."""
-
     metadata: Mapping[str, object] = field(default_factory=dict)
     """Sink-specific immutable delivery metadata."""
 
     def __post_init__(self) -> None:
         if self.drop_policy not in {"none", "drop_newest", "drop_oldest"}:
             raise ValueError(f"Unsupported drop_policy={self.drop_policy!r}.")
-        if not math.isfinite(self.backpressure_s) or self.backpressure_s < 0:
-            raise ValueError("OutputDecision.backpressure_s must be finite and >= 0.")
         object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
 
 
 @runtime_checkable
 class InputHandler(Protocol):
-    """Provide the current named canonical input state to the host."""
+    """Provide time-windowed canonical input state to the host."""
 
     @abstractmethod
     def open(
@@ -112,8 +107,8 @@ class InputHandler(Protocol):
         ...
 
     @abstractmethod
-    def current_inputs(self) -> CanonicalInputs:
-        """Return the latest canonical values keyed by modality name."""
+    def current_inputs(self) -> CanonicalInputWindow:
+        """Return the latest canonical values and their session time window."""
         ...
 
     @abstractmethod

@@ -131,8 +131,12 @@ class DeferredWebRTCOutputSink(OutputSink):
 
     produces_artifacts = False
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        sink_resolver: Callable[[SessionInfo], OutputSink] | None = None,
+    ) -> None:
         self._sink: OutputSink | None = None
+        self._sink_resolver = sink_resolver
 
     def bind(self, sink: OutputSink) -> None:
         """Bind the concrete output sink exactly once."""
@@ -142,6 +146,8 @@ class DeferredWebRTCOutputSink(OutputSink):
 
     def open(self, session_info: SessionInfo) -> None:
         """Open the bound sink."""
+        if self._sink is None and self._sink_resolver is not None:
+            self.bind(self._sink_resolver(session_info))
         self._required().open(session_info)
 
     def begin_generation(self, generation: int) -> None:
@@ -154,7 +160,10 @@ class DeferredWebRTCOutputSink(OutputSink):
 
     def close(self) -> Sequence[OutputArtifact]:
         """Close the bound sink."""
-        return self._required().close()
+        sink = self._sink
+        if sink is None:
+            return ()
+        return sink.close()
 
     def _required(self) -> OutputSink:
         if self._sink is None:
@@ -194,7 +203,7 @@ class WebRTCOutputSink(OutputSink):
         self._bridge.begin_generation(generation)
 
     def write(self, result: StepResult) -> OutputDecision:
-        """Submit one result to the WebRTC bridge."""
+        """Submit one result and apply transport-managed presentation pacing."""
         if not self._opened or self._closed:
             raise RuntimeError("Cannot write to a closed output sink.")
         decision = self._bridge.submit_chunk(
@@ -203,11 +212,12 @@ class WebRTCOutputSink(OutputSink):
             force_keyframe=self._force_keyframe,
         )
         self._force_keyframe = False
+        if not decision.should_stop and decision.backpressure_s > 0:
+            time.sleep(decision.backpressure_s)
         return OutputDecision(
             should_stop=decision.should_stop,
             dropped=decision.dropped,
             drop_policy=decision.drop_policy,
-            backpressure_s=decision.backpressure_s,
             metadata=decision.metadata,
         )
 
@@ -875,7 +885,6 @@ def _combine_output_decisions(decisions: Iterable[OutputDecision]) -> OutputDeci
         should_stop=any(decision.should_stop for decision in decisions),
         dropped=any(decision.dropped for decision in decisions),
         drop_policy=_combine_drop_policy(decisions),
-        backpressure_s=max(decision.backpressure_s for decision in decisions),
         metadata={"decisions": metadata} if metadata else {},
     )
 

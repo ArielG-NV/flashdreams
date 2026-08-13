@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import torch
@@ -28,14 +28,17 @@ from t2v import (
 
 from flashdreams.demo import (
     CanonicalInputs,
+    CanonicalInputWindow,
     Mp4OutputSink,
     NullInputHandler,
     NullOutputSink,
     OutputDecision,
     ProvidedIOFactory,
+    SessionInfo,
 )
 from flashdreams.demo import application as application_module
 from flashdreams.infra.results import StepResult
+from flashdreams.infra.time import TimeWindow
 from flashdreams.runtime import CanonicalInputSchema, CanonicalModality
 
 pytestmark = pytest.mark.ci_cpu
@@ -91,6 +94,11 @@ class _FakePipeline:
 
     def close(self) -> None:
         self.closed = True
+
+
+def _input_window() -> CanonicalInputWindow:
+    """Return an empty canonical input window for direct session tests."""
+    return CanonicalInputWindow(window=TimeWindow(start_s=0.0, end_s=0.0))
 
 
 class _FakePipelineConfig:
@@ -163,7 +171,7 @@ def test_application_session_emits_canonical_video_results() -> None:
         output_sink,
     )
 
-    while session.step(CanonicalInputs(), output_sink):
+    while session._step(_input_window(), output_sink):
         pass
     session.close()
     output_sink.close()
@@ -199,7 +207,7 @@ def test_application_session_honors_sink_stop_decision() -> None:
         total_blocks=4,
     )
 
-    while session.step(CanonicalInputs(), output_sink):
+    while session._step(_input_window(), output_sink):
         pass
 
     assert pipeline.generated == [0]
@@ -208,12 +216,15 @@ def test_application_session_honors_sink_stop_decision() -> None:
 
 class _NamedInputHandler:
     def __init__(self) -> None:
-        self.inputs = CanonicalInputs(values={"camera": {"yaw": 0.25, "pitch": -0.5}})
+        self.inputs = CanonicalInputWindow(
+            values={"camera": {"yaw": 0.25, "pitch": -0.5}},
+            window=TimeWindow(start_s=1.0, end_s=2.0),
+        )
 
     def open(self, session_info: object) -> None:
         del session_info
 
-    def current_inputs(self) -> CanonicalInputs:
+    def current_inputs(self) -> CanonicalInputWindow:
         return self.inputs
 
     def close(self) -> None:
@@ -234,6 +245,31 @@ def test_input_handler_provides_schema_named_canonical_inputs() -> None:
     )
 
     assert inputs.values == {"camera": {"yaw": 0.25, "pitch": -0.5}}
+    assert inputs.window == TimeWindow(start_s=1.0, end_s=2.0)
+
+
+def test_application_host_rejects_unwindowed_canonical_inputs() -> None:
+    class _LegacyInputHandler(_NamedInputHandler):
+        def current_inputs(self) -> CanonicalInputWindow:
+            return cast(CanonicalInputWindow, CanonicalInputs())
+
+    with pytest.raises(TypeError, match="CanonicalInputWindow"):
+        application_module._current_application_inputs(
+            _LegacyInputHandler(),
+            CanonicalInputSchema(),
+        )
+
+
+def test_null_input_handler_provides_contiguous_windows() -> None:
+    now = [10.0]
+    handler = NullInputHandler(clock=lambda: now[0])
+    handler.open(SessionInfo())
+    first = handler.current_inputs()
+    now[0] = 10.25
+    second = handler.current_inputs()
+
+    assert first.window == TimeWindow(start_s=0.0, end_s=0.0)
+    assert second.window == TimeWindow(start_s=0.0, end_s=0.25)
 
 
 def test_application_host_writes_mp4_through_shared_io_factory(

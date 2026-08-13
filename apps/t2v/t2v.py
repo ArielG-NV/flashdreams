@@ -18,17 +18,15 @@
 from __future__ import annotations
 
 import argparse
-import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from flashdreams.demo import (
-    CanonicalInputs,
     CanonicalInputSchema,
+    CanonicalInputWindow,
     IFlashDreamsApplication,
     IFlashDreamsApplicationSession,
-    OutputSink,
     SessionInfo,
 )
 from flashdreams.infra.config import derive_config
@@ -107,7 +105,7 @@ class T2VApplication(IFlashDreamsApplication):
 
     def init(self, commandline_args: Sequence[str]) -> None:
         """Parse session overrides and retain the required initial prompt."""
-        parser = argparse.ArgumentParser(prog="flashdreams run t2v")
+        parser = argparse.ArgumentParser(prog="flashdreams-run <t2v-slug>")
         parser.add_argument("--prompt")
         parser.add_argument(
             "--total-blocks", type=int, default=self.defaults.total_blocks
@@ -179,7 +177,6 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
         self._cache: Any | None = None
         self._step_index = 0
         self._closed = False
-        self._stop_requested = False
 
     def set_prompt(self, prompt: str) -> None:
         """Set the initial prompt before model cache initialization."""
@@ -239,14 +236,14 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
             metadata={"prompt": self._prompt or ""},
         )
 
-    def step(self, inputs: CanonicalInputs, output_sink: OutputSink) -> bool:
-        """Generate one canonical result and honor output flow control."""
+    def step(self, inputs: CanonicalInputWindow) -> StepResult | None:
+        """Generate one canonical result, or return ``None`` when complete."""
         if self._closed:
             raise RuntimeError("T2V session is closed.")
         if self._pipeline is None or self._cache is None:
             raise RuntimeError("T2VApplicationSession.init() must run before step().")
-        if self._stop_requested or self._step_index >= self.config.total_blocks:
-            return False
+        if self._step_index >= self.config.total_blocks:
+            return None
 
         if inputs.values:
             raise ValueError("T2V does not declare live canonical inputs.")
@@ -266,13 +263,8 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
             metrics=metrics,
             metadata={"prompt": self._prompt or ""},
         )
-        decision = output_sink.write(result)
         self._step_index += 1
-        if decision.backpressure_s > 0:
-            time.sleep(decision.backpressure_s)
-        if decision.should_stop:
-            self._stop_requested = True
-        return not self._stop_requested and self._step_index < self.config.total_blocks
+        return result
 
     def close(self) -> None:
         """Release resources owned by this model session."""

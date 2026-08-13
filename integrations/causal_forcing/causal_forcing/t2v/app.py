@@ -41,12 +41,12 @@ class CausalForcingT2VApplication(T2VApplication):
         )
 
 
-def createApp() -> IFlashDreamsApplication:
+def create_app() -> IFlashDreamsApplication:
     """Create the Causal-Forcing text-to-video application."""
     return CausalForcingT2VApplication()
 
 
 __all__ = [
     "CausalForcingT2VApplication",
-    "createApp",
+    "create_app",
 ]

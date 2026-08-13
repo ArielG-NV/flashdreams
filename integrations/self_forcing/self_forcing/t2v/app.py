@@ -41,12 +41,12 @@ class SelfForcingT2VApplication(T2VApplication):
         )
 
 
-def createApp() -> IFlashDreamsApplication:
+def create_app() -> IFlashDreamsApplication:
     """Create the Self-Forcing text-to-video application."""
     return SelfForcingT2VApplication()
 
 
 __all__ = [
     "SelfForcingT2VApplication",
-    "createApp",
+    "create_app",
 ]

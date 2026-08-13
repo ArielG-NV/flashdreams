@@ -23,6 +23,7 @@ from flashdreams.demo.application import (
     run_application,
 )
 from flashdreams.demo.factories import (
+    ApplicationWebRTCIOFactory,
     CallableIOFactory,
     LocalWindowIOFactory,
     Mp4IOFactory,
@@ -49,10 +50,15 @@ from flashdreams.demo.outputs import (
     WebRTCOutputSink,
     build_benchmark_output_sink,
 )
-from flashdreams.runtime.inputs import CanonicalInputs, CanonicalInputSchema
+from flashdreams.runtime.inputs import (
+    CanonicalInputs,
+    CanonicalInputSchema,
+    CanonicalInputWindow,
+)
 
 __all__ = [
     "APPLICATION_ENTRY_POINT_GROUP",
+    "ApplicationWebRTCIOFactory",
     "BenchmarkStatsOutputSink",
     "CallableIOFactory",
     "CompositeOutputSink",
@@ -61,6 +67,7 @@ __all__ = [
     "IFlashDreamsApplication",
     "IFlashDreamsApplicationSession",
     "IOFactory",
+    "CanonicalInputWindow",
     "CanonicalInputs",
     "CanonicalInputSchema",
     "InputHandler",

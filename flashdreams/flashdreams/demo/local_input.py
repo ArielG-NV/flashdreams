@@ -31,8 +31,8 @@ from flashdreams.runtime.canonical import (
     KeyboardToDriverCommand,
 )
 from flashdreams.runtime.inputs import (
-    CanonicalInputs,
     CanonicalInputSchema,
+    CanonicalInputWindow,
     UserInputCapability,
     UserInputEvent,
     UserInputs,
@@ -129,8 +129,8 @@ class SlangPyLocalInputHandler(InputHandler):
         self._gamepad_state = None
         self._opened = True
 
-    def current_inputs(self) -> CanonicalInputs:
-        """Pump window events and return the latest canonical input levels."""
+    def current_inputs(self) -> CanonicalInputWindow:
+        """Pump events and return canonical input levels for the elapsed window."""
         if not self._opened:
             raise RuntimeError("Cannot fetch inputs from a closed input handler.")
         if self._process_events is not None:
@@ -160,7 +160,11 @@ class SlangPyLocalInputHandler(InputHandler):
         if gamepad_command is not None and DRIVER_COMMAND.name in self._requested_names:
             values[DRIVER_COMMAND.name] = gamepad_command
             metadata["canonical_sources"] = {DRIVER_COMMAND.name: "gamepad"}
-        return CanonicalInputs(values=values, metadata=metadata)
+        return CanonicalInputWindow(
+            values=values,
+            metadata=metadata,
+            window=window,
+        )
 
     def close(self) -> None:
         """Close the handler and discard queued device events."""

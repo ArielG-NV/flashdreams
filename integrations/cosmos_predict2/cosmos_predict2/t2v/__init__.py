@@ -15,6 +15,6 @@
 
 """Cosmos Predict2 text-to-video application."""
 
-from .app import createApp
+from .app import create_app
 
-__all__ = ["createApp"]
+__all__ = ["create_app"]

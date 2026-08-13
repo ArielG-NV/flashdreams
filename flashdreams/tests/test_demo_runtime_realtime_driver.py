@@ -413,37 +413,6 @@ async def test_shielded_cleanup_dispatch_failure_marks_host_unhealthy() -> None:
 
 
 @pytest.mark.asyncio
-async def test_realtime_driver_applies_backpressure_through_clock() -> None:
-    session = _FakeRealtimeSession(num_steps=2)
-    runtime = _FakeRealtimeRuntime(session=session)
-    host = RuntimeHost(runtime)
-    clock = _RecordingRealtimeClock()
-    metrics = InMemorySessionMetricsRecorder()
-    output = _RecordingOutputSink(
-        decisions=(
-            OutputDecision(backpressure_s=0.25),
-            OutputDecision(should_stop=True),
-        )
-    )
-    edges = _edges(clock=clock, output=output, metrics=metrics)
-
-    try:
-        result = await RealtimeSessionDriver().run_one_session(
-            host=host,
-            provider=_FakeRealtimeProvider(),
-            session_edges=edges,
-            pipeline=StepPipeline(),
-        )
-    finally:
-        host.close()
-
-    assert result.status == "completed"
-    assert clock.backpressure == [0.25]
-    assert metrics.catch_up_count == 2
-    assert len(output.results) == 2
-
-
-@pytest.mark.asyncio
 async def test_realtime_driver_calls_step_pipeline_on_runtime_host() -> None:
     session = _FakeRealtimeSession(num_steps=1)
     runtime = _FakeRealtimeRuntime(session=session)

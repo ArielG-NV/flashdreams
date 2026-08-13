@@ -49,7 +49,7 @@ dev = [
 "causal-forcing-wan2.1-i2v-1.3b-framewise" = "causal_forcing.config:RUNNER_WAN21_I2V_1PT3B_FRAMEWISE"
 
 [project.entry-points."flashdreams.applications"]
-"t2v-causal-forcing" = "causal_forcing.t2v.app:createApp"
+"t2v-causal-forcing" = "causal_forcing.t2v.app:create_app"
 
 [tool.setuptools.packages.find]
 include = ["causal_forcing*"]

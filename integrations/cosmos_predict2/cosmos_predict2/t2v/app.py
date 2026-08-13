@@ -41,12 +41,12 @@ class CosmosPredict2T2VApplication(T2VApplication):
         )
 
 
-def createApp() -> IFlashDreamsApplication:
+def create_app() -> IFlashDreamsApplication:
     """Create the Cosmos Predict2 text-to-video application."""
     return CosmosPredict2T2VApplication()
 
 
 __all__ = [
     "CosmosPredict2T2VApplication",
-    "createApp",
+    "create_app",
 ]

@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,7 +32,8 @@ from flashdreams.demo.outputs import (
     WebRTCOutputSink,
 )
 from flashdreams.infra.postprocess import VideoTensorLayout
-from flashdreams.runtime.inputs import CanonicalInputs, CanonicalInputSchema
+from flashdreams.infra.time import TimeWindow
+from flashdreams.runtime.inputs import CanonicalInputSchema, CanonicalInputWindow
 
 if TYPE_CHECKING:
     from flashdreams.serving.webrtc.services import WebRTCOutputBridge
@@ -39,10 +41,19 @@ if TYPE_CHECKING:
 
 @dataclass(slots=True)
 class NullInputHandler(InputHandler):
-    """Provide an empty canonical input state."""
+    """Provide empty canonical input windows."""
 
     opened: bool = False
     """Whether the handler is open for the current session."""
+
+    clock: Callable[[], float] = field(default=time.monotonic, repr=False)
+    """Monotonic clock used for session-relative window bounds."""
+
+    _session_start_s: float = field(default=0.0, init=False, repr=False)
+    """Clock value captured when the current session opened."""
+
+    _window_start_s: float = field(default=0.0, init=False, repr=False)
+    """End of the previously returned session-relative window."""
 
     def open(
         self,
@@ -51,12 +62,20 @@ class NullInputHandler(InputHandler):
         """Open the empty handler for one application session."""
         del session_info
         self.opened = True
+        self._session_start_s = self.clock()
+        self._window_start_s = 0.0
 
-    def current_inputs(self) -> CanonicalInputs:
-        """Return an empty canonical input state."""
+    def current_inputs(self) -> CanonicalInputWindow:
+        """Return empty canonical inputs for the elapsed session window."""
         if not self.opened:
             raise RuntimeError("Cannot fetch inputs from a closed input handler.")
-        return CanonicalInputs()
+        end_s = max(
+            self._window_start_s,
+            self.clock() - self._session_start_s,
+        )
+        window = TimeWindow(start_s=self._window_start_s, end_s=end_s)
+        self._window_start_s = end_s
+        return CanonicalInputWindow(window=window)
 
     def close(self) -> None:
         """Close the empty input handler."""
@@ -174,6 +193,43 @@ class Mp4IOFactory(IOFactory):
 
 
 @dataclass(frozen=True, slots=True)
+class ApplicationWebRTCIOFactory(IOFactory):
+    """Create application I/O served by the shared WebRTC browser transport."""
+
+    application_slug: str
+    """Installed application slug shown by the WebRTC host."""
+
+    host: str = "127.0.0.1"
+    """Address on which the WebRTC HTTP server listens."""
+
+    port: int = 8080
+    """Port on which the WebRTC HTTP server listens."""
+
+    def __post_init__(self) -> None:
+        if not self.application_slug.strip():
+            raise ValueError("application_slug must be non-empty.")
+        if not self.host.strip():
+            raise ValueError("host must be non-empty.")
+        if not 1 <= self.port <= 65535:
+            raise ValueError("port must be between 1 and 65535.")
+
+    def create_input_handler(self, input_schema: CanonicalInputSchema) -> InputHandler:
+        """Create the application input handler for the browser session."""
+        del input_schema
+        return NullInputHandler()
+
+    def create_output_sink(self) -> OutputSink:
+        """Create a sink that owns the background WebRTC transport."""
+        from flashdreams.serving.webrtc.server import ApplicationWebRTCOutputSink
+
+        return ApplicationWebRTCOutputSink(
+            application_slug=self.application_slug,
+            host=self.host,
+            port=self.port,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class WebRTCIOFactory(IOFactory):
     """Create application I/O objects owned by one WebRTC peer."""
 
@@ -195,6 +251,7 @@ class WebRTCIOFactory(IOFactory):
 
 
 __all__ = [
+    "ApplicationWebRTCIOFactory",
     "CallableIOFactory",
     "LocalWindowIOFactory",
     "Mp4IOFactory",

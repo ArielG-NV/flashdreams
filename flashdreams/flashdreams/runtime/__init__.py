@@ -21,6 +21,7 @@ from flashdreams.runtime.inputs import (
     INPUT_PHASES,
     CanonicalInputs,
     CanonicalInputSchema,
+    CanonicalInputWindow,
     CanonicalModality,
     InferenceInput,
     InferenceInputSchema,
@@ -80,6 +81,7 @@ from flashdreams.runtime.video_output import Mp4VideoOutputTarget
 from flashdreams.runtime.worker import ModelExecutionWorker, ThreadAffineRuntimeWorker
 
 __all__ = [
+    "CanonicalInputWindow",
     "CanonicalInputs",
     "CanonicalInputSchema",
     "CanonicalModality",

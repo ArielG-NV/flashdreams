@@ -69,6 +69,10 @@ def test_local_input_handler_tracks_keyboard_levels() -> None:
     released = handler.current_inputs()
 
     assert pressed.values["driver_command"]["throttle"] == 1.0
+    assert pressed.window.start_s == 0.0
+    assert held.window.start_s == pressed.window.end_s
+    assert released.window.start_s == held.window.end_s
+    assert released.window.end_s > released.window.start_s
     assert held.values["driver_command"]["throttle"] == 1.0
     assert released.values["driver_command"]["throttle"] == 0.0
     assert released.metadata["canonical_sources"] == {"driver_command": "keyboard"}

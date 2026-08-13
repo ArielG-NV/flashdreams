@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from flashdreams.demo.factories import (
+    ApplicationWebRTCIOFactory,
     CallableIOFactory,
     LocalWindowIOFactory,
     Mp4IOFactory,
@@ -34,11 +35,12 @@ from flashdreams.demo.factories import (
 )
 from flashdreams.demo.io import InputHandler, IOFactory, OutputSink, SessionInfo
 from flashdreams.demo.outputs import LocalWindowOutputSink, NullOutputSink
-from flashdreams.runtime.inputs import CanonicalInputs, CanonicalInputSchema
+from flashdreams.runtime.inputs import CanonicalInputSchema, CanonicalInputWindow
 from flashdreams.runtime.output import OutputArtifact
+from flashdreams.runtime.types import StepResult
 
 APPLICATION_ENTRY_POINT_GROUP = "flashdreams.applications"
-"""Entry-point group whose values expose a zero-argument ``createApp`` factory."""
+"""Entry-point group whose values expose a zero-argument ``create_app`` factory."""
 
 
 class IFlashDreamsApplicationSession(ABC):
@@ -52,9 +54,27 @@ class IFlashDreamsApplicationSession(ABC):
         """Return sink-facing metadata after session initialization."""
         return SessionInfo()
 
+    def _step(self, inputs: CanonicalInputWindow, output_sink: OutputSink) -> bool:
+        """Run one framework-managed application step.
+
+        This is a host-only compatibility boundary. Application sessions
+        implement :meth:`step` without depending on output or presentation
+        runtime details.
+        """
+        from flashdreams.runtime.demo.pipeline import StepPipeline
+
+        outcome = StepPipeline().execute_application_step(
+            inputs=inputs,
+            step=self.step,
+            output=output_sink,
+        )
+        if outcome is None:
+            return False
+        return not outcome.output.should_stop
+
     @abstractmethod
-    def step(self, inputs: CanonicalInputs, output_sink: OutputSink) -> bool:
-        """Run one model step and return whether another step remains."""
+    def step(self, inputs: CanonicalInputWindow) -> StepResult | None:
+        """Produce one model result, or return ``None`` when complete."""
 
     def close(self) -> None:
         """Release optional per-session resources."""
@@ -82,7 +102,16 @@ class IFlashDreamsApplication(ABC):
 
 
 ApplicationFactory = Callable[[], IFlashDreamsApplication]
-"""Zero-argument factory exported from an application package as ``createApp``."""
+"""Zero-argument factory exported from an application package as ``create_app``."""
+
+
+def registered_application_slugs() -> tuple[str, ...]:
+    """Return installed application slugs in stable display order."""
+    return tuple(
+        sorted(
+            {item.name for item in entry_points(group=APPLICATION_ENTRY_POINT_GROUP)}
+        )
+    )
 
 
 def create_application(
@@ -112,10 +141,10 @@ def create_application(
             return _create_from_entry_point(entry_point), []
 
     module = _import_application_module(application_slug)
-    factory = getattr(module, "createApp", None)
+    factory = getattr(module, "create_app", None)
     if not callable(factory):
         raise TypeError(
-            f"Application module {module.__name__!r} does not expose createApp()."
+            f"Application module {module.__name__!r} does not expose create_app()."
         )
     return _validate_application(factory(), origin=module.__name__), []
 
@@ -174,7 +203,7 @@ def run_application(
         resolved_input.open(session_info)
         resolved_output.open(session_info)
         resolved_output.begin_generation(0)
-        while session.step(
+        while session._step(
             _current_application_inputs(resolved_input, input_schema),
             resolved_output,
         ):
@@ -194,11 +223,13 @@ def run_application(
 def _current_application_inputs(
     handler: InputHandler,
     input_schema: CanonicalInputSchema,
-) -> CanonicalInputs:
+) -> CanonicalInputWindow:
     """Return and validate the handler state requested by ``input_schema``."""
     inputs = handler.current_inputs()
-    if not isinstance(inputs, CanonicalInputs):
-        raise TypeError("InputHandler.current_inputs() must return CanonicalInputs.")
+    if not isinstance(inputs, CanonicalInputWindow):
+        raise TypeError(
+            "InputHandler.current_inputs() must return CanonicalInputWindow."
+        )
     expected = {modality.name: modality for modality in input_schema.modalities}
     unknown = sorted(set(inputs.values) - set(expected))
     if unknown:
@@ -275,23 +306,32 @@ def _parse_host_io(
     application_slug: str,
     args: Sequence[str],
 ) -> tuple[IOFactory, list[str]]:
-    output_kind = "local-window"
+    output_kind = _selected_output(args)
     output_path: Path | None = None
     output_fps: float | None = None
+    host = "127.0.0.1"
+    port = 8080
     application_args: list[str] = []
+    host_options = (
+        {"--output", "--host", "--port"}
+        if output_kind == "webrtc"
+        else {"--output", "--output-path", "--output-fps"}
+    )
     index = 0
     while index < len(args):
         argument = args[index]
-        if argument in {"--output", "--output-path", "--output-fps"}:
+        if argument in host_options:
             if index + 1 >= len(args):
                 raise ValueError(f"{argument} requires a value.")
             value = args[index + 1]
-            if argument == "--output":
-                output_kind = value
-            elif argument == "--output-path":
+            if argument == "--output-path":
                 output_path = Path(value)
-            else:
+            elif argument == "--output-fps":
                 output_fps = float(value)
+            elif argument == "--host":
+                host = value
+            elif argument == "--port":
+                port = int(value)
             index += 2
             continue
         application_args.append(argument)
@@ -307,32 +347,33 @@ def _parse_host_io(
     if output_kind == "mp4":
         path = output_path or Path("outputs") / f"{application_slug}.mp4"
         return Mp4IOFactory(output_path=path, fps=output_fps), application_args
+    if output_kind == "webrtc":
+        if not 1 <= port <= 65535:
+            raise ValueError("--port must be between 1 and 65535.")
+        return (
+            ApplicationWebRTCIOFactory(
+                application_slug,
+                host=host,
+                port=port,
+            ),
+            application_args,
+        )
     raise ValueError(
         f"Unsupported output {output_kind!r}; expected local-window, null, mp4, or webrtc."
     )
 
 
 def entrypoint(argv: Sequence[str] | None = None) -> None:
-    """Run the ``flashdreams`` console entry point."""
+    """Run an application through a direct ``flashdreams-run <slug>`` command."""
     args = list(sys.argv[1:] if argv is None else argv)
-    if args and args[0] == "run":
-        args.pop(0)
     if not args or args[0] in {"-h", "--help"}:
         print(
-            "usage: flashdreams [run] APPLICATION "
+            "usage: flashdreams-run APPLICATION "
             "[--output local-window|null|mp4|webrtc] [--host HOST] [--port PORT] "
             "[APPLICATION_ARGS ...]"
         )
         return
     application_slug = args.pop(0)
-    if _selected_output(args) == "webrtc":
-        host, port, application_args = _parse_webrtc_host_args(args)
-        from flashdreams.serving.webrtc.server import serve_application_webrtc
-
-        serve_application_webrtc(
-            application_slug, application_args, host=host, port=port
-        )
-        return
     io_factory, application_args = _parse_host_io(application_slug, args)
     artifacts = run_application(
         application_slug,
@@ -353,32 +394,6 @@ def _selected_output(args: Sequence[str]) -> str:
     return args[index + 1]
 
 
-def _parse_webrtc_host_args(
-    args: Sequence[str],
-) -> tuple[str, int, list[str]]:
-    host = "127.0.0.1"
-    port = 8080
-    application_args: list[str] = []
-    index = 0
-    while index < len(args):
-        argument = args[index]
-        if argument in {"--output", "--host", "--port"}:
-            if index + 1 >= len(args):
-                raise ValueError(f"{argument} requires a value.")
-            value = args[index + 1]
-            if argument == "--host":
-                host = value
-            elif argument == "--port":
-                port = int(value)
-            index += 2
-            continue
-        application_args.append(argument)
-        index += 1
-    if not 1 <= port <= 65535:
-        raise ValueError("--port must be between 1 and 65535.")
-    return host, port, application_args
-
-
 __all__ = [
     "APPLICATION_ENTRY_POINT_GROUP",
     "ApplicationFactory",
@@ -386,5 +401,6 @@ __all__ = [
     "IFlashDreamsApplicationSession",
     "create_application",
     "entrypoint",
+    "registered_application_slugs",
     "run_application",
 ]
