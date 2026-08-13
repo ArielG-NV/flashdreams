@@ -17,15 +17,17 @@
 
 from __future__ import annotations
 
+import threading
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import torch
 
-from flashdreams.demo import LocalWindowIOFactory, SessionInfo
+from flashdreams.demo import LocalWindowIOFactory, LocalWindowOutputSink, SessionInfo
 from flashdreams.demo.local_input import SlangPyLocalInputHandler
 from flashdreams.demo.local_window import SlangPyLocalWindowPresenter
-from flashdreams.runtime import DRIVER_COMMAND
+from flashdreams.runtime import DRIVER_COMMAND, StepResult
 from flashdreams.runtime.inputs import CanonicalInputSchema, CanonicalModality
 
 pytestmark = pytest.mark.ci_cpu
@@ -105,6 +107,14 @@ class _Presenter:
         self.callbacks: dict[str, Any] = {}
         self.pending_events: list[_KeyboardEvent] = []
         self.process_count = 0
+        self.event_processed = threading.Event()
+        self.frame_presented = threading.Event()
+        self.present_started = threading.Event()
+        self.allow_present = threading.Event()
+        self.allow_present.set()
+        self.present_threads: list[int] = []
+        self.close_thread: int | None = None
+        self.should_close = False
 
     def set_input_callbacks(self, **callbacks: Any) -> None:
         self.callbacks = callbacks
@@ -113,9 +123,20 @@ class _Presenter:
         self.process_count += 1
         while self.pending_events:
             self.callbacks["on_keyboard_event"](self.pending_events.pop(0))
+            self.event_processed.set()
+
+    def present(self, _frame: object) -> bool:
+        self.present_threads.append(threading.get_ident())
+        self.present_started.set()
+        self.allow_present.wait(timeout=2.0)
+        self.frame_presented.set()
+        return True
+
+    def wait_until(self, _deadline_s: float) -> bool:
+        return True
 
     def close(self) -> None:
-        return
+        self.close_thread = threading.get_ident()
 
 
 def test_local_window_rebinds_cuda_context_before_native_handle_query(
@@ -169,13 +190,99 @@ def test_local_window_factory_shares_presenter_with_input_handler() -> None:
     handler.open(SessionInfo())
     output.open(SessionInfo(video_width=64, video_height=32, frames_per_second=16.0))
     presenter.pending_events.append(_KeyboardEvent("a", "press"))
+    assert presenter.event_processed.wait(timeout=1.0)
 
     inputs = handler.current_inputs()
 
-    assert presenter.process_count == 1
+    assert presenter.process_count >= 1
     assert inputs.values["driver_command"]["steer"] == 1.0
     output.close()
     handler.close()
+
+
+def test_local_window_output_owns_presenter_thread_and_queues_writes() -> None:
+    caller_thread = threading.get_ident()
+    factory_threads: list[int] = []
+    presenter = _Presenter()
+    presenter.allow_present.clear()
+
+    def create_presenter(**_kwargs: object) -> _Presenter:
+        factory_threads.append(threading.get_ident())
+        return presenter
+
+    sink = LocalWindowOutputSink(
+        fps=16.0,
+        presenter_factory=create_presenter,
+    )
+    sink.open(
+        SessionInfo(
+            video_width=2,
+            video_height=2,
+            frames_per_second=16.0,
+        )
+    )
+    sink.begin_generation(0)
+
+    decision = sink.write(
+        StepResult.from_video_chunk(
+            step_index=0,
+            video_chunk=torch.zeros((1, 3, 2, 2)),
+            layout="tchw",
+        )
+    )
+
+    assert presenter.present_started.wait(timeout=1.0)
+    assert not presenter.frame_presented.is_set()
+    presenter.allow_present.set()
+    assert presenter.frame_presented.wait(timeout=1.0)
+    sink.close()
+
+    assert decision.metadata["presentation_backend"] == "slangpy"
+    assert decision.metadata["cuda_resident"] is False
+    assert factory_threads == presenter.present_threads
+    assert factory_threads == [presenter.close_thread]
+    assert factory_threads[0] != caller_thread
+
+
+def test_local_window_output_replaces_oldest_pending_chunk() -> None:
+    presenter = _Presenter()
+    presenter.allow_present.clear()
+    sink = LocalWindowOutputSink(
+        fps=16.0,
+        max_pending_chunks=1,
+        presenter_factory=lambda **_kwargs: presenter,
+    )
+    sink.open(
+        SessionInfo(
+            video_width=2,
+            video_height=2,
+            frames_per_second=16.0,
+        )
+    )
+
+    def result(step_index: int) -> StepResult:
+        return StepResult.from_video_chunk(
+            step_index=step_index,
+            video_chunk=torch.zeros((1, 3, 2, 2)),
+            layout="tchw",
+        )
+
+    try:
+        first = sink.write(result(0))
+        assert presenter.present_started.wait(timeout=1.0)
+        second = sink.write(result(1))
+        replacement = sink.write(result(2))
+
+        assert not first.dropped
+        assert first.drop_policy == "none"
+        assert not second.dropped
+        assert second.drop_policy == "none"
+        assert not replacement.dropped
+        assert replacement.drop_policy == "drop_oldest"
+        assert replacement.metadata["replaced_pending_chunks"] == 1
+    finally:
+        presenter.allow_present.set()
+        sink.close()
 
 
 def test_local_input_handler_rejects_unknown_canonical_modality() -> None:

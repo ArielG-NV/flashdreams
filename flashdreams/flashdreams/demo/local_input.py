@@ -123,10 +123,10 @@ class SlangPyLocalInputHandler(InputHandler):
         self._canonicalizer.reset()
         with self._event_lock:
             self._events.clear()
+            self._gamepad_connected = False
+            self._gamepad_state = None
         self._session_start_s = self._clock()
         self._window_start_s = 0.0
-        self._gamepad_connected = False
-        self._gamepad_state = None
         self._opened = True
 
     def current_inputs(self) -> CanonicalInputWindow:
@@ -171,8 +171,8 @@ class SlangPyLocalInputHandler(InputHandler):
         self._opened = False
         with self._event_lock:
             self._events.clear()
-        self._gamepad_connected = False
-        self._gamepad_state = None
+            self._gamepad_connected = False
+            self._gamepad_state = None
 
     def on_keyboard_event(self, event: Any) -> None:
         """Record one SlangPy keyboard edge from the window event pump."""
@@ -200,31 +200,34 @@ class SlangPyLocalInputHandler(InputHandler):
         """Track SlangPy gamepad connection changes."""
         if not self._opened:
             return
-        if _event_flag(event, "is_connect"):
-            self._gamepad_connected = True
-        elif _event_flag(event, "is_disconnect"):
-            self._gamepad_connected = False
-            self._gamepad_state = None
+        with self._event_lock:
+            if _event_flag(event, "is_connect"):
+                self._gamepad_connected = True
+            elif _event_flag(event, "is_disconnect"):
+                self._gamepad_connected = False
+                self._gamepad_state = None
 
     def on_gamepad_state(self, state: Any) -> None:
         """Record the latest SDL gamepad axes for driving control."""
         if not self._opened or DRIVER_COMMAND.name not in self._requested_names:
             return
-        self._gamepad_connected = True
-        self._gamepad_state = {
-            "left_x": _clamp(float(getattr(state, "left_x", 0.0)), -1.0, 1.0),
-            "left_trigger": _clamp(
-                float(getattr(state, "left_trigger", 0.0)), 0.0, 1.0
-            ),
-            "right_trigger": _clamp(
-                float(getattr(state, "right_trigger", 0.0)), 0.0, 1.0
-            ),
-        }
+        with self._event_lock:
+            self._gamepad_connected = True
+            self._gamepad_state = {
+                "left_x": _clamp(float(getattr(state, "left_x", 0.0)), -1.0, 1.0),
+                "left_trigger": _clamp(
+                    float(getattr(state, "left_trigger", 0.0)), 0.0, 1.0
+                ),
+                "right_trigger": _clamp(
+                    float(getattr(state, "right_trigger", 0.0)), 0.0, 1.0
+                ),
+            }
 
     def _current_gamepad_command(self) -> dict[str, object] | None:
-        if not self._gamepad_connected or self._gamepad_state is None:
-            return None
-        state = self._gamepad_state
+        with self._event_lock:
+            if not self._gamepad_connected or self._gamepad_state is None:
+                return None
+            state = dict(self._gamepad_state)
         if not any(abs(value) > _GAMEPAD_DEADZONE for value in state.values()):
             return None
         steer = -state["left_x"]

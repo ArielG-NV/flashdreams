@@ -157,7 +157,7 @@ class LocalWindowIOFactory(IOFactory):
             title=self.title,
             fps=self.fps,
             presenter_factory=self.presenter_factory,
-            presenter_opened=self._bridge.bind_presenter,
+            presenter_opened=self._bridge.bind_background_presenter,
         )
 
 

@@ -17,8 +17,10 @@
 
 from __future__ import annotations
 
+import queue
+import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -38,6 +40,9 @@ class LocalWindowInputBridge:
     _presenter: Any | None = None
     """Presenter whose SDL event queue is pumped at input sample boundaries."""
 
+    _events_pumped_in_background: bool = False
+    """Whether the presenter owns a background event-pump thread."""
+
     def bind_handler(self, handler: SlangPyLocalInputHandler) -> None:
         """Bind the handler created for the current application run."""
         self._handler = handler
@@ -45,6 +50,16 @@ class LocalWindowInputBridge:
     def bind_presenter(self, presenter: Any) -> None:
         """Bind presenter event callbacks to the current input handler."""
         self._presenter = presenter
+        self._events_pumped_in_background = False
+        self._bind_callbacks(presenter)
+
+    def bind_background_presenter(self, presenter: Any) -> None:
+        """Bind callbacks without pumping events from the application thread."""
+        self._presenter = presenter
+        self._events_pumped_in_background = True
+        self._bind_callbacks(presenter)
+
+    def _bind_callbacks(self, presenter: Any) -> None:
         handler = self._handler
         if handler is None or not handler.accepts_window_events:
             return
@@ -62,7 +77,7 @@ class LocalWindowInputBridge:
 
     def process_events(self) -> None:
         """Pump pending SDL events through the active presenter."""
-        if self._presenter is None:
+        if self._presenter is None or self._events_pumped_in_background:
             return
         process_events = getattr(self._presenter, "process_events", None)
         if callable(process_events):
@@ -535,6 +550,190 @@ def _cuda_event_ready(event: Any | None) -> bool:
         return bool(event.query())
     except RuntimeError:
         return False
+
+
+@dataclass(frozen=True, slots=True)
+class _QueuedLocalWindowResult:
+    """One generation-tagged result awaiting local presentation."""
+
+    generation: int
+    """Generation that produced the result."""
+
+    frames: Sequence[object]
+    """Lazy frames prepared on the model execution thread."""
+
+    frame_count: int
+    """Number of prepared frames in the queued chunk."""
+
+
+class _LocalWindowPresentationWorker:
+    """Own one presenter and its event loop on a dedicated thread."""
+
+    def __init__(
+        self,
+        *,
+        presenter_factory: Callable[..., Any],
+        presenter_kwargs: Mapping[str, object],
+        presenter_opened: Callable[[Any], None] | None,
+        fps: float,
+        max_pending_chunks: int,
+    ) -> None:
+        self._presenter_factory = presenter_factory
+        self._presenter_kwargs = presenter_kwargs
+        self._presenter_opened = presenter_opened
+        self._frame_interval_s = 1.0 / fps
+        self._fps = fps
+        self._pending: queue.Queue[_QueuedLocalWindowResult] = queue.Queue(
+            maxsize=max_pending_chunks
+        )
+        self._ready = threading.Event()
+        self._stop = threading.Event()
+        self._window_closed = threading.Event()
+        self._state_lock = threading.Lock()
+        self._generation = 0
+        self._error: BaseException | None = None
+        self._thread = threading.Thread(
+            target=self._run,
+            name="flashdreams-local-window",
+            daemon=True,
+        )
+
+    @property
+    def should_stop(self) -> bool:
+        """Return whether the window closed or its worker failed."""
+        with self._state_lock:
+            failed = self._error is not None
+        return self._window_closed.is_set() or failed
+
+    def start(self) -> None:
+        """Start the presenter thread and wait for window initialization."""
+        self._thread.start()
+        self._ready.wait()
+        self.raise_if_failed()
+
+    def begin_generation(self, generation: int) -> None:
+        """Advance the generation and discard queued stale results."""
+        with self._state_lock:
+            self._generation = generation
+        self._discard_pending()
+
+    def submit(
+        self,
+        frames: Sequence[object],
+        *,
+        frame_count: int,
+        generation: int,
+    ) -> tuple[int, float]:
+        """Queue prepared frames and return replacements plus queued duration."""
+        self.raise_if_failed()
+        if self.should_stop:
+            return 0, 0.0
+        item = _QueuedLocalWindowResult(
+            generation=generation,
+            frames=frames,
+            frame_count=frame_count,
+        )
+        replaced = 0
+        while True:
+            try:
+                self._pending.put_nowait(item)
+                break
+            except queue.Full:
+                try:
+                    self._pending.get_nowait()
+                except queue.Empty:
+                    continue
+                replaced += 1
+        queued_frames = self._pending.qsize() * max(0, frame_count)
+        return replaced, queued_frames / self._fps
+
+    def close(self) -> None:
+        """Stop the worker and release the presenter on its owning thread."""
+        self._stop.set()
+        self._discard_pending()
+        self._thread.join()
+        self.raise_if_failed()
+
+    def raise_if_failed(self) -> None:
+        """Raise a presentation failure on the application thread."""
+        with self._state_lock:
+            error = self._error
+        if error is not None:
+            raise RuntimeError("Local-window presentation thread failed.") from error
+
+    def _run(self) -> None:
+        presenter: Any | None = None
+        try:
+            presenter = self._presenter_factory(**self._presenter_kwargs)
+            if self._presenter_opened is not None:
+                self._presenter_opened(presenter)
+            self._ready.set()
+            next_deadline_s: float | None = None
+            active_generation = self._generation
+            while not self._stop.is_set():
+                presenter.process_events()
+                if _presenter_should_close(presenter):
+                    self._window_closed.set()
+                    break
+                try:
+                    item = self._pending.get(timeout=0.001)
+                except queue.Empty:
+                    continue
+                if self._is_stale(item.generation):
+                    continue
+                if item.generation != active_generation:
+                    active_generation = item.generation
+                    next_deadline_s = None
+                for frame in item.frames:
+                    if self._is_stale(item.generation):
+                        break
+                    if not presenter.present(frame):
+                        self._window_closed.set()
+                        break
+                    now_s = time.monotonic()
+                    if next_deadline_s is None:
+                        next_deadline_s = now_s + self._frame_interval_s
+                    else:
+                        next_deadline_s = max(
+                            now_s,
+                            next_deadline_s + self._frame_interval_s,
+                        )
+                    if not presenter.wait_until(next_deadline_s):
+                        self._window_closed.set()
+                        break
+                if self._window_closed.is_set():
+                    break
+        except BaseException as exc:
+            with self._state_lock:
+                self._error = exc
+        finally:
+            self._ready.set()
+            self._stop.set()
+            if presenter is not None:
+                try:
+                    presenter.close()
+                except BaseException as exc:
+                    with self._state_lock:
+                        if self._error is None:
+                            self._error = exc
+
+    def _is_stale(self, generation: int) -> bool:
+        if self._stop.is_set():
+            return True
+        with self._state_lock:
+            return generation != self._generation
+
+    def _discard_pending(self) -> None:
+        while True:
+            try:
+                self._pending.get_nowait()
+            except queue.Empty:
+                return
+
+
+def _presenter_should_close(presenter: Any) -> bool:
+    value = getattr(presenter, "should_close", False)
+    return bool(value() if callable(value) else value)
 
 
 __all__ = ["LocalWindowInputBridge", "SlangPyLocalWindowPresenter"]

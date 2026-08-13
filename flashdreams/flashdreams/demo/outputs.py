@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from flashdreams.demo.io import OutputDecision, OutputSink, SessionInfo
+from flashdreams.demo.local_window import _LocalWindowPresentationWorker
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.results import StepResult
 from flashdreams.infra.runner_io import (
@@ -579,7 +580,7 @@ class CompositeOutputSink(OutputSink):
 
 @dataclass(slots=True)
 class LocalWindowOutputSink(OutputSink):
-    """Present ordered video frames through a SlangPy Vulkan window."""
+    """Queue local-window presentation on a dedicated SlangPy thread."""
 
     title: str = "FlashDreams"
     """Local window title."""
@@ -599,17 +600,21 @@ class LocalWindowOutputSink(OutputSink):
     )
     """Optional callback that binds input handling to the created presenter."""
 
+    max_pending_chunks: int = 2
+    """Maximum queued chunks before the oldest pending chunk is replaced."""
+
     produces_artifacts: bool = field(default=False, init=False)
     """Whether this sink produces artifacts."""
 
-    _presenter: Any | None = field(default=None, init=False, repr=False)
-    """Active local-window presenter."""
+    _worker: _LocalWindowPresentationWorker | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
+    """Thread that owns the active presenter and pending output queue."""
 
-    _frame_interval_s: float = field(default=0.0, init=False, repr=False)
-    """Target interval between presented frames."""
-
-    _next_deadline_s: float | None = field(default=None, init=False, repr=False)
-    """Absolute deadline for the next presentation tick."""
+    _generation: int = field(default=0, init=False, repr=False)
+    """Generation assigned to newly submitted results."""
 
     _opened: bool = field(default=False, init=False, repr=False)
     """Whether the sink is open."""
@@ -617,15 +622,19 @@ class LocalWindowOutputSink(OutputSink):
     def __post_init__(self) -> None:
         if self.fps is not None and self.fps <= 0:
             raise ValueError("fps must be greater than zero when set.")
+        if self.max_pending_chunks <= 0:
+            raise ValueError("max_pending_chunks must be greater than zero.")
 
     def open(self, session_info: SessionInfo) -> None:
-        """Create the SlangPy presenter for one application session."""
+        """Create the SlangPy presenter on its presentation thread."""
         if session_info.video_width is None or session_info.video_height is None:
             raise ValueError(
                 "LocalWindowOutputSink requires video width and height in SessionInfo."
             )
-        if self.fps is None:
-            self.fps = session_info.frames_per_second or 16.0
+        fps = self.fps
+        if fps is None:
+            fps = session_info.frames_per_second or 16.0
+            self.fps = fps
         presenter_factory = self.presenter_factory
         if presenter_factory is None:
             from flashdreams.demo.local_window import (
@@ -633,55 +642,62 @@ class LocalWindowOutputSink(OutputSink):
             )
 
             presenter_factory = SlangPyLocalWindowPresenter
-        self._presenter = presenter_factory(
-            width=session_info.video_width,
-            height=session_info.video_height,
-            title=self.title,
+        worker = _LocalWindowPresentationWorker(
+            presenter_factory=presenter_factory,
+            presenter_kwargs={
+                "width": session_info.video_width,
+                "height": session_info.video_height,
+                "title": self.title,
+            },
+            presenter_opened=self.presenter_opened,
+            fps=fps,
+            max_pending_chunks=self.max_pending_chunks,
         )
-        if self.presenter_opened is not None:
-            self.presenter_opened(self._presenter)
-        self._frame_interval_s = 1.0 / self.fps
-        self._next_deadline_s = None
+        worker.start()
+        self._worker = worker
+        self._generation = 0
         self._opened = True
 
     def begin_generation(self, generation: int) -> None:
-        """Reset presentation pacing for a new generation."""
+        """Discard stale queued output and reset presentation pacing."""
         if generation < 0:
             raise ValueError("generation must be >= 0.")
-        self._next_deadline_s = None
+        self._generation = generation
+        if self._worker is not None:
+            self._worker.begin_generation(generation)
 
     def write(self, result: StepResult) -> OutputDecision:
-        """Present one result without materializing CUDA frames on the host."""
-        if not self._opened or self._presenter is None:
+        """Queue one result without blocking model execution on presentation."""
+        worker = self._worker
+        if not self._opened or worker is None:
             raise RuntimeError("Cannot write to a closed output sink.")
-
-        for frame in result.lazy_rgb_frames():
-            if not self._presenter.present(frame):
-                return OutputDecision(should_stop=True)
-            now_s = time.monotonic()
-            if self._next_deadline_s is None:
-                self._next_deadline_s = now_s + self._frame_interval_s
-            else:
-                self._next_deadline_s = max(
-                    now_s,
-                    self._next_deadline_s + self._frame_interval_s,
-                )
-            if not self._presenter.wait_until(self._next_deadline_s):
-                return OutputDecision(should_stop=True)
+        if worker.should_stop:
+            worker.raise_if_failed()
+            return OutputDecision(should_stop=True)
+        cuda_resident = result.video_chunk.is_cuda
+        frames = result.lazy_rgb_frames()
+        replaced, backpressure_s = worker.submit(
+            frames,
+            frame_count=result.frame_count,
+            generation=self._generation,
+        )
         return OutputDecision(
+            drop_policy="drop_oldest" if replaced else "none",
+            backpressure_s=backpressure_s,
             metadata={
                 "presentation_backend": "slangpy",
-                "cuda_resident": result.video_chunk.is_cuda,
-            }
+                "cuda_resident": cuda_resident,
+                "replaced_pending_chunks": replaced,
+            },
         )
 
     def close(self) -> Sequence[OutputArtifact]:
-        """Close the local window without producing artifacts."""
-        if self._presenter is not None:
-            self._presenter.close()
-        self._presenter = None
+        """Close the local window on its presentation thread."""
+        worker = self._worker
+        self._worker = None
         self._opened = False
-        self._next_deadline_s = None
+        if worker is not None:
+            worker.close()
         return ()
 
 
