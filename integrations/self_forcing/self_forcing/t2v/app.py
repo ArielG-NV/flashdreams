@@ -22,7 +22,7 @@ from t2v import (
 )
 
 from flashdreams.demo import IFlashDreamsApplication
-from self_forcing.config import PIPELINE_WAN21_T2V_1PT3B
+from self_forcing.config import RUNNER_WAN21_T2V_1PT3B
 
 
 class SelfForcingT2VApplication(T2VApplication):
@@ -32,12 +32,7 @@ class SelfForcingT2VApplication(T2VApplication):
 
     def __init__(self) -> None:
         super().__init__(
-            defaults=T2VApplicationDefaults(
-                pipeline_config=PIPELINE_WAN21_T2V_1PT3B,
-                total_blocks=60,
-                pixel_height=480,
-                pixel_width=832,
-            )
+            defaults=T2VApplicationDefaults.from_runner_config(RUNNER_WAN21_T2V_1PT3B)
         )
 
 

@@ -203,7 +203,7 @@ class WebRTCOutputSink(OutputSink):
         self._bridge.begin_generation(generation)
 
     def write(self, result: StepResult) -> OutputDecision:
-        """Submit one result and apply transport-managed presentation pacing."""
+        """Submit one result to the WebRTC bridge."""
         if not self._opened or self._closed:
             raise RuntimeError("Cannot write to a closed output sink.")
         decision = self._bridge.submit_chunk(
@@ -212,12 +212,11 @@ class WebRTCOutputSink(OutputSink):
             force_keyframe=self._force_keyframe,
         )
         self._force_keyframe = False
-        if not decision.should_stop and decision.backpressure_s > 0:
-            time.sleep(decision.backpressure_s)
         return OutputDecision(
             should_stop=decision.should_stop,
             dropped=decision.dropped,
             drop_policy=decision.drop_policy,
+            backpressure_s=decision.backpressure_s,
             metadata=decision.metadata,
         )
 
@@ -885,6 +884,7 @@ def _combine_output_decisions(decisions: Iterable[OutputDecision]) -> OutputDeci
         should_stop=any(decision.should_stop for decision in decisions),
         dropped=any(decision.dropped for decision in decisions),
         drop_policy=_combine_drop_policy(decisions),
+        backpressure_s=max(decision.backpressure_s for decision in decisions),
         metadata={"decisions": metadata} if metadata else {},
     )
 

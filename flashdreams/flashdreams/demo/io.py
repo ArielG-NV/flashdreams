@@ -85,12 +85,17 @@ class OutputDecision:
     drop_policy: Literal["none", "drop_newest", "drop_oldest"] = "none"
     """Queue policy responsible for a dropped chunk."""
 
+    backpressure_s: float = 0.0
+    """Pacing delay for a realtime driver to account for before the next step."""
+
     metadata: Mapping[str, object] = field(default_factory=dict)
     """Sink-specific immutable delivery metadata."""
 
     def __post_init__(self) -> None:
         if self.drop_policy not in {"none", "drop_newest", "drop_oldest"}:
             raise ValueError(f"Unsupported drop_policy={self.drop_policy!r}.")
+        if not math.isfinite(self.backpressure_s) or self.backpressure_s < 0:
+            raise ValueError("OutputDecision.backpressure_s must be finite and >= 0.")
         object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
 
 

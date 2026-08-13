@@ -32,12 +32,12 @@ from flashdreams.runtime.demo import (
 pytestmark = pytest.mark.ci_cpu
 
 
-def test_output_decision_hides_presentation_backpressure() -> None:
-    unexpected_kwargs: dict[str, Any] = {"backpressure_s": 0.1}
-
-    assert "backpressure_s" not in {field.name for field in fields(OutputDecision)}
-    with pytest.raises(TypeError, match="backpressure_s"):
-        OutputDecision(**unexpected_kwargs)
+def test_output_decision_validates_presentation_backpressure() -> None:
+    assert OutputDecision(backpressure_s=0.1).backpressure_s == pytest.approx(0.1)
+    with pytest.raises(ValueError, match="finite and >= 0"):
+        OutputDecision(backpressure_s=-0.1)
+    with pytest.raises(ValueError, match="finite and >= 0"):
+        OutputDecision(backpressure_s=float("inf"))
 
 
 def test_mp4_output_sink_writes_artifact_and_close_is_idempotent(

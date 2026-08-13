@@ -296,6 +296,7 @@ const modelContext = {
 
 async function loadModelAdapter() {
   let adapter = {}
+  let serverControls = []
   const stylesheetHrefs = new Set()
   try {
     const response = await fetch("/api/ui/config")
@@ -303,6 +304,9 @@ async function loadModelAdapter() {
       const config = await response.json()
       if (typeof config.model_stylesheet === "string" && config.model_stylesheet) {
         stylesheetHrefs.add(config.model_stylesheet)
+      }
+      if (Array.isArray(config.controls)) {
+        serverControls = config.controls
       }
       if (typeof config.adapter_module === "string" && config.adapter_module) {
         const module = await import(config.adapter_module)
@@ -325,7 +329,9 @@ async function loadModelAdapter() {
     stylesheet.href = href
     document.head.append(stylesheet)
   }
-  const modelControls = Array.isArray(adapter.controls) ? adapter.controls : []
+  const modelControls = Array.isArray(adapter.controls)
+    ? adapter.controls
+    : serverControls
   renderControls(modelControls)
   if (typeof adapter.modelName === "string") {
     modelContext.setModelName(adapter.modelName)

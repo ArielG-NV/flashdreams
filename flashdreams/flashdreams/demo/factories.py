@@ -205,6 +205,14 @@ class ApplicationWebRTCIOFactory(IOFactory):
     port: int = 8080
     """Port on which the WebRTC HTTP server listens."""
 
+    peer_timeout_s: float = 120.0
+    """Maximum time to wait for a browser peer after model launch."""
+
+    client_liveness_timeout_s: float = 10.0
+    """Maximum silence between browser control messages or heartbeats."""
+
+    _input_bridge: Any = field(default=None, init=False, repr=False, compare=False)
+
     def __post_init__(self) -> None:
         if not self.application_slug.strip():
             raise ValueError("application_slug must be non-empty.")
@@ -212,11 +220,21 @@ class ApplicationWebRTCIOFactory(IOFactory):
             raise ValueError("host must be non-empty.")
         if not 1 <= self.port <= 65535:
             raise ValueError("port must be between 1 and 65535.")
+        if self.peer_timeout_s <= 0:
+            raise ValueError("peer_timeout_s must be > 0.")
+        if self.client_liveness_timeout_s <= 0:
+            raise ValueError("client_liveness_timeout_s must be > 0.")
+        from flashdreams.serving.webrtc.services import ApplicationWebRTCInputBridge
+
+        object.__setattr__(self, "_input_bridge", ApplicationWebRTCInputBridge())
 
     def create_input_handler(self, input_schema: CanonicalInputSchema) -> InputHandler:
         """Create the application input handler for the browser session."""
-        del input_schema
-        return NullInputHandler()
+        from flashdreams.serving.webrtc.services import ApplicationWebRTCInputHandler
+
+        handler = ApplicationWebRTCInputHandler(input_schema)
+        self._input_bridge.bind(handler)
+        return handler
 
     def create_output_sink(self) -> OutputSink:
         """Create a sink that owns the background WebRTC transport."""
@@ -226,6 +244,9 @@ class ApplicationWebRTCIOFactory(IOFactory):
             application_slug=self.application_slug,
             host=self.host,
             port=self.port,
+            peer_timeout_s=self.peer_timeout_s,
+            client_liveness_timeout_s=self.client_liveness_timeout_s,
+            input_bridge=self._input_bridge,
         )
 
 

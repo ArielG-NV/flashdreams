@@ -15,6 +15,8 @@
 
 from __future__ import annotations
 
+import inspect
+import threading
 from pathlib import Path
 from typing import Any, cast
 
@@ -23,7 +25,6 @@ import torch
 from t2v import (
     T2VApplication,
     T2VApplicationDefaults,
-    T2VApplicationSession,
 )
 
 from flashdreams.demo import (
@@ -40,6 +41,8 @@ from flashdreams.demo import application as application_module
 from flashdreams.infra.results import StepResult
 from flashdreams.infra.time import TimeWindow
 from flashdreams.runtime import CanonicalInputSchema, CanonicalModality
+from flashdreams.runtime.demo import application_runtime
+from flashdreams.runtime.demo import drivers as driver_module
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -96,11 +99,6 @@ class _FakePipeline:
         self.closed = True
 
 
-def _input_window() -> CanonicalInputWindow:
-    """Return an empty canonical input window for direct session tests."""
-    return CanonicalInputWindow(window=TimeWindow(start_s=0.0, end_s=0.0))
-
-
 class _FakePipelineConfig:
     def __init__(self, pipeline: _FakePipeline) -> None:
         self.pipeline = pipeline
@@ -126,35 +124,6 @@ def _application(pipeline: _FakePipeline) -> T2VApplication:
     )
 
 
-def _initialize_application(
-    application: T2VApplication,
-    pipeline: _FakePipeline,
-    output_sink: NullOutputSink,
-    *,
-    total_blocks: int = 2,
-) -> tuple[NullInputHandler, T2VApplicationSession]:
-    input_handler = NullInputHandler()
-    application.init(
-        [
-            "--prompt",
-            "A waterfall",
-            "--total-blocks",
-            str(total_blocks),
-            "--device",
-            "cpu",
-        ]
-    )
-    session = application.createSession()
-    assert isinstance(session, T2VApplicationSession)
-    session.init()
-    session_info = session.session_info()
-    input_handler.open(session_info)
-    output_sink.open(session_info)
-    output_sink.begin_generation(0)
-    assert pipeline.device == "cpu"
-    return input_handler, session
-
-
 def test_prompt_is_required() -> None:
     application = _application(_FakePipeline())
     with pytest.raises(ValueError, match="--prompt is required"):
@@ -165,18 +134,20 @@ def test_application_session_emits_canonical_video_results() -> None:
     pipeline = _FakePipeline()
     output_sink = NullOutputSink(store_results=True, store_outputs=True)
     application = _application(pipeline)
-    input_handler, session = _initialize_application(
-        application,
-        pipeline,
-        output_sink,
+    application.init(
+        ["--prompt", "A waterfall", "--total-blocks", "2", "--device", "cpu"]
+    )
+    result = application_runtime.run_batch_application_session(
+        application=application,
+        input_handler=NullInputHandler(),
+        input_schema=application.input_schema,
+        output_sink=output_sink,
     )
 
-    while session._step(_input_window(), output_sink):
-        pass
-    session.close()
-    output_sink.close()
-    input_handler.close()
-
+    assert result.status == "completed"
+    assert result.metrics is not None
+    assert result.metrics.counters["steps"] == 2
+    assert pipeline.device == "cpu"
     assert pipeline.cache_kwargs == {
         "text": ["A waterfall"],
         "image": None,
@@ -190,6 +161,7 @@ def test_application_session_emits_canonical_video_results() -> None:
         (2, 3, 4, 5),
     ]
     assert [record["layout"] for record in output_sink.results] == ["tchw", "tchw"]
+    assert [record["metrics"] for record in output_sink.results] == [{}, {}]
     assert output_sink.session_info is not None
     assert output_sink.session_info.frames_per_second == 16
     assert output_sink.session_info.video_width == 832
@@ -200,18 +172,135 @@ def test_application_session_emits_canonical_video_results() -> None:
 def test_application_session_honors_sink_stop_decision() -> None:
     pipeline = _FakePipeline()
     output_sink = _StoppingSink(store_outputs=True)
-    input_handler, session = _initialize_application(
-        _application(pipeline),
-        pipeline,
-        output_sink,
-        total_blocks=4,
+    application = _application(pipeline)
+    application.init(
+        ["--prompt", "A waterfall", "--total-blocks", "4", "--device", "cpu"]
     )
-
-    while session._step(_input_window(), output_sink):
-        pass
+    result = application_runtime.run_batch_application_session(
+        application=application,
+        input_handler=NullInputHandler(),
+        input_schema=application.input_schema,
+        output_sink=output_sink,
+    )
 
     assert pipeline.generated == [0]
     assert output_sink.output_count == 1
+    assert result.metrics is not None
+    assert result.metrics.counters["steps"] == 1
+
+
+def test_application_session_does_not_own_driver_runtime_state() -> None:
+    assert not hasattr(
+        application_module.IFlashDreamsApplicationSession,
+        "session_metrics",
+    )
+    assert not hasattr(application_module.IFlashDreamsApplicationSession, "_step")
+
+
+def test_application_drivers_keep_shared_runtime_contract() -> None:
+    expected = ("self", "host", "provider", "session_edges", "pipeline")
+
+    assert (
+        tuple(
+            inspect.signature(
+                driver_module.BatchSessionDriver.run_one_session
+            ).parameters
+        )
+        == expected
+    )
+    assert (
+        tuple(
+            inspect.signature(
+                driver_module.RealtimeSessionDriver.run_one_session
+            ).parameters
+        )
+        == expected
+    )
+
+
+def test_batch_driver_preserves_result_contract() -> None:
+    pipeline = _FakePipeline()
+    application = _application(pipeline)
+    application.init(
+        ["--prompt", "A waterfall", "--total-blocks", "2", "--device", "cpu"]
+    )
+
+    result = application_runtime.run_batch_application_session(
+        application=application,
+        input_handler=NullInputHandler(),
+        input_schema=application.input_schema,
+        output_sink=NullOutputSink(store_results=True),
+    )
+
+    assert type(driver_module.BatchSessionDriver()).__name__ == "BatchSessionDriver"
+    assert result.status == "completed"
+    assert result.artifacts == ()
+    assert result.metrics is not None
+    assert result.metrics.counters["steps"] == 2
+    assert result.reason is None
+    assert result.error is None
+
+
+@pytest.mark.asyncio
+async def test_realtime_driver_preserves_result_contract() -> None:
+    pipeline = _FakePipeline()
+    application = _application(pipeline)
+    application.init(
+        ["--prompt", "A waterfall", "--total-blocks", "2", "--device", "cpu"]
+    )
+
+    driver = driver_module.RealtimeSessionDriver()
+    result = await application_runtime.run_realtime_application_session(
+        application=application,
+        input_handler=NullInputHandler(),
+        input_schema=application.input_schema,
+        output_sink=NullOutputSink(store_results=True),
+    )
+
+    assert type(driver).__name__ == "RealtimeSessionDriver"
+    assert result.status == "completed"
+    assert result.artifacts == ()
+    assert result.metrics is not None
+    assert result.metrics.counters["steps"] == 2
+    assert result.reason is None
+    assert result.error is None
+
+
+@pytest.mark.asyncio
+async def test_realtime_driver_awaits_output_backpressure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _PacingSink(NullOutputSink):
+        def write(self, result: StepResult) -> OutputDecision:
+            decision_index = self.output_count
+            super().write(result)
+            if decision_index == 0:
+                return OutputDecision(backpressure_s=0.25)
+            return OutputDecision(should_stop=True)
+
+    delays: list[float] = []
+
+    async def record_sleep(delay_s: float) -> None:
+        delays.append(delay_s)
+
+    monkeypatch.setattr(application_runtime.asyncio, "sleep", record_sleep)
+    pipeline = _FakePipeline()
+    application = _application(pipeline)
+    application.init(
+        ["--prompt", "A waterfall", "--total-blocks", "2", "--device", "cpu"]
+    )
+    sink = _PacingSink(store_results=True)
+
+    result = await application_runtime.run_realtime_application_session(
+        application=application,
+        input_handler=NullInputHandler(),
+        input_schema=application.input_schema,
+        output_sink=sink,
+    )
+
+    assert result.status == "completed"
+    assert sink.output_count == 2
+    assert delays == pytest.approx([0.0, 0.25, 0.0])
 
 
 class _NamedInputHandler:
@@ -240,7 +329,7 @@ def test_input_handler_provides_schema_named_canonical_inputs() -> None:
             ),
         )
     )
-    inputs = application_module._current_application_inputs(
+    inputs = application_runtime._current_application_inputs(
         _NamedInputHandler(), schema
     )
 
@@ -254,7 +343,7 @@ def test_application_host_rejects_unwindowed_canonical_inputs() -> None:
             return cast(CanonicalInputWindow, CanonicalInputs())
 
     with pytest.raises(TypeError, match="CanonicalInputWindow"):
-        application_module._current_application_inputs(
+        application_runtime._current_application_inputs(
             _LegacyInputHandler(),
             CanonicalInputSchema(),
         )
@@ -328,3 +417,88 @@ def test_application_host_writes_mp4_through_shared_io_factory(
     assert len(artifacts) == 1
     assert artifacts[0].kind == "video/mp4"
     assert artifacts[0].uri == str(tmp_path / "out.mp4")
+
+
+def test_application_driver_enforces_one_model_thread() -> None:
+    call_threads: list[int] = []
+
+    class _ThreadRecordingPipeline(_FakePipeline):
+        def to(self, device: str) -> "_ThreadRecordingPipeline":
+            call_threads.append(threading.get_ident())
+            super().to(device)
+            return self
+
+        def initialize_cache(self, **kwargs: Any) -> object:
+            call_threads.append(threading.get_ident())
+            return super().initialize_cache(**kwargs)
+
+        def generate(
+            self,
+            *,
+            autoregressive_index: int,
+            cache: object,
+        ) -> torch.Tensor:
+            call_threads.append(threading.get_ident())
+            return super().generate(
+                autoregressive_index=autoregressive_index,
+                cache=cache,
+            )
+
+        def finalize(
+            self,
+            *,
+            autoregressive_index: int,
+            cache: object,
+        ) -> dict[str, float]:
+            call_threads.append(threading.get_ident())
+            return super().finalize(
+                autoregressive_index=autoregressive_index,
+                cache=cache,
+            )
+
+        def close(self) -> None:
+            call_threads.append(threading.get_ident())
+            super().close()
+
+    pipeline = _ThreadRecordingPipeline()
+    application = _application(pipeline)
+    application.init(
+        ["--prompt", "A waterfall", "--total-blocks", "2", "--device", "cpu"]
+    )
+    calling_thread = threading.get_ident()
+
+    result = application_runtime.run_batch_application_session(
+        application=application,
+        input_handler=NullInputHandler(),
+        input_schema=application.input_schema,
+        output_sink=NullOutputSink(),
+    )
+
+    assert result.status == "completed"
+    assert len(set(call_threads)) == 1
+    assert call_threads[0] != calling_thread
+
+
+def test_application_defaults_derive_from_runner_config() -> None:
+    pipeline_config = object()
+    runner_config = type(
+        "RunnerConfig",
+        (),
+        {
+            "pipeline": pipeline_config,
+            "total_blocks": 7,
+            "pixel_height": 360,
+            "pixel_width": 640,
+            "fps": 24,
+            "postprocess_output_layout": "cthw",
+        },
+    )()
+
+    defaults = T2VApplicationDefaults.from_runner_config(runner_config)
+
+    assert defaults.pipeline_config is pipeline_config
+    assert defaults.total_blocks == 7
+    assert defaults.pixel_height == 360
+    assert defaults.pixel_width == 640
+    assert defaults.fps == 24
+    assert defaults.output_layout == "cthw"

@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -32,6 +32,7 @@ from flashdreams.demo import (
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.results import StepResult
+from flashdreams.runtime import StepRequirements
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -58,6 +59,31 @@ class T2VApplicationDefaults:
 
     output_layout: VideoTensorLayout = "tchw"
     """Layout emitted by the integration pipeline."""
+
+    @classmethod
+    def from_runner_config(cls, runner_config: Any) -> "T2VApplicationDefaults":
+        """Derive application defaults from an integration-owned runner config."""
+        required = ("pipeline", "total_blocks", "pixel_height", "pixel_width")
+        missing = [name for name in required if not hasattr(runner_config, name)]
+        if missing:
+            raise TypeError(
+                f"T2V runner config is missing application defaults: {missing}."
+            )
+        output_layout = getattr(
+            runner_config,
+            "postprocess_output_layout",
+            "tchw",
+        )
+        if output_layout is None:
+            output_layout = "tchw"
+        return cls(
+            pipeline_config=runner_config.pipeline,
+            total_blocks=int(runner_config.total_blocks),
+            pixel_height=int(runner_config.pixel_height),
+            pixel_width=int(runner_config.pixel_width),
+            fps=float(getattr(runner_config, "fps", 16.0)),
+            output_layout=output_layout,
+        )
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -236,14 +262,28 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
             metadata={"prompt": self._prompt or ""},
         )
 
-    def step(self, inputs: CanonicalInputWindow) -> StepResult | None:
-        """Generate one canonical result, or return ``None`` when complete."""
+    def next_step_requirements(self) -> StepRequirements | None:
+        """Return requirements for the next video block."""
+        if self._step_index >= self.config.total_blocks:
+            return None
+        frame_count = None
+        if self._pipeline is not None:
+            get_frame_count = getattr(self._pipeline, "get_num_output_frames", None)
+            if callable(get_frame_count):
+                frame_count = int(get_frame_count(self._step_index))
+        return StepRequirements(
+            step_index=self._step_index,
+            steady_output_frame_count=frame_count,
+        )
+
+    def step(self, inputs: CanonicalInputWindow) -> StepResult:
+        """Generate one canonical result for the next video block."""
         if self._closed:
             raise RuntimeError("T2V session is closed.")
         if self._pipeline is None or self._cache is None:
             raise RuntimeError("T2VApplicationSession.init() must run before step().")
         if self._step_index >= self.config.total_blocks:
-            return None
+            raise RuntimeError("T2V session has no remaining steps.")
 
         if inputs.values:
             raise ValueError("T2V does not declare live canonical inputs.")
@@ -251,16 +291,14 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
             autoregressive_index=self._step_index,
             cache=self._cache,
         )
-        stats = self._pipeline.finalize(
+        self._pipeline.finalize(
             autoregressive_index=self._step_index,
             cache=self._cache,
         )
-        metrics = dict(stats) if isinstance(stats, Mapping) else {}
         result = StepResult.from_video_chunk(
             step_index=self._step_index,
             video_chunk=generated.detach(),
             layout=self.config.output_layout,
-            metrics=metrics,
             metadata={"prompt": self._prompt or ""},
         )
         self._step_index += 1

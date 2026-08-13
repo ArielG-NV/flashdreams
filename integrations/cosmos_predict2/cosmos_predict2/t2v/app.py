@@ -21,7 +21,7 @@ from t2v import (
     T2VApplicationSession,
 )
 
-from cosmos_predict2.config import PIPELINE_COSMOS2_T2V_2B_720P
+from cosmos_predict2.config import RUNNER_COSMOS2_T2V_2B_720P
 from flashdreams.demo import IFlashDreamsApplication
 
 
@@ -32,11 +32,8 @@ class CosmosPredict2T2VApplication(T2VApplication):
 
     def __init__(self) -> None:
         super().__init__(
-            defaults=T2VApplicationDefaults(
-                pipeline_config=PIPELINE_COSMOS2_T2V_2B_720P,
-                total_blocks=1,
-                pixel_height=720,
-                pixel_width=1280,
+            defaults=T2VApplicationDefaults.from_runner_config(
+                RUNNER_COSMOS2_T2V_2B_720P
             )
         )
 

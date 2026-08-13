@@ -12,6 +12,7 @@ import pytest
 import torch
 
 from flashdreams.runtime import (
+    CanonicalInputSchema,
     InferenceInput,
     StepRequest,
     StepRequirements,
@@ -19,6 +20,7 @@ from flashdreams.runtime import (
     UserInputEvent,
     UserInputs,
 )
+from flashdreams.runtime.canonical import DRIVER_COMMAND
 from flashdreams.runtime.demo import RunResult
 from flashdreams.runtime.keyboard import WSAD_SUPPORTED_KEYS
 from flashdreams.serving.webrtc import manager as manager_module
@@ -33,6 +35,7 @@ from flashdreams.serving.webrtc.server import SessionBusyError
 from flashdreams.serving.webrtc.services import (
     WEBRTC_SKIPPED_INPUTS_METADATA_KEY,
     WEBRTC_SKIPPED_WINDOW_METADATA_KEY,
+    ApplicationWebRTCInputHandler,
     WebRTCInputSource,
     WebRTCTransportService,
 )
@@ -1348,3 +1351,52 @@ async def test_application_manager_close_awaits_application_before_release() -> 
     assert manager._peer is None
     assert manager._track is None
     assert manager._bridge is None
+
+
+def test_application_manager_peer_wait_has_timeout() -> None:
+    manager = ApplicationWebRTCSessionManager(peer_timeout_s=0.01)
+
+    with pytest.raises(TimeoutError, match="Timed out waiting"):
+        manager.connect_output(manager_module.SessionInfo())
+
+
+def test_application_webrtc_input_handler_preserves_key_levels() -> None:
+    now = [10.0]
+    handler = ApplicationWebRTCInputHandler(
+        CanonicalInputSchema(modalities=(DRIVER_COMMAND,)),
+        clock=lambda: now[0],
+    )
+    handler.open(manager_module.SessionInfo())
+
+    now[0] = 10.1
+    assert handler.handle_browser_payload(
+        {"type": "action", "action": {"event": "keydown", "key": "w"}}
+    )
+    pressed = handler.current_inputs()
+
+    now[0] = 10.2
+    held = handler.current_inputs()
+
+    now[0] = 10.3
+    assert handler.handle_browser_payload(
+        {"type": "action", "action": {"event": "keyup", "key": "w"}}
+    )
+    released = handler.current_inputs()
+
+    assert pressed.values["driver_command"]["throttle"] == 1.0
+    assert held.values["driver_command"]["throttle"] == 1.0
+    assert released.values["driver_command"]["throttle"] == 0.0
+    assert pressed.window.start_s == pytest.approx(0.0)
+    assert released.window.end_s == pytest.approx(0.3)
+
+
+def test_application_manager_advertises_input_bridge_controls() -> None:
+    controls = (
+        {"label": "Drive", "keys": ("w", "a", "s", "d")},
+        {"label": "Stop", "keys": ({"key": "space", "label": "Stop"},)},
+    )
+    manager = ApplicationWebRTCSessionManager(
+        input_bridge=SimpleNamespace(browser_controls=controls)
+    )
+
+    assert manager.browser_ui_config() == {"controls": controls}

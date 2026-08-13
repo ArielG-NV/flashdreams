@@ -17,10 +17,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import sys
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from importlib.metadata import EntryPoint, entry_points
 from pathlib import Path
 from typing import Any
@@ -33,11 +34,16 @@ from flashdreams.demo.factories import (
     NullInputHandler,
     ProvidedIOFactory,
 )
-from flashdreams.demo.io import InputHandler, IOFactory, OutputSink, SessionInfo
+from flashdreams.demo.io import (
+    InputHandler,
+    IOFactory,
+    OutputSink,
+    SessionInfo,
+)
 from flashdreams.demo.outputs import LocalWindowOutputSink, NullOutputSink
 from flashdreams.runtime.inputs import CanonicalInputSchema, CanonicalInputWindow
 from flashdreams.runtime.output import OutputArtifact
-from flashdreams.runtime.types import StepResult
+from flashdreams.runtime.types import StepRequirements, StepResult
 
 APPLICATION_ENTRY_POINT_GROUP = "flashdreams.applications"
 """Entry-point group whose values expose a zero-argument ``create_app`` factory."""
@@ -54,27 +60,13 @@ class IFlashDreamsApplicationSession(ABC):
         """Return sink-facing metadata after session initialization."""
         return SessionInfo()
 
-    def _step(self, inputs: CanonicalInputWindow, output_sink: OutputSink) -> bool:
-        """Run one framework-managed application step.
-
-        This is a host-only compatibility boundary. Application sessions
-        implement :meth:`step` without depending on output or presentation
-        runtime details.
-        """
-        from flashdreams.runtime.demo.pipeline import StepPipeline
-
-        outcome = StepPipeline().execute_application_step(
-            inputs=inputs,
-            step=self.step,
-            output=output_sink,
-        )
-        if outcome is None:
-            return False
-        return not outcome.output.should_stop
+    @abstractmethod
+    def next_step_requirements(self) -> StepRequirements | None:
+        """Return requirements for the next step, or ``None`` when complete."""
 
     @abstractmethod
-    def step(self, inputs: CanonicalInputWindow) -> StepResult | None:
-        """Produce one model result, or return ``None`` when complete."""
+    def step(self, inputs: CanonicalInputWindow) -> StepResult:
+        """Produce one model result for previously declared requirements."""
 
     def close(self) -> None:
         """Release optional per-session resources."""
@@ -193,57 +185,35 @@ def run_application(
     if not isinstance(resolved_output, OutputSink):
         raise TypeError("IOFactory.create_output_sink() must return an OutputSink.")
 
-    session: IFlashDreamsApplicationSession | None = None
-    artifacts: tuple[OutputArtifact, ...] = ()
-    try:
-        application.init([*slug_args, *commandline_args])
-        session = application.create_session()
-        session.init()
-        session_info = session.session_info()
-        resolved_input.open(session_info)
-        resolved_output.open(session_info)
-        resolved_output.begin_generation(0)
-        while session._step(
-            _current_application_inputs(resolved_input, input_schema),
-            resolved_output,
-        ):
-            pass
-    finally:
-        try:
-            if session is not None:
-                session.close()
-        finally:
-            try:
-                artifacts = tuple(resolved_output.close())
-            finally:
-                resolved_input.close()
-    return artifacts
+    application.init([*slug_args, *commandline_args])
+    from flashdreams.runtime.demo.application_runtime import (
+        run_batch_application_session,
+        run_realtime_application_session,
+    )
 
-
-def _current_application_inputs(
-    handler: InputHandler,
-    input_schema: CanonicalInputSchema,
-) -> CanonicalInputWindow:
-    """Return and validate the handler state requested by ``input_schema``."""
-    inputs = handler.current_inputs()
-    if not isinstance(inputs, CanonicalInputWindow):
-        raise TypeError(
-            "InputHandler.current_inputs() must return CanonicalInputWindow."
+    if isinstance(resolved_factory, ApplicationWebRTCIOFactory):
+        result = asyncio.run(
+            run_realtime_application_session(
+                application=application,
+                input_handler=resolved_input,
+                input_schema=input_schema,
+                output_sink=resolved_output,
+            )
         )
-    expected = {modality.name: modality for modality in input_schema.modalities}
-    unknown = sorted(set(inputs.values) - set(expected))
-    if unknown:
-        raise ValueError(f"Canonical inputs contain undeclared modalities: {unknown}.")
-    missing = sorted(set(expected) - set(inputs.values))
-    if missing:
-        raise ValueError(
-            f"Canonical inputs are missing requested modalities: {missing}."
+    else:
+        result = run_batch_application_session(
+            application=application,
+            input_handler=resolved_input,
+            input_schema=input_schema,
+            output_sink=resolved_output,
         )
-    for name, value in inputs.values.items():
-        if not isinstance(value, Mapping):
-            raise TypeError(f"Canonical input {name!r} must be a named field mapping.")
-        expected[name].value(value)
-    return inputs
+    if result.status != "completed":
+        if result.error is not None:
+            raise result.error
+        raise RuntimeError(
+            result.reason or f"Application run ended with {result.status}."
+        )
+    return tuple(result.artifacts)
 
 
 def _resolve_io_factory(

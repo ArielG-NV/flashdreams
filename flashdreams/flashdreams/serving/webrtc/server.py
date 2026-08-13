@@ -99,11 +99,14 @@ def create_webrtc_app(
         )
 
     async def ui_config(_: web.Request) -> web.StreamResponse:
-        payload: dict[str, str | None] = {"adapter_module": None}
+        payload: dict[str, object] = {"adapter_module": None}
         if model_web_dir is not None and (model_web_dir / "adapter.js").is_file():
             payload["adapter_module"] = "/model-static/adapter.js?v=model-ui-v2"
         if model_web_dir is not None and (model_web_dir / "adapter.css").is_file():
             payload["model_stylesheet"] = "/model-static/adapter.css?v=model-ui-v2"
+        manager_config = getattr(session_manager, "browser_ui_config", None)
+        if callable(manager_config):
+            payload.update(manager_config())
         return web.json_response(payload)
 
     async def on_startup(app: web.Application) -> None:
@@ -260,11 +263,17 @@ class ApplicationWebRTCOutputSink(OutputSink):
         application_slug: str,
         host: str,
         port: int,
+        peer_timeout_s: float,
+        client_liveness_timeout_s: float,
+        input_bridge: Any,
     ) -> None:
         self._application_slug = application_slug
         self._host = host
         self._port = port
         self._delegate: DeferredWebRTCOutputSink | None = None
+        self._peer_timeout_s = peer_timeout_s
+        self._client_liveness_timeout_s = client_liveness_timeout_s
+        self._input_bridge = input_bridge
         self._manager: Any | None = None
         self._server: _BackgroundWebRTCServer | None = None
         self._opened = False
@@ -280,7 +289,11 @@ class ApplicationWebRTCOutputSink(OutputSink):
             ApplicationWebRTCSessionManager,
         )
 
-        manager = ApplicationWebRTCSessionManager()
+        manager = ApplicationWebRTCSessionManager(
+            peer_timeout_s=self._peer_timeout_s,
+            client_liveness_timeout_s=self._client_liveness_timeout_s,
+            input_bridge=self._input_bridge,
+        )
         request_host = "127.0.0.1" if self._host in {"0.0.0.0", "::"} else self._host
         if ":" in request_host:
             request_host = f"[{request_host}]"
