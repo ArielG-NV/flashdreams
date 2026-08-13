@@ -14,7 +14,7 @@ local-window/serving dependencies without installing unrelated integrations:
 
 Native SlangPy window (default):
 
-```console
+```bash
 uv run --package flashdreams-causal-forcing flashdreams-run t2v-causal-forcing \
   --prompt "A robot walking through a forest."
 ```
@@ -33,7 +33,7 @@ run_application(
 
 WebRTC browser backend:
 
-```console
+```bash
 uv run --package flashdreams-causal-forcing flashdreams-run t2v-causal-forcing \
   --output webrtc --host 0.0.0.0 --port 8080 \
   --prompt "A robot walking through a forest."
@@ -43,7 +43,7 @@ Then open `http://localhost:8080/request_session`.
 
 MP4 artifact:
 
-```console
+```bash
 uv run --package flashdreams-causal-forcing flashdreams-run t2v-causal-forcing \
   --output mp4 --output-path artifacts/output.mp4 \
   --prompt "A robot walking through a forest."
