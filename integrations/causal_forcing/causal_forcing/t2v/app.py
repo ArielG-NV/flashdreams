@@ -25,14 +25,10 @@ from causal_forcing.config import PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE
 from flashdreams.demo import IFlashDreamsApplication
 
 
-class CausalForcingT2VApplicationSession(T2VApplicationSession):
-    """Causal-Forcing text-to-video session."""
-
-
 class CausalForcingT2VApplication(T2VApplication):
     """Causal-Forcing text-to-video application."""
 
-    session_type = CausalForcingT2VApplicationSession
+    session_type = T2VApplicationSession
 
     def __init__(self) -> None:
         super().__init__(
@@ -52,6 +48,5 @@ def createApp() -> IFlashDreamsApplication:
 
 __all__ = [
     "CausalForcingT2VApplication",
-    "CausalForcingT2VApplicationSession",
     "createApp",
 ]

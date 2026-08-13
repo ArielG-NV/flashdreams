@@ -25,14 +25,10 @@ from cosmos_predict2.config import PIPELINE_COSMOS2_T2V_2B_720P
 from flashdreams.demo import IFlashDreamsApplication
 
 
-class CosmosPredict2T2VApplicationSession(T2VApplicationSession):
-    """Cosmos Predict2 text-to-video session."""
-
-
 class CosmosPredict2T2VApplication(T2VApplication):
     """Cosmos Predict2 text-to-video application."""
 
-    session_type = CosmosPredict2T2VApplicationSession
+    session_type = T2VApplicationSession
 
     def __init__(self) -> None:
         super().__init__(
@@ -52,6 +48,5 @@ def createApp() -> IFlashDreamsApplication:
 
 __all__ = [
     "CosmosPredict2T2VApplication",
-    "CosmosPredict2T2VApplicationSession",
     "createApp",
 ]

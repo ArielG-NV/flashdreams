@@ -25,14 +25,10 @@ from flashdreams.demo import IFlashDreamsApplication
 from self_forcing.config import PIPELINE_WAN21_T2V_1PT3B
 
 
-class SelfForcingT2VApplicationSession(T2VApplicationSession):
-    """Self-Forcing text-to-video session."""
-
-
 class SelfForcingT2VApplication(T2VApplication):
     """Self-Forcing text-to-video application."""
 
-    session_type = SelfForcingT2VApplicationSession
+    session_type = T2VApplicationSession
 
     def __init__(self) -> None:
         super().__init__(
@@ -52,6 +48,5 @@ def createApp() -> IFlashDreamsApplication:
 
 __all__ = [
     "SelfForcingT2VApplication",
-    "SelfForcingT2VApplicationSession",
     "createApp",
 ]
