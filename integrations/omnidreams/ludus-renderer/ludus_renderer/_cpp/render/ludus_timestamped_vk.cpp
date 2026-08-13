@@ -340,16 +340,16 @@ static void updateAllInputDescriptorSets(LudusTimestampedVkState& s)
         updateDescriptorSet(s.vkctx.device, s.descriptorSets[i], s);
 }
 
-static void updateFrameOutputDescriptors(
-    VkDevice device, VkDescriptorSet ds, const VkExternalBuffer& output,
-    VkDeviceSize bytes, const VkExternalImage& colorImage)
+static void updateFrameExportDescriptors(
+    VkDevice device, VkDescriptorSet ds, const VkExternalBuffer& linearOutput,
+    VkDeviceSize bytes, const VkDeviceImage& colorAttachment)
 {
     VkDescriptorBufferInfo info = {};
-    info.buffer = output.buffer;
+    info.buffer = linearOutput.buffer;
     info.offset = 0;
     info.range = bytes;
     VkDescriptorImageInfo imageInfo = {};
-    imageInfo.imageView = colorImage.imageView;
+    imageInfo.imageView = colorAttachment.imageView;
     imageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
     VkWriteDescriptorSet writes[2] = {};
@@ -653,8 +653,8 @@ static void destroyRenderTarget(
 {
     if (target.framebuffer)
         vkDestroyFramebuffer(s.vkctx.device, target.framebuffer, nullptr);
-    destroyExternalImage(s.vkctx, target.colorImage);
-    destroyExternalImage(s.vkctx, target.depthStencilImage);
+    destroyDeviceImage(s.vkctx, target.colorAttachment);
+    destroyDeviceImage(s.vkctx, target.depthStencilAttachment);
     memset(&target, 0, sizeof(target));
 }
 
@@ -713,11 +713,11 @@ static void ensureFramebuffer(
     target.height = height;
     target.maxLayers = layers;
     target.samples = desiredSamplesInt;
-    target.colorImage = createExternalImage(s.vkctx, width, height, layers,
+    target.colorAttachment = createDeviceImage(s.vkctx, width, height, layers,
         VK_FORMAT_R8G8B8A8_UNORM,
         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
         (VkSampleCountFlagBits)desiredSamplesInt);
-    target.depthStencilImage = createExternalImage(s.vkctx, width, height, layers,
+    target.depthStencilAttachment = createDeviceImage(s.vkctx, width, height, layers,
         VK_FORMAT_D24_UNORM_S8_UINT,
         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
         (VkSampleCountFlagBits)desiredSamplesInt);
@@ -725,8 +725,8 @@ static void ensureFramebuffer(
     VkFramebufferCreateInfo fbCI = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
     fbCI.renderPass = s.renderPass;
     VkImageView attachments[] = {
-        target.colorImage.imageView,
-        target.depthStencilImage.imageView,
+        target.colorAttachment.imageView,
+        target.depthStencilAttachment.imageView,
     };
     fbCI.attachmentCount = 2;
     fbCI.pAttachments = attachments;
@@ -1033,7 +1033,8 @@ void ludusRenderBatchVk(
     }
 
     const size_t totalSize = (size_t)width * height * 4 * numQueries;
-    VkExternalBuffer& outputBuffer = s.outputBuffers[outputSlot];
+    LudusVkExportSlot& exportSlot = s.exportSlots[outputSlot];
+    VkExternalBuffer& outputBuffer = exportSlot.linearRgba;
     if (externalBufferNeedsResize(outputBuffer, totalSize)) {
         synchronizeForResourceMutation(s, stream);
         resizeExternalBuffer(s.vkctx, outputBuffer, totalSize,
@@ -1041,10 +1042,11 @@ void ludusRenderBatchVk(
             true);
         // Fresh allocations start in Vulkan ownership. Reused output slots
         // were released to CUDA by their previous render submission.
-        s.outputReleasedToCuda[outputSlot] = 0;
+        exportSlot.releasedToCuda = 0;
     }
-    s.activeOutputSlot = outputSlot;
-    s.activeOutputSize = totalSize;
+    exportSlot.width = width;
+    exportSlot.height = height;
+    exportSlot.layers = numQueries;
 
     // A single stream-ordered timeline signal publishes CUDA-written inputs
     // and releases a reused output lease to Vulkan. No host wait is involved.
@@ -1078,9 +1080,9 @@ void ludusRenderBatchVk(
     // without touching the other in-flight sets.
     LudusVkRenderTarget& renderTarget =
         s.renderTargets[s.activeRenderTarget];
-    updateFrameOutputDescriptors(
+    updateFrameExportDescriptors(
         s.vkctx.device, descriptorSet, outputBuffer, totalSize,
-        renderTarget.colorImage);
+        renderTarget.colorAttachment);
     VkCommandBuffer cmd = s.vkctx.commandBuffers[frameSlot];
     VK_CHECK(vkResetCommandBuffer(cmd, 0));
     VkCommandBufferBeginInfo beginCI = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
@@ -1118,7 +1120,7 @@ void ludusRenderBatchVk(
         addBarrier(s.cameraIntrinsicsBuffer, VK_ACCESS_SHADER_READ_BIT);
         addBarrier(s.cameraPoseBuffer, VK_ACCESS_SHADER_READ_BIT);
         addBarrier(s.queryBuffer, VK_ACCESS_SHADER_READ_BIT);
-        if (s.outputReleasedToCuda[outputSlot]) {
+        if (exportSlot.releasedToCuda) {
             addBarrier(outputBuffer, VK_ACCESS_SHADER_WRITE_BIT);
         } else {
             VkBufferMemoryBarrier initialOutput = {
@@ -1245,7 +1247,7 @@ void ludusRenderBatchVk(
     colorToCompute.newLayout = VK_IMAGE_LAYOUT_GENERAL;
     colorToCompute.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     colorToCompute.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    colorToCompute.image = renderTarget.colorImage.image;
+    colorToCompute.image = renderTarget.colorAttachment.image;
     colorToCompute.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     colorToCompute.subresourceRange.baseMipLevel = 0;
     colorToCompute.subresourceRange.levelCount = 1;
@@ -1335,7 +1337,7 @@ void ludusRenderBatchVk(
     submitInfo.pSignalSemaphores = &s.vkctx.interopTimeline;
     VK_CHECK(vkQueueSubmit(s.vkctx.graphicsQueue, 1, &submitInfo, frameFence));
     s.lastVulkanDoneValue = vulkanDoneValue;
-    s.outputReleasedToCuda[outputSlot] = 1;
+    exportSlot.releasedToCuda = 1;
 }
 
 //=============================================================================
@@ -1350,7 +1352,11 @@ uint8_t* ludusMapBatchResultsVk(
     TORCH_CHECK(outputSlot >= 0 && outputSlot < LUDUS_VK_OUTPUT_SLOTS,
         "invalid Vulkan output slot ", outputSlot);
     const size_t bytes = (size_t)width * height * 4 * numQueries;
-    VkExternalBuffer& output = s.outputBuffers[outputSlot];
+    LudusVkExportSlot& exportSlot = s.exportSlots[outputSlot];
+    TORCH_CHECK(exportSlot.width == width &&
+        exportSlot.height == height && exportSlot.layers == numQueries,
+        "Vulkan export slot shape changed before mapping");
+    VkExternalBuffer& output = exportSlot.linearRgba;
     TORCH_CHECK(output.cuDevPtr != 0 && output.size >= bytes,
         "Vulkan output SSBO is not CUDA-importable or is undersized");
     waitInteropTimelineOnCuda(s.vkctx, stream, s.lastVulkanDoneValue);
@@ -1359,11 +1365,12 @@ uint8_t* ludusMapBatchResultsVk(
 
 void ludusCopyBatchResultsVk(
     NVDR_CTX_ARGS, LudusTimestampedVkState& s, cudaStream_t stream,
-    uint8_t* outputPtr, int width, int height, int numQueries)
+    int outputSlot, uint8_t* outputPtr,
+    int width, int height, int numQueries)
 {
     size_t totalSize = (size_t)width * height * 4 * numQueries;
     uint8_t* sharedOutput = ludusMapBatchResultsVk(
-        NVDR_CTX_PARAMS, s, stream, s.activeOutputSlot,
+        NVDR_CTX_PARAMS, s, stream, outputSlot,
         width, height, numQueries);
     // Legacy staging/JPEG entry points request an owned CUDA copy. The primary
     // torch render binding bypasses this function and wraps sharedOutput.
@@ -1379,7 +1386,7 @@ void ludusCopyBatchResultsVk(
 
 int ludusCopyBatchResultsToStagingVk(
     NVDR_CTX_ARGS, LudusTimestampedVkState& s, cudaStream_t stream,
-    int idx, int width, int height, int numQueries)
+    int outputSlot, int idx, int width, int height, int numQueries)
 {
     TORCH_CHECK(idx >= 0 && idx < 2,
         "invalid Vulkan staging slot ", idx);
@@ -1397,7 +1404,9 @@ int ludusCopyBatchResultsToStagingVk(
         s.stagingBufferSize[idx] = totalSize;
     }
 
-    ludusCopyBatchResultsVk(NVDR_CTX_PARAMS, s, stream, s.stagingBuffer[idx], width, height, numQueries);
+    ludusCopyBatchResultsVk(
+        NVDR_CTX_PARAMS, s, stream, outputSlot, s.stagingBuffer[idx],
+        width, height, numQueries);
     cudaEventRecord(s.stagingReadyEvent[idx], stream);
 
     s.stagingWidth[idx] = width;
@@ -1607,7 +1616,7 @@ void ludusTimestampedReleaseVk(NVDR_CTX_ARGS, LudusTimestampedVkState& s)
     destroyExternalBuffer(s.vkctx, s.cameraPoseBuffer);
     destroyExternalBuffer(s.vkctx, s.queryBuffer);
     for (int i = 0; i < LUDUS_VK_OUTPUT_SLOTS; ++i)
-        destroyExternalBuffer(s.vkctx, s.outputBuffers[i]);
+        destroyExternalBuffer(s.vkctx, s.exportSlots[i].linearRgba);
 
     destroyVkContext(s.vkctx);
     memset(&s, 0, sizeof(s));

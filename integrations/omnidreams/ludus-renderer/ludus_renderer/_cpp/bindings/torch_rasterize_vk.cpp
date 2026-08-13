@@ -50,10 +50,16 @@ static torch::Tensor flu_to_rdf(const torch::Tensor& camera_poses)
 
 struct VulkanSharedState
 {
+    enum OutputSlotState : int
+    {
+        OutputSlotFree = 0,
+        OutputSlotLeased,
+        OutputSlotPendingRelease,
+        OutputSlotReclaiming,
+    };
+
     LudusTimestampedVkState* pState;
-    std::array<std::atomic<bool>, LUDUS_VK_OUTPUT_SLOTS> inUse;
-    std::array<std::atomic<bool>, LUDUS_VK_OUTPUT_SLOTS> releaseRecorded;
-    std::array<cudaEvent_t, LUDUS_VK_OUTPUT_SLOTS> releaseEvents;
+    std::array<std::atomic<int>, LUDUS_VK_OUTPUT_SLOTS> outputSlotStates;
     int cudaDeviceIdx;
 
     explicit VulkanSharedState(int deviceIdx)
@@ -64,10 +70,8 @@ struct VulkanSharedState
             c10::Device(c10::kCUDA, cudaDeviceIdx));
         memset(pState, 0, sizeof(LudusTimestampedVkState));
         for (int i = 0; i < LUDUS_VK_OUTPUT_SLOTS; ++i) {
-            inUse[i].store(false, std::memory_order_relaxed);
-            releaseRecorded[i].store(false, std::memory_order_relaxed);
-            AT_CUDA_CHECK(cudaEventCreateWithFlags(
-                &releaseEvents[i], cudaEventDisableTiming));
+            outputSlotStates[i].store(
+                OutputSlotFree, std::memory_order_relaxed);
         }
         ludusTimestampedInitVk(NVDR_CTX_PARAMS, *pState, cudaDeviceIdx);
     }
@@ -75,17 +79,12 @@ struct VulkanSharedState
     ~VulkanSharedState()
     {
         cudaSetDevice(cudaDeviceIdx);
-        // Output tensors keep this owner alive. When the final tensor releases
-        // it records its consumer stream here; drain those events before
-        // destroying CUDA's mappings or the Vulkan allocations behind them.
-        for (int i = 0; i < LUDUS_VK_OUTPUT_SLOTS; ++i) {
-            if (releaseRecorded[i].load(std::memory_order_acquire))
-                cudaEventSynchronize(releaseEvents[i]);
-        }
+        // Output tensors keep this owner alive. Their final references can be
+        // dropped before arbitrary CUDA consumer streams finish, so teardown
+        // must drain the device before destroying the imported allocations.
+        cudaDeviceSynchronize();
         ludusTimestampedReleaseVk(NVDR_CTX_PARAMS, *pState);
         delete pState;
-        for (cudaEvent_t event : releaseEvents)
-            cudaEventDestroy(event);
     }
 };
 
@@ -157,33 +156,78 @@ public:
 
     int acquireOutputSlot()
     {
-        for (int attempt = 0; attempt < LUDUS_VK_OUTPUT_SLOTS; ++attempt) {
-            int slot = (outputCursor + attempt) % LUDUS_VK_OUTPUT_SLOTS;
-            bool expected = false;
-            if (sharedState->inUse[slot].compare_exchange_strong(
-                    expected, true, std::memory_order_acq_rel)) {
-                outputCursor = (slot + 1) % LUDUS_VK_OUTPUT_SLOTS;
-                return slot;
+        auto tryAcquireFreeSlot = [&]() {
+            for (int attempt = 0; attempt < LUDUS_VK_OUTPUT_SLOTS; ++attempt) {
+                int slot = (outputCursor + attempt) % LUDUS_VK_OUTPUT_SLOTS;
+                int expected = VulkanSharedState::OutputSlotFree;
+                if (sharedState->outputSlotStates[slot].compare_exchange_strong(
+                        expected, VulkanSharedState::OutputSlotLeased,
+                        std::memory_order_acq_rel)) {
+                    outputCursor = (slot + 1) % LUDUS_VK_OUTPUT_SLOTS;
+                    return slot;
+                }
+            }
+            return -1;
+        };
+
+        int slot = tryAcquireFreeSlot();
+        if (slot >= 0)
+            return slot;
+
+        // A from_blob allocation is outside PyTorch's CUDA caching allocator,
+        // so record_stream cannot report every stream that consumed it. Move a
+        // stable snapshot of dropped tensors into a reclaiming state, then one
+        // batched device drain makes all of those slots safe to reuse. This is
+        // paid only when the pool is exhausted, never once per returned frame.
+        std::array<int, LUDUS_VK_OUTPUT_SLOTS> reclaimSlots;
+        int reclaimCount = 0;
+        for (int i = 0; i < LUDUS_VK_OUTPUT_SLOTS; ++i) {
+            int expected = VulkanSharedState::OutputSlotPendingRelease;
+            if (sharedState->outputSlotStates[i].compare_exchange_strong(
+                    expected, VulkanSharedState::OutputSlotReclaiming,
+                    std::memory_order_acq_rel)) {
+                reclaimSlots[reclaimCount++] = i;
             }
         }
+        if (reclaimCount > 0) {
+            cudaError_t syncError = cudaDeviceSynchronize();
+            if (syncError != cudaSuccess) {
+                for (int i = 0; i < reclaimCount; ++i) {
+                    sharedState->outputSlotStates[reclaimSlots[i]].store(
+                        VulkanSharedState::OutputSlotPendingRelease,
+                        std::memory_order_release);
+                }
+                TORCH_CHECK(false,
+                    "failed to reclaim Vulkan interop export slots: ",
+                    cudaGetErrorString(syncError));
+            }
+            for (int i = 0; i < reclaimCount; ++i) {
+                sharedState->outputSlotStates[reclaimSlots[i]].store(
+                    VulkanSharedState::OutputSlotFree,
+                    std::memory_order_release);
+            }
+            slot = tryAcquireFreeSlot();
+            TORCH_INTERNAL_ASSERT(slot >= 0);
+            return slot;
+        }
+
         TORCH_CHECK(false,
-            "all Vulkan zero-copy output slots are still referenced; "
+            "all Vulkan interop export slots are still referenced; "
             "release an older render tensor before submitting another batch");
         return -1;
     }
 
     void releaseOutputSlot(int slot)
     {
-        sharedState->inUse[slot].store(false, std::memory_order_release);
+        sharedState->outputSlotStates[slot].store(
+            VulkanSharedState::OutputSlotFree, std::memory_order_release);
     }
 
-    void waitForOutputRelease(cudaStream_t stream, int slot)
+    void quarantineOutputSlot(int slot)
     {
-        if (sharedState->releaseRecorded[slot].load(
-                std::memory_order_acquire)) {
-            AT_CUDA_CHECK(cudaStreamWaitEvent(
-                stream, sharedState->releaseEvents[slot], 0));
-        }
+        sharedState->outputSlotStates[slot].store(
+            VulkanSharedState::OutputSlotPendingRelease,
+            std::memory_order_release);
     }
 
     int uploadScene(
@@ -409,7 +453,6 @@ torch::Tensor ludus_timestamped_render_batch_vk(
     torch::Tensor poses_rdf = flu_to_rdf(camera_poses).transpose(-2, -1).contiguous();
     const int outputSlot = stateWrapper.acquireOutputSlot();
     try {
-        stateWrapper.waitForOutputRelease(stream, outputSlot);
         ludusRenderBatchVk(NVDR_CTX_PARAMS, s, stream,
             reinterpret_cast<const RenderQuery*>(queries.data_ptr<uint8_t>()),
             reinterpret_cast<const CameraPose*>(poses_rdf.data_ptr<float>()),
@@ -419,35 +462,23 @@ torch::Tensor ludus_timestamped_render_batch_vk(
             NVDR_CTX_PARAMS, s, stream, outputSlot,
             width, height, numQueries);
         auto sharedState = stateWrapper.sharedState;
-        const int cudaDeviceIdx = stateWrapper.cudaDeviceIdx;
-        const cudaStream_t outputStream = stream;
         torch::Tensor out = torch::from_blob(
             sharedOutput,
             {numQueries, height, width, 4},
-            [sharedState, outputSlot, cudaDeviceIdx, outputStream](void*) {
-                // The deleter can run while an unrelated stream is current.
-                // Record release on the stream that exposed this tensor so
-                // same-stream consumers queued before destruction complete
-                // before Vulkan reuses the slot. As with ordinary CUDA
-                // allocations, a caller using the tensor on another stream
-                // must order that work back to its stream of origin before
-                // dropping the final reference.
-                if (cudaSetDevice(cudaDeviceIdx) == cudaSuccess &&
-                    cudaEventRecord(
-                        sharedState->releaseEvents[outputSlot],
-                        outputStream)
-                        == cudaSuccess) {
-                    sharedState->releaseRecorded[outputSlot].store(
-                        true, std::memory_order_release);
-                    sharedState->inUse[outputSlot].store(
-                        false, std::memory_order_release);
-                }
+            [sharedState, outputSlot](void*) {
+                // Final CPU ownership does not imply completion on every CUDA
+                // stream that may have consumed this external allocation.
+                // Quarantine it; acquireOutputSlot reclaims dropped slots only
+                // after a batched device-wide completion check.
+                sharedState->outputSlotStates[outputSlot].store(
+                    VulkanSharedState::OutputSlotPendingRelease,
+                    std::memory_order_release);
             },
             opts);
         stateWrapper.recordLastUse(stream);
         return out;
     } catch (...) {
-        stateWrapper.releaseOutputSlot(outputSlot);
+        stateWrapper.quarantineOutputSlot(outputSlot);
         throw;
     }
 }
@@ -482,14 +513,13 @@ std::tuple<int, bool> ludus_timestamped_render_to_staging_vk(
     int outputSlot = -1;
     try {
         outputSlot = stateWrapper.acquireOutputSlot();
-        stateWrapper.waitForOutputRelease(stream, outputSlot);
         ludusRenderBatchVk(NVDR_CTX_PARAMS, s, stream,
             reinterpret_cast<const RenderQuery*>(queries.data_ptr<uint8_t>()),
             reinterpret_cast<const CameraPose*>(poses_rdf.data_ptr<float>()),
             numQueries, width, height, outputSlot);
 
         ludusCopyBatchResultsToStagingVk(
-            NVDR_CTX_PARAMS, s, stream, stagingIdx,
+            NVDR_CTX_PARAMS, s, stream, outputSlot, stagingIdx,
             width, height, numQueries);
         stateWrapper.recordLastUse(stream);
         // The staging copy is ordered before lastUseEvent, so the next wrapper
@@ -498,7 +528,7 @@ std::tuple<int, bool> ludus_timestamped_render_to_staging_vk(
         return std::make_tuple(stagingIdx, true);
     } catch (...) {
         if (outputSlot >= 0)
-            stateWrapper.releaseOutputSlot(outputSlot);
+            stateWrapper.quarantineOutputSlot(outputSlot);
         stateWrapper.releaseStagingSlot(stagingIdx);
         throw;
     }

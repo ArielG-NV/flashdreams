@@ -111,9 +111,12 @@ struct VkExternalBuffer
     CUdeviceptr                 cuDevPtr;
 };
 
-// Vulkan-only image. CUDA image import is deliberately unsupported; layered
-// output interop uses exported linear buffers instead.
-struct VkExternalImage
+// Device-local Vulkan image used by the native raster pipeline. This is not an
+// interop allocation: optimal image tiling is intentionally opaque to CUDA and
+// cannot be exposed as a row-major tensor. Layered output interop uses a
+// separate exported linear buffer populated after fixed-function visibility
+// has been resolved.
+struct VkDeviceImage
 {
     VkImage                     image;
     VkDeviceMemory              memory;
@@ -145,15 +148,15 @@ void resizeExternalBuffer(
     bool cudaImportable
 );
 
-// Vulkan-only image management (currently depth attachments).
-VkExternalImage createExternalImage(
+// Device-local image management for native color/depth attachments.
+VkDeviceImage createDeviceImage(
     VkContext& ctx,
     uint32_t width, uint32_t height, uint32_t layers,
     VkFormat format,
     VkImageUsageFlags usage,
     VkSampleCountFlagBits samples
 );
-void destroyExternalImage(VkContext& ctx, VkExternalImage& img);
+void destroyDeviceImage(VkContext& ctx, VkDeviceImage& img);
 
 // Memory type helpers.
 uint32_t findMemoryType(

@@ -47,9 +47,22 @@ struct LudusVkRenderTarget
     int                     height;
     int                     maxLayers;
     int                     samples;
-    VkExternalImage         colorImage;
-    VkExternalImage         depthStencilImage;
+    VkDeviceImage           colorAttachment;
+    VkDeviceImage           depthStencilAttachment;
     VkFramebuffer           framebuffer;
+};
+
+// CUDA-visible row-major presentation storage. This resource is deliberately
+// separate from LudusVkRenderTarget: native raster attachments use opaque,
+// implementation-defined tiling and are only converted to NHWC RGBA8 after
+// fixed-function depth/primitive ordering has completed.
+struct LudusVkExportSlot
+{
+    VkExternalBuffer        linearRgba;
+    int                     width;
+    int                     height;
+    int                     layers;
+    int                     releasedToCuda;
 };
 
 struct LudusTimestampedVkState
@@ -184,17 +197,14 @@ struct LudusTimestampedVkState
     uint8_t*                jpegFlipBuffer;
     size_t                  jpegFlipBufferSize;
 
-    // ---------- Zero-copy compute-export output pool ----------
-    // Fixed-function color/depth rendering resolves visibility into a cached,
-    // Vulkan-only color attachment. A compute pass then writes packed RGBA8
-    // directly into one exported SSBO. CUDA maps the same allocation and the
-    // binding wraps its CUdeviceptr with torch::from_blob. There is no host or
-    // CUDA result copy, and no layered CUDA image import. Slots are leased until
-    // their returned tensor is released.
-    VkExternalBuffer        outputBuffers[LUDUS_VK_OUTPUT_SLOTS];
-    int                     outputReleasedToCuda[LUDUS_VK_OUTPUT_SLOTS];
-    int                     activeOutputSlot;
-    size_t                  activeOutputSize;
+    // ---------- Post-raster linear export pool ----------
+    // Hardware rasterization first resolves visibility into a device-local,
+    // optimally tiled render target. A compute pass then establishes explicit
+    // row-major NHWC order in one exported SSBO. CUDA maps that allocation and
+    // the binding wraps its CUdeviceptr with torch::from_blob, so the interop
+    // handoff remains zero-copy without pretending the native attachment has a
+    // tensor-compatible layout. Slots are leased until their tensor is released.
+    LudusVkExportSlot       exportSlots[LUDUS_VK_OUTPUT_SLOTS];
 
     // ---------- CUDA/Vulkan asynchronous ownership chain ----------
     // Per render: CUDA signals inputs-ready, Vulkan signals render-done,
@@ -298,12 +308,14 @@ uint8_t* ludusMapBatchResultsVk(
 
 void ludusCopyBatchResultsVk(
     NVDR_CTX_ARGS, LudusTimestampedVkState& s, cudaStream_t stream,
-    uint8_t* outputPtr, int width, int height, int numQueries
+    int outputSlot, uint8_t* outputPtr,
+    int width, int height, int numQueries
 );
 
 int ludusCopyBatchResultsToStagingVk(
     NVDR_CTX_ARGS, LudusTimestampedVkState& s, cudaStream_t stream,
-    int stagingIdx, int width, int height, int numQueries
+    int outputSlot, int stagingIdx,
+    int width, int height, int numQueries
 );
 
 void ludusCopyStagingToOutputVk(

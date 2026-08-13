@@ -30,7 +30,7 @@ uv sync --package flashdreams-omnidreams --extra interactive-drive
 
 #stages the default scene, prewarms model assets, and syncs native sources; required for
 #omnidreams-perf`, otherwise optional.
-uv run --package flashdreams-omnidreams omnidreams-prepare --perf --scene-uuid clipgt-0d404ff7-2b66-498c-b047-1ed8cded60d4
+uv run --package flashdreams-omnidreams omnidreams-prepare --perf
 
 # launches the default interactive configuration; required to run the demo.
 uv run --package flashdreams-omnidreams flashdreams-run omnidreams local-window

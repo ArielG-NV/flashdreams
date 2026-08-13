@@ -549,17 +549,17 @@ void resizeExternalBuffer(
 }
 
 // ---------------------------------------------------------------------------
-// Vulkan-only images. Layered CUDA image import is intentionally absent.
+// Device-local native raster images. CUDA image import is intentionally absent.
 // ---------------------------------------------------------------------------
 
-VkExternalImage createExternalImage(
+VkDeviceImage createDeviceImage(
     VkContext& ctx,
     uint32_t width, uint32_t height, uint32_t layers,
     VkFormat format,
     VkImageUsageFlags usage,
     VkSampleCountFlagBits samples)
 {
-    VkExternalImage img = {};
+    VkDeviceImage img = {};
     img.width = width;
     img.height = height;
     img.layers = layers;
@@ -609,7 +609,7 @@ VkExternalImage createExternalImage(
     return img;
 }
 
-void destroyExternalImage(VkContext& ctx, VkExternalImage& img)
+void destroyDeviceImage(VkContext& ctx, VkDeviceImage& img)
 {
     if (img.imageView) { vkDestroyImageView(ctx.device, img.imageView, nullptr); img.imageView = VK_NULL_HANDLE; }
     if (img.image) { vkDestroyImage(ctx.device, img.image, nullptr); img.image = VK_NULL_HANDLE; }
