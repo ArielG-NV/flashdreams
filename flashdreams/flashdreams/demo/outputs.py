@@ -340,6 +340,9 @@ class Mp4OutputSink(OutputSink):
         collector = self._collector
         self._collector = None
         self._opened = False
+        if not collector.has_video:
+            self._artifacts = ()
+            return self._artifacts
         video = collector.finish()
         if video is None:
             self._artifacts = ()

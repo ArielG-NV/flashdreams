@@ -25,6 +25,14 @@ pytestmark = pytest.mark.ci_cpu
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
+def test_t2v_app_installs_dependencies_for_documented_outputs() -> None:
+    manifest = tomllib.loads(
+        (_REPO_ROOT / "apps" / "t2v" / "pyproject.toml").read_text()
+    )
+
+    assert "flashdreams[local-window,serving]" in manifest["project"]["dependencies"]
+
+
 @pytest.mark.parametrize(
     ("project", "module", "slug"),
     [

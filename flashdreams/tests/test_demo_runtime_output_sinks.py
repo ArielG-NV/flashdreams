@@ -109,6 +109,29 @@ def test_mp4_output_sink_writes_artifact_and_close_is_idempotent(
     ]
 
 
+def test_mp4_output_sink_closes_empty_collector_without_writing(
+    tmp_path: Path,
+) -> None:
+    writer_called = False
+
+    def fake_writer(*args: Any, **kwargs: Any) -> Path:
+        nonlocal writer_called
+        del args, kwargs
+        writer_called = True
+        return tmp_path / "out.mp4"
+
+    sink = Mp4OutputSink(
+        output_path=tmp_path / "out.mp4",
+        fps=24,
+        writer=fake_writer,
+    )
+    sink.open(SessionInfo(output_layout="tchw"))
+
+    assert tuple(sink.close()) == ()
+    assert tuple(sink.close()) == ()
+    assert not writer_called
+
+
 def test_output_sink_is_built_from_demo_spec(tmp_path: Path) -> None:
     def fake_writer(*args: Any, **kwargs: Any) -> Path:
         del args, kwargs
