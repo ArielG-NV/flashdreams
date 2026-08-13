@@ -64,6 +64,7 @@ if TYPE_CHECKING:
 _CANONICAL_INPUT_WINDOW_KEY = "flashdreams.application.canonical_input_window"
 """Private inference-input key used only across the application adapter boundary."""
 
+
 # This is a hacky shim to get legacy & `IFlashdreams*` code working together with the `*SessionDriver` code.
 # This will and should be removed ASAP.
 class _ApplicationRuntime:

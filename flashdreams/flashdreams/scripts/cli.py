@@ -202,6 +202,8 @@ def entrypoint(argv: list[str] | None = None) -> None:
     raw_args = list(sys.argv[1:] if argv is None else argv)
     from flashdreams.demo.application import (
         entrypoint as application_entrypoint,
+    )
+    from flashdreams.demo.application import (
         registered_application_slugs,
     )
 
@@ -299,9 +301,8 @@ def entrypoint(argv: list[str] | None = None) -> None:
     )
     application_help = ""
     if application_slugs:
-        application_help = (
-            "\n\nInstalled application demo slugs:\n  "
-            + "\n  ".join(application_slugs)
+        application_help = "\n\nInstalled application demo slugs:\n  " + "\n  ".join(
+            application_slugs
         )
     args_cls.__doc__ = (__doc__ or "") + help_suffix + application_help
 
