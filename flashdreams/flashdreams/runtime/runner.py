@@ -40,8 +40,8 @@ from flashdreams.runtime.types import (
 )
 
 if TYPE_CHECKING:
+    from flashdreams.demo.io import OutputDecision, SessionInfo
     from flashdreams.runtime.demo.host import RuntimeHost
-    from flashdreams.runtime.demo.outputs import OutputDecision, SessionInfo
     from flashdreams.runtime.demo.run_modes import RunResult
     from flashdreams.runtime.demo.session_inputs import PreparedStep, UserInputWindow
 
@@ -300,7 +300,7 @@ class _LegacySessionAdapter:
         return self._session.next_step_request()
 
     def session_info(self) -> SessionInfo:
-        from flashdreams.runtime.demo.outputs import SessionInfo
+        from flashdreams.demo.io import SessionInfo
 
         session_info = getattr(self._session, "session_info", None)
         if not callable(session_info):
@@ -482,7 +482,7 @@ class _LegacyOutputTargetSink:
         del generation
 
     def write(self, result: StepResult) -> OutputDecision:
-        from flashdreams.runtime.demo.outputs import OutputDecision
+        from flashdreams.demo.io import OutputDecision
 
         self._output.write(result)
         return OutputDecision()

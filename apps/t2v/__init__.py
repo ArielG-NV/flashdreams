@@ -7,12 +7,10 @@ from .t2v import (
     T2VApplication,
     T2VApplicationDefaults,
     T2VApplicationSession,
-    T2VSessionConfig,
 )
 
 __all__ = [
     "T2VApplication",
     "T2VApplicationDefaults",
     "T2VApplicationSession",
-    "T2VSessionConfig",
 ]

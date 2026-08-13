@@ -21,61 +21,23 @@ import importlib
 import sys
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
 from importlib.metadata import EntryPoint, entry_points
-from typing import Any, Protocol, runtime_checkable
+from pathlib import Path
+from typing import Any
 
-from flashdreams.demo.outputs import VideoWindowOutputSink
+from flashdreams.demo.factories import (
+    CallableIOFactory,
+    Mp4IOFactory,
+    LocalWindowIOFactory,
+    NullInputSink,
+    ProvidedIOFactory,
+)
+from flashdreams.demo.io import InputSink, IOFactory, OutputSink, SessionInfo
+from flashdreams.demo.outputs import LocalWindowOutputSink, NullOutputSink
+from flashdreams.runtime.output import OutputArtifact
 
 APPLICATION_ENTRY_POINT_GROUP = "flashdreams.applications"
 """Entry-point group whose values expose a zero-argument ``createApp`` factory."""
-
-
-@runtime_checkable
-class InputSink(Protocol):
-    """Supplies opaque inputs to an application session."""
-
-    def read(self) -> object | None:
-        """Return the next available input, or ``None`` when none is available."""
-        ...
-
-
-@runtime_checkable
-class OutputSink(Protocol):
-    """Consumes opaque outputs produced by an application session."""
-
-    def write(self, output: object) -> None:
-        """Consume one output without imposing presentation semantics."""
-        ...
-
-
-@dataclass(slots=True)
-class NullInputSink:
-    """Input sink that never supplies runtime input."""
-
-    def read(self) -> None:
-        """Return ``None`` because no input is available."""
-        return None
-
-
-@dataclass(slots=True)
-class NullOutputSink:
-    """Output sink that optionally records values without presenting them."""
-
-    store_outputs: bool = False
-    """Whether to retain outputs for inspection."""
-
-    output_count: int = field(default=0, init=False)
-    """Number of outputs consumed since construction."""
-
-    outputs: list[object] = field(default_factory=list, init=False)
-    """Retained outputs when ``store_outputs`` is enabled."""
-
-    def write(self, output: object) -> None:
-        """Consume one output."""
-        self.output_count += 1
-        if self.store_outputs:
-            self.outputs.append(output)
 
 
 class IFlashDreamsApplicationSession(ABC):
@@ -84,6 +46,10 @@ class IFlashDreamsApplicationSession(ABC):
     @abstractmethod
     def init(self) -> None:
         """Initialize model and per-session resources."""
+
+    def session_info(self) -> SessionInfo:
+        """Return sink-facing metadata after session initialization."""
+        return SessionInfo()
 
     def generate(self, input_src: InputSink, output_sink: OutputSink) -> None:
         """Run sequential steps until the session reports completion."""
@@ -176,41 +142,84 @@ def run_application(
     application_slug: str,
     commandline_args: Sequence[str] = (),
     *,
+    io_factory: IOFactory | None = None,
     input_src: InputSink | None = None,
     output_sink: OutputSink | None = None,
-) -> None:
-    """Load and run an application with host-provided input and output sinks.
+) -> tuple[OutputArtifact, ...]:
+    """Load and run an application through one host-owned I/O factory.
 
     Args:
         application_slug: Installed application or concrete demo slug.
         commandline_args: Arguments forwarded to the application.
-        input_src: Input sink; ``None`` supplies no dynamic inputs.
-        output_sink: Output sink; ``None`` opens a local video window.
+        io_factory: Factory for per-run input and output sinks.
+        input_src: Compatibility injection for a caller-owned input sink.
+        output_sink: Compatibility injection for a caller-owned output sink.
+
+    Returns:
+        Persistent artifacts returned by the output sink.
+
+    Raises:
+        ValueError: ``io_factory`` is combined with direct sink injection.
+        TypeError: A factory returns an object outside the sink contracts.
     """
-    resolved_input = input_src if input_src is not None else NullInputSink()
-    resolved_output = (
-        output_sink if output_sink is not None else VideoWindowOutputSink()
+    resolved_factory = _resolve_io_factory(
+        io_factory=io_factory,
+        input_src=input_src,
+        output_sink=output_sink,
     )
-    application, slug_args = create_application(application_slug)
-    application.init(
-        [*slug_args, *commandline_args],
-        resolved_input,
-        resolved_output,
-    )
-    session = application.create_session(resolved_input, resolved_output)
+    resolved_input = resolved_factory.create_input_sink()
+    resolved_output = resolved_factory.create_output_sink()
+    if not isinstance(resolved_input, InputSink):
+        raise TypeError("IOFactory.create_input_sink() must return an InputSink.")
+    if not isinstance(resolved_output, OutputSink):
+        raise TypeError("IOFactory.create_output_sink() must return an OutputSink.")
+
+    session: IFlashDreamsApplicationSession | None = None
+    artifacts: tuple[OutputArtifact, ...] = ()
     try:
+        application, slug_args = create_application(application_slug)
+        application.init(
+            [*slug_args, *commandline_args],
+            resolved_input,
+            resolved_output,
+        )
+        session = application.create_session(resolved_input, resolved_output)
         session.init()
+        session_info = session.session_info()
+        resolved_input.open(session_info)
+        resolved_output.open(session_info)
+        resolved_output.begin_generation(0)
         session.generate(resolved_input, resolved_output)
     finally:
         try:
-            session.close()
+            if session is not None:
+                session.close()
         finally:
-            close_output = getattr(resolved_output, "close", None)
-            if callable(close_output):
-                close_output()
-            close_input = getattr(resolved_input, "close", None)
-            if callable(close_input):
-                close_input()
+            try:
+                artifacts = tuple(resolved_output.close())
+            finally:
+                resolved_input.close()
+    return artifacts
+
+
+def _resolve_io_factory(
+    *,
+    io_factory: IOFactory | None,
+    input_src: InputSink | None,
+    output_sink: OutputSink | None,
+) -> IOFactory:
+    if io_factory is not None:
+        if input_src is not None or output_sink is not None:
+            raise ValueError("Pass io_factory or direct input/output sinks, not both.")
+        return io_factory
+    if input_src is None and output_sink is None:
+        return LocalWindowIOFactory()
+    return ProvidedIOFactory(
+        input_sink=input_src if input_src is not None else NullInputSink(),
+        output_sink=(
+            output_sink if output_sink is not None else LocalWindowOutputSink()
+        ),
+    )
 
 
 def _create_from_entry_point(entry_point: EntryPoint) -> IFlashDreamsApplication:
@@ -245,16 +254,109 @@ def _import_application_module(slug: str) -> Any:
     )
 
 
+def _parse_host_io(
+    application_slug: str,
+    args: Sequence[str],
+) -> tuple[IOFactory, list[str]]:
+    output_kind = "local-window"
+    output_path: Path | None = None
+    output_fps: float | None = None
+    application_args: list[str] = []
+    index = 0
+    while index < len(args):
+        argument = args[index]
+        if argument in {"--output", "--output-path", "--output-fps"}:
+            if index + 1 >= len(args):
+                raise ValueError(f"{argument} requires a value.")
+            value = args[index + 1]
+            if argument == "--output":
+                output_kind = value
+            elif argument == "--output-path":
+                output_path = Path(value)
+            else:
+                output_fps = float(value)
+            index += 2
+            continue
+        application_args.append(argument)
+        index += 1
+
+    if output_kind == "local-window":
+        return LocalWindowIOFactory(fps=output_fps), application_args
+    if output_kind == "null":
+        return CallableIOFactory(NullInputSink, NullOutputSink), application_args
+    if output_kind == "mp4":
+        path = output_path or Path("outputs") / f"{application_slug}.mp4"
+        return Mp4IOFactory(output_path=path, fps=output_fps), application_args
+    raise ValueError(
+        f"Unsupported output {output_kind!r}; expected local-window, null, mp4, or webrtc."
+    )
+
+
 def entrypoint(argv: Sequence[str] | None = None) -> None:
     """Run the ``flashdreams`` console entry point."""
     args = list(sys.argv[1:] if argv is None else argv)
     if args and args[0] == "run":
         args.pop(0)
     if not args or args[0] in {"-h", "--help"}:
-        print("usage: flashdreams [run] APPLICATION [APPLICATION_ARGS ...]")
+        print(
+            "usage: flashdreams [run] APPLICATION "
+            "[--output local-window|null|mp4|webrtc] [--host HOST] [--port PORT] "
+            "[APPLICATION_ARGS ...]"
+        )
         return
     application_slug = args.pop(0)
-    run_application(application_slug, args)
+    if _selected_output(args) == "webrtc":
+        host, port, application_args = _parse_webrtc_host_args(args)
+        from flashdreams.serving.webrtc.application import serve_application_webrtc
+
+        serve_application_webrtc(
+            application_slug, application_args, host=host, port=port
+        )
+        return
+    io_factory, application_args = _parse_host_io(application_slug, args)
+    artifacts = run_application(
+        application_slug,
+        application_args,
+        io_factory=io_factory,
+    )
+    for artifact in artifacts:
+        print(artifact.uri)
+
+
+def _selected_output(args: Sequence[str]) -> str:
+    try:
+        index = args.index("--output")
+    except ValueError:
+        return "local-window"
+    if index + 1 >= len(args):
+        raise ValueError("--output requires a value.")
+    return args[index + 1]
+
+
+def _parse_webrtc_host_args(
+    args: Sequence[str],
+) -> tuple[str, int, list[str]]:
+    host = "127.0.0.1"
+    port = 8080
+    application_args: list[str] = []
+    index = 0
+    while index < len(args):
+        argument = args[index]
+        if argument in {"--output", "--host", "--port"}:
+            if index + 1 >= len(args):
+                raise ValueError(f"{argument} requires a value.")
+            value = args[index + 1]
+            if argument == "--host":
+                host = value
+            elif argument == "--port":
+                port = int(value)
+            index += 2
+            continue
+        application_args.append(argument)
+        index += 1
+    if not 1 <= port <= 65535:
+        raise ValueError("--port must be between 1 and 65535.")
+    return host, port, application_args
 
 
 __all__ = [
@@ -262,11 +364,6 @@ __all__ = [
     "ApplicationFactory",
     "IFlashDreamsApplication",
     "IFlashDreamsApplicationSession",
-    "InputSink",
-    "NullInputSink",
-    "NullOutputSink",
-    "OutputSink",
-    "VideoWindowOutputSink",
     "create_application",
     "entrypoint",
     "run_application",

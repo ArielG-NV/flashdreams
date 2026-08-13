@@ -1,25 +1,34 @@
-# FlashDreams text-to-video application base
+# FlashDreams T2V applications
 
-This package implements the reusable, transport-neutral T2V application and
-session lifecycle. It does not select or import a model integration.
+The shared T2V package provides the application/session protocol; each model
+integration owns its small `t2v/app.py` factory. A non-empty `--prompt` is
+required.
 
-Each model package owns its concrete application factory and registers its full
-slug:
-
-- `cosmos_predict2.t2v.app:createApp` → `t2v-cosmos-predict2`
-- `causal_forcing.t2v.app:createApp` → `t2v-causal-forcing`
-- `self_forcing.t2v.app:createApp` → `t2v-self-forcing`
-
-For example:
+Native SlangPy window (default):
 
 ```console
-uv run flashdreams run t2v-cosmos-predict2 --prompt "A robot welding."
+uv run flashdreams run t2v-causal-forcing \
+  --prompt "A robot walking through a forest."
 ```
 
-The concrete integration provides the pipeline and geometry defaults.
-`--prompt` is required; `--total-blocks`, `--pixel-height`,
-`--pixel-width`, `--device`, and `--compile` override its defaults.
+WebRTC browser backend:
 
-The reusable session sends each generated tensor directly to the host-provided
-`OutputSink`. It does not import WebRTC, open files, or assume any particular
-presentation backend.
+```console
+uv run flashdreams run t2v-causal-forcing \
+  --output webrtc --host 0.0.0.0 --port 8080 \
+  --prompt "A robot walking through a forest."
+```
+
+Then open `http://localhost:8080/request_session`.
+
+MP4 artifact:
+
+```console
+uv run flashdreams run t2v-causal-forcing \
+  --output mp4 --output-path artifacts/output.mp4 \
+  --prompt "A robot walking through a forest."
+```
+
+Available slugs are `t2v-cosmos-predict2`, `t2v-causal-forcing`, and
+`t2v-self-forcing`. All backends receive the same transport-neutral
+`InputSink` and `OutputSink` API.

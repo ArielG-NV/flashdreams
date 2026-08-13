@@ -40,6 +40,7 @@ from flashdreams.runtime.demo import (
     ModelInputProvider,
     ModelWarmupPlan,
     OutputDecision,
+    OutputSink,
     PreparedScenario,
     RealtimeSessionDriver,
     RealtimeWindowResult,
@@ -604,7 +605,7 @@ class WebRTCInputSource:
         )
 
 
-class WebRTCOutputSink:
+class WebRTCOutputSink(OutputSink):
     """Output sink that schedules WebRTC media delivery without blocking."""
 
     produces_artifacts = False

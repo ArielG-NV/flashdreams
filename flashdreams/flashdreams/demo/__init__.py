@@ -13,30 +13,60 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Transport-neutral FlashDreams application interfaces and hosting helpers."""
+"""Transport-neutral FlashDreams application hosting and I/O API."""
 
 from flashdreams.demo.application import (
     APPLICATION_ENTRY_POINT_GROUP,
     IFlashDreamsApplication,
     IFlashDreamsApplicationSession,
-    InputSink,
-    NullInputSink,
-    NullOutputSink,
-    OutputSink,
     create_application,
     run_application,
 )
-from flashdreams.demo.outputs import VideoWindowOutputSink
+from flashdreams.demo.factories import (
+    CallableIOFactory,
+    LocalWindowIOFactory,
+    Mp4IOFactory,
+    NullInputSink,
+    ProvidedIOFactory,
+)
+from flashdreams.demo.io import (
+    InputSink,
+    IOFactory,
+    OutputDecision,
+    OutputSink,
+    SessionInfo,
+)
+from flashdreams.demo.outputs import (
+    BenchmarkStatsOutputSink,
+    CompositeOutputSink,
+    CompositeOutputSinkError,
+    LocalWindowOutputSink,
+    Mp4OutputSink,
+    NullOutputSink,
+    build_benchmark_output_sink,
+)
 
 __all__ = [
     "APPLICATION_ENTRY_POINT_GROUP",
+    "BenchmarkStatsOutputSink",
+    "CallableIOFactory",
+    "CompositeOutputSink",
+    "CompositeOutputSinkError",
     "IFlashDreamsApplication",
     "IFlashDreamsApplicationSession",
+    "IOFactory",
     "InputSink",
+    "LocalWindowIOFactory",
+    "Mp4IOFactory",
+    "Mp4OutputSink",
     "NullInputSink",
     "NullOutputSink",
+    "OutputDecision",
     "OutputSink",
+    "ProvidedIOFactory",
+    "SessionInfo",
+    "LocalWindowOutputSink",
+    "build_benchmark_output_sink",
     "create_application",
     "run_application",
-    "VideoWindowOutputSink",
 ]

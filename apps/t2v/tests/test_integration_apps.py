@@ -18,7 +18,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import tomllib
+import tomli as tomllib
 
 pytestmark = pytest.mark.ci_cpu
 

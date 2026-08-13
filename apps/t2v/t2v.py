@@ -18,7 +18,8 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
+import time
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -27,8 +28,11 @@ from flashdreams.demo import (
     IFlashDreamsApplicationSession,
     InputSink,
     OutputSink,
+    SessionInfo,
 )
 from flashdreams.infra.config import derive_config
+from flashdreams.infra.postprocess import VideoTensorLayout
+from flashdreams.infra.results import StepResult
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -50,9 +54,15 @@ class T2VApplicationDefaults:
     device: str = "cuda"
     """Default device on which the pipeline is constructed."""
 
+    fps: float = 16.0
+    """Default presentation frame rate."""
+
+    output_layout: VideoTensorLayout = "tchw"
+    """Layout emitted by the integration pipeline."""
+
 
 @dataclass(frozen=True, kw_only=True, slots=True)
-class T2VSessionConfig:
+class _T2VSessionConfig:
     """Resolved settings for one text-to-video session."""
 
     pipeline_config: Any
@@ -73,6 +83,12 @@ class T2VSessionConfig:
     device: str
     """Device on which the pipeline is constructed."""
 
+    fps: float
+    """Presentation frame rate exposed to output sinks."""
+
+    output_layout: VideoTensorLayout
+    """Layout emitted by the integration pipeline."""
+
 
 class T2VApplication(IFlashDreamsApplication):
     """Reusable text-to-video application configured by one integration."""
@@ -81,7 +97,7 @@ class T2VApplication(IFlashDreamsApplication):
 
     def __init__(self, *, defaults: T2VApplicationDefaults) -> None:
         self.defaults = defaults
-        self._session_config: T2VSessionConfig | None = None
+        self._session_config: _T2VSessionConfig | None = None
 
     def init(
         self,
@@ -103,6 +119,7 @@ class T2VApplication(IFlashDreamsApplication):
             "--pixel-width", type=int, default=self.defaults.pixel_width
         )
         parser.add_argument("--device", default=self.defaults.device)
+        parser.add_argument("--fps", type=float, default=self.defaults.fps)
         parser.add_argument(
             "--compile",
             action=argparse.BooleanOptionalAction,
@@ -119,6 +136,8 @@ class T2VApplication(IFlashDreamsApplication):
             raise ValueError(
                 "--pixel-height and --pixel-width must be greater than zero."
             )
+        if args.fps <= 0:
+            raise ValueError("--fps must be greater than zero.")
 
         pipeline_config = self.defaults.pipeline_config
         if args.compile is not None:
@@ -128,13 +147,15 @@ class T2VApplication(IFlashDreamsApplication):
                     "transformer": {"compile_network": args.compile},
                 },
             )
-        self._session_config = T2VSessionConfig(
+        self._session_config = _T2VSessionConfig(
             pipeline_config=pipeline_config,
             prompt=prompt,
             total_blocks=args.total_blocks,
             pixel_height=args.pixel_height,
             pixel_width=args.pixel_width,
             device=args.device,
+            fps=args.fps,
+            output_layout=self.defaults.output_layout,
         )
 
     def create_session(
@@ -156,13 +177,14 @@ class T2VApplication(IFlashDreamsApplication):
 class T2VApplicationSession(IFlashDreamsApplicationSession):
     """Reusable cache-isolated text-to-video model session."""
 
-    def __init__(self, *, config: T2VSessionConfig) -> None:
+    def __init__(self, *, config: _T2VSessionConfig) -> None:
         self.config = config
         self._prompt: str | None = None
         self._pipeline: Any | None = None
         self._cache: Any | None = None
         self._step_index = 0
         self._closed = False
+        self._stop_requested = False
 
     def set_prompt(self, prompt: str) -> None:
         """Set the initial prompt before model cache initialization."""
@@ -202,13 +224,33 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
             width=self.config.pixel_width // ratio,
         )
 
+    def session_info(self) -> SessionInfo:
+        """Return video geometry and timing for output sink initialization."""
+        if self._pipeline is None:
+            raise RuntimeError(
+                "T2VApplicationSession.init() must run before session_info()."
+            )
+        frame_count = None
+        get_frame_count = getattr(self._pipeline, "get_num_output_frames", None)
+        if callable(get_frame_count):
+            steady_index = 1 if self.config.total_blocks > 1 else 0
+            frame_count = int(get_frame_count(steady_index))
+        return SessionInfo(
+            output_layout=self.config.output_layout,
+            steady_output_frame_count=frame_count,
+            frames_per_second=self.config.fps,
+            video_width=self.config.pixel_width,
+            video_height=self.config.pixel_height,
+            metadata={"prompt": self._prompt or ""},
+        )
+
     def step(self, input_src: InputSink, output_sink: OutputSink) -> bool:
-        """Generate one model chunk and send it directly to the output sink."""
+        """Generate one canonical result and honor output flow control."""
         if self._closed:
             raise RuntimeError("T2V session is closed.")
         if self._pipeline is None or self._cache is None:
             raise RuntimeError("T2VApplicationSession.init() must run before step().")
-        if self._step_index >= self.config.total_blocks:
+        if self._stop_requested or self._step_index >= self.config.total_blocks:
             return False
 
         model_input = input_src.read()
@@ -218,13 +260,25 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
             cache=self._cache,
             **kwargs,
         )
-        self._pipeline.finalize(
+        stats = self._pipeline.finalize(
             autoregressive_index=self._step_index,
             cache=self._cache,
         )
-        output_sink.write(generated)
+        metrics = dict(stats) if isinstance(stats, Mapping) else {}
+        result = StepResult.from_video_chunk(
+            step_index=self._step_index,
+            video_chunk=generated.detach(),
+            layout=self.config.output_layout,
+            metrics=metrics,
+            metadata={"prompt": self._prompt or ""},
+        )
+        decision = output_sink.write(result)
         self._step_index += 1
-        return self._step_index < self.config.total_blocks
+        if decision.backpressure_s > 0:
+            time.sleep(decision.backpressure_s)
+        if decision.should_stop:
+            self._stop_requested = True
+        return not self._stop_requested and self._step_index < self.config.total_blocks
 
     def close(self) -> None:
         """Release resources owned by this model session."""
@@ -246,5 +300,4 @@ __all__ = [
     "T2VApplication",
     "T2VApplicationDefaults",
     "T2VApplicationSession",
-    "T2VSessionConfig",
 ]

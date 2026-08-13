@@ -33,7 +33,7 @@ from flashdreams.runtime.demo import (
     ModelWarmupPlan,
     Mp4ErrorPolicy,
     Mp4OutputSpec,
-    NativeWindowErrorPolicy,
+    LocalWindowErrorPolicy,
     NullErrorPolicy,
     NullOutputSpec,
     OutputDecision,
@@ -281,7 +281,7 @@ def test_error_policy_implementations_keep_setup_failures_terminal() -> None:
         Mp4ErrorPolicy(),
         BenchmarkErrorPolicy(),
         WebRTCErrorPolicy(recoverable_exception_types=(RuntimeError,)),
-        NativeWindowErrorPolicy(),
+        LocalWindowErrorPolicy(),
         NullErrorPolicy(),
     )
 

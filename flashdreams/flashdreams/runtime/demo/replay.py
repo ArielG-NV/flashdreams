@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 
+from flashdreams.demo.io import OutputDecision, OutputSink
+from flashdreams.demo.outputs import build_output_sink, build_output_target
 from flashdreams.runtime.canonical import InputCanonicalizer
 from flashdreams.runtime.config import InferenceConfig
 from flashdreams.runtime.inputs import (
@@ -34,7 +36,6 @@ from flashdreams.runtime.types import (
 
 from .drivers import BatchSessionDriver, run_demo_session
 from .host import ModelWarmupPlan, RuntimeHost
-from .outputs import OutputDecision, OutputSink, build_output_sink, build_output_target
 from .pipeline import StepPipeline
 from .run_modes import (
     Mp4ErrorPolicy,
@@ -132,7 +133,7 @@ def _output_target_sink_factory(
     return create_output_sink
 
 
-class _OutputTargetSink:
+class _OutputTargetSink(OutputSink):
     produces_artifacts = True
 
     def __init__(self, output: OutputTarget) -> None:
