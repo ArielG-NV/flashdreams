@@ -27,14 +27,16 @@ from t2v import (
 )
 
 from flashdreams.demo import (
+    CanonicalInputs,
     Mp4OutputSink,
-    NullInputSink,
+    NullInputHandler,
     NullOutputSink,
     OutputDecision,
     ProvidedIOFactory,
 )
 from flashdreams.demo import application as application_module
 from flashdreams.infra.results import StepResult
+from flashdreams.runtime import CanonicalInputSchema, CanonicalModality
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -122,8 +124,8 @@ def _initialize_application(
     output_sink: NullOutputSink,
     *,
     total_blocks: int = 2,
-) -> tuple[NullInputSink, T2VApplicationSession]:
-    input_src = NullInputSink()
+) -> tuple[NullInputHandler, T2VApplicationSession]:
+    input_handler = NullInputHandler()
     application.init(
         [
             "--prompt",
@@ -132,45 +134,40 @@ def _initialize_application(
             str(total_blocks),
             "--device",
             "cpu",
-        ],
-        input_src,
-        output_sink,
+        ]
     )
-    session = application.createSession(input_src, output_sink)
+    session = application.createSession()
     assert isinstance(session, T2VApplicationSession)
     session.init()
     session_info = session.session_info()
-    input_src.open(session_info)
+    input_handler.open(session_info)
     output_sink.open(session_info)
     output_sink.begin_generation(0)
     assert pipeline.device == "cpu"
-    return input_src, session
+    return input_handler, session
 
 
 def test_prompt_is_required() -> None:
     application = _application(_FakePipeline())
     with pytest.raises(ValueError, match="--prompt is required"):
-        application.init(
-            [],
-            NullInputSink(),
-            NullOutputSink(),
-        )
+        application.init([])
 
 
 def test_application_session_emits_canonical_video_results() -> None:
     pipeline = _FakePipeline()
     output_sink = NullOutputSink(store_results=True, store_outputs=True)
     application = _application(pipeline)
-    input_src, session = _initialize_application(
+    input_handler, session = _initialize_application(
         application,
         pipeline,
         output_sink,
     )
 
-    session.generate(input_src, output_sink)
+    while session.step(CanonicalInputs(), output_sink):
+        pass
     session.close()
     output_sink.close()
-    input_src.close()
+    input_handler.close()
 
     assert pipeline.cache_kwargs == {
         "text": ["A waterfall"],
@@ -195,17 +192,48 @@ def test_application_session_emits_canonical_video_results() -> None:
 def test_application_session_honors_sink_stop_decision() -> None:
     pipeline = _FakePipeline()
     output_sink = _StoppingSink(store_outputs=True)
-    input_src, session = _initialize_application(
+    input_handler, session = _initialize_application(
         _application(pipeline),
         pipeline,
         output_sink,
         total_blocks=4,
     )
 
-    session.generate(input_src, output_sink)
+    while session.step(CanonicalInputs(), output_sink):
+        pass
 
     assert pipeline.generated == [0]
     assert output_sink.output_count == 1
+
+
+class _NamedInputHandler:
+    def __init__(self) -> None:
+        self.inputs = CanonicalInputs(values={"camera": {"yaw": 0.25, "pitch": -0.5}})
+
+    def open(self, session_info: object) -> None:
+        del session_info
+
+    def current_inputs(self) -> CanonicalInputs:
+        return self.inputs
+
+    def close(self) -> None:
+        return
+
+
+def test_input_handler_provides_schema_named_canonical_inputs() -> None:
+    schema = CanonicalInputSchema(
+        modalities=(
+            CanonicalModality(
+                name="camera",
+                payload_fields=frozenset({"yaw", "pitch"}),
+            ),
+        )
+    )
+    inputs = application_module._current_application_inputs(
+        _NamedInputHandler(), schema
+    )
+
+    assert inputs.values == {"camera": {"yaw": 0.25, "pitch": -0.5}}
 
 
 def test_application_host_writes_mp4_through_shared_io_factory(
@@ -240,7 +268,7 @@ def test_application_host_writes_mp4_through_shared_io_factory(
         )
         return path
 
-    input_src = NullInputSink()
+    input_handler = NullInputHandler()
     output_sink = Mp4OutputSink(
         output_path=tmp_path / "out.mp4",
         output_layout="tchw",
@@ -250,7 +278,7 @@ def test_application_host_writes_mp4_through_shared_io_factory(
     artifacts = application_module.run_application(
         "t2v-fake",
         ["--prompt", "A waterfall", "--total-blocks", "2", "--device", "cpu"],
-        io_factory=ProvidedIOFactory(input_src, output_sink),
+        io_factory=ProvidedIOFactory(input_handler, output_sink),
     )
 
     assert writer_calls == [

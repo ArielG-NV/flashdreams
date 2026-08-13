@@ -20,20 +20,21 @@ from __future__ import annotations
 import importlib
 import sys
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from importlib.metadata import EntryPoint, entry_points
 from pathlib import Path
 from typing import Any
 
 from flashdreams.demo.factories import (
     CallableIOFactory,
-    Mp4IOFactory,
     LocalWindowIOFactory,
-    NullInputSink,
+    Mp4IOFactory,
+    NullInputHandler,
     ProvidedIOFactory,
 )
-from flashdreams.demo.io import InputSink, IOFactory, OutputSink, SessionInfo
+from flashdreams.demo.io import InputHandler, IOFactory, OutputSink, SessionInfo
 from flashdreams.demo.outputs import LocalWindowOutputSink, NullOutputSink
+from flashdreams.runtime.inputs import CanonicalInputs, CanonicalInputSchema
 from flashdreams.runtime.output import OutputArtifact
 
 APPLICATION_ENTRY_POINT_GROUP = "flashdreams.applications"
@@ -51,13 +52,8 @@ class IFlashDreamsApplicationSession(ABC):
         """Return sink-facing metadata after session initialization."""
         return SessionInfo()
 
-    def generate(self, input_src: InputSink, output_sink: OutputSink) -> None:
-        """Run sequential steps until the session reports completion."""
-        while self.step(input_src, output_sink):
-            pass
-
     @abstractmethod
-    def step(self, input_src: InputSink, output_sink: OutputSink) -> bool:
+    def step(self, inputs: CanonicalInputs, output_sink: OutputSink) -> bool:
         """Run one model step and return whether another step remains."""
 
     def close(self) -> None:
@@ -65,38 +61,24 @@ class IFlashDreamsApplicationSession(ABC):
 
 
 class IFlashDreamsApplication(ABC):
-    """Application factory boundary independent of model and presentation backend."""
+    """Application factory boundary independent of presentation backend."""
+
+    @property
+    @abstractmethod
+    def input_schema(self) -> CanonicalInputSchema:
+        """Declare the named canonical inputs consumed by this application."""
 
     @abstractmethod
-    def init(
-        self,
-        commandline_args: Sequence[str],
-        input_src: InputSink,
-        output_sink: OutputSink,
-    ) -> None:
-        """Parse application arguments and validate startup state.
-
-        Args:
-            commandline_args: Arguments following the selected application slug.
-            input_src: Host-provided input sink.
-            output_sink: Host-provided output sink.
-        """
+    def init(self, commandline_args: Sequence[str]) -> None:
+        """Parse application arguments and validate startup state."""
 
     @abstractmethod
-    def create_session(
-        self,
-        input_src: InputSink,
-        output_sink: OutputSink,
-    ) -> IFlashDreamsApplicationSession:
+    def create_session(self) -> IFlashDreamsApplicationSession:
         """Create one isolated application session."""
 
-    def createSession(
-        self,
-        input_src: InputSink,
-        output_sink: OutputSink,
-    ) -> IFlashDreamsApplicationSession:
+    def createSession(self) -> IFlashDreamsApplicationSession:
         """Create a session through the package-facing compatibility spelling."""
-        return self.create_session(input_src, output_sink)
+        return self.create_session()
 
 
 ApplicationFactory = Callable[[], IFlashDreamsApplication]
@@ -143,53 +125,60 @@ def run_application(
     commandline_args: Sequence[str] = (),
     *,
     io_factory: IOFactory | None = None,
-    input_src: InputSink | None = None,
+    input_handler: InputHandler | None = None,
     output_sink: OutputSink | None = None,
 ) -> tuple[OutputArtifact, ...]:
-    """Load and run an application through one host-owned I/O factory.
+    """Run an application with host-owned canonical input handling.
 
     Args:
         application_slug: Installed application or concrete demo slug.
         commandline_args: Arguments forwarded to the application.
-        io_factory: Factory for per-run input and output sinks.
-        input_src: Compatibility injection for a caller-owned input sink.
-        output_sink: Compatibility injection for a caller-owned output sink.
+        io_factory: Factory for input handling and output delivery.
+        input_handler: Caller-owned input handler; ``None`` uses the factory.
+        output_sink: Caller-owned output sink; ``None`` uses the factory.
 
     Returns:
         Persistent artifacts returned by the output sink.
 
     Raises:
-        ValueError: ``io_factory`` is combined with direct sink injection.
-        TypeError: A factory returns an object outside the sink contracts.
+        TypeError: The application, handler, sink, or input values violate their
+            declared contracts.
+        ValueError: Direct I/O objects are combined with ``io_factory``, or the
+            current canonical inputs do not match the application schema.
     """
+    application, slug_args = create_application(application_slug)
+    input_schema = application.input_schema
+    if not isinstance(input_schema, CanonicalInputSchema):
+        raise TypeError(
+            "IFlashDreamsApplication.input_schema must be a CanonicalInputSchema."
+        )
     resolved_factory = _resolve_io_factory(
         io_factory=io_factory,
-        input_src=input_src,
+        input_handler=input_handler,
         output_sink=output_sink,
     )
-    resolved_input = resolved_factory.create_input_sink()
+    resolved_input = resolved_factory.create_input_handler(input_schema)
     resolved_output = resolved_factory.create_output_sink()
-    if not isinstance(resolved_input, InputSink):
-        raise TypeError("IOFactory.create_input_sink() must return an InputSink.")
+    if not isinstance(resolved_input, InputHandler):
+        raise TypeError("IOFactory.create_input_handler() must return an InputHandler.")
     if not isinstance(resolved_output, OutputSink):
         raise TypeError("IOFactory.create_output_sink() must return an OutputSink.")
 
     session: IFlashDreamsApplicationSession | None = None
     artifacts: tuple[OutputArtifact, ...] = ()
     try:
-        application, slug_args = create_application(application_slug)
-        application.init(
-            [*slug_args, *commandline_args],
-            resolved_input,
-            resolved_output,
-        )
-        session = application.create_session(resolved_input, resolved_output)
+        application.init([*slug_args, *commandline_args])
+        session = application.create_session()
         session.init()
         session_info = session.session_info()
         resolved_input.open(session_info)
         resolved_output.open(session_info)
         resolved_output.begin_generation(0)
-        session.generate(resolved_input, resolved_output)
+        while session.step(
+            _current_application_inputs(resolved_input, input_schema),
+            resolved_output,
+        ):
+            pass
     finally:
         try:
             if session is not None:
@@ -202,20 +191,48 @@ def run_application(
     return artifacts
 
 
+def _current_application_inputs(
+    handler: InputHandler,
+    input_schema: CanonicalInputSchema,
+) -> CanonicalInputs:
+    """Return and validate the handler state requested by ``input_schema``."""
+    inputs = handler.current_inputs()
+    if not isinstance(inputs, CanonicalInputs):
+        raise TypeError("InputHandler.current_inputs() must return CanonicalInputs.")
+    expected = {modality.name: modality for modality in input_schema.modalities}
+    unknown = sorted(set(inputs.values) - set(expected))
+    if unknown:
+        raise ValueError(f"Canonical inputs contain undeclared modalities: {unknown}.")
+    missing = sorted(set(expected) - set(inputs.values))
+    if missing:
+        raise ValueError(
+            f"Canonical inputs are missing requested modalities: {missing}."
+        )
+    for name, value in inputs.values.items():
+        if not isinstance(value, Mapping):
+            raise TypeError(f"Canonical input {name!r} must be a named field mapping.")
+        expected[name].value(value)
+    return inputs
+
+
 def _resolve_io_factory(
     *,
     io_factory: IOFactory | None,
-    input_src: InputSink | None,
+    input_handler: InputHandler | None,
     output_sink: OutputSink | None,
 ) -> IOFactory:
     if io_factory is not None:
-        if input_src is not None or output_sink is not None:
-            raise ValueError("Pass io_factory or direct input/output sinks, not both.")
+        if input_handler is not None or output_sink is not None:
+            raise ValueError(
+                "Pass io_factory or direct input/output objects, not both."
+            )
         return io_factory
-    if input_src is None and output_sink is None:
+    if input_handler is None and output_sink is None:
         return LocalWindowIOFactory()
     return ProvidedIOFactory(
-        input_sink=input_src if input_src is not None else NullInputSink(),
+        input_handler=(
+            input_handler if input_handler is not None else NullInputHandler()
+        ),
         output_sink=(
             output_sink if output_sink is not None else LocalWindowOutputSink()
         ),
@@ -283,7 +300,10 @@ def _parse_host_io(
     if output_kind == "local-window":
         return LocalWindowIOFactory(fps=output_fps), application_args
     if output_kind == "null":
-        return CallableIOFactory(NullInputSink, NullOutputSink), application_args
+        return (
+            CallableIOFactory(lambda _schema: NullInputHandler(), NullOutputSink),
+            application_args,
+        )
     if output_kind == "mp4":
         path = output_path or Path("outputs") / f"{application_slug}.mp4"
         return Mp4IOFactory(output_path=path, fps=output_fps), application_args
@@ -307,7 +327,7 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     application_slug = args.pop(0)
     if _selected_output(args) == "webrtc":
         host, port, application_args = _parse_webrtc_host_args(args)
-        from flashdreams.serving.webrtc.application import serve_application_webrtc
+        from flashdreams.serving.webrtc.server import serve_application_webrtc
 
         serve_application_webrtc(
             application_slug, application_args, host=host, port=port

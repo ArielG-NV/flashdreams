@@ -9,9 +9,14 @@ import asyncio
 import contextlib
 import inspect
 import json
+import threading
+import time
 from collections import deque
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from collections.abc import Set as AbstractSet
+from concurrent.futures import CancelledError as FutureCancelledError
+from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass, field, replace
 from typing import Any, Generic, TypeVar, cast
 
@@ -23,6 +28,14 @@ from aiortc import (
 )
 from loguru import logger
 
+from flashdreams.demo.application import (
+    IFlashDreamsApplicationSession,
+    _current_application_inputs,
+    create_application,
+)
+from flashdreams.demo.factories import WebRTCIOFactory
+from flashdreams.demo.io import InputHandler, OutputSink
+from flashdreams.demo.outputs import DeferredWebRTCOutputSink
 from flashdreams.runtime.demo import (
     DemoSpec,
     InMemorySessionMetricsRecorder,
@@ -84,6 +97,8 @@ from flashdreams.serving.webrtc.services import (
     WebRTCActivationPolicy,
     WebRTCChunkDelivery,
     WebRTCInputSource,
+    WebRTCOutputBridge,
+    WebRTCOutputBridgeDecision,
     WebRTCOutputSink,
     WebRTCRunMode,
     WebRTCTransportService,
@@ -94,7 +109,9 @@ from flashdreams.serving.webrtc.warmup import (
 )
 
 __all__ = [
+    "ApplicationWebRTCSessionManager",
     "BaseWebRTCSessionManager",
+    "BufferedTrackOutputBridge",
     "ManagedWebRTCSession",
     "WebRTCControlSignal",
     "StepResult",
@@ -119,6 +136,290 @@ _LEGACY_SPARSE_KEY_SEGMENTS_METADATA_KEY = "sparse_key_segments"
 
 _RuntimeT = TypeVar("_RuntimeT")
 _RuntimeConfigT = TypeVar("_RuntimeConfigT", bound=WebRTCRuntimeConfig)
+_TRACK_HANDOFF_TIMEOUT_S = 1.0
+
+
+class BufferedTrackOutputBridge(WebRTCOutputBridge):
+    """Deliver canonical video chunks to one bounded WebRTC media track."""
+
+    def __init__(
+        self,
+        *,
+        loop: asyncio.AbstractEventLoop,
+        track: BufferedVideoTrack,
+    ) -> None:
+        self._loop = loop
+        self._track = track
+        self._closed = False
+        self._generation = 0
+        self._pending: set[Future[Any]] = set()
+        self._lock = threading.Lock()
+
+    def begin_generation(self, generation: int) -> None:
+        """Flush queued frames when a newer generation begins."""
+        if generation < 0:
+            raise ValueError("generation must be >= 0.")
+        with self._lock:
+            if self._closed or generation <= self._generation:
+                return
+            self._generation = generation
+        completed, _ = self._wait_for(self._track.flush())
+        if not completed:
+            logger.warning("Timed out flushing the WebRTC video track.")
+
+    def submit_chunk(
+        self,
+        result: StepResult,
+        *,
+        generation: int,
+        force_keyframe: bool = False,
+    ) -> WebRTCOutputBridgeDecision:
+        """Convert and enqueue a complete chunk with bounded backpressure."""
+        del force_keyframe
+        with self._lock:
+            closed = self._closed
+            current_generation = self._generation
+        if closed:
+            return self._stopped_decision("closed")
+        if generation < current_generation:
+            return self._dropped_decision("stale generation")
+        started = time.monotonic()
+        frames = self._track.prepare_result_frames(result)
+        completed, accepted = self._wait_for(self._track.enqueue_frames(frames))
+        elapsed = time.monotonic() - started
+        if not completed:
+            with self._lock:
+                reason = "closed" if self._closed else "handoff timeout"
+            return self._stopped_decision(
+                reason,
+                metadata={"write_blocked_s": elapsed},
+            )
+        assert isinstance(accepted, int)
+        stopped = accepted != len(frames)
+        return WebRTCOutputBridgeDecision(
+            accepted=not stopped,
+            should_stop=stopped,
+            dropped=stopped,
+            drop_policy="drop_newest" if stopped else "none",
+            metadata={
+                "accepted_frames": accepted,
+                "queue_depth": self._track.qsize(),
+                "write_blocked_s": elapsed,
+            },
+        )
+
+    def close(self) -> None:
+        """Stop accepting chunks and wake blocked producer threads."""
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            pending = tuple(self._pending)
+        for future in pending:
+            future.cancel()
+
+    def _wait_for(self, coroutine: Any) -> tuple[bool, Any]:
+        future = asyncio.run_coroutine_threadsafe(coroutine, self._loop)
+        with self._lock:
+            if self._closed:
+                future.cancel()
+                return False, None
+            self._pending.add(future)
+        try:
+            return True, future.result(timeout=_TRACK_HANDOFF_TIMEOUT_S)
+        except (FutureCancelledError, FutureTimeoutError):
+            future.cancel()
+            return False, None
+        finally:
+            with self._lock:
+                self._pending.discard(future)
+
+    @staticmethod
+    def _stopped_decision(
+        reason: str,
+        *,
+        metadata: Mapping[str, object] | None = None,
+    ) -> WebRTCOutputBridgeDecision:
+        return WebRTCOutputBridgeDecision(
+            accepted=False,
+            should_stop=True,
+            dropped=True,
+            drop_policy="drop_newest",
+            metadata={"reason": reason, **(metadata or {})},
+        )
+
+    @staticmethod
+    def _dropped_decision(reason: str) -> WebRTCOutputBridgeDecision:
+        return WebRTCOutputBridgeDecision(
+            accepted=False,
+            dropped=True,
+            drop_policy="drop_newest",
+            metadata={"reason": reason},
+        )
+
+
+class ApplicationWebRTCSessionManager:
+    """Adapt any FlashDreams application to one browser WebRTC session."""
+
+    def __init__(
+        self,
+        *,
+        application_slug: str,
+        commandline_args: Sequence[str],
+    ) -> None:
+        self._application_slug = application_slug
+        self._commandline_args = tuple(commandline_args)
+        self._runtime_ready = False
+        self._peer: RTCPeerConnection | None = None
+        self._track: BufferedVideoTrack | None = None
+        self._bridge: BufferedTrackOutputBridge | None = None
+        self._generation_task: asyncio.Task[None] | None = None
+        self._session_lock = asyncio.Lock()
+        self._close_lock = asyncio.Lock()
+
+    def has_active_session(self) -> bool:
+        """Return whether a peer currently owns the single session."""
+        return self._peer is not None or self._generation_task is not None
+
+    def is_runtime_ready(self) -> bool:
+        """Return whether the application host is accepting offers."""
+        return self._runtime_ready
+
+    async def preload_runtime(self) -> None:
+        """Mark the lightweight host ready; model setup starts for the first offer."""
+        self._runtime_ready = True
+
+    async def create_answer(
+        self,
+        *,
+        offer_sdp: str,
+        offer_type: str,
+    ) -> dict[str, str]:
+        """Initialize a model session, negotiate video, and start generation."""
+        async with self._session_lock:
+            if self.has_active_session():
+                raise SessionBusyError(
+                    "A WebRTC application session is already active."
+                )
+
+            deferred_output = DeferredWebRTCOutputSink()
+            session, session_info, input_schema = await asyncio.to_thread(
+                self._create_initialized_session
+            )
+            fps = int(round(session_info.frames_per_second or 16.0))
+            maxsize = max(1, session_info.steady_output_frame_count or fps)
+            loop = asyncio.get_running_loop()
+            track = BufferedVideoTrack(fps=fps, maxsize=maxsize)
+            bridge = BufferedTrackOutputBridge(loop=loop, track=track)
+            factory = WebRTCIOFactory(lambda: bridge)
+            input_handler = factory.create_input_handler(input_schema)
+            deferred_output.bind(factory.create_output_sink())
+
+            peer = RTCPeerConnection(RTCConfiguration(iceServers=[]))
+            peer.addTransceiver(track, direction="sendonly")
+            self._peer = peer
+            self._track = track
+            self._bridge = bridge
+
+            @peer.on("connectionstatechange")
+            async def on_connectionstatechange() -> None:
+                if peer.connectionState in {"failed", "disconnected", "closed"}:
+                    await self._close_peer(peer)
+
+            try:
+                await peer.setRemoteDescription(
+                    RTCSessionDescription(sdp=offer_sdp, type=offer_type)
+                )
+                answer = await peer.createAnswer()
+                await peer.setLocalDescription(answer)
+                await wait_for_ice_gathering_complete(peer)
+                local = peer.localDescription
+                if local is None:
+                    raise RuntimeError("Peer connection did not produce an SDP answer.")
+                self._generation_task = asyncio.create_task(
+                    asyncio.to_thread(
+                        self._run_session,
+                        session,
+                        session_info,
+                        input_handler,
+                        input_schema,
+                        deferred_output,
+                    )
+                )
+                return {"sdp": local.sdp, "type": local.type}
+            except Exception:
+                await self._close_peer(peer)
+                session.close()
+                raise
+
+    async def shutdown(self) -> None:
+        """Close the active peer and release its media track."""
+        if self._peer is not None:
+            await self._close_peer(self._peer)
+        self._runtime_ready = False
+
+    def _create_initialized_session(
+        self,
+    ) -> tuple[
+        IFlashDreamsApplicationSession,
+        SessionInfo,
+        CanonicalInputSchema,
+    ]:
+        application, slug_args = create_application(self._application_slug)
+        application.init([*slug_args, *self._commandline_args])
+        session = application.create_session()
+        session.init()
+        return session, session.session_info(), application.input_schema
+
+    @staticmethod
+    def _run_session(
+        session: IFlashDreamsApplicationSession,
+        session_info: SessionInfo,
+        input_handler: InputHandler,
+        input_schema: CanonicalInputSchema,
+        output_sink: OutputSink,
+    ) -> None:
+        try:
+            input_handler.open(session_info)
+            output_sink.open(session_info)
+            output_sink.begin_generation(0)
+            while session.step(
+                _current_application_inputs(input_handler, input_schema),
+                output_sink,
+            ):
+                pass
+        except Exception:
+            logger.exception("WebRTC application generation failed.")
+        finally:
+            session.close()
+            output_sink.close()
+            input_handler.close()
+
+    async def _close_peer(self, peer: RTCPeerConnection) -> None:
+        async with self._close_lock:
+            if peer is not self._peer:
+                return
+            bridge = self._bridge
+            track = self._track
+            generation_task = self._generation_task
+
+            if bridge is not None:
+                bridge.close()
+            if track is not None:
+                await track.close()
+            if peer.connectionState != "closed":
+                await peer.close()
+            if (
+                generation_task is not None
+                and generation_task is not asyncio.current_task()
+            ):
+                await generation_task
+
+            if peer is self._peer:
+                self._peer = None
+                self._track = None
+                self._bridge = None
+                self._generation_task = None
 
 
 class _InferenceSessionExhausted(RuntimeError):

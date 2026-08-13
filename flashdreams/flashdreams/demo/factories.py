@@ -13,87 +13,98 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Application I/O factories and the default empty input sink."""
+"""Application output-sink factories."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from flashdreams.demo.io import InputSink, IOFactory, OutputSink, SessionInfo
+from flashdreams.demo.io import InputHandler, IOFactory, OutputSink, SessionInfo
+from flashdreams.demo.local_input import SlangPyLocalInputHandler
+from flashdreams.demo.local_window import LocalWindowInputBridge
 from flashdreams.demo.outputs import (
     LocalWindowOutputSink,
     Mp4OutputSink,
+    WebRTCOutputSink,
 )
 from flashdreams.infra.postprocess import VideoTensorLayout
+from flashdreams.runtime.inputs import CanonicalInputs, CanonicalInputSchema
+
+if TYPE_CHECKING:
+    from flashdreams.serving.webrtc.services import WebRTCOutputBridge
 
 
 @dataclass(slots=True)
-class NullInputSink(InputSink):
-    """Supply no dynamic input to an application session."""
+class NullInputHandler(InputHandler):
+    """Provide an empty canonical input state."""
 
     opened: bool = False
-    """Whether the input sink is open."""
+    """Whether the handler is open for the current session."""
 
-    def open(self, session_info: SessionInfo) -> None:
-        """Open the empty input source for a session."""
+    def open(
+        self,
+        session_info: SessionInfo,
+    ) -> None:
+        """Open the empty handler for one application session."""
         del session_info
         self.opened = True
 
-    def read(self) -> None:
-        """Return ``None`` because no input is available."""
+    def current_inputs(self) -> CanonicalInputs:
+        """Return an empty canonical input state."""
         if not self.opened:
-            raise RuntimeError("Cannot read from a closed input sink.")
-        return None
+            raise RuntimeError("Cannot fetch inputs from a closed input handler.")
+        return CanonicalInputs()
 
     def close(self) -> None:
-        """Close the empty input source."""
+        """Close the empty input handler."""
         self.opened = False
 
 
 @dataclass(frozen=True, slots=True)
 class CallableIOFactory(IOFactory):
-    """Create sinks through caller-provided zero-argument factories."""
+    """Create handlers and sinks through caller-provided factories."""
 
-    input_factory: Callable[[], InputSink]
-    """Factory for isolated input sinks."""
+    input_factory: Callable[[CanonicalInputSchema], InputHandler]
+    """Create an input handler bound to an application schema."""
 
     output_factory: Callable[[], OutputSink]
-    """Factory for isolated output sinks."""
+    """Create an output sink for one application run."""
 
-    def create_input_sink(self) -> InputSink:
-        """Create an input sink."""
-        return self.input_factory()
+    def create_input_handler(self, input_schema: CanonicalInputSchema) -> InputHandler:
+        """Create an input handler for ``input_schema``."""
+        return self.input_factory(input_schema)
 
     def create_output_sink(self) -> OutputSink:
-        """Create an output sink."""
+        """Create an output sink for one application run."""
         return self.output_factory()
 
 
 @dataclass(frozen=True, slots=True)
 class ProvidedIOFactory(IOFactory):
-    """Expose caller-owned sink instances through the factory boundary."""
+    """Expose caller-owned input and output objects."""
 
-    input_sink: InputSink
-    """Caller-owned input sink."""
+    input_handler: InputHandler
+    """Caller-owned canonical input handler."""
 
     output_sink: OutputSink
     """Caller-owned output sink."""
 
-    def create_input_sink(self) -> InputSink:
-        """Return the caller-owned input sink."""
-        return self.input_sink
+    def create_input_handler(self, input_schema: CanonicalInputSchema) -> InputHandler:
+        """Create an input handler for ``input_schema``."""
+        del input_schema
+        return self.input_handler
 
     def create_output_sink(self) -> OutputSink:
-        """Return the caller-owned output sink."""
+        """Create an output sink for one application run."""
         return self.output_sink
 
 
 @dataclass(frozen=True, slots=True)
 class LocalWindowIOFactory(IOFactory):
-    """Create empty input and local-window output sinks."""
+    """Create SlangPy input handlers and local-window output sinks."""
 
     title: str = "FlashDreams"
     """Local window title."""
@@ -104,22 +115,36 @@ class LocalWindowIOFactory(IOFactory):
     presenter_factory: Callable[..., Any] | None = None
     """Optional native presenter factory for embedded hosts and tests."""
 
-    def create_input_sink(self) -> InputSink:
-        """Create an empty input sink."""
-        return NullInputSink()
+    _bridge: LocalWindowInputBridge = field(
+        default_factory=LocalWindowInputBridge,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    """Shared callback bridge for the input handler and window presenter."""
+
+    def create_input_handler(self, input_schema: CanonicalInputSchema) -> InputHandler:
+        """Create an input handler for ``input_schema``."""
+        handler = SlangPyLocalInputHandler(
+            input_schema,
+            process_events=self._bridge.process_events,
+        )
+        self._bridge.bind_handler(handler)
+        return handler
 
     def create_output_sink(self) -> OutputSink:
-        """Create a local-window output sink."""
+        """Create an output sink for one application run."""
         return LocalWindowOutputSink(
             title=self.title,
             fps=self.fps,
             presenter_factory=self.presenter_factory,
+            presenter_opened=self._bridge.bind_presenter,
         )
 
 
 @dataclass(frozen=True, slots=True)
 class Mp4IOFactory(IOFactory):
-    """Create empty input and MP4 artifact output sinks."""
+    """Create empty input handlers and MP4 artifact output sinks."""
 
     output_path: Path
     """Destination MP4 path."""
@@ -133,12 +158,13 @@ class Mp4IOFactory(IOFactory):
     move_to_cpu: bool = True
     """Whether to move collected chunks to CPU memory immediately."""
 
-    def create_input_sink(self) -> InputSink:
-        """Create an empty input sink."""
-        return NullInputSink()
+    def create_input_handler(self, input_schema: CanonicalInputSchema) -> InputHandler:
+        """Create an input handler for ``input_schema``."""
+        del input_schema
+        return NullInputHandler()
 
     def create_output_sink(self) -> OutputSink:
-        """Create an MP4 output sink."""
+        """Create an output sink for one application run."""
         return Mp4OutputSink(
             output_path=self.output_path,
             fps=self.fps,
@@ -147,10 +173,32 @@ class Mp4IOFactory(IOFactory):
         )
 
 
+@dataclass(frozen=True, slots=True)
+class WebRTCIOFactory(IOFactory):
+    """Create application I/O objects owned by one WebRTC peer."""
+
+    bridge_factory: Callable[[], WebRTCOutputBridge]
+    """Create the transport bridge owned by a peer connection."""
+
+    input_factory: Callable[[CanonicalInputSchema], InputHandler] = (
+        lambda _schema: NullInputHandler()
+    )
+    """Create the peer input handler bound to an application schema."""
+
+    def create_input_handler(self, input_schema: CanonicalInputSchema) -> InputHandler:
+        """Create an input handler for ``input_schema``."""
+        return self.input_factory(input_schema)
+
+    def create_output_sink(self) -> OutputSink:
+        """Create an output sink for one application run."""
+        return WebRTCOutputSink(bridge=self.bridge_factory())
+
+
 __all__ = [
     "CallableIOFactory",
     "LocalWindowIOFactory",
     "Mp4IOFactory",
-    "NullInputSink",
+    "NullInputHandler",
     "ProvidedIOFactory",
+    "WebRTCIOFactory",
 ]

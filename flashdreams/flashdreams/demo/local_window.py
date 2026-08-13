@@ -13,15 +13,60 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""SlangPy local-window presentation with CUDA/Vulkan interoperability."""
+"""SlangPy local-window event bridging and CUDA/Vulkan presentation."""
 
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 from loguru import logger
+
+from flashdreams.demo.local_input import SlangPyLocalInputHandler
+
+
+@dataclass(slots=True)
+class LocalWindowInputBridge:
+    """Share one SlangPy presenter between local input and output objects."""
+
+    _handler: SlangPyLocalInputHandler | None = None
+    """Input handler receiving callbacks from the active presenter."""
+
+    _presenter: Any | None = None
+    """Presenter whose SDL event queue is pumped at input sample boundaries."""
+
+    def bind_handler(self, handler: SlangPyLocalInputHandler) -> None:
+        """Bind the handler created for the current application run."""
+        self._handler = handler
+
+    def bind_presenter(self, presenter: Any) -> None:
+        """Bind presenter event callbacks to the current input handler."""
+        self._presenter = presenter
+        handler = self._handler
+        if handler is None or not handler.accepts_window_events:
+            return
+        set_callbacks = getattr(presenter, "set_input_callbacks", None)
+        if not callable(set_callbacks):
+            raise TypeError(
+                "Local-window presenters must implement set_input_callbacks() "
+                "when the application declares live inputs."
+            )
+        set_callbacks(
+            on_keyboard_event=handler.on_keyboard_event,
+            on_gamepad_event=handler.on_gamepad_event,
+            on_gamepad_state=handler.on_gamepad_state,
+        )
+
+    def process_events(self) -> None:
+        """Pump pending SDL events through the active presenter."""
+        if self._presenter is None:
+            return
+        process_events = getattr(self._presenter, "process_events", None)
+        if callable(process_events):
+            process_events()
 
 
 class SlangPyLocalWindowPresenter:
@@ -45,6 +90,14 @@ class SlangPyLocalWindowPresenter:
             title=title,
             resizable=False,
         )
+        self._keyboard_event_callback: Callable[[Any], None] | None = None
+        self._mouse_event_callback: Callable[[Any], None] | None = None
+        self._gamepad_event_callback: Callable[[Any], None] | None = None
+        self._gamepad_state_callback: Callable[[Any], None] | None = None
+        self._window.on_keyboard_event = self._on_keyboard_event
+        self._window.on_mouse_event = self._on_mouse_event
+        self._window.on_gamepad_event = self._on_gamepad_event
+        self._window.on_gamepad_state = self._on_gamepad_state
         self._cuda_interop_unavailable_reason: str | None = None
         self._device = self._create_device()
         self._surface = self._device.create_surface(self._window)
@@ -71,6 +124,20 @@ class SlangPyLocalWindowPresenter:
         )
         self._host_upload[..., 3] = 255
         self._closed = False
+
+    def set_input_callbacks(
+        self,
+        *,
+        on_keyboard_event: Callable[[Any], None] | None = None,
+        on_mouse_event: Callable[[Any], None] | None = None,
+        on_gamepad_event: Callable[[Any], None] | None = None,
+        on_gamepad_state: Callable[[Any], None] | None = None,
+    ) -> None:
+        """Bind local input callbacks to the SDL-backed window."""
+        self._keyboard_event_callback = on_keyboard_event
+        self._mouse_event_callback = on_mouse_event
+        self._gamepad_event_callback = on_gamepad_event
+        self._gamepad_state_callback = on_gamepad_state
 
     @property
     def should_close(self) -> bool:
@@ -129,6 +196,26 @@ class SlangPyLocalWindowPresenter:
             self._cuda_rgb_interop.close()
             self._cuda_rgb_interop = None
         self._window.close()
+
+    def _on_keyboard_event(self, event: Any) -> None:
+        is_press = getattr(event, "is_key_press", None)
+        key_name = getattr(getattr(event, "key", None), "name", "")
+        if callable(is_press) and is_press() and key_name == "escape":
+            self._closed = True
+        if self._keyboard_event_callback is not None:
+            self._keyboard_event_callback(event)
+
+    def _on_mouse_event(self, event: Any) -> None:
+        if self._mouse_event_callback is not None:
+            self._mouse_event_callback(event)
+
+    def _on_gamepad_event(self, event: Any) -> None:
+        if self._gamepad_event_callback is not None:
+            self._gamepad_event_callback(event)
+
+    def _on_gamepad_state(self, state: Any) -> None:
+        if self._gamepad_state_callback is not None:
+            self._gamepad_state_callback(state)
 
     def _wait_for_progress(self) -> bool:
         self.process_events()
@@ -444,4 +531,4 @@ def _cuda_event_ready(event: Any | None) -> bool:
         return False
 
 
-__all__ = ["SlangPyLocalWindowPresenter"]
+__all__ = ["LocalWindowInputBridge", "SlangPyLocalWindowPresenter"]

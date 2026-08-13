@@ -3,9 +3,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager, ExitStack
-from importlib.resources import as_file
+from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -169,3 +169,38 @@ def create_packaged_webrtc_app(
         resource_stack.close()
         raise
     return app
+
+
+def serve_application_webrtc(
+    application_slug: str,
+    commandline_args: Sequence[str],
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8080,
+) -> None:
+    """Run an installed application behind the packaged WebRTC browser UI."""
+    from flashdreams.serving.webrtc.manager import (
+        ApplicationWebRTCSessionManager,
+    )
+
+    manager = ApplicationWebRTCSessionManager(
+        application_slug=application_slug,
+        commandline_args=commandline_args,
+    )
+    request_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
+    app = create_packaged_webrtc_app(
+        web_resource=files("flashdreams.serving.webrtc").joinpath("web"),
+        session_manager=manager,
+        request_session_url=f"http://{request_host}:{port}/request_session",
+        preload_name=application_slug,
+    )
+    web.run_app(app, host=host, port=port)
+
+
+__all__ = [
+    "SessionBusyError",
+    "WebRTCSessionManager",
+    "create_packaged_webrtc_app",
+    "create_webrtc_app",
+    "serve_application_webrtc",
+]

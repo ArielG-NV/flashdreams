@@ -11,6 +11,18 @@ uv run flashdreams run t2v-causal-forcing \
   --prompt "A robot walking through a forest."
 ```
 
+The same demo can be launched from Python with the application runner used by
+`flashdreams run`:
+
+```python
+from flashdreams.demo import run_application
+
+run_application(
+    "t2v-causal-forcing",
+    ["--prompt", "A robot walking through a forest."],
+)
+```
+
 WebRTC browser backend:
 
 ```console
@@ -31,4 +43,4 @@ uv run flashdreams run t2v-causal-forcing \
 
 Available slugs are `t2v-cosmos-predict2`, `t2v-causal-forcing`, and
 `t2v-self-forcing`. All backends receive the same transport-neutral
-`InputSink` and `OutputSink` API.
+`InputHandler` and `OutputSink` API. Input handlers publish named `CanonicalInputs` matching each application’s `CanonicalInputSchema`.

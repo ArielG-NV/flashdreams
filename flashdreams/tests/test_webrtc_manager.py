@@ -24,7 +24,9 @@ from flashdreams.runtime.keyboard import WSAD_SUPPORTED_KEYS
 from flashdreams.serving.webrtc import manager as manager_module
 from flashdreams.serving.webrtc.encoders import ChunkDeliveryResult
 from flashdreams.serving.webrtc.manager import (
+    ApplicationWebRTCSessionManager,
     BaseWebRTCSessionManager,
+    BufferedTrackOutputBridge,
     ManagedWebRTCSession,
 )
 from flashdreams.serving.webrtc.server import SessionBusyError
@@ -1224,3 +1226,137 @@ def test_resolve_video_encoder_uses_runtime_encoder_when_present() -> None:
 
     manager = _make_manager(_BaseTestManager, _RuntimeWithEncoder())
     assert manager._resolve_video_encoder() is provided
+
+
+class _BlockingBufferedTrack:
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.closed = False
+
+    def prepare_result_frames(self, result: StepResult) -> tuple[object, ...]:
+        del result
+        return (object(),)
+
+    async def enqueue_frames(self, frames: object) -> int:
+        del frames
+        self.started.set()
+        await self.release.wait()
+        return 1
+
+    async def flush(self) -> None:
+        return
+
+    async def close(self) -> None:
+        self.closed = True
+        self.release.set()
+
+    def qsize(self) -> int:
+        return 0
+
+
+def _bridge_result() -> StepResult:
+    return StepResult(step_index=0, output="frame", frame_count=1)
+
+
+@pytest.mark.asyncio
+async def test_buffered_track_bridge_times_out_stalled_handoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(manager_module, "_TRACK_HANDOFF_TIMEOUT_S", 0.01)
+    track = _BlockingBufferedTrack()
+    bridge = BufferedTrackOutputBridge(
+        loop=asyncio.get_running_loop(),
+        track=cast(Any, track),
+    )
+
+    decision = await asyncio.to_thread(
+        bridge.submit_chunk,
+        _bridge_result(),
+        generation=0,
+    )
+
+    assert decision.should_stop
+    assert decision.dropped
+    assert decision.metadata["reason"] == "handoff timeout"
+
+
+@pytest.mark.asyncio
+async def test_buffered_track_bridge_close_wakes_blocked_producer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(manager_module, "_TRACK_HANDOFF_TIMEOUT_S", 60.0)
+    track = _BlockingBufferedTrack()
+    bridge = BufferedTrackOutputBridge(
+        loop=asyncio.get_running_loop(),
+        track=cast(Any, track),
+    )
+    producer = asyncio.create_task(
+        asyncio.to_thread(
+            bridge.submit_chunk,
+            _bridge_result(),
+            generation=0,
+        )
+    )
+    await track.started.wait()
+
+    bridge.close()
+    decision = await asyncio.wait_for(producer, timeout=1.0)
+
+    assert decision.should_stop
+    assert decision.metadata["reason"] == "closed"
+
+
+@pytest.mark.asyncio
+async def test_application_manager_close_awaits_generation_before_release() -> None:
+    class _Peer:
+        connectionState = "connected"
+
+        async def close(self) -> None:
+            self.connectionState = "closed"
+
+    class _Track:
+        closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    class _Bridge:
+        closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    manager = ApplicationWebRTCSessionManager(
+        application_slug="test",
+        commandline_args=(),
+    )
+    peer = _Peer()
+    track = _Track()
+    bridge = _Bridge()
+    generation_finished = asyncio.Event()
+
+    async def finish_generation() -> None:
+        await generation_finished.wait()
+
+    manager._peer = cast(Any, peer)
+    manager._track = cast(Any, track)
+    manager._bridge = cast(Any, bridge)
+    manager._generation_task = asyncio.create_task(finish_generation())
+
+    closing = asyncio.create_task(manager._close_peer(cast(Any, peer)))
+    await asyncio.sleep(0)
+
+    assert bridge.closed
+    assert track.closed
+    assert manager.has_active_session()
+    assert manager._peer is peer
+
+    generation_finished.set()
+    await closing
+
+    assert not manager.has_active_session()
+    assert manager._peer is None
+    assert manager._track is None
+    assert manager._bridge is None
+    assert manager._generation_task is None

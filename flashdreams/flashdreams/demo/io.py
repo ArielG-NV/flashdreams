@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Transport-neutral application input, output, and factory contracts."""
+"""Transport-neutral application output and factory contracts."""
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ from typing import Literal, Protocol, runtime_checkable
 
 from flashdreams.infra.results import StepResult
 from flashdreams.runtime._utils import freeze_mapping
+from flashdreams.runtime.inputs import CanonicalInputs, CanonicalInputSchema
 from flashdreams.runtime.output import OutputArtifact
 
 
@@ -99,17 +100,20 @@ class OutputDecision:
 
 
 @runtime_checkable
-class InputSink(Protocol):
-    """Supply opaque inputs to one application session."""
+class InputHandler(Protocol):
+    """Provide the current named canonical input state to the host."""
 
     @abstractmethod
-    def open(self, session_info: SessionInfo) -> None:
-        """Prepare input resources for a session."""
+    def open(
+        self,
+        session_info: SessionInfo,
+    ) -> None:
+        """Prepare input resources for an application session."""
         ...
 
     @abstractmethod
-    def read(self) -> object | None:
-        """Return the next available input, or ``None`` when unavailable."""
+    def current_inputs(self) -> CanonicalInputs:
+        """Return the latest canonical values keyed by modality name."""
         ...
 
     @abstractmethod
@@ -148,11 +152,11 @@ class OutputSink(Protocol):
 
 @runtime_checkable
 class IOFactory(Protocol):
-    """Create isolated application input and output sinks for one run."""
+    """Create isolated application input handling and output delivery."""
 
     @abstractmethod
-    def create_input_sink(self) -> InputSink:
-        """Create the input sink for one application run."""
+    def create_input_handler(self, input_schema: CanonicalInputSchema) -> InputHandler:
+        """Create a handler for the application-declared canonical inputs."""
         ...
 
     @abstractmethod
@@ -163,7 +167,7 @@ class IOFactory(Protocol):
 
 __all__ = [
     "IOFactory",
-    "InputSink",
+    "InputHandler",
     "OutputDecision",
     "OutputSink",
     "SessionInfo",

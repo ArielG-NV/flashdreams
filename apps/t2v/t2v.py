@@ -24,9 +24,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from flashdreams.demo import (
+    CanonicalInputs,
+    CanonicalInputSchema,
     IFlashDreamsApplication,
     IFlashDreamsApplicationSession,
-    InputSink,
     OutputSink,
     SessionInfo,
 )
@@ -99,14 +100,13 @@ class T2VApplication(IFlashDreamsApplication):
         self.defaults = defaults
         self._session_config: _T2VSessionConfig | None = None
 
-    def init(
-        self,
-        commandline_args: Sequence[str],
-        input_src: InputSink,
-        output_sink: OutputSink,
-    ) -> None:
+    @property
+    def input_schema(self) -> CanonicalInputSchema:
+        """Declare that plain T2V consumes no live canonical controls."""
+        return CanonicalInputSchema(description="uncontrolled text-to-video")
+
+    def init(self, commandline_args: Sequence[str]) -> None:
         """Parse session overrides and retain the required initial prompt."""
-        del input_src, output_sink
         parser = argparse.ArgumentParser(prog="flashdreams run t2v")
         parser.add_argument("--prompt")
         parser.add_argument(
@@ -158,13 +158,8 @@ class T2VApplication(IFlashDreamsApplication):
             output_layout=self.defaults.output_layout,
         )
 
-    def create_session(
-        self,
-        input_src: InputSink,
-        output_sink: OutputSink,
-    ) -> IFlashDreamsApplicationSession:
+    def create_session(self) -> IFlashDreamsApplicationSession:
         """Create a model session and feed it the command-line prompt."""
-        del input_src, output_sink
         if self._session_config is None:
             raise RuntimeError(
                 "T2VApplication.init() must run before create_session()."
@@ -244,7 +239,7 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
             metadata={"prompt": self._prompt or ""},
         )
 
-    def step(self, input_src: InputSink, output_sink: OutputSink) -> bool:
+    def step(self, inputs: CanonicalInputs, output_sink: OutputSink) -> bool:
         """Generate one canonical result and honor output flow control."""
         if self._closed:
             raise RuntimeError("T2V session is closed.")
@@ -253,12 +248,11 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
         if self._stop_requested or self._step_index >= self.config.total_blocks:
             return False
 
-        model_input = input_src.read()
-        kwargs = {} if model_input is None else {"input": model_input}
+        if inputs.values:
+            raise ValueError("T2V does not declare live canonical inputs.")
         generated = self._pipeline.generate(
             autoregressive_index=self._step_index,
             cache=self._cache,
-            **kwargs,
         )
         stats = self._pipeline.finalize(
             autoregressive_index=self._step_index,

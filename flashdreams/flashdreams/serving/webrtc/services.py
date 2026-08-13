@@ -23,6 +23,7 @@ from concurrent.futures import Future
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 
+from flashdreams.demo.outputs import WebRTCOutputSink
 from flashdreams.runtime import (
     StepRequirements,
     StepResult,
@@ -39,8 +40,6 @@ from flashdreams.runtime.demo import (
     InMemorySessionMetricsRecorder,
     ModelInputProvider,
     ModelWarmupPlan,
-    OutputDecision,
-    OutputSink,
     PreparedScenario,
     RealtimeSessionDriver,
     RealtimeWindowResult,
@@ -603,62 +602,6 @@ class WebRTCInputSource:
         self._events = deque(
             event for event in self._events if event.timestamp_s >= before_s
         )
-
-
-class WebRTCOutputSink(OutputSink):
-    """Output sink that schedules WebRTC media delivery without blocking."""
-
-    produces_artifacts = False
-
-    def __init__(self, *, bridge: WebRTCOutputBridge) -> None:
-        self._bridge = bridge
-        self._opened = False
-        self._closed = True
-        self._bridge_closed = False
-        self._generation = 0
-        self._force_keyframe = False
-        self.session_info: SessionInfo | None = None
-
-    def open(self, session_info: SessionInfo) -> None:
-        self.session_info = session_info
-        self._opened = True
-        self._closed = False
-        self._generation = 0
-        self._force_keyframe = True
-        self._bridge.begin_generation(0)
-
-    def begin_generation(self, generation: int) -> None:
-        if generation < 0:
-            raise ValueError("generation must be >= 0.")
-        self._generation = generation
-        self._force_keyframe = True
-        self._bridge.begin_generation(generation)
-
-    def write(self, result: StepResult) -> OutputDecision:
-        if not self._opened or self._closed:
-            raise RuntimeError("Cannot write to a closed output sink.")
-        decision = self._bridge.submit_chunk(
-            result,
-            generation=self._generation,
-            force_keyframe=self._force_keyframe,
-        )
-        self._force_keyframe = False
-        return OutputDecision(
-            should_stop=decision.should_stop,
-            dropped=decision.dropped,
-            drop_policy=decision.drop_policy,
-            backpressure_s=decision.backpressure_s,
-            metadata=decision.metadata,
-        )
-
-    def close(self) -> Sequence[Any]:
-        if self._bridge_closed:
-            return ()
-        self._closed = True
-        self._opened = False
-        self._bridge.close()
-        self._bridge_closed = True
-        return ()
 
 
 class ThreadSafeWebRTCOutputBridge:

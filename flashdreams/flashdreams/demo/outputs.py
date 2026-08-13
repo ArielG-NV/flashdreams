@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Null, MP4, benchmark, composite, and local-window application output sinks."""
+"""Application output sinks and output construction."""
 
 from __future__ import annotations
 
@@ -39,6 +39,7 @@ from flashdreams.runtime.video_output import Mp4VideoOutputTarget, VideoWriter
 
 if TYPE_CHECKING:
     from flashdreams.runtime.demo.spec import OutputSpec
+    from flashdreams.serving.webrtc.services import WebRTCOutputBridge
 
 
 class CompositeOutputSinkError(RuntimeError):
@@ -122,6 +123,102 @@ class NullOutputSink(OutputSink):
         """Close the sink without producing artifacts."""
         self.opened = False
         self.closed = True
+        return ()
+
+
+class DeferredWebRTCOutputSink(OutputSink):
+    """Preserve one sink identity until its concrete output is available."""
+
+    produces_artifacts = False
+
+    def __init__(self) -> None:
+        self._sink: OutputSink | None = None
+
+    def bind(self, sink: OutputSink) -> None:
+        """Bind the concrete output sink exactly once."""
+        if self._sink is not None:
+            raise RuntimeError("WebRTC output sink is already bound.")
+        self._sink = sink
+
+    def open(self, session_info: SessionInfo) -> None:
+        """Open the bound sink."""
+        self._required().open(session_info)
+
+    def begin_generation(self, generation: int) -> None:
+        """Begin a generation on the bound sink."""
+        self._required().begin_generation(generation)
+
+    def write(self, result: StepResult) -> OutputDecision:
+        """Write a result to the bound sink."""
+        return self._required().write(result)
+
+    def close(self) -> Sequence[OutputArtifact]:
+        """Close the bound sink."""
+        return self._required().close()
+
+    def _required(self) -> OutputSink:
+        if self._sink is None:
+            raise RuntimeError("WebRTC output sink has not been bound.")
+        return self._sink
+
+
+class WebRTCOutputSink(OutputSink):
+    """Schedule WebRTC media delivery without blocking model execution."""
+
+    produces_artifacts = False
+
+    def __init__(self, *, bridge: WebRTCOutputBridge) -> None:
+        self._bridge = bridge
+        self._opened = False
+        self._closed = True
+        self._bridge_closed = False
+        self._generation = 0
+        self._force_keyframe = False
+        self.session_info: SessionInfo | None = None
+
+    def open(self, session_info: SessionInfo) -> None:
+        """Open the sink and initialize its WebRTC generation."""
+        self.session_info = session_info
+        self._opened = True
+        self._closed = False
+        self._generation = 0
+        self._force_keyframe = True
+        self._bridge.begin_generation(0)
+
+    def begin_generation(self, generation: int) -> None:
+        """Start a generation and request a fresh keyframe."""
+        if generation < 0:
+            raise ValueError("generation must be >= 0.")
+        self._generation = generation
+        self._force_keyframe = True
+        self._bridge.begin_generation(generation)
+
+    def write(self, result: StepResult) -> OutputDecision:
+        """Submit one result to the WebRTC bridge."""
+        if not self._opened or self._closed:
+            raise RuntimeError("Cannot write to a closed output sink.")
+        decision = self._bridge.submit_chunk(
+            result,
+            generation=self._generation,
+            force_keyframe=self._force_keyframe,
+        )
+        self._force_keyframe = False
+        return OutputDecision(
+            should_stop=decision.should_stop,
+            dropped=decision.dropped,
+            drop_policy=decision.drop_policy,
+            backpressure_s=decision.backpressure_s,
+            metadata=decision.metadata,
+        )
+
+    def close(self) -> Sequence[OutputArtifact]:
+        """Close the WebRTC bridge once."""
+        if self._bridge_closed:
+            return ()
+        self._closed = True
+        self._opened = False
+        self._bridge.close()
+        self._bridge_closed = True
         return ()
 
 
@@ -273,7 +370,6 @@ class Mp4OutputSink(OutputSink):
             ),
         )
         return self._artifacts
-
 
 
 @dataclass(slots=True)
@@ -485,6 +581,12 @@ class LocalWindowOutputSink(OutputSink):
     )
     """Optional presenter factory used by tests and alternate native hosts."""
 
+    presenter_opened: Callable[[Any], None] | None = field(
+        default=None,
+        repr=False,
+    )
+    """Optional callback that binds input handling to the created presenter."""
+
     produces_artifacts: bool = field(default=False, init=False)
     """Whether this sink produces artifacts."""
 
@@ -524,6 +626,8 @@ class LocalWindowOutputSink(OutputSink):
             height=session_info.video_height,
             title=self.title,
         )
+        if self.presenter_opened is not None:
+            self.presenter_opened(self._presenter)
         self._frame_interval_s = 1.0 / self.fps
         self._next_deadline_s = None
         self._opened = True
@@ -597,7 +701,6 @@ def build_output_sink(
     raise TypeError(f"Unsupported demo output spec: {type(output).__name__}.")
 
 
-
 def build_benchmark_output_sink(
     output: OutputSpec | None,
     *,
@@ -666,7 +769,6 @@ def _result_record(result: StepResult) -> Mapping[str, object]:
             result.output_window.end_s,
         )
     return record
-
 
 
 def _benchmark_step_record(
@@ -806,9 +908,11 @@ __all__ = [
     "BenchmarkStatsOutputSink",
     "CompositeOutputSink",
     "CompositeOutputSinkError",
+    "DeferredWebRTCOutputSink",
     "LocalWindowOutputSink",
     "Mp4OutputSink",
     "NullOutputSink",
+    "WebRTCOutputSink",
     "build_benchmark_output_sink",
     "build_output_sink",
     "build_output_target",
