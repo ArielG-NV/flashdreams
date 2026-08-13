@@ -24,6 +24,7 @@ import pytest
 
 from flashdreams.demo import LocalWindowIOFactory, SessionInfo
 from flashdreams.demo.local_input import SlangPyLocalInputHandler
+from flashdreams.demo.local_window import SlangPyLocalWindowPresenter
 from flashdreams.runtime import DRIVER_COMMAND
 from flashdreams.runtime.inputs import CanonicalInputSchema, CanonicalModality
 
@@ -115,6 +116,47 @@ class _Presenter:
 
     def close(self) -> None:
         return
+
+
+def test_local_window_rebinds_cuda_context_before_native_handle_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import torch
+
+    calls: list[object] = []
+    handles = [object()]
+    presenter = object.__new__(SlangPyLocalWindowPresenter)
+    presenter._spy = SimpleNamespace(
+        get_cuda_current_context_native_handles=lambda: (
+            calls.append("handles") or handles
+        )
+    )
+    presenter._cuda_interop_unavailable_reason = None
+
+    monkeypatch.setattr(torch.cuda, "is_initialized", lambda: True)
+    monkeypatch.setattr(
+        torch.cuda,
+        "current_device",
+        lambda: calls.append("current_device") or 2,
+    )
+    monkeypatch.setattr(
+        torch.cuda,
+        "set_device",
+        lambda device: calls.append(("set_device", device)),
+    )
+    monkeypatch.setattr(
+        torch.cuda,
+        "current_stream",
+        lambda: calls.append("current_stream"),
+    )
+
+    assert presenter._cuda_existing_device_handles() == handles
+    assert calls == [
+        "current_device",
+        ("set_device", 2),
+        "current_stream",
+        "handles",
+    ]
 
 
 def test_local_window_factory_shares_presenter_with_input_handler() -> None:

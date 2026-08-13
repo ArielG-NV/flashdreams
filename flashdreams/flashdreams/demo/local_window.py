@@ -258,6 +258,10 @@ class SlangPyLocalWindowPresenter:
 
             if not torch.cuda.is_initialized():
                 torch.cuda.init()
+            # CUDA contexts are thread-local. Model initialization can leave
+            # PyTorch's primary context alive but no longer current on this
+            # thread; current_stream() alone does not restore that binding.
+            torch.cuda.set_device(torch.cuda.current_device())
             torch.cuda.current_stream()
         except Exception:
             self._cuda_interop_unavailable_reason = "CUDA context unavailable"
@@ -273,8 +277,10 @@ class SlangPyLocalWindowPresenter:
             return []
         try:
             return list(get_handles())
-        except Exception:
-            self._cuda_interop_unavailable_reason = "native handle query failed"
+        except Exception as exc:
+            self._cuda_interop_unavailable_reason = (
+                f"native handle query failed ({type(exc).__name__}: {exc})"
+            )
             return []
 
     def _create_cuda_rgb_interop(self) -> _CudaRGBInterop | None:
