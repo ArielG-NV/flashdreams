@@ -18,15 +18,33 @@
 from __future__ import annotations
 
 import math
+import time
 from abc import abstractmethod
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field, replace
+from threading import Lock
 from typing import Literal, Protocol, runtime_checkable
 
 from flashdreams.infra.results import StepResult
+from flashdreams.infra.time import TimeWindow
 from flashdreams.runtime._utils import freeze_mapping
-from flashdreams.runtime.inputs import CanonicalInputSchema, CanonicalInputWindow
+from flashdreams.runtime.canonical import (
+    DeviceConverter,
+    GamepadToDriverCommand,
+    InputCanonicalizer,
+    KeyboardToDriverCommand,
+)
+from flashdreams.runtime.inputs import (
+    CanonicalInputSchema,
+    CanonicalInputWindow,
+    UserInputEvent,
+    UserInputs,
+    UserInputSchema,
+)
 from flashdreams.runtime.output import OutputArtifact
+
+_EMPTY_CANONICAL_INPUT_SCHEMA = CanonicalInputSchema()
+_EMPTY_USER_INPUT_SCHEMA = UserInputSchema()
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -99,27 +117,150 @@ class OutputDecision:
         object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
 
 
-@runtime_checkable
-class InputHandler(Protocol):
-    """Provide time-windowed canonical input state to the host."""
+class InputHandler:
+    """Canonicalize transport-neutral user events for one application session."""
 
-    @abstractmethod
-    def open(
+    def __init__(
         self,
-        session_info: SessionInfo,
+        input_schema: CanonicalInputSchema = _EMPTY_CANONICAL_INPUT_SCHEMA,
+        *,
+        source_schema: UserInputSchema = _EMPTY_USER_INPUT_SCHEMA,
+        converters: Iterable[DeviceConverter] | None = None,
+        poll_events: Callable[[], None] | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        """Prepare input resources for an application session."""
-        ...
+        """Create a handler for one canonical input schema.
 
-    @abstractmethod
+        Args:
+            input_schema: Canonical modalities requested by the application.
+            source_schema: Raw event capabilities provided by the bound backend.
+            converters: Device converters; ``None`` uses the standard registry.
+            poll_events: Optional callback that asks the backend to emit events.
+            clock: Monotonic clock used for session-relative event timestamps.
+
+        Raises:
+            ValueError: The source cannot provide a requested modality.
+        """
+        if converters is None:
+            converters = (KeyboardToDriverCommand(), GamepadToDriverCommand())
+        self._canonicalizer = InputCanonicalizer(converters)
+        available_schema = self._canonicalizer.canonical_schema(source_schema)
+        unsupported = [
+            modality.name
+            for modality in input_schema.modalities
+            if not available_schema.supports(modality)
+        ]
+        if unsupported:
+            raise ValueError(
+                "Input source cannot provide canonical modalities: "
+                f"{sorted(set(unsupported))}."
+            )
+
+        self._requested_names = frozenset(
+            modality.name for modality in input_schema.modalities
+        )
+        relevant_converters = (
+            converter
+            for converter in self._canonicalizer.converters_for(source_schema)
+            if converter.schema.produces.name in self._requested_names
+        )
+        self._accepted_event_types = frozenset(
+            capability.event_type
+            for converter in relevant_converters
+            for capability in converter.schema.consumes
+        )
+        self._source_schema = source_schema
+        self._poll_events = poll_events
+        self._clock = clock
+        self._events: list[UserInputEvent] = []
+        self._lock = Lock()
+        self._session_start_s = 0.0
+        self._window_start_s = 0.0
+        self._opened = False
+
+    @property
+    def accepts_events(self) -> bool:
+        """Return whether the application consumes any backend event type."""
+        return bool(self._accepted_event_types)
+
+    def accepts_event_type(self, event_type: str) -> bool:
+        """Return whether ``event_type`` can feed a requested modality."""
+        return event_type in self._accepted_event_types
+
+    def open(self, session_info: SessionInfo) -> None:
+        """Open the handler and reset input state for one session."""
+        del session_info
+        self._canonicalizer.reset()
+        with self._lock:
+            self._events.clear()
+            self._session_start_s = self._clock()
+            self._window_start_s = 0.0
+            self._opened = True
+
+    def session_time_s(self) -> float:
+        """Return the current session-relative event timestamp."""
+        with self._lock:
+            if not self._opened:
+                return 0.0
+            session_start_s = self._session_start_s
+        return max(0.0, self._clock() - session_start_s)
+
+    def submit_event(self, event: UserInputEvent) -> bool:
+        """Queue one normalized event; return whether it was accepted.
+
+        Events racing with a window drain are folded into the next window so a
+        delayed backend callback cannot lose an input edge.
+        """
+        if event.event_type not in self._accepted_event_types:
+            return False
+        self._source_schema.validate_event(event)
+        with self._lock:
+            if not self._opened:
+                return False
+            if event.timestamp_s < self._window_start_s:
+                event = replace(event, timestamp_s=self._window_start_s)
+            self._events.append(event)
+        return True
+
     def current_inputs(self) -> CanonicalInputWindow:
-        """Return the latest canonical values and their session time window."""
-        ...
+        """Poll events and return canonical inputs for the elapsed window."""
+        with self._lock:
+            if not self._opened:
+                raise RuntimeError("Cannot fetch inputs from a closed input handler.")
+        if self._poll_events is not None:
+            self._poll_events()
 
-    @abstractmethod
+        now_s = self.session_time_s()
+        with self._lock:
+            if not self._opened:
+                raise RuntimeError("Cannot fetch inputs from a closed input handler.")
+            now_s = max(now_s, self._window_start_s)
+            events = tuple(sorted(self._events, key=lambda event: event.timestamp_s))
+            self._events.clear()
+            if events and events[-1].timestamp_s >= now_s:
+                now_s = math.nextafter(events[-1].timestamp_s, math.inf)
+            window = TimeWindow(start_s=self._window_start_s, end_s=now_s)
+            self._window_start_s = now_s
+        canonical = self._canonicalizer.canonicalize(
+            UserInputs(events=events),
+            window=window,
+            source_schema=self._source_schema,
+        )
+        return CanonicalInputWindow(
+            values={
+                name: value
+                for name, value in canonical.values.items()
+                if name in self._requested_names
+            },
+            metadata=canonical.metadata,
+            window=window,
+        )
+
     def close(self) -> None:
-        """Release input resources."""
-        ...
+        """Close the handler and discard queued events."""
+        with self._lock:
+            self._opened = False
+            self._events.clear()
 
 
 @runtime_checkable

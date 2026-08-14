@@ -11,6 +11,7 @@ from typing import Any, cast
 import pytest
 import torch
 
+from flashdreams.demo import InputHandler
 from flashdreams.runtime import (
     CanonicalInputSchema,
     InferenceInput,
@@ -35,7 +36,8 @@ from flashdreams.serving.webrtc.server import SessionBusyError
 from flashdreams.serving.webrtc.services import (
     WEBRTC_SKIPPED_INPUTS_METADATA_KEY,
     WEBRTC_SKIPPED_WINDOW_METADATA_KEY,
-    ApplicationWebRTCInputHandler,
+    WEBRTC_USER_INPUT_SCHEMA,
+    ApplicationWebRTCInputBridge,
     WebRTCInputSource,
     WebRTCTransportService,
 )
@@ -1360,16 +1362,19 @@ def test_application_manager_peer_wait_has_timeout() -> None:
         manager.connect_output(manager_module.SessionInfo())
 
 
-def test_application_webrtc_input_handler_preserves_key_levels() -> None:
+def test_application_webrtc_bridge_preserves_key_levels() -> None:
     now = [10.0]
-    handler = ApplicationWebRTCInputHandler(
+    bridge = ApplicationWebRTCInputBridge()
+    handler = InputHandler(
         CanonicalInputSchema(modalities=(DRIVER_COMMAND,)),
+        source_schema=WEBRTC_USER_INPUT_SCHEMA,
         clock=lambda: now[0],
     )
+    bridge.bind(handler)
     handler.open(manager_module.SessionInfo())
 
     now[0] = 10.1
-    assert handler.handle_browser_payload(
+    assert bridge.handle_browser_payload(
         {"type": "action", "action": {"event": "keydown", "key": "w"}}
     )
     pressed = handler.current_inputs()
@@ -1378,7 +1383,7 @@ def test_application_webrtc_input_handler_preserves_key_levels() -> None:
     held = handler.current_inputs()
 
     now[0] = 10.3
-    assert handler.handle_browser_payload(
+    assert bridge.handle_browser_payload(
         {"type": "action", "action": {"event": "keyup", "key": "w"}}
     )
     released = handler.current_inputs()

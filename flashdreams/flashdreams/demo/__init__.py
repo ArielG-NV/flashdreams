@@ -27,7 +27,6 @@ from flashdreams.demo.factories import (
     CallableIOFactory,
     LocalWindowIOFactory,
     Mp4IOFactory,
-    NullInputHandler,
     ProvidedIOFactory,
     WebRTCIOFactory,
 )
@@ -38,7 +37,6 @@ from flashdreams.demo.io import (
     OutputSink,
     SessionInfo,
 )
-from flashdreams.demo.local_input import SlangPyLocalInputHandler
 from flashdreams.demo.outputs import (
     BenchmarkStatsOutputSink,
     CompositeOutputSink,
@@ -74,13 +72,11 @@ __all__ = [
     "LocalWindowIOFactory",
     "Mp4IOFactory",
     "Mp4OutputSink",
-    "NullInputHandler",
     "NullOutputSink",
     "OutputDecision",
     "OutputSink",
     "ProvidedIOFactory",
     "SessionInfo",
-    "SlangPyLocalInputHandler",
     "LocalWindowOutputSink",
     "WebRTCIOFactory",
     "WebRTCOutputSink",

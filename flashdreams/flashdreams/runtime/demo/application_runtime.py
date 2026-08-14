@@ -391,10 +391,6 @@ def _current_application_inputs(
     input_schema: CanonicalInputSchema,
 ) -> CanonicalInputWindow:
     inputs = handler.current_inputs()
-    if not isinstance(inputs, CanonicalInputWindow):
-        raise TypeError(
-            "InputHandler.current_inputs() must return CanonicalInputWindow."
-        )
     expected = {modality.name: modality for modality in input_schema.modalities}
     unknown = sorted(set(inputs.values) - set(expected))
     if unknown:
