@@ -30,8 +30,8 @@ from t2v import (
 from flashdreams.demo import (
     CanonicalInputs,
     CanonicalInputWindow,
+    InputHandler,
     Mp4OutputSink,
-    NullInputHandler,
     NullOutputSink,
     OutputDecision,
     ProvidedIOFactory,
@@ -139,7 +139,7 @@ def test_application_session_emits_canonical_video_results() -> None:
     )
     result = application_runtime.run_batch_application_session(
         application=application,
-        input_handler=NullInputHandler(),
+        input_handler=InputHandler(),
         input_schema=application.input_schema,
         output_sink=output_sink,
     )
@@ -178,7 +178,7 @@ def test_application_session_honors_sink_stop_decision() -> None:
     )
     result = application_runtime.run_batch_application_session(
         application=application,
-        input_handler=NullInputHandler(),
+        input_handler=InputHandler(),
         input_schema=application.input_schema,
         output_sink=output_sink,
     )
@@ -227,7 +227,7 @@ def test_batch_driver_preserves_result_contract() -> None:
 
     result = application_runtime.run_batch_application_session(
         application=application,
-        input_handler=NullInputHandler(),
+        input_handler=InputHandler(),
         input_schema=application.input_schema,
         output_sink=NullOutputSink(store_results=True),
     )
@@ -252,7 +252,7 @@ async def test_realtime_driver_preserves_result_contract() -> None:
     driver = driver_module.RealtimeSessionDriver()
     result = await application_runtime.run_realtime_application_session(
         application=application,
-        input_handler=NullInputHandler(),
+        input_handler=InputHandler(),
         input_schema=application.input_schema,
         output_sink=NullOutputSink(store_results=True),
     )
@@ -293,7 +293,7 @@ async def test_realtime_driver_awaits_output_backpressure(
 
     result = await application_runtime.run_realtime_application_session(
         application=application,
-        input_handler=NullInputHandler(),
+        input_handler=InputHandler(),
         input_schema=application.input_schema,
         output_sink=sink,
     )
@@ -303,55 +303,9 @@ async def test_realtime_driver_awaits_output_backpressure(
     assert delays == pytest.approx([0.0, 0.25, 0.0])
 
 
-class _NamedInputHandler:
-    def __init__(self) -> None:
-        self.inputs = CanonicalInputWindow(
-            values={"camera": {"yaw": 0.25, "pitch": -0.5}},
-            window=TimeWindow(start_s=1.0, end_s=2.0),
-        )
-
-    def open(self, session_info: object) -> None:
-        del session_info
-
-    def current_inputs(self) -> CanonicalInputWindow:
-        return self.inputs
-
-    def close(self) -> None:
-        return
-
-
-def test_input_handler_provides_schema_named_canonical_inputs() -> None:
-    schema = CanonicalInputSchema(
-        modalities=(
-            CanonicalModality(
-                name="camera",
-                payload_fields=frozenset({"yaw", "pitch"}),
-            ),
-        )
-    )
-    inputs = application_runtime._current_application_inputs(
-        _NamedInputHandler(), schema
-    )
-
-    assert inputs.values == {"camera": {"yaw": 0.25, "pitch": -0.5}}
-    assert inputs.window == TimeWindow(start_s=1.0, end_s=2.0)
-
-
-def test_application_host_rejects_unwindowed_canonical_inputs() -> None:
-    class _LegacyInputHandler(_NamedInputHandler):
-        def current_inputs(self) -> CanonicalInputWindow:
-            return cast(CanonicalInputWindow, CanonicalInputs())
-
-    with pytest.raises(TypeError, match="CanonicalInputWindow"):
-        application_runtime._current_application_inputs(
-            _LegacyInputHandler(),
-            CanonicalInputSchema(),
-        )
-
-
-def test_null_input_handler_provides_contiguous_windows() -> None:
+def test_input_handler_provides_contiguous_windows() -> None:
     now = [10.0]
-    handler = NullInputHandler(clock=lambda: now[0])
+    handler = InputHandler(clock=lambda: now[0])
     handler.open(SessionInfo())
     first = handler.current_inputs()
     now[0] = 10.25
@@ -393,7 +347,7 @@ def test_application_host_writes_mp4_through_shared_io_factory(
         )
         return path
 
-    input_handler = NullInputHandler()
+    input_handler = InputHandler()
     output_sink = Mp4OutputSink(
         output_path=tmp_path / "out.mp4",
         output_layout="tchw",
@@ -469,7 +423,7 @@ def test_application_driver_enforces_one_model_thread() -> None:
 
     result = application_runtime.run_batch_application_session(
         application=application,
-        input_handler=NullInputHandler(),
+        input_handler=InputHandler(),
         input_schema=application.input_schema,
         output_sink=NullOutputSink(),
     )

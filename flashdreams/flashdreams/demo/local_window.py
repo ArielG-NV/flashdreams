@@ -27,15 +27,45 @@ from typing import Any
 import numpy as np
 from loguru import logger
 
-from flashdreams.demo.local_input import SlangPyLocalInputHandler
+from flashdreams.demo.io import InputHandler
+from flashdreams.runtime.inputs import (
+    UserInputCapability,
+    UserInputEvent,
+    UserInputSchema,
+)
+
+LOCAL_WINDOW_USER_INPUT_SCHEMA = UserInputSchema(
+    capabilities=(
+        UserInputCapability(
+            event_type="key_down",
+            input_modality="keyboard",
+            payload_fields=frozenset({"key"}),
+        ),
+        UserInputCapability(
+            event_type="key_up",
+            input_modality="keyboard",
+            payload_fields=frozenset({"key"}),
+        ),
+        UserInputCapability(
+            event_type="gamepad_state",
+            input_modality="gamepad",
+            payload_fields=frozenset({"throttle", "brake", "steer"}),
+        ),
+        UserInputCapability(
+            event_type="gamepad_disconnected",
+            input_modality="gamepad",
+        ),
+    ),
+    description="SlangPy local-window input events.",
+)
 
 
 @dataclass(slots=True)
 class LocalWindowInputBridge:
     """Share one SlangPy presenter between local input and output objects."""
 
-    _handler: SlangPyLocalInputHandler | None = None
-    """Input handler receiving callbacks from the active presenter."""
+    _handler: InputHandler | None = None
+    """Canonical handler receiving normalized presenter events."""
 
     _presenter: Any | None = None
     """Presenter whose SDL event queue is pumped at input sample boundaries."""
@@ -43,7 +73,7 @@ class LocalWindowInputBridge:
     _events_pumped_in_background: bool = False
     """Whether the presenter owns a background event-pump thread."""
 
-    def bind_handler(self, handler: SlangPyLocalInputHandler) -> None:
+    def bind_handler(self, handler: InputHandler) -> None:
         """Bind the handler created for the current application run."""
         self._handler = handler
 
@@ -61,7 +91,7 @@ class LocalWindowInputBridge:
 
     def _bind_callbacks(self, presenter: Any) -> None:
         handler = self._handler
-        if handler is None or not handler.accepts_window_events:
+        if handler is None or not handler.accepts_events:
             return
         set_callbacks = getattr(presenter, "set_input_callbacks", None)
         if not callable(set_callbacks):
@@ -70,9 +100,9 @@ class LocalWindowInputBridge:
                 "when the application declares live inputs."
             )
         set_callbacks(
-            on_keyboard_event=handler.on_keyboard_event,
-            on_gamepad_event=handler.on_gamepad_event,
-            on_gamepad_state=handler.on_gamepad_state,
+            on_keyboard_event=self.handle_keyboard_event,
+            on_gamepad_event=self.handle_gamepad_event,
+            on_gamepad_state=self.handle_gamepad_state,
         )
 
     def process_events(self) -> None:
@@ -82,6 +112,84 @@ class LocalWindowInputBridge:
         process_events = getattr(self._presenter, "process_events", None)
         if callable(process_events):
             process_events()
+
+    def handle_keyboard_event(self, event: Any) -> None:
+        """Translate one SlangPy keyboard edge into a canonical user event."""
+        handler = self._handler
+        if handler is None:
+            return
+        is_press = _event_flag(event, "is_key_press")
+        is_release = _event_flag(event, "is_key_release")
+        is_repeat = _event_flag(event, "is_key_repeat")
+        if not (is_press or is_release or is_repeat):
+            return
+        key = _slangpy_enum_name(getattr(event, "key", None))
+        if key is None:
+            return
+        event_type = "key_up" if is_release else "key_down"
+        handler.submit_event(
+            UserInputEvent(
+                timestamp_s=handler.session_time_s(),
+                event_type=event_type,
+                payload={"key": key},
+                source="slangpy-keyboard",
+            )
+        )
+
+    def handle_gamepad_event(self, event: Any) -> None:
+        """Translate a SlangPy gamepad disconnect into a canonical user event."""
+        handler = self._handler
+        if handler is None or not _event_flag(event, "is_disconnect"):
+            return
+        handler.submit_event(
+            UserInputEvent(
+                timestamp_s=handler.session_time_s(),
+                event_type="gamepad_disconnected",
+                source="slangpy-gamepad",
+            )
+        )
+
+    def handle_gamepad_state(self, state: Any) -> None:
+        """Translate SlangPy gamepad axes into a normalized state event."""
+        handler = self._handler
+        if handler is None:
+            return
+        handler.submit_event(
+            UserInputEvent(
+                timestamp_s=handler.session_time_s(),
+                event_type="gamepad_state",
+                payload={
+                    "throttle": _clamp(
+                        float(getattr(state, "right_trigger", 0.0)), 0.0, 1.0
+                    ),
+                    "brake": _clamp(
+                        float(getattr(state, "left_trigger", 0.0)), 0.0, 1.0
+                    ),
+                    "steer": _clamp(-float(getattr(state, "left_x", 0.0)), -1.0, 1.0),
+                },
+                source="slangpy-gamepad",
+            )
+        )
+
+
+def _event_flag(event: Any, method_name: str) -> bool:
+    method = getattr(event, method_name, None)
+    return bool(method()) if callable(method) else False
+
+
+def _slangpy_enum_name(value: Any) -> str | None:
+    if value is None:
+        return None
+    name = getattr(value, "name", None)
+    if isinstance(name, str):
+        return name.lower()
+    if isinstance(value, str):
+        return value.rsplit(".", 1)[-1].lower()
+    return str(value).rsplit(".", 1)[-1].lower()
+
+
+def _clamp(value: float, lower: float, upper: float) -> float:
+    return max(lower, min(upper, value))
 
 
 class SlangPyLocalWindowPresenter:

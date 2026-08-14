@@ -31,7 +31,6 @@ from flashdreams.demo.factories import (
     CallableIOFactory,
     LocalWindowIOFactory,
     Mp4IOFactory,
-    NullInputHandler,
     ProvidedIOFactory,
 )
 from flashdreams.demo.io import (
@@ -174,6 +173,7 @@ def run_application(
             "IFlashDreamsApplication.input_schema must be a CanonicalInputSchema."
         )
     resolved_factory = _resolve_io_factory(
+        input_schema=input_schema,
         io_factory=io_factory,
         input_handler=input_handler,
         output_sink=output_sink,
@@ -218,6 +218,7 @@ def run_application(
 
 def _resolve_io_factory(
     *,
+    input_schema: CanonicalInputSchema,
     io_factory: IOFactory | None,
     input_handler: InputHandler | None,
     output_sink: OutputSink | None,
@@ -232,7 +233,7 @@ def _resolve_io_factory(
         return LocalWindowIOFactory()
     return ProvidedIOFactory(
         input_handler=(
-            input_handler if input_handler is not None else NullInputHandler()
+            input_handler if input_handler is not None else InputHandler(input_schema)
         ),
         output_sink=(
             output_sink if output_sink is not None else LocalWindowOutputSink()
@@ -311,7 +312,7 @@ def _parse_host_io(
         return LocalWindowIOFactory(fps=output_fps), application_args
     if output_kind == "null":
         return (
-            CallableIOFactory(lambda _schema: NullInputHandler(), NullOutputSink),
+            CallableIOFactory(lambda schema: InputHandler(schema), NullOutputSink),
             application_args,
         )
     if output_kind == "mp4":

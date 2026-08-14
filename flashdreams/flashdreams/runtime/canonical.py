@@ -22,6 +22,7 @@ directly, without passing through canonicalization.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -58,6 +59,9 @@ so the set of tracked keys is derived from them rather than declared twice.
 """
 
 _DRIVER_ACTIONS = frozenset(DEFAULT_DRIVING_BINDINGS)
+
+_DEFAULT_GAMEPAD_DEADZONE = 0.05
+"""Minimum gamepad axis magnitude treated as active driving input."""
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -208,6 +212,91 @@ class KeyboardToDriverCommand:
                 "steer": steer,
                 "stop": held("stop"),
                 "reverse": held("reverse"),
+            }
+        )
+
+
+class GamepadToDriverCommand:
+    """Convert normalized gamepad state events into driving commands."""
+
+    def __init__(
+        self,
+        *,
+        name: str = "gamepad-to-driver-command",
+        deadzone: float = _DEFAULT_GAMEPAD_DEADZONE,
+        priority: int = 10,
+    ) -> None:
+        """Create a normalized gamepad converter.
+
+        Args:
+            name: Converter name used in registry diagnostics.
+            deadzone: Axis magnitude at or below which the gamepad is idle.
+            priority: Selection priority relative to other device converters.
+
+        Raises:
+            ValueError: ``deadzone`` is not finite or is outside ``[0, 1)``.
+        """
+        if not math.isfinite(deadzone) or not 0.0 <= deadzone < 1.0:
+            raise ValueError("deadzone must be finite and in [0, 1).")
+        self._deadzone = deadzone
+        self._state: dict[str, float] | None = None
+        self._schema = DeviceConverterSchema(
+            name=name,
+            produces=DRIVER_COMMAND,
+            device_kind="gamepad",
+            priority=priority,
+            consumes=(
+                UserInputCapability(
+                    event_type="gamepad_state",
+                    input_modality="gamepad",
+                    payload_fields=frozenset({"throttle", "brake", "steer"}),
+                ),
+                UserInputCapability(
+                    event_type="gamepad_disconnected",
+                    input_modality="gamepad",
+                ),
+            ),
+        )
+
+    @property
+    def schema(self) -> DeviceConverterSchema:
+        """Return converter metadata used for source selection."""
+        return self._schema
+
+    def reset(self) -> None:
+        """Drop the latest gamepad state."""
+        self._state = None
+
+    def convert(
+        self,
+        user_inputs: UserInputs,
+        window: TimeWindow,
+    ) -> Mapping[str, Any] | None:
+        """Return the latest active gamepad command for ``window``."""
+        del window
+        for event in user_inputs.events:
+            if event.event_type == "gamepad_disconnected":
+                self._state = None
+            elif event.event_type == "gamepad_state":
+                self._state = {
+                    "throttle": _clamp(float(event.payload["throttle"]), 0.0, 1.0),
+                    "brake": _clamp(float(event.payload["brake"]), 0.0, 1.0),
+                    "steer": _clamp(float(event.payload["steer"]), -1.0, 1.0),
+                }
+        if self._state is None or not any(
+            abs(value) > self._deadzone for value in self._state.values()
+        ):
+            return None
+        steer = self._state["steer"]
+        if abs(steer) <= self._deadzone:
+            steer = 0.0
+        return DRIVER_COMMAND.value(
+            {
+                "throttle": self._state["throttle"],
+                "brake": self._state["brake"],
+                "steer": steer,
+                "stop": False,
+                "reverse": False,
             }
         )
 
@@ -385,3 +474,7 @@ class InputCanonicalizer:
         if sources:
             metadata["canonical_sources"] = freeze_mapping(sources)
         return CanonicalInputs(values=values, metadata=metadata)
+
+
+def _clamp(value: float, lower: float, upper: float) -> float:
+    return max(lower, min(upper, value))

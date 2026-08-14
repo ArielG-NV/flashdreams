@@ -17,69 +17,26 @@
 
 from __future__ import annotations
 
-import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from flashdreams.demo.io import InputHandler, IOFactory, OutputSink, SessionInfo
-from flashdreams.demo.local_input import SlangPyLocalInputHandler
-from flashdreams.demo.local_window import LocalWindowInputBridge
+from flashdreams.demo.local_window import (
+    LOCAL_WINDOW_USER_INPUT_SCHEMA,
+    LocalWindowInputBridge,
+)
 from flashdreams.demo.outputs import (
     LocalWindowOutputSink,
     Mp4OutputSink,
     WebRTCOutputSink,
 )
 from flashdreams.infra.postprocess import VideoTensorLayout
-from flashdreams.infra.time import TimeWindow
-from flashdreams.runtime.inputs import CanonicalInputSchema, CanonicalInputWindow
+from flashdreams.runtime.inputs import CanonicalInputSchema
 
 if TYPE_CHECKING:
     from flashdreams.serving.webrtc.services import WebRTCOutputBridge
-
-
-@dataclass(slots=True)
-class NullInputHandler(InputHandler):
-    """Provide empty canonical input windows."""
-
-    opened: bool = False
-    """Whether the handler is open for the current session."""
-
-    clock: Callable[[], float] = field(default=time.monotonic, repr=False)
-    """Monotonic clock used for session-relative window bounds."""
-
-    _session_start_s: float = field(default=0.0, init=False, repr=False)
-    """Clock value captured when the current session opened."""
-
-    _window_start_s: float = field(default=0.0, init=False, repr=False)
-    """End of the previously returned session-relative window."""
-
-    def open(
-        self,
-        session_info: SessionInfo,
-    ) -> None:
-        """Open the empty handler for one application session."""
-        del session_info
-        self.opened = True
-        self._session_start_s = self.clock()
-        self._window_start_s = 0.0
-
-    def current_inputs(self) -> CanonicalInputWindow:
-        """Return empty canonical inputs for the elapsed session window."""
-        if not self.opened:
-            raise RuntimeError("Cannot fetch inputs from a closed input handler.")
-        end_s = max(
-            self._window_start_s,
-            self.clock() - self._session_start_s,
-        )
-        window = TimeWindow(start_s=self._window_start_s, end_s=end_s)
-        self._window_start_s = end_s
-        return CanonicalInputWindow(window=window)
-
-    def close(self) -> None:
-        """Close the empty input handler."""
-        self.opened = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,9 +101,10 @@ class LocalWindowIOFactory(IOFactory):
 
     def create_input_handler(self, input_schema: CanonicalInputSchema) -> InputHandler:
         """Create an input handler for ``input_schema``."""
-        handler = SlangPyLocalInputHandler(
+        handler = InputHandler(
             input_schema,
-            process_events=self._bridge.process_events,
+            source_schema=LOCAL_WINDOW_USER_INPUT_SCHEMA,
+            poll_events=self._bridge.process_events,
         )
         self._bridge.bind_handler(handler)
         return handler
@@ -179,8 +137,7 @@ class Mp4IOFactory(IOFactory):
 
     def create_input_handler(self, input_schema: CanonicalInputSchema) -> InputHandler:
         """Create an input handler for ``input_schema``."""
-        del input_schema
-        return NullInputHandler()
+        return InputHandler(input_schema)
 
     def create_output_sink(self) -> OutputSink:
         """Create an output sink for one application run."""
@@ -230,9 +187,12 @@ class ApplicationWebRTCIOFactory(IOFactory):
 
     def create_input_handler(self, input_schema: CanonicalInputSchema) -> InputHandler:
         """Create the application input handler for the browser session."""
-        from flashdreams.serving.webrtc.services import ApplicationWebRTCInputHandler
+        from flashdreams.serving.webrtc.services import WEBRTC_USER_INPUT_SCHEMA
 
-        handler = ApplicationWebRTCInputHandler(input_schema)
+        handler = InputHandler(
+            input_schema,
+            source_schema=WEBRTC_USER_INPUT_SCHEMA,
+        )
         self._input_bridge.bind(handler)
         return handler
 
@@ -258,7 +218,7 @@ class WebRTCIOFactory(IOFactory):
     """Create the transport bridge owned by a peer connection."""
 
     input_factory: Callable[[CanonicalInputSchema], InputHandler] = (
-        lambda _schema: NullInputHandler()
+        lambda schema: InputHandler(schema)
     )
     """Create the peer input handler bound to an application schema."""
 
@@ -276,7 +236,6 @@ __all__ = [
     "CallableIOFactory",
     "LocalWindowIOFactory",
     "Mp4IOFactory",
-    "NullInputHandler",
     "ProvidedIOFactory",
     "WebRTCIOFactory",
 ]

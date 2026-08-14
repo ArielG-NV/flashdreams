@@ -24,9 +24,17 @@ from typing import Any
 import pytest
 import torch
 
-from flashdreams.demo import LocalWindowIOFactory, LocalWindowOutputSink, SessionInfo
-from flashdreams.demo.local_input import SlangPyLocalInputHandler
-from flashdreams.demo.local_window import SlangPyLocalWindowPresenter
+from flashdreams.demo import (
+    InputHandler,
+    LocalWindowIOFactory,
+    LocalWindowOutputSink,
+    SessionInfo,
+)
+from flashdreams.demo.local_window import (
+    LOCAL_WINDOW_USER_INPUT_SCHEMA,
+    LocalWindowInputBridge,
+    SlangPyLocalWindowPresenter,
+)
 from flashdreams.runtime import DRIVER_COMMAND, StepResult
 from flashdreams.runtime.inputs import CanonicalInputSchema, CanonicalModality
 
@@ -56,19 +64,22 @@ class _KeyboardEvent:
         return self._event_type == "repeat"
 
 
-def test_local_input_handler_tracks_keyboard_levels() -> None:
+def test_local_bridge_feeds_shared_handler_keyboard_levels() -> None:
     clock = _Clock()
-    handler = SlangPyLocalInputHandler(
+    bridge = LocalWindowInputBridge()
+    handler = InputHandler(
         CanonicalInputSchema(modalities=(DRIVER_COMMAND,)),
+        source_schema=LOCAL_WINDOW_USER_INPUT_SCHEMA,
         clock=clock,
     )
+    bridge.bind_handler(handler)
     handler.open(SessionInfo())
 
-    handler.on_keyboard_event(_KeyboardEvent("w", "press"))
+    bridge.handle_keyboard_event(_KeyboardEvent("w", "press"))
     pressed = handler.current_inputs()
     clock.value += 0.1
     held = handler.current_inputs()
-    handler.on_keyboard_event(_KeyboardEvent("w", "release"))
+    bridge.handle_keyboard_event(_KeyboardEvent("w", "release"))
     released = handler.current_inputs()
 
     assert pressed.values["driver_command"]["throttle"] == 1.0
@@ -81,13 +92,16 @@ def test_local_input_handler_tracks_keyboard_levels() -> None:
     assert released.metadata["canonical_sources"] == {"driver_command": "keyboard"}
 
 
-def test_local_input_handler_uses_active_sdl_gamepad_axes() -> None:
-    handler = SlangPyLocalInputHandler(
-        CanonicalInputSchema(modalities=(DRIVER_COMMAND,))
+def test_local_bridge_feeds_shared_handler_gamepad_state() -> None:
+    bridge = LocalWindowInputBridge()
+    handler = InputHandler(
+        CanonicalInputSchema(modalities=(DRIVER_COMMAND,)),
+        source_schema=LOCAL_WINDOW_USER_INPUT_SCHEMA,
     )
+    bridge.bind_handler(handler)
     handler.open(SessionInfo())
 
-    handler.on_gamepad_state(
+    bridge.handle_gamepad_state(
         SimpleNamespace(left_x=0.25, left_trigger=0.4, right_trigger=0.75)
     )
     inputs = handler.current_inputs()
@@ -285,7 +299,7 @@ def test_local_window_output_replaces_oldest_pending_chunk() -> None:
         sink.close()
 
 
-def test_local_input_handler_rejects_unknown_canonical_modality() -> None:
+def test_shared_handler_rejects_unsupported_canonical_modality() -> None:
     schema = CanonicalInputSchema(
         modalities=(
             CanonicalModality(
@@ -296,4 +310,7 @@ def test_local_input_handler_rejects_unknown_canonical_modality() -> None:
     )
 
     with pytest.raises(ValueError, match="camera_look"):
-        SlangPyLocalInputHandler(schema)
+        InputHandler(
+            schema,
+            source_schema=LOCAL_WINDOW_USER_INPUT_SCHEMA,
+        )
