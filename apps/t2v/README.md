@@ -39,7 +39,6 @@ WebRTC browser backend:
 uv run --package flashdreams-causal-forcing flashdreams-run t2v-causal-forcing \
   --output webrtc --host 0.0.0.0 --port 8080 \
   --prompt "A robot walking through a forest." \
-  --post-processing-test-effect
 ```
 
 Then open `http://localhost:8080/request_session`.
