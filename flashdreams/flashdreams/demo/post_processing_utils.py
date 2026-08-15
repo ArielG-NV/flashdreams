@@ -17,13 +17,14 @@
 
 from __future__ import annotations
 
-
 import torch
 from torch import Tensor
 
-from flashdreams.infra.presentation import (
+from flashdreams.demo.post_processing import (
+    HWC_UINT8_FORMAT,
     FrameTensorLayout,
     PixelValueRange,
+    PostProcessingFrame,
     PostProcessingInput,
     PostProcessingOutput,
     PostProcessingPipelineStep,
@@ -78,6 +79,32 @@ def frame_tensor_to_hwc_uint8(
     return output.round().to(torch.uint8).detach().contiguous()
 
 
+def _frame_to_hwc_uint8(partition: PostProcessingInput) -> PostProcessingOutput:
+    if not isinstance(partition, PostProcessingFrame):
+        raise TypeError("HWC uint8 conversion requires a frame partition.")
+    if partition.format.layout not in ("chw", "hwc"):
+        raise ValueError(
+            "HWC uint8 conversion requires a CHW or HWC frame, "
+            f"got {partition.format.layout!r}."
+        )
+    return PostProcessingOutput(
+        data=frame_tensor_to_hwc_uint8(
+            partition.data,
+            layout=partition.format.layout,
+            value_range=partition.format.value_range,
+        ),
+        format=HWC_UINT8_FORMAT,
+    )
+
+
+HWC_UINT8_POST_PROCESSING_STEP = PostProcessingPipelineStep(
+    input_kind="frame",
+    operation=_frame_to_hwc_uint8,
+    name="frame-to-hwc-uint8",
+)
+"""Reusable frame conversion step for user-authored pipelines."""
+
+
 def _invert_frame(partition: PostProcessingInput) -> PostProcessingOutput:
     data = partition.data
     if partition.format.value_range == "uint8":
@@ -99,6 +126,7 @@ INVERT_POST_PROCESSING_STEP = PostProcessingPipelineStep(
 
 __all__ = [
     "FrameTensorLayout",
+    "HWC_UINT8_POST_PROCESSING_STEP",
     "INVERT_POST_PROCESSING_STEP",
     "PixelValueRange",
     "frame_tensor_to_hwc_uint8",

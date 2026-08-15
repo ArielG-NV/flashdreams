@@ -10,9 +10,8 @@ import threading
 import pytest
 import torch
 
-from flashdreams.infra.presentation import (
+from flashdreams.demo.post_processing import (
     HWC_UINT8_FORMAT,
-    HWC_UINT8_POST_PROCESSING_STEP,
     PostProcessingChunk,
     PostProcessingFormat,
     PostProcessingFrame,
@@ -20,7 +19,10 @@ from flashdreams.infra.presentation import (
     PostProcessingPipeline,
     PostProcessingPipelineStep,
 )
-from flashdreams.infra.presentation_utils import INVERT_POST_PROCESSING_STEP
+from flashdreams.demo.post_processing_utils import (
+    HWC_UINT8_POST_PROCESSING_STEP,
+    INVERT_POST_PROCESSING_STEP,
+)
 from flashdreams.runtime import StepResult
 
 pytestmark = pytest.mark.ci_cpu

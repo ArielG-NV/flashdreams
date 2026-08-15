@@ -14,14 +14,13 @@ import torch
 from torch import Tensor
 
 from flashdreams.infra.postprocess import VideoTensorLayout
-from flashdreams.infra.presentation import (
-    PostProcessingFrameStream,
-    PostProcessingPipeline,
-    infer_post_processing_format,
-)
 from flashdreams.infra.time import TimeWindow
 
 if TYPE_CHECKING:
+    from flashdreams.demo.post_processing import (
+        PostProcessingFrameStream,
+        PostProcessingPipeline,
+    )
     from flashdreams.infra.video_output import LazyRGBFrame
 
 
@@ -211,6 +210,8 @@ class StepResult:
             ValueError: This is not a video result or chunk_index is negative.
             TypeError: pipeline is not a PostProcessingPipeline.
         """
+        from flashdreams.demo.post_processing import PostProcessingPipeline
+
         if self.layout is None:
             raise ValueError(
                 "A post-processing pipeline can only be registered on video output."
@@ -234,6 +235,11 @@ class StepResult:
         max_in_flight_frames: int = 2,
     ) -> PostProcessingFrameStream:
         """Start a format-aware ordered stream of processed frame partitions."""
+        from flashdreams.demo.post_processing import (
+            PostProcessingPipeline,
+            infer_post_processing_format,
+        )
+
         input_format = infer_post_processing_format(
             self.video_chunk,
             layout=self._video_layout(),

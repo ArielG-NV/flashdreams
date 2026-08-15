@@ -308,6 +308,10 @@ class PostProcessingPipeline:
 
     def ensure_hwc_uint8(self) -> PostProcessingPipeline:
         """Append the bundled HWC uint8 step when the output needs conversion."""
+        from flashdreams.demo.post_processing_utils import (
+            HWC_UINT8_POST_PROCESSING_STEP,
+        )
+
         if self.steps and self.steps[-1] is HWC_UINT8_POST_PROCESSING_STEP:
             return self
         return self.append(HWC_UINT8_POST_PROCESSING_STEP)
@@ -385,34 +389,6 @@ class PostProcessingPipeline:
 
 HWC_UINT8_FORMAT = PostProcessingFormat(layout="hwc", value_range="uint8")
 """Canonical frame format consumed by presentation backends."""
-
-
-def _frame_to_hwc_uint8(partition: PostProcessingInput) -> PostProcessingOutput:
-    from flashdreams.infra.presentation_utils import frame_tensor_to_hwc_uint8
-
-    if not isinstance(partition, PostProcessingFrame):
-        raise TypeError("HWC uint8 conversion requires a frame partition.")
-    if partition.format.layout not in ("chw", "hwc"):
-        raise ValueError(
-            "HWC uint8 conversion requires a CHW or HWC frame, "
-            f"got {partition.format.layout!r}."
-        )
-    return PostProcessingOutput(
-        data=frame_tensor_to_hwc_uint8(
-            partition.data,
-            layout=partition.format.layout,
-            value_range=partition.format.value_range,
-        ),
-        format=HWC_UINT8_FORMAT,
-    )
-
-
-HWC_UINT8_POST_PROCESSING_STEP = PostProcessingPipelineStep(
-    input_kind="frame",
-    operation=_frame_to_hwc_uint8,
-    name="frame-to-hwc-uint8",
-)
-"""Reusable frame conversion step for user-authored pipelines."""
 
 
 def infer_post_processing_format(
@@ -538,7 +514,6 @@ def _validate_partition_format(
 __all__ = [
     "ChunkTensorLayout",
     "HWC_UINT8_FORMAT",
-    "HWC_UINT8_POST_PROCESSING_STEP",
     "PostProcessingChunk",
     "PostProcessingFormat",
     "PostProcessingFrame",

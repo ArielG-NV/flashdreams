@@ -7,9 +7,8 @@ This package defines the small v0 boundary above ``flashdreams.infra``. It is
 intentionally additive while integrations migrate onto it.
 """
 
-from flashdreams.infra.presentation import (
+from flashdreams.demo.post_processing import (
     HWC_UINT8_FORMAT,
-    HWC_UINT8_POST_PROCESSING_STEP,
     PostProcessingChunk,
     PostProcessingFormat,
     PostProcessingFrame,
@@ -20,9 +19,10 @@ from flashdreams.infra.presentation import (
     PostProcessingPipeline,
     PostProcessingPipelineStep,
 )
-from flashdreams.infra.presentation_utils import (
-    FrameTensorLayout,
+from flashdreams.demo.post_processing_utils import (
+    HWC_UINT8_POST_PROCESSING_STEP,
     INVERT_POST_PROCESSING_STEP,
+    FrameTensorLayout,
     PixelValueRange,
     frame_tensor_to_hwc_uint8,
 )
