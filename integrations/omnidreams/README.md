@@ -19,6 +19,33 @@ limitations under the License.
 
 Omnidreams integration package for `flashdreams`.
 
+## Run the Interactive Drive demo
+
+From the repository root, install the integration, prepare its assets, and
+launch the local-window application:
+
+```bash
+export HF_TOKEN=<YOUR-HF-TOKEN>
+uv sync --package flashdreams-omnidreams --extra interactive-drive
+uv run --package flashdreams-omnidreams omnidreams-prepare --perf
+uv run --package flashdreams-omnidreams flashdreams-run \
+  interactive-drive --manifest example_world_model_perf.yaml \
+  --auto-start --game-mode
+```
+
+For browser delivery, run the same application with WebRTC output:
+
+```bash
+uv run --package flashdreams-omnidreams flashdreams-run \
+  interactive-drive --output webrtc --host 0.0.0.0 --port 8089 \
+  --manifest example_world_model_perf.yaml --auto-start --game-mode
+```
+
+Then open `http://localhost:8089/request_session`. See the
+[OmniDreams application guide](omnidreams/demo/README.md) and the
+[interactive driving guide](omnidreams/interactive_drive/README.md) for setup,
+controls, replay/MP4 commands, and runtime requirements.
+
 ## Hugging Face assets
 
 Omnidreams resolves public Omni Dreams assets from the `nvidia` Hugging Face
@@ -121,48 +148,6 @@ Interpret the report as follows:
   baseline JSON; the baseline should contain only expected metric values and
   tolerances.
 
-## Run the local-window desktop demo
-
-The `local-window` mode launches the single-process driving demo. Refer to the
-[interactive guide](omnidreams/interactive_drive/README.md) for controls and
-runtime requirements.
-
-Validated & Supported GPU: RTX 6000 Pro Blackwell
-Validated & Supported OS: Ubuntu 26.04
-Validated & Supported Controllers: Playstation Dualshock - Fanatec Driving-sim wheel
-
-Execute the following:
-```bash
-# We are Assuming `uv` is installed
-
-# Token For Asset Repos
-export HF_TOKEN=<YOUR-HF-TOKEN>
-
-# Enable long paths to avoid breaking third-party source checkouts
-git config --system core.longpaths true
-
-# Sync dependencies
-uv sync --package flashdreams-omnidreams --extra interactive-drive
-uv run --package flashdreams-omnidreams python integrations/omnidreams/omnidreams_singleview/tools/sync_thirdparty.py sync
-
-# Prepare to run tuned for performance
-uv run --package flashdreams-omnidreams omnidreams-prepare --perf
-
-# Setup controllers if not using keyboard as control scheme & NOT runing headless
-uv run --package flashdreams-omnidreams interactive-drive-configuration
-
-# Run demo - Long startup to autotune - If it gets stuck, remove/delete stale pytorch/triton/compiler lock-files (likely in `/tmp` or `~/.cache/ludus-renderer`)
-uv run --package flashdreams-omnidreams interactive-drive \
-	--manifest example_world_model_perf.yaml --auto-start --game-mode
-
-# add `--stream-mjpeg :8080` to stream to your browser; required if running headless system
-
-# Or run the centralized local-window launch
-uv run --package flashdreams-omnidreams flashdreams-run \
-    omnidreams-perf local-window \
-    --manifest configs/launch_manifest/omnidreams_local_window.yaml
-```
-
 ## Native DiT defaults
 
 NVIDIA OmniDreams native DiT acceleration remains gated by the pipeline config's
@@ -178,106 +163,13 @@ explicitly to opt into Sparge/SageAttention-3 experiments. Use
 `native_dit_sparge_hybrid_period > 1` with `"sparge"` to enable the FP8
 Sparge/SageAttention-3 hybrid schedule when the extension and GPU support it.
 
-## Run (shared demo API)
+## Run through the application API
 
-From the repository root on a CUDA machine:
-
-```bash
-export HF_TOKEN=<your-hf-token>
-
-mkdir -p outputs
-uv sync --python 3.12 --package flashdreams-omnidreams --no-dev
-```
-
-Run the precomputed-HDMap replay path without writing video:
-
-```bash
-uv run --python 3.12 --package flashdreams-omnidreams flashdreams-run \
-  omnidreams null \
-  --device cuda:0 \
-  --scenario.example-data true \
-  --scenario.example-data-uuid 239560dc-33d1-11ef-9720-00044bcbccac \
-  --scenario.total-blocks 10
-```
-
-Generate an MP4 from the bundled precomputed-HDMap example assets:
-
-```bash
-uv run --python 3.12 --package flashdreams-omnidreams flashdreams-run \
-  omnidreams mp4 \
-  --device cuda:0 \
-  --scenario.example-data true \
-  --scenario.example-data-uuid 239560dc-33d1-11ef-9720-00044bcbccac \
-  --scenario.total-blocks 10 \
-  --output.fps 30 \
-  --output.path outputs/omnidreams-precomputed.mp4
-```
-
-Generate an MP4 from a Ludus scene and recorded keyboard trace:
-
-```bash
-uv run --python 3.12 --package flashdreams-omnidreams flashdreams-run \
-  omnidreams mp4 \
-  --device cuda:0 \
-  --scenario.conditioning-mode ludus-scene-driving \
-  --scenario.keyboard-trace \
-  integrations/omnidreams/omnidreams/demo/traces/ludus_forward_sweep_60s.json \
-  --scenario.scene-uuid 0d404ff7-2b66-498c-b047-1ed8cded60d4 \
-  --scenario.total-blocks 10 \
-  --output.fps 30 \
-  --output.path outputs/omnidreams-ludus.mp4
-```
-
-Serve the shared WebRTC demo:
-
-```bash
-uv run --python 3.12 --package flashdreams-omnidreams flashdreams-run \
-  omnidreams webrtc \
-  --host 0.0.0.0 \
-  --port 8089 \
-  --device cuda:0 \
-  --scenario.scene-uuid 0d404ff7-2b66-498c-b047-1ed8cded60d4 \
-  --output.video-height 704 \
-  --output.video-width 1280
-```
-
-Then open:
-
-- [http://localhost:8089/request_session](http://localhost:8089/request_session)
-- [http://localhost:8089/healthz](http://localhost:8089/healthz)
-
-When `--scenario.scene-dir` is omitted, the server downloads the selected scene
-from the configured Hugging Face org, extracts its
-`clipgt-<uuid>[-<variant>].usdz` archive, and stages it under
-`FLASHDREAMS_CACHE_DIR` (or `~/.cache/flashdreams`). If `--scenario.scene-uuid`
-is omitted too, the server uses the default WebRTC scene. Weather variants ship
-as sibling archives; pass `--scenario.scene-variant rain` (or `snow`) to serve
-one (default is the clear-weather scene). The runtime seeds from the scene's
-first ground-truth camera frame (`clipgt/frames/<camera>/<ts>.jpeg`, falling
-back to `clipgt/first_image.*`) and the weather-matched `clipgt/prompt<N>.txt`
-(falling back to `clipgt/prompt.txt`). Set `--scenario.scene-dir PATH` or
-`scenario.scene_dir` in a launch manifest to use a pre-staged local scene
-instead.
-
-The manifest-based form remains supported:
-
-```bash
-uv run --python 3.12 --package flashdreams-omnidreams flashdreams-run \
-  omnidreams webrtc \
-  --manifest configs/launch_manifest/omnidreams_webrtc.yaml
-```
-
-To enable video post-processing by default, override the runner's registered
-post-process preset in the launch manifest. RTX postprocess presets require the
-optional NVIDIA VFX runtime:
-
-```bash
-uv sync --package flashdreams-omnidreams --extra rtx-postprocess
-```
-
-The request-session page only offers a **Post-process** selector when the server
-was launched with `--postprocess-preset`; the selector can toggle that launched
-preset off for the next connection.
+The integration depends on the reusable `flashdreams-interactive-drive` app
+package and registers `omnidreams`, `omnidreams-perf`, and `interactive-drive`
+in the `flashdreams.applications` entry-point group. The shared host supplies
+local-window, null, MP4, and WebRTC output backends; see
+the [application guide](omnidreams/demo/README.md) for commands and flags.
 
 ## Run gRPC server
 

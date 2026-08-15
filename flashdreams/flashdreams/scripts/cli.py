@@ -29,7 +29,7 @@ Usage::
     flashdreams-run --no-instantiate template-offline # resolve config only
     flashdreams-run wan21-t2v-1.3b-480p --postprocess.preset flashvsr-v1.1-sparse-2.0
     flashdreams-run lingbot-world-fast webrtc --host 0.0.0.0 --port 8080
-    flashdreams-run omnidreams local-window
+    flashdreams-run interactive-drive
     flashdreams-run t2v-causal-forcing --prompt "A forest waterfall."
 
     # Multi-GPU via context-parallelism (integration transformers auto-detect
