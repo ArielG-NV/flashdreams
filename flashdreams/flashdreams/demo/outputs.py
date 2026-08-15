@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import json
 import math
-import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -675,7 +674,7 @@ class LocalWindowOutputSink(OutputSink):
             worker.raise_if_failed()
             return OutputDecision(should_stop=True)
         cuda_resident = result.video_chunk.is_cuda
-        frames = result.lazy_rgb_frames()
+        frames = result.iter_lazy_rgb_frames()
         replaced, backpressure_s = worker.submit(
             frames,
             frame_count=result.frame_count,

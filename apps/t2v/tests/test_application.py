@@ -169,6 +169,44 @@ def test_application_session_emits_canonical_video_results() -> None:
     assert pipeline.closed
 
 
+def test_t2v_registers_opt_in_post_processing_for_every_step() -> None:
+    pipeline = _FakePipeline()
+    application = _application(pipeline)
+    application.init(
+        [
+            "--prompt",
+            "A waterfall",
+            "--total-blocks",
+            "2",
+            "--device",
+            "cpu",
+            "--post-processing-test-effect",
+        ]
+    )
+    session = application.create_session()
+    session.init()
+
+    first = session.step(
+        CanonicalInputWindow(
+            values={},
+            window=TimeWindow(start_s=0.0, end_s=0.0),
+        )
+    )
+    second = session.step(
+        CanonicalInputWindow(
+            values={},
+            window=TimeWindow(start_s=0.0, end_s=0.0),
+        )
+    )
+    session.close()
+
+    assert first.post_processing_chunk_index == 0
+    assert second.post_processing_chunk_index == 1
+    assert first.post_processing_pipeline is second.post_processing_pipeline
+    assert torch.equal(second.video_chunk, torch.ones_like(second.video_chunk))
+    assert torch.count_nonzero(second.video_hwc_uint8()) == 0
+
+
 def test_application_session_honors_sink_stop_decision() -> None:
     pipeline = _FakePipeline()
     output_sink = _StoppingSink(store_outputs=True)

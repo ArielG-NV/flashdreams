@@ -74,6 +74,7 @@ class LazyRGBFrame(LazyCudaFrame):
             frames_hwc_uint8,
             frame_index,
             source_event=source_event,
+            synchronize_source_event_on_host_copy=True,
             lost_source_message=(
                 "Lazy RGB frame lost its source tensor before materialization."
             ),

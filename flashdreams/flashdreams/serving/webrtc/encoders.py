@@ -19,6 +19,7 @@ pay its process-global side effects.
 from __future__ import annotations
 
 import importlib.util
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, runtime_checkable
 
@@ -128,7 +129,7 @@ class DefaultRTCEncoder:
         self,
         result: StepResult,
         track: MediaStreamTrack,
-    ) -> tuple[object, ...]:
+    ) -> Iterable[object]:
         from flashdreams.serving.webrtc.media import BufferedVideoTrack
 
         if not isinstance(track, BufferedVideoTrack):
@@ -136,6 +137,9 @@ class DefaultRTCEncoder:
                 "DefaultRTCEncoder requires a BufferedVideoTrack; got "
                 f"{type(track).__name__}. Create it via encoder.create_track()."
             )
+        iter_frames = getattr(track, "iter_result_frames", None)
+        if callable(iter_frames):
+            return iter_frames(result)
         return track.prepare_result_frames(result)
 
     async def deliver_prepared_chunk(
@@ -156,9 +160,11 @@ class DefaultRTCEncoder:
                 "DefaultRTCEncoder requires a BufferedVideoTrack; got "
                 f"{type(track).__name__}. Create it via encoder.create_track()."
             )
-        if not isinstance(payload, tuple):
-            raise TypeError("DefaultRTCEncoder payload must be a tuple of RGB frames.")
-        enqueued = await track.enqueue_frames(cast(Any, payload))
+        if not isinstance(payload, Iterable):
+            raise TypeError(
+                "DefaultRTCEncoder payload must be an iterable of RGB frames."
+            )
+        enqueued = await track.enqueue_frames(cast(Iterable[Any], payload))
         return ChunkDeliveryResult(
             backend=self.backend,
             num_frames=enqueued,

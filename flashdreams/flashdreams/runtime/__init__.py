@@ -7,6 +7,25 @@ This package defines the small v0 boundary above ``flashdreams.infra``. It is
 intentionally additive while integrations migrate onto it.
 """
 
+from flashdreams.infra.presentation import (
+    HWC_UINT8_FORMAT,
+    HWC_UINT8_POST_PROCESSING_STEP,
+    PostProcessingChunk,
+    PostProcessingFormat,
+    PostProcessingFrame,
+    PostProcessingFrameStream,
+    PostProcessingInput,
+    PostProcessingInputKind,
+    PostProcessingOutput,
+    PostProcessingPipeline,
+    PostProcessingPipelineStep,
+)
+from flashdreams.infra.presentation_utils import (
+    FrameTensorLayout,
+    INVERT_POST_PROCESSING_STEP,
+    PixelValueRange,
+    frame_tensor_to_hwc_uint8,
+)
 from flashdreams.runtime.canonical import (
     DEFAULT_DRIVING_BINDINGS,
     DRIVER_COMMAND,
@@ -123,6 +142,20 @@ __all__ = [
     "OutputArtifact",
     "OutputTarget",
     "Precision",
+    "FrameTensorLayout",
+    "HWC_UINT8_FORMAT",
+    "HWC_UINT8_POST_PROCESSING_STEP",
+    "INVERT_POST_PROCESSING_STEP",
+    "PixelValueRange",
+    "PostProcessingChunk",
+    "PostProcessingFormat",
+    "PostProcessingFrame",
+    "PostProcessingFrameStream",
+    "PostProcessingInput",
+    "PostProcessingInputKind",
+    "PostProcessingOutput",
+    "PostProcessingPipeline",
+    "PostProcessingPipelineStep",
     "PromptRequest",
     "ResetRequest",
     "RuntimeMetricSample",
@@ -134,6 +167,7 @@ __all__ = [
     "TimeWindow",
     "ThreadAffineRuntimeWorker",
     "step_requirements_from_request",
+    "frame_tensor_to_hwc_uint8",
     "undeclared_inference_inputs",
     "UserInputCapability",
     "UserInputEvent",

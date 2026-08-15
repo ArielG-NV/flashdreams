@@ -20,7 +20,7 @@ from __future__ import annotations
 import queue
 import threading
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -559,7 +559,7 @@ class _QueuedLocalWindowResult:
     generation: int
     """Generation that produced the result."""
 
-    frames: Sequence[object]
+    frames: Iterable[object]
     """Lazy frames prepared on the model execution thread."""
 
     frame_count: int
@@ -619,7 +619,7 @@ class _LocalWindowPresentationWorker:
 
     def submit(
         self,
-        frames: Sequence[object],
+        frames: Iterable[object],
         *,
         frame_count: int,
         generation: int,
@@ -640,7 +640,8 @@ class _LocalWindowPresentationWorker:
                 break
             except queue.Full:
                 try:
-                    self._pending.get_nowait()
+                    replaced_item = self._pending.get_nowait()
+                    _close_frame_iterable(replaced_item.frames)
                 except queue.Empty:
                     continue
                 replaced += 1
@@ -680,27 +681,31 @@ class _LocalWindowPresentationWorker:
                 except queue.Empty:
                     continue
                 if self._is_stale(item.generation):
+                    _close_frame_iterable(item.frames)
                     continue
                 if item.generation != active_generation:
                     active_generation = item.generation
                     next_deadline_s = None
-                for frame in item.frames:
-                    if self._is_stale(item.generation):
-                        break
-                    if not presenter.present(frame):
-                        self._window_closed.set()
-                        break
-                    now_s = time.monotonic()
-                    if next_deadline_s is None:
-                        next_deadline_s = now_s + self._frame_interval_s
-                    else:
-                        next_deadline_s = max(
-                            now_s,
-                            next_deadline_s + self._frame_interval_s,
-                        )
-                    if not presenter.wait_until(next_deadline_s):
-                        self._window_closed.set()
-                        break
+                try:
+                    for frame in item.frames:
+                        if self._is_stale(item.generation):
+                            break
+                        if not presenter.present(frame):
+                            self._window_closed.set()
+                            break
+                        now_s = time.monotonic()
+                        if next_deadline_s is None:
+                            next_deadline_s = now_s + self._frame_interval_s
+                        else:
+                            next_deadline_s = max(
+                                now_s,
+                                next_deadline_s + self._frame_interval_s,
+                            )
+                        if not presenter.wait_until(next_deadline_s):
+                            self._window_closed.set()
+                            break
+                finally:
+                    _close_frame_iterable(item.frames)
                 if self._window_closed.is_set():
                     break
         except BaseException as exc:
@@ -726,9 +731,16 @@ class _LocalWindowPresentationWorker:
     def _discard_pending(self) -> None:
         while True:
             try:
-                self._pending.get_nowait()
+                item = self._pending.get_nowait()
+                _close_frame_iterable(item.frames)
             except queue.Empty:
                 return
+
+
+def _close_frame_iterable(frames: Iterable[object]) -> None:
+    close = getattr(frames, "close", None)
+    if callable(close):
+        close()
 
 
 def _presenter_should_close(presenter: Any) -> bool:

@@ -31,6 +31,8 @@ from flashdreams.demo import (
 )
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.postprocess import VideoTensorLayout
+from flashdreams.infra.presentation import PostProcessingPipeline
+from flashdreams.infra.presentation_utils import INVERT_POST_PROCESSING_STEP
 from flashdreams.infra.results import StepResult
 from flashdreams.runtime import StepRequirements
 
@@ -114,6 +116,9 @@ class _T2VSessionConfig:
     output_layout: VideoTensorLayout
     """Layout emitted by the integration pipeline."""
 
+    post_processing_pipeline: PostProcessingPipeline | None
+    """Optional presentation pipeline registered on every generated step."""
+
 
 class T2VApplication(IFlashDreamsApplication):
     """Reusable text-to-video application configured by one integration."""
@@ -149,6 +154,12 @@ class T2VApplication(IFlashDreamsApplication):
             action=argparse.BooleanOptionalAction,
             default=None,
         )
+        parser.add_argument(
+            "--post-processing-test-effect",
+            action=argparse.BooleanOptionalAction,
+            default=False,
+            help="invert the full screen through the presentation pipeline",
+        )
         args = parser.parse_args(list(commandline_args))
 
         prompt = (args.prompt or "").strip()
@@ -180,6 +191,11 @@ class T2VApplication(IFlashDreamsApplication):
             device=args.device,
             fps=args.fps,
             output_layout=self.defaults.output_layout,
+            post_processing_pipeline=(
+                PostProcessingPipeline((INVERT_POST_PROCESSING_STEP,))
+                if args.post_processing_test_effect
+                else None
+            ),
         )
 
     def create_session(self) -> IFlashDreamsApplicationSession:
@@ -301,6 +317,11 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
             layout=self.config.output_layout,
             metadata={"prompt": self._prompt or ""},
         )
+        if self.config.post_processing_pipeline is not None:
+            result = result.register_post_processing_pipeline(
+                self.config.post_processing_pipeline,
+                self._step_index,
+            )
         self._step_index += 1
         return result
 

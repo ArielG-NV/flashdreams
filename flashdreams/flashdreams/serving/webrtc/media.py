@@ -5,9 +5,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from fractions import Fraction
-from typing import cast
 
 import numpy as np
 from aiortc import MediaStreamTrack
@@ -18,11 +17,6 @@ from loguru import logger
 
 from flashdreams.runtime import StepResult
 from flashdreams.serving.realtime.media import (
-    FrameLayout,
-    ValueRange,
-    rgb_array_to_uint8_frames,
-)
-from flashdreams.serving.realtime.media import (
     tensor_chunk_to_rgb_frames as tensor_chunk_to_rgb_frames,
 )
 
@@ -30,17 +24,36 @@ _STALL_THRESHOLD_MS = 1.0
 _PACING_LAG_LOG_MS = 5.0
 
 
+def _iter_default_frames(result: StepResult) -> Iterator[np.ndarray]:
+    stream = result.post_processed_frame_partitions(ensure_hwc_uint8=True)
+    return _iter_host_frames(stream)
+
+
+def _iter_host_frames(frames: Iterator[object]) -> Iterator[np.ndarray]:
+    close = getattr(frames, "close", None)
+    try:
+        for frame in frames:
+            ready_event = getattr(frame, "ready_event", None)
+            if ready_event is not None:
+                ready_event.synchronize()
+            data = getattr(frame, "data")
+            yield np.ascontiguousarray(data.cpu().numpy())
+    finally:
+        if callable(close):
+            close()
+
+
 def _default_frame_converter(result: StepResult) -> list[np.ndarray]:
-    video_chunk = result.video_chunk
-    value_range: ValueRange = (
-        "minus_one_one" if video_chunk.is_floating_point() else "uint8"
-    )
-    return rgb_array_to_uint8_frames(
-        video_chunk,
-        layout=cast(FrameLayout, result.layout),
-        value_range=value_range,
-        sync_device=True,
-    )
+    return list(_iter_default_frames(result))
+
+
+def _next_frame(
+    frames: Iterator[np.ndarray],
+) -> tuple[bool, np.ndarray | None]:
+    try:
+        return True, next(frames)
+    except StopIteration:
+        return False, None
 
 
 class BufferedVideoTrack(MediaStreamTrack):
@@ -66,7 +79,7 @@ class BufferedVideoTrack(MediaStreamTrack):
         self._next_deadline_s: float | None = None
         self._pts = 0
         self._maxsize = maxsize
-        self._frame_converter = frame_converter or _default_frame_converter
+        self._frame_converter = frame_converter
         self._frames: asyncio.Queue[np.ndarray | None] = asyncio.Queue(maxsize=maxsize)
         self._closed = False
 
@@ -81,25 +94,43 @@ class BufferedVideoTrack(MediaStreamTrack):
     def qsize(self) -> int:
         return self._frames.qsize()
 
-    def prepare_result_frames(self, result: StepResult) -> tuple[np.ndarray, ...]:
+    def iter_result_frames(self, result: StepResult) -> Iterator[np.ndarray]:
+        """Return a host-frame iterator without gathering the whole chunk."""
         if self._closed:
-            return ()
-        return tuple(self._frame_converter(result))
+            return iter(())
+        if self._frame_converter is not None:
+            return iter(self._frame_converter(result))
+        return _iter_default_frames(result)
 
-    async def enqueue_frames(self, frames: Sequence[np.ndarray]) -> int:
+    def prepare_result_frames(self, result: StepResult) -> tuple[np.ndarray, ...]:
+        """Return an eager compatibility snapshot of converted frames."""
+        return tuple(self.iter_result_frames(result))
+
+    async def enqueue_frames(self, frames: Iterable[np.ndarray]) -> int:
+        """Enqueue an iterable one frame at a time with async backpressure."""
         if self._closed:
             return 0
-        for i, frame in enumerate(frames):
-            if self._closed:
-                return i
-            await self._frames.put(frame)
-        return len(frames)
+        iterator = iter(frames)
+        enqueued = 0
+        try:
+            while not self._closed:
+                available, frame = await asyncio.to_thread(_next_frame, iterator)
+                if not available:
+                    break
+                if frame is None:
+                    raise RuntimeError("frame iterator returned an empty frame.")
+                await self._frames.put(frame)
+                enqueued += 1
+        finally:
+            close = getattr(iterator, "close", None)
+            if callable(close):
+                close()
+        return enqueued
 
     async def enqueue_result(self, result: StepResult) -> int:
         if self._closed:
             return 0
-        frames = await asyncio.to_thread(self.prepare_result_frames, result)
-        return await self.enqueue_frames(frames)
+        return await self.enqueue_frames(self.iter_result_frames(result))
 
     async def flush(self) -> None:
         """Drop queued frames while keeping the RTP timestamp sequence alive."""
