@@ -151,7 +151,21 @@ uv run --package flashdreams-omnidreams omnidreams-prepare --perf
 # Setup controllers if not using keyboard as control scheme & NOT runing headless
 uv run --package flashdreams-omnidreams interactive-drive-configuration
 
-# Run demo - Long startup to autotune - If it gets stuck, remove/delete stale pytorch/triton/compiler lock-files (likely in `/tmp` or `~/.cache/ludus-renderer`)
+# Run the FlashDreams application demo. The host owns keyboard/gamepad input
+# and presentation; OmniDreams owns scene conditioning and model inference.
+# The driving HUD is attached as a frame post-processing step, so the same UI
+# is visible in local-window, WebRTC, and captured output modes.
+uv run --package flashdreams-omnidreams flashdreams-run interactive-drive
+
+# Optional scene and runtime overrides
+uv run --package flashdreams-omnidreams flashdreams-run interactive-drive \
+    --scene-uuid 0d404ff7-2b66-498c-b047-1ed8cded60d4 \
+    --scene-variant rain \
+    --preset-id omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf
+
+# The legacy all-in-one desktop loop remains available for its scene picker,
+# wheel calibration, PhysX debug views, and MJPEG presenter.
+# Long startup to autotune - If it gets stuck, remove/delete stale pytorch/triton/compiler lock-files (likely in `/tmp` or `~/.cache/ludus-renderer`)
 uv run --package flashdreams-omnidreams interactive-drive \
 	--manifest example_world_model_perf.yaml --auto-start --game-mode
 

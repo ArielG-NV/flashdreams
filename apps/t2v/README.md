@@ -5,6 +5,10 @@ integration owns its small `t2v/app.py` factory. A non-empty `--prompt` is
 required.
 Pass `--post-processing-test-effect` to register a frame-scoped, full-screen
 color inversion on every generated `StepResult`. This is a presentation-only.
+Pass `--flash-vsr` or `--dlss` to append per-chunk 2x upscaling through the
+FlashVSR or NVIDIA RTX Video Super Resolution backend, respectively. Both are
+optional GPU features; FlashVSR requires its integration package and DLSS
+requires the `nvidia-vfx` runtime.
 
 For a targeted workspace environment, select the integration distribution in
 the `uv run` command. This syncs the integration, `flashdreams-t2v`, and the

@@ -26,7 +26,7 @@ from typing import Any, Literal, TypeAlias
 import torch
 from torch import Tensor
 
-from flashdreams.infra.postprocess import VideoTensorLayout
+from flashdreams.infra.postprocess import VideoSpec, VideoTensorLayout
 
 FrameTensorLayout: TypeAlias = Literal["chw", "hwc"]
 """Supported layouts for one RGB frame."""
@@ -128,6 +128,9 @@ PostProcessingOperation: TypeAlias = Callable[
 ]
 """Data-and-format operation used by one presentation step."""
 
+PostProcessingSpecOperation: TypeAlias = Callable[[VideoSpec], VideoSpec]
+"""Static video-spec transform declared by a presentation step."""
+
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class PostProcessingPipelineStep:
@@ -139,6 +142,9 @@ class PostProcessingPipelineStep:
     operation: PostProcessingOperation
     """Operation that returns replacement data and its matching format."""
 
+    output_spec_operation: PostProcessingSpecOperation | None = None
+    """Optional transform for sink-facing video geometry and timing."""
+
     name: str | None = None
     """Optional diagnostic name for validation errors."""
 
@@ -149,6 +155,12 @@ class PostProcessingPipelineStep:
             )
         if not callable(self.operation):
             raise TypeError("PostProcessingPipelineStep.operation must be callable.")
+        if self.output_spec_operation is not None and not callable(
+            self.output_spec_operation
+        ):
+            raise TypeError(
+                "PostProcessingPipelineStep.output_spec_operation must be callable."
+            )
 
     def process(self, partition: PostProcessingInput) -> PostProcessingInput:
         """Apply the operation and propagate its declared output format."""
@@ -295,8 +307,7 @@ class PostProcessingPipeline:
                 seen_frame_step = True
             elif seen_frame_step:
                 raise ValueError(
-                    "Chunk-scoped steps are barriers and must precede frame-scoped "
-                    "steps."
+                    "Chunk was broken up into individual frames, trying to process individual-frame as chunk."
                 )
 
     steps: tuple[PostProcessingPipelineStep, ...]
@@ -377,6 +388,14 @@ class PostProcessingPipeline:
             max_in_flight_frames=max_in_flight_frames,
             source_event=source_event,
         )
+
+    def output_spec(self, input_spec: VideoSpec) -> VideoSpec:
+        """Apply declared step transforms to a sink-facing video specification."""
+        output_spec = input_spec
+        for step in self.steps:
+            if step.output_spec_operation is not None:
+                output_spec = step.output_spec_operation(output_spec)
+        return output_spec
 
     @property
     def _chunk_steps(self) -> tuple[PostProcessingPipelineStep, ...]:
@@ -523,6 +542,7 @@ __all__ = [
     "PostProcessingInputKind",
     "PostProcessingPipeline",
     "PostProcessingPipelineStep",
+    "PostProcessingSpecOperation",
     "PostProcessingTensorLayout",
     "infer_post_processing_format",
 ]

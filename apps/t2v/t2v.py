@@ -23,16 +23,18 @@ from dataclasses import dataclass
 from typing import Any
 
 from flashdreams.demo import (
+    DLSS_POST_PROCESSING_STEP,
+    FLASH_VSR_POST_PROCESSING_STEP,
+    INVERT_POST_PROCESSING_STEP,
     CanonicalInputSchema,
     CanonicalInputWindow,
     IFlashDreamsApplication,
     IFlashDreamsApplicationSession,
+    PostProcessingPipeline,
     SessionInfo,
 )
 from flashdreams.infra.config import derive_config
-from flashdreams.infra.postprocess import VideoTensorLayout
-from flashdreams.infra.presentation import PostProcessingPipeline
-from flashdreams.infra.presentation_utils import INVERT_POST_PROCESSING_STEP
+from flashdreams.infra.postprocess import VideoSpec, VideoTensorLayout
 from flashdreams.infra.results import StepResult
 from flashdreams.runtime import StepRequirements
 
@@ -155,6 +157,18 @@ class T2VApplication(IFlashDreamsApplication):
             default=None,
         )
         parser.add_argument(
+            "--flash-vsr",
+            "--flash-vsr-upscaling",
+            action="store_true",
+            help="apply 2x FlashVSR upscaling to each generated video chunk",
+        )
+        parser.add_argument(
+            "--dlss",
+            "--dlss-upscaling",
+            action="store_true",
+            help="apply 2x RTX Video Super Resolution to each generated chunk",
+        )
+        parser.add_argument(
             "--post-processing-test-effect",
             action=argparse.BooleanOptionalAction,
             default=False,
@@ -182,6 +196,14 @@ class T2VApplication(IFlashDreamsApplication):
                     "transformer": {"compile_network": args.compile},
                 },
             )
+        post_processing_steps = []
+        if args.flash_vsr:
+            post_processing_steps.append(FLASH_VSR_POST_PROCESSING_STEP)
+        if args.dlss:
+            post_processing_steps.append(DLSS_POST_PROCESSING_STEP)
+        if args.post_processing_test_effect:
+            post_processing_steps.append(INVERT_POST_PROCESSING_STEP)
+
         self._session_config = _T2VSessionConfig(
             pipeline_config=pipeline_config,
             prompt=prompt,
@@ -192,8 +214,8 @@ class T2VApplication(IFlashDreamsApplication):
             fps=args.fps,
             output_layout=self.defaults.output_layout,
             post_processing_pipeline=(
-                PostProcessingPipeline((INVERT_POST_PROCESSING_STEP,))
-                if args.post_processing_test_effect
+                PostProcessingPipeline(post_processing_steps)
+                if post_processing_steps
                 else None
             ),
         )
@@ -269,12 +291,19 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
         if callable(get_frame_count):
             steady_index = 1 if self.config.total_blocks > 1 else 0
             frame_count = int(get_frame_count(steady_index))
+        output_spec = VideoSpec(
+            height=self.config.pixel_height,
+            width=self.config.pixel_width,
+            fps=self.config.fps,
+        )
+        if self.config.post_processing_pipeline is not None:
+            output_spec = self.config.post_processing_pipeline.output_spec(output_spec)
         return SessionInfo(
             output_layout=self.config.output_layout,
             steady_output_frame_count=frame_count,
             frames_per_second=self.config.fps,
-            video_width=self.config.pixel_width,
-            video_height=self.config.pixel_height,
+            video_width=output_spec.width,
+            video_height=output_spec.height,
             metadata={"prompt": self._prompt or ""},
         )
 

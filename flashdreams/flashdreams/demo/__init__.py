@@ -63,6 +63,8 @@ from flashdreams.demo.post_processing import (
     PostProcessingPipelineStep,
 )
 from flashdreams.demo.post_processing_utils import (
+    DLSS_POST_PROCESSING_STEP,
+    FLASH_VSR_POST_PROCESSING_STEP,
     HWC_UINT8_POST_PROCESSING_STEP,
     INVERT_POST_PROCESSING_STEP,
     FrameTensorLayout,
@@ -83,6 +85,8 @@ __all__ = [
     "CompositeOutputSink",
     "CompositeOutputSinkError",
     "DeferredWebRTCOutputSink",
+    "DLSS_POST_PROCESSING_STEP",
+    "FLASH_VSR_POST_PROCESSING_STEP",
     "IFlashDreamsApplication",
     "IFlashDreamsApplicationSession",
     "IOFactory",

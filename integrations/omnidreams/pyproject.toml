@@ -29,6 +29,7 @@ dependencies = [
     # ``omnidreams.grpc``, and the ``omnidreams.interactive_drive`` desktop
     # demo subpackage).
     "flashdreams[serving]",
+    "flashdreams-interactive-drive",
     "mediapy>=1.1",
     "ludus-renderer",
     "imageio>=2.20",
@@ -68,6 +69,7 @@ dependencies = [
 
 [tool.uv.sources]
 flashdreams = { workspace = true }
+flashdreams-interactive-drive = { workspace = true }
 ludus-renderer = { workspace = true }
 
 [project.optional-dependencies]
@@ -111,6 +113,12 @@ omnidreams-eval = "omnidreams.eval.cli:main"
 # controller and writes a local input profile the demo auto-discovers.
 # Stdlib-only (Tkinter); does not need the ``interactive-drive`` extra.
 interactive-drive-configuration = "omnidreams.interactive_drive.input_config.app:main"
+
+# Transport-neutral interactive demo. The FlashDreams host owns the selected
+# output backend while the application delegates model work to OmniDreams and
+# registers its HUD as presentation post-processing.
+[project.entry-points."flashdreams.applications"]
+"interactive-drive" = "omnidreams.interactive_drive.flashdreams_app:create_app"
 
 # Each entry registers one ``runner_name`` slug with ``flashdreams-run``.
 # The discovery layer (``flashdreams.plugins.registry.discover_runners``)

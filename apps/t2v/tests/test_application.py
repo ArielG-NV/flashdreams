@@ -28,6 +28,9 @@ from t2v import (
 )
 
 from flashdreams.demo import (
+    DLSS_POST_PROCESSING_STEP,
+    FLASH_VSR_POST_PROCESSING_STEP,
+    INVERT_POST_PROCESSING_STEP,
     CanonicalInputs,
     CanonicalInputWindow,
     Mp4OutputSink,
@@ -205,6 +208,29 @@ def test_t2v_registers_opt_in_post_processing_for_every_step() -> None:
     assert first.post_processing_pipeline is second.post_processing_pipeline
     assert torch.equal(second.video_chunk, torch.ones_like(second.video_chunk))
     assert torch.count_nonzero(second.video_hwc_uint8()) == 0
+
+
+def test_t2v_registers_upscalers_before_frame_effects() -> None:
+    application = _application(_FakePipeline())
+    application.init(
+        [
+            "--prompt",
+            "A waterfall",
+            "--flash-vsr",
+            "--dlss",
+            "--post-processing-test-effect",
+        ]
+    )
+
+    session = application.create_session()
+
+    pipeline = session.config.post_processing_pipeline
+    assert pipeline is not None
+    assert pipeline.steps == (
+        FLASH_VSR_POST_PROCESSING_STEP,
+        DLSS_POST_PROCESSING_STEP,
+        INVERT_POST_PROCESSING_STEP,
+    )
 
 
 def test_application_session_honors_sink_stop_decision() -> None:

@@ -10,6 +10,7 @@ import threading
 import pytest
 import torch
 
+from flashdreams.demo import post_processing_utils
 from flashdreams.demo.post_processing import (
     HWC_UINT8_FORMAT,
     PostProcessingChunk,
@@ -20,12 +21,83 @@ from flashdreams.demo.post_processing import (
     PostProcessingPipelineStep,
 )
 from flashdreams.demo.post_processing_utils import (
+    DLSS_POST_PROCESSING_STEP,
+    FLASH_VSR_POST_PROCESSING_STEP,
     HWC_UINT8_POST_PROCESSING_STEP,
     INVERT_POST_PROCESSING_STEP,
 )
+from flashdreams.infra.postprocess import VideoChunk, VideoSpec
 from flashdreams.runtime import StepResult
 
 pytestmark = pytest.mark.ci_cpu
+
+
+class _FakeUpscalerSession:
+    def prepare(self) -> None:
+        pass
+
+    def process(self, chunk: VideoChunk) -> list[VideoChunk]:
+        data = chunk.tensor.repeat_interleave(2, dim=-2).repeat_interleave(2, dim=-1)
+        return [VideoChunk(tensor=data, layout=chunk.layout, metadata=chunk.metadata)]
+
+    def flush(self) -> list[VideoChunk]:
+        return []
+
+
+class _FakeUpscaler:
+    def start(self, spec: object) -> _FakeUpscalerSession:
+        del spec
+        return _FakeUpscalerSession()
+
+
+class _FakeUpscalerConfig:
+    def setup(self) -> _FakeUpscaler:
+        return _FakeUpscaler()
+
+    def output_spec(self, input_spec: VideoSpec) -> VideoSpec:
+        return VideoSpec(
+            height=input_spec.height * 2,
+            width=input_spec.width * 2,
+            fps=input_spec.fps,
+            channels=input_spec.channels,
+        )
+
+
+@pytest.mark.parametrize(
+    ("step", "preset"),
+    [
+        (FLASH_VSR_POST_PROCESSING_STEP, "flashvsr-v1.1-sparse-2.0"),
+        (DLSS_POST_PROCESSING_STEP, "rtx-super-resolution"),
+    ],
+)
+def test_upscaling_steps_process_one_whole_chunk(
+    monkeypatch: pytest.MonkeyPatch,
+    step: PostProcessingPipelineStep,
+    preset: str,
+) -> None:
+    resolved: list[str] = []
+
+    def resolve(name: str) -> _FakeUpscalerConfig:
+        resolved.append(name)
+        return _FakeUpscalerConfig()
+
+    monkeypatch.setattr(post_processing_utils, "_resolve_postprocessor_config", resolve)
+    chunk = PostProcessingChunk(
+        data=torch.zeros((2, 3, 4, 5)),
+        format=PostProcessingFormat(layout="tchw", value_range="minus_one_one"),
+        chunk_index=6,
+    )
+
+    processed = step.process(chunk)
+
+    assert isinstance(processed, PostProcessingChunk)
+    assert resolved == [preset]
+    assert step.input_kind == "chunk"
+    assert processed.data.shape == (2, 3, 8, 10)
+    assert processed.format == chunk.format
+    assert PostProcessingPipeline((step,)).output_spec(
+        VideoSpec(height=4, width=5, fps=16.0)
+    ) == VideoSpec(height=8, width=10, fps=16.0)
 
 
 def _collect_frames(

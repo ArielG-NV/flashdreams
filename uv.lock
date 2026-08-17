@@ -25,6 +25,7 @@ members = [
     "flashdreams-fastvideo-causal-wan22",
     "flashdreams-flashvsr",
     "flashdreams-hy-worldplay",
+    "flashdreams-interactive-drive",
     "flashdreams-lingbot",
     "flashdreams-omnidreams",
     "flashdreams-sana-wm",
@@ -1250,6 +1251,24 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
+name = "flashdreams-interactive-drive"
+version = "0.1.0"
+source = { editable = "apps/interactive_drive" }
+dependencies = [
+    { name = "flashdreams", extra = ["local-window", "serving"] },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "pillow" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" },
+    { name = "numpy", specifier = ">=1.24" },
+    { name = "pillow", specifier = ">=10.0" },
+]
+
+[[package]]
 name = "flashdreams-lingbot"
 version = "0.1.0"
 source = { editable = "integrations/lingbot" }
@@ -1290,6 +1309,7 @@ source = { editable = "integrations/omnidreams" }
 dependencies = [
     { name = "einops" },
     { name = "flashdreams", extra = ["serving"] },
+    { name = "flashdreams-interactive-drive" },
     { name = "grpcio" },
     { name = "grpcio-tools" },
     { name = "huggingface-hub" },
@@ -1336,6 +1356,7 @@ requires-dist = [
     { name = "einops", specifier = ">=0.8" },
     { name = "flashdreams", extras = ["rtx-postprocess"], marker = "extra == 'rtx-postprocess'", editable = "flashdreams" },
     { name = "flashdreams", extras = ["serving"], editable = "flashdreams" },
+    { name = "flashdreams-interactive-drive", editable = "apps/interactive_drive" },
     { name = "flip-evaluator", marker = "extra == 'dev'", specifier = ">=1.7" },
     { name = "grpcio", specifier = ">=1.50" },
     { name = "grpcio-tools", specifier = ">=1.50" },
