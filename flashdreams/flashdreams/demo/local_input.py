@@ -206,6 +206,16 @@ class SlangPyLocalInputHandler(InputHandler):
             and self._raw_input_observer is None
         ):
             return
+        if _event_flag(event, "is_input"):
+            text = _text_from_slangpy_input(event)
+            if text:
+                self._notify_raw_input(
+                    event_type=TEXT_INPUT_EVENT_TYPE,
+                    payload={"text": text},
+                    source="slangpy-keyboard",
+                )
+            return
+
         is_press = _event_flag(event, "is_key_press")
         is_release = _event_flag(event, "is_key_release")
         is_repeat = _event_flag(event, "is_key_repeat")
@@ -224,13 +234,6 @@ class SlangPyLocalInputHandler(InputHandler):
             with self._event_lock:
                 self._events.append(raw_event)
         self._publish_raw_input(raw_event)
-        text = getattr(event, "text", None)
-        if is_press and isinstance(text, str) and text:
-            self._notify_raw_input(
-                event_type=TEXT_INPUT_EVENT_TYPE,
-                payload={"text": text},
-                source="slangpy-keyboard",
-            )
 
     def on_mouse_event(self, event: Any) -> None:
         """Forward one SlangPy mouse event to the UI input mailbox."""
@@ -344,6 +347,17 @@ class SlangPyLocalInputHandler(InputHandler):
 def _event_flag(event: Any, method_name: str) -> bool:
     method = getattr(event, method_name, None)
     return bool(method()) if callable(method) else False
+
+
+def _text_from_slangpy_input(event: Any) -> str | None:
+    """Decode text from SlangPy's dedicated UTF-32 keyboard input event."""
+    codepoint = getattr(event, "codepoint", None)
+    if not isinstance(codepoint, int) or isinstance(codepoint, bool) or codepoint <= 0:
+        return None
+    try:
+        return chr(codepoint)
+    except ValueError:
+        return None
 
 
 def _slangpy_enum_name(value: Any) -> str | None:

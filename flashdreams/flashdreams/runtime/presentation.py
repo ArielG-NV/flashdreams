@@ -20,6 +20,9 @@ from flashdreams.runtime.types import StepResult
 SERVER_UI_GENERATE_CONTROL_ID = "flashdreams.server_ui.generate"
 """Semantic UI event requesting a fresh model generation."""
 
+SERVER_UI_CLOSE_CONTROL_ID = "flashdreams.server_ui.close"
+"""Semantic UI event requesting graceful application shutdown."""
+
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class UIControlEvent:
@@ -96,16 +99,21 @@ class UIControlMailbox:
 
     def wait_for_event(self, control_id: str) -> UIControlEvent:
         """Wait for and consume the newest event matching ``control_id``."""
-        if not control_id.strip():
-            raise ValueError("control_id must be non-empty.")
+        return self.wait_for_any((control_id,))
+
+    def wait_for_any(self, control_ids: Sequence[str]) -> UIControlEvent:
+        """Wait for and consume the newest event matching any requested control."""
+        requested = frozenset(control_ids)
+        if not requested or any(not control_id.strip() for control_id in requested):
+            raise ValueError("control_ids must contain non-empty identifiers.")
         with self._event_available:
-            while not any(event.control_id == control_id for event in self._events):
+            while not any(event.control_id in requested for event in self._events):
                 self._event_available.wait()
             matching = [
-                event for event in self._events if event.control_id == control_id
+                event for event in self._events if event.control_id in requested
             ]
             self._events[:] = [
-                event for event in self._events if event.control_id != control_id
+                event for event in self._events if event.control_id not in requested
             ]
             return matching[-1]
 
@@ -240,6 +248,11 @@ class PresentationSubmission:
 
     replaced_chunks: int = 0
     queued_duration_s: float = 0.0
+    should_stop: bool = False
+
+
+class PresentationStopRequested(RuntimeError):
+    """Signal that a presentation backend was closed by its consumer."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -268,6 +281,7 @@ class AsyncPresentationCoordinator:
         backends: Sequence[PresentationBackend],
         max_pending_chunks: int = 2,
         idle_frame: object | None = None,
+        on_stop_requested: Callable[[], None] | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         if not math.isfinite(fps) or fps <= 0:
@@ -282,6 +296,7 @@ class AsyncPresentationCoordinator:
         self._clock = clock
         self._pending: queue.Queue[_QueuedChunk] = queue.Queue(max_pending_chunks)
         self._initial_idle_frame = idle_frame
+        self._on_stop_requested = on_stop_requested
         self._ready = threading.Event()
         self._stop = threading.Event()
         self._idle = threading.Event()
@@ -313,6 +328,8 @@ class AsyncPresentationCoordinator:
     def submit(self, result: StepResult) -> PresentationSubmission:
         """Queue one generated chunk and return without presenting it."""
         self.raise_if_failed()
+        if self._stop.is_set():
+            return PresentationSubmission(should_stop=True)
         if result.layout is None:
             raise TypeError("Async presentation requires a video StepResult.")
         with self._state_lock:
@@ -339,6 +356,7 @@ class AsyncPresentationCoordinator:
         return PresentationSubmission(
             replaced_chunks=replaced,
             queued_duration_s=queued_frames / self._fps,
+            should_stop=self._stop.is_set(),
         )
 
     def close(self) -> Sequence[OutputArtifact]:
@@ -432,6 +450,15 @@ class AsyncPresentationCoordinator:
                     self._stop.wait(max(0.0, next_deadline_s - now_s))
                 if self._pending.empty():
                     self._idle.set()
+        except PresentationStopRequested:
+            self._stop.set()
+            self._discard_pending()
+            if self._on_stop_requested is not None:
+                try:
+                    self._on_stop_requested()
+                except BaseException as exc:
+                    with self._state_lock:
+                        self._error = exc
         except BaseException as exc:
             with self._state_lock:
                 self._error = exc
@@ -476,7 +503,9 @@ __all__ = [
     "TorchAlphaCompositor",
     "PresentationBackend",
     "PresentationFrame",
+    "PresentationStopRequested",
     "PresentationSubmission",
+    "SERVER_UI_CLOSE_CONTROL_ID",
     "ServerUI",
     "SERVER_UI_GENERATE_CONTROL_ID",
     "UIControlEvent",

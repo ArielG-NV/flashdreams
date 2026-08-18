@@ -47,6 +47,7 @@ from flashdreams.demo.bridge import (
 from flashdreams.infra.results import StepResult
 from flashdreams.infra.time import TimeWindow
 from flashdreams.runtime import (
+    SERVER_UI_CLOSE_CONTROL_ID,
     CanonicalInputSchema,
     CanonicalModality,
     StepRequirements,
@@ -149,7 +150,7 @@ class _FakeImGui:
         prompt: str,
         size: tuple[float, float],
     ) -> tuple[bool, str]:
-        assert label == "Prompt"
+        assert label == "# Prompt"
         assert isinstance(prompt, str)
         assert size == (-1.0, 120.0)
         return True, self.edited_prompt
@@ -211,6 +212,26 @@ def test_prompt_is_optional_and_first_ui_submission_initializes_cache() -> None:
     assert pipeline.cache_initializations[-1]["text"] == [
         "A paper boat on a moonlit lake"
     ]
+
+
+def test_closing_ui_before_prompt_ends_session_without_hanging() -> None:
+    pipeline = _FakePipeline()
+    application = _application(pipeline)
+    application.init(["--device", "cpu"])
+    session = application.create_session()
+    session.init()
+    requirements: list[StepRequirements | None] = []
+    waiter = threading.Thread(
+        target=lambda: requirements.append(session.next_step_requirements())
+    )
+
+    waiter.start()
+    session.server_ui().controls.emit(SERVER_UI_CLOSE_CONTROL_ID)
+    waiter.join(timeout=1.0)
+
+    assert not waiter.is_alive()
+    assert requirements == [None]
+    assert pipeline.cache_initializations == []
 
 
 def test_prompt_must_be_non_empty_when_provided() -> None:

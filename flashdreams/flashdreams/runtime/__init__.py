@@ -81,11 +81,13 @@ from flashdreams.runtime.metrics import (
 )
 from flashdreams.runtime.output import NullOutputTarget, OutputArtifact, OutputTarget
 from flashdreams.runtime.presentation import (
+    SERVER_UI_CLOSE_CONTROL_ID,
     SERVER_UI_GENERATE_CONTROL_ID,
     AsyncPresentationCoordinator,
     FrameCompositor,
     PresentationBackend,
     PresentationFrame,
+    PresentationStopRequested,
     PresentationSubmission,
     ServerUI,
     TorchAlphaCompositor,
@@ -208,7 +210,9 @@ __all__ = [
     "ImGuiInputSession",
     "PresentationBackend",
     "PresentationFrame",
+    "PresentationStopRequested",
     "PresentationSubmission",
+    "SERVER_UI_CLOSE_CONTROL_ID",
     "ServerUI",
     "SERVER_UI_GENERATE_CONTROL_ID",
     "UIControlEvent",

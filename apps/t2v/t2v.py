@@ -37,6 +37,7 @@ from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.results import StepResult
 from flashdreams.infra.time import TimeWindow
 from flashdreams.runtime import (
+    SERVER_UI_CLOSE_CONTROL_ID,
     SERVER_UI_GENERATE_CONTROL_ID,
     ServerUI,
     StepRequirements,
@@ -331,8 +332,9 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
         try:
             if not visible:
                 return
+            imgui.text("Enter a prompt & Click Generate To Generate A Video:")
             changed, edited_prompt = imgui.input_text_multiline(
-                "Prompt",
+                "##Prompt",
                 prompt,
                 (-1.0, 120.0),
             )
@@ -346,11 +348,6 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
                     controls.set_value(_PROMPT_CONTROL_ID, submitted_prompt)
                     controls.set_value(_VALIDATION_CONTROL_ID, "")
                     controls.emit(_GENERATE_CONTROL_ID, submitted_prompt)
-                else:
-                    controls.set_value(
-                        _VALIDATION_CONTROL_ID,
-                        "Enter a non-empty prompt.",
-                    )
 
             latest = controls.snapshot(consume_events=False).values
             validation_error = str(latest.get(_VALIDATION_CONTROL_ID, ""))
@@ -428,7 +425,8 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
 
     def next_step_requirements(self) -> StepRequirements | None:
         """Return requirements for the next video block."""
-        self._initialize_from_ui_prompt_if_needed()
+        if not self._initialize_from_ui_prompt_if_needed():
+            return None
         if self._step_index >= self.config.total_blocks:
             return None
         frame_count = None
@@ -442,21 +440,26 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
             steady_output_frame_count=frame_count,
         )
 
-    def _initialize_from_ui_prompt_if_needed(self) -> None:
+    def _initialize_from_ui_prompt_if_needed(self) -> bool:
         """Wait for the first UI submission when no CLI prompt was supplied."""
         if self._cache is not None:
-            return
+            return True
         pipeline = self._pipeline
         if pipeline is None:
             raise RuntimeError("T2V application pipeline is unavailable.")
         while self._prompt is None:
-            event = self._server_ui.controls.wait_for_event(_GENERATE_CONTROL_ID)
+            event = self._server_ui.controls.wait_for_any(
+                (_GENERATE_CONTROL_ID, SERVER_UI_CLOSE_CONTROL_ID)
+            )
+            if event.control_id == SERVER_UI_CLOSE_CONTROL_ID:
+                return False
             candidate = str(event.value or "").strip()
             if candidate:
                 self._prompt = candidate
                 self._server_ui.controls.set_value(_PROMPT_CONTROL_ID, candidate)
         self._cache = self._initialize_cache(pipeline)
         self._publish_generation_status()
+        return True
 
     def step(self, inputs: CanonicalInputWindow) -> StepResult:
         """Generate one canonical result for the next video block."""

@@ -53,9 +53,16 @@ class _Clock:
 
 
 class _KeyboardEvent:
-    def __init__(self, key: str, event_type: str) -> None:
+    def __init__(
+        self,
+        key: str,
+        event_type: str,
+        *,
+        codepoint: int = 0,
+    ) -> None:
         self.key = SimpleNamespace(name=key)
         self._event_type = event_type
+        self.codepoint = codepoint
 
     def is_key_press(self) -> bool:
         return self._event_type == "press"
@@ -65,6 +72,9 @@ class _KeyboardEvent:
 
     def is_key_repeat(self) -> bool:
         return self._event_type == "repeat"
+
+    def is_input(self) -> bool:
+        return self._event_type == "input"
 
 
 def test_local_input_handler_tracks_keyboard_levels() -> None:
@@ -116,6 +126,22 @@ def test_local_input_forwards_raw_ui_events_without_model_controls() -> None:
         "pointer_button",
     ]
     assert events[-1].payload == {"button": 0, "pressed": True}
+
+
+def test_local_input_forwards_slangpy_codepoint_as_text_input() -> None:
+    events: list[Any] = []
+    handler = SlangPyLocalInputHandler(
+        CanonicalInputSchema(),
+        raw_input_observer=events.append,
+    )
+    handler.open(SessionInfo())
+
+    handler.on_keyboard_event(
+        _KeyboardEvent("unknown", "input", codepoint=ord("é"))
+    )
+
+    assert [event.event_type for event in events] == ["text_input"]
+    assert events[0].payload == {"text": "é"}
 
 
 def test_local_input_handler_uses_active_sdl_gamepad_axes() -> None:

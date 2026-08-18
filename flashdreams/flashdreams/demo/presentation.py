@@ -13,8 +13,10 @@ from flashdreams.demo.io import OutputDecision, OutputSink, SessionInfo
 from flashdreams.runtime.inputs import UserInputEvent, UserInputSchema
 from flashdreams.runtime.output import OutputArtifact
 from flashdreams.runtime.presentation import (
+    SERVER_UI_CLOSE_CONTROL_ID,
     AsyncPresentationCoordinator,
     PresentationFrame,
+    PresentationStopRequested,
     TorchAlphaCompositor,
 )
 from flashdreams.runtime.types import StepResult
@@ -45,6 +47,7 @@ class AsyncPresentationOutputSink(OutputSink):
     def write(self, result: StepResult) -> OutputDecision:
         submission = self._require_coordinator().submit(result)
         return OutputDecision(
+            should_stop=submission.should_stop,
             dropped=submission.replaced_chunks > 0,
             drop_policy=("drop_oldest" if submission.replaced_chunks > 0 else "none"),
             backpressure_s=submission.queued_duration_s,
@@ -153,6 +156,9 @@ class ServerUIPresentationOutputSink(OutputSink):
             backends=(backend,),
             max_pending_chunks=self.max_pending_chunks,
             idle_frame=idle_frame,
+            on_stop_requested=lambda: server_ui.controls.emit(
+                SERVER_UI_CLOSE_CONTROL_ID
+            ),
         )
         if self.bind_raw_input is not None:
             self.bind_raw_input(renderer.publish_raw_input)
@@ -177,6 +183,7 @@ class ServerUIPresentationOutputSink(OutputSink):
             return self.sink.write(result)
         submission = self._require_coordinator().submit(result)
         return OutputDecision(
+            should_stop=submission.should_stop,
             dropped=submission.replaced_chunks > 0,
             drop_policy=("drop_oldest" if submission.replaced_chunks > 0 else "none"),
             backpressure_s=submission.queued_duration_s,
@@ -284,7 +291,9 @@ class OutputSinkPresentationBackend:
             self._generation = frame.generation
         decision = self.sink.write(self.frame_to_result(frame))
         if decision.should_stop:
-            raise RuntimeError("Wrapped presentation output requested stop.")
+            raise PresentationStopRequested(
+                "Wrapped presentation output requested stop."
+            )
 
     def close(self) -> Sequence[OutputArtifact]:
         return self.sink.close()
