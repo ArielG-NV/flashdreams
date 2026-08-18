@@ -256,6 +256,14 @@ function sendModelMessage(payload) {
   return true
 }
 
+function sendRawInput(eventType, payload) {
+  return sendModelMessage({
+    type: "input",
+    input: { event_type: eventType, payload },
+  })
+}
+
+
 function sendModelCommand(payload, label = "model command") {
   if (!sendModelMessage(payload)) {
     setFlow("connect session first")
@@ -825,6 +833,9 @@ function resetPeerHandles(pc = peerConnection, channel = controlChannel) {
   if (controlChannel === channel) {
     controlChannel = null
   }
+  if (peerConnection === null && controlChannel === null) {
+    document.body.classList.remove("framebuffer-only")
+  }
 }
 
 async function dumpPeerStats(reason) {
@@ -911,6 +922,7 @@ function markSessionConnected(pc, channel) {
     return
   }
   connected = true
+  document.body.classList.add("framebuffer-only")
   setStatus("Connected", "connected")
   setFlow("waiting for input")
   startHeartbeat()
@@ -1105,15 +1117,19 @@ function handleKeyDown(event) {
     return
   }
   const key = normalizeKey(event.key)
-  if (!allowedKeys.has(key)) {
-    return
-  }
-  event.preventDefault()
-
   if (event.repeat) {
     return
   }
-  setKeyHeld(key, `keyboard:${key}`, true)
+  event.preventDefault()
+  sendRawInput("key_down", { key: event.key })
+  if (allowedKeys.has(key)) {
+    setKeyHeld(key, `keyboard:${key}`, true)
+  }
+  if (
+    event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey
+  ) {
+    sendRawInput("text_input", { text: event.key })
+  }
 }
 
 function handleKeyUp(event) {
@@ -1121,11 +1137,11 @@ function handleKeyUp(event) {
     return
   }
   const key = normalizeKey(event.key)
-  if (!allowedKeys.has(key)) {
-    return
-  }
   event.preventDefault()
-  setKeyHeld(key, `keyboard:${key}`, false)
+  sendRawInput("key_up", { key: event.key })
+  if (allowedKeys.has(key)) {
+    setKeyHeld(key, `keyboard:${key}`, false)
+  }
 }
 
 function attachPointerControls() {
@@ -1152,6 +1168,55 @@ function attachPointerControls() {
   }
 }
 
+function attachRemoteUIInput() {
+  remoteVideo.tabIndex = 0
+
+  const pointerPayload = (event) => {
+    const rect = remoteVideo.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) {
+      return null
+    }
+    return {
+      x: (event.clientX - rect.left) / rect.width,
+      y: (event.clientY - rect.top) / rect.height,
+      coordinate_space: "normalized",
+    }
+  }
+
+  const sendPointerPosition = (event) => {
+    const payload = pointerPayload(event)
+    if (payload !== null) {
+      sendRawInput("pointer_move", payload)
+    }
+  }
+
+  remoteVideo.addEventListener("pointermove", sendPointerPosition)
+  remoteVideo.addEventListener("pointerdown", (event) => {
+    event.preventDefault()
+    remoteVideo.focus({ preventScroll: true })
+    remoteVideo.setPointerCapture(event.pointerId)
+    sendPointerPosition(event)
+    const button = event.button === 1 ? 2 : event.button === 2 ? 1 : event.button
+    sendRawInput("pointer_button", { button, pressed: true })
+  })
+  remoteVideo.addEventListener("pointerup", (event) => {
+    sendPointerPosition(event)
+    const button = event.button === 1 ? 2 : event.button === 2 ? 1 : event.button
+    sendRawInput("pointer_button", { button, pressed: false })
+  })
+  remoteVideo.addEventListener("pointercancel", (event) => {
+    const button = event.button === 1 ? 2 : event.button === 2 ? 1 : event.button
+    sendRawInput("pointer_button", { button, pressed: false })
+  })
+  remoteVideo.addEventListener("wheel", (event) => {
+    event.preventDefault()
+    sendRawInput("pointer_wheel", {
+      x: -event.deltaX / 100,
+      y: -event.deltaY / 100,
+    })
+  }, { passive: false })
+}
+
 function startVideoFrameMonitor() {
   if (typeof remoteVideo.requestVideoFrameCallback !== "function") {
     if (videoMetricsTimer === null) {
@@ -1176,6 +1241,7 @@ async function initialize() {
   renderMetrics()
   await loadModelAdapter()
   attachPointerControls()
+  attachRemoteUIInput()
   window.requestAnimationFrame(drawIdleScene)
   startVideoFrameMonitor()
   await connectSession({ attemptsRemaining: autoConnectMaxAttempts })
@@ -1184,7 +1250,14 @@ async function initialize() {
 connectButton.addEventListener("click", () => {
   void connectSession()
 })
-remoteVideo.addEventListener("loadedmetadata", updateMetricsFromVideo)
+remoteVideo.addEventListener("loadedmetadata", () => {
+  updateMetricsFromVideo()
+  if (remoteVideo.videoWidth > 0 && remoteVideo.videoHeight > 0) {
+    sendRawInput("viewport", {
+      width: remoteVideo.videoWidth, height: remoteVideo.videoHeight,
+    })
+  }
+})
 remoteVideo.addEventListener("playing", () => {
   setVideoVisible(true)
   updateMetricsFromVideo()

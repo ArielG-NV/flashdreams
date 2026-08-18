@@ -12,6 +12,7 @@ import pytest
 import torch
 
 from flashdreams.demo.outputs import WebRTCOutputSink
+from flashdreams.demo.presentation import ServerUIPresentationOutputSink
 from flashdreams.runtime import (
     DRIVER_COMMAND,
     DRIVING_SUPPORTED_KEYS,
@@ -1639,8 +1640,11 @@ async def test_shared_session_edges_use_base_webrtc_services(
         provider=cast(ModelInputProvider, SimpleNamespace()),
         adapter=SimpleNamespace(),
     )
-    output_sink = cast(WebRTCOutputSink, edges.output_sink)
-    bridge = output_sink._bridge
+    output_sink = cast(ServerUIPresentationOutputSink, edges.output_sink)
+    assert isinstance(output_sink, ServerUIPresentationOutputSink)
+    webrtc_sink = cast(WebRTCOutputSink, output_sink.sink)
+    assert isinstance(webrtc_sink, WebRTCOutputSink)
+    bridge = webrtc_sink._bridge
 
     assert edges.transport is not managed.transport
     assert isinstance(edges.transport, manager_module._GenerationTransportView)

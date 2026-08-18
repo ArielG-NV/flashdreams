@@ -32,12 +32,39 @@ from flashdreams.demo.outputs import (
     NullOutputSink,
     WebRTCOutputSink,
 )
+from flashdreams.demo.presentation import ServerUIPresentationOutputSink
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.time import TimeWindow
-from flashdreams.runtime.inputs import CanonicalInputSchema, CanonicalInputWindow
+from flashdreams.runtime.inputs import (
+    CanonicalInputSchema,
+    CanonicalInputWindow,
+    UserInputEvent,
+)
 
 if TYPE_CHECKING:
     from flashdreams.serving.webrtc.services import WebRTCOutputBridge
+
+
+class _UIRawInputBinding:
+    """Atomically retarget raw input to the active presentation renderer."""
+
+    def __init__(self) -> None:
+        from threading import Lock
+
+        self._lock = Lock()
+        self._target: Callable[[UserInputEvent], None] | None = None
+
+    def bind(self, target: Callable[[UserInputEvent], None] | None) -> None:
+        """Bind or clear the active renderer callback."""
+        with self._lock:
+            self._target = target
+
+    def publish(self, event: UserInputEvent) -> None:
+        """Forward one event without holding the binding lock."""
+        with self._lock:
+            target = self._target
+        if target is not None:
+            target(event)
 
 
 @dataclass(slots=True)
@@ -135,6 +162,11 @@ class LocalWindowIOFactory(IOFactory):
     presenter_factory: Callable[..., Any] | None = None
     """Optional native presenter factory for embedded hosts and tests."""
 
+    raw_input_observer: Callable[[UserInputEvent], None] | None = field(
+        default=None, repr=False
+    )
+    """Optional mailbox callback for transport-neutral server-side UI input."""
+
     _bridge: LocalWindowInputBridge = field(
         default_factory=LocalWindowInputBridge,
         init=False,
@@ -143,23 +175,42 @@ class LocalWindowIOFactory(IOFactory):
     )
     """Shared callback bridge for the input handler and window presenter."""
 
+    _ui_input_binding: _UIRawInputBinding = field(
+        default_factory=_UIRawInputBinding,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    """Raw input target rebound whenever a ServerUI presentation opens."""
+
     def create_input_handler(self, input_schema: CanonicalInputSchema) -> InputHandler:
         """Create an input handler for ``input_schema``."""
         handler = SlangPyLocalInputHandler(
             input_schema,
             process_events=self._bridge.process_events,
+            raw_input_observer=self._publish_raw_input,
         )
         self._bridge.bind_handler(handler)
         return handler
 
     def create_output_sink(self) -> OutputSink:
         """Create an output sink for one application run."""
-        return LocalWindowOutputSink(
+        sink = LocalWindowOutputSink(
             title=self.title,
             fps=self.fps,
             presenter_factory=self.presenter_factory,
             presenter_opened=self._bridge.bind_background_presenter,
         )
+        return ServerUIPresentationOutputSink(
+            sink=sink,
+            bind_raw_input=self._ui_input_binding.bind,
+        )
+
+    def _publish_raw_input(self, event: UserInputEvent) -> None:
+        """Fan one local event out without touching model state."""
+        if self.raw_input_observer is not None:
+            self.raw_input_observer(event)
+        self._ui_input_binding.publish(event)
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,12 +253,13 @@ class Mp4IOFactory(IOFactory):
 
     def create_output_sink(self) -> OutputSink:
         """Create an output sink for one application run."""
-        return Mp4OutputSink(
+        sink = Mp4OutputSink(
             output_path=self.output_path,
             fps=self.fps,
             output_layout=self.output_layout,
             move_to_cpu=self.move_to_cpu,
         )
+        return ServerUIPresentationOutputSink(sink=sink)
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,7 +330,9 @@ class WebRTCIOFactory(IOFactory):
 
     def create_output_sink(self) -> OutputSink:
         """Create an output sink for one application run."""
-        return WebRTCOutputSink(bridge=self.bridge_factory())
+        return ServerUIPresentationOutputSink(
+            sink=WebRTCOutputSink(bridge=self.bridge_factory())
+        )
 
 
 __all__ = [

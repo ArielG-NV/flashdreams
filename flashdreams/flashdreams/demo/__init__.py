@@ -51,6 +51,12 @@ from flashdreams.demo.outputs import (
     WebRTCOutputSink,
     build_benchmark_output_sink,
 )
+from flashdreams.demo.presentation import (
+    AsyncPresentationOutputSink,
+    LocalWindowPresentationBackend,
+    OutputSinkPresentationBackend,
+    ServerUIPresentationOutputSink,
+)
 from flashdreams.runtime.inputs import (
     CanonicalInputs,
     CanonicalInputSchema,
@@ -75,7 +81,11 @@ __all__ = [
     "Mp4IOFactory",
     "Mp4OutputSink",
     "NullInputHandler",
+    "AsyncPresentationOutputSink",
+    "LocalWindowPresentationBackend",
+    "OutputSinkPresentationBackend",
     "NullIOFactory",
+    "ServerUIPresentationOutputSink",
     "NullOutputSink",
     "OutputDecision",
     "OutputSink",

@@ -30,7 +30,7 @@ def test_t2v_app_installs_dependencies_for_documented_outputs() -> None:
         (_REPO_ROOT / "apps" / "t2v" / "pyproject.toml").read_text()
     )
 
-    assert "flashdreams[local-window,serving]" in manifest["project"]["dependencies"]
+    assert "flashdreams[local-window,serving,ui]" in manifest["project"]["dependencies"]
 
 
 @pytest.mark.parametrize(

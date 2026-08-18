@@ -22,6 +22,7 @@ from flashdreams.runtime import (
     InputMapping,
     StepRequirements,
     StepResult,
+    UserInputEvent,
 )
 from flashdreams.runtime.demo import (
     DemoAdapter,
@@ -172,6 +173,34 @@ async def test_webrtc_input_source_emits_typed_user_inputs() -> None:
         "event_id": "prompt-1",
         "state": "trigger",
     }
+
+
+def test_webrtc_raw_ui_input_is_forwarded_without_duplicate_model_actions() -> None:
+    observed: list[UserInputEvent] = []
+    source = WebRTCInputSource(
+        resampler=_FakeResampler(dt=0.1, start_v=0.0),
+        raw_input_observer=observed.append,
+    )
+    raw_result = source.handle_browser_payload(
+        {
+            "type": "input",
+            "input": {
+                "event_type": "pointer_move",
+                "payload": {"x": 0.25, "y": 0.5, "coordinate_space": "normalized"},
+            },
+        },
+        timestamp_s=0.05,
+    )
+    source.handle_browser_payload(
+        {"type": "action", "action": {"event": "keydown", "key": "w"}},
+        timestamp_s=0.06,
+    )
+
+    assert raw_result.kind == "input"
+    assert len(observed) == 1
+    assert observed[0].event_type == "pointer_move"
+    assert observed[0].payload["coordinate_space"] == "normalized"
+    assert [event.event_type for event in source._events] == ["key_down"]
 
 
 @pytest.mark.asyncio

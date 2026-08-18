@@ -283,9 +283,15 @@ def test_packaged_webrtc_app_closes_resource_when_setup_fails(tmp_path) -> None:
 def test_shared_viewer_exposes_model_extension_slots() -> None:
     web_dir = files("flashdreams.serving.webrtc").joinpath("web")
     html = web_dir.joinpath("request_session.html").read_text(encoding="utf-8")
+    css = web_dir.joinpath("request_session.css").read_text(encoding="utf-8")
     javascript = web_dir.joinpath("request_session.js").read_text(encoding="utf-8")
 
-    assert "/static/request_session.js?v=shared-webrtc-v7" in html
+    assert "/static/request_session.css?v=shared-webrtc-v4" in html
+    assert "/static/request_session.js?v=shared-webrtc-v9" in html
+    assert 'classList.add("framebuffer-only")' in javascript
+    assert 'classList.remove("framebuffer-only")' in javascript
+    assert "body.framebuffer-only .stage > :not(.stageVideo)" in css
+    assert "display: none !important" in css
     assert "attemptsRemaining: autoConnectMaxAttempts" in javascript
     assert javascript.count("connected = true") == 1
     assert 'pc.connectionState !== "connected"' in javascript
@@ -293,6 +299,7 @@ def test_shared_viewer_exposes_model_extension_slots() -> None:
     assert 'setStatus("Connected", "connected")' in javascript
     assert "isTransientFetchError(error)" in javascript
     assert "peerConnection !== pc || controlChannel !== channel" in javascript
+    assert '}\n})\nremoteVideo.addEventListener("playing"' in javascript
     for slot in (
         "modelStageSlot",
         "modelStatusSlot",

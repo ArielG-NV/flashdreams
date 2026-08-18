@@ -38,6 +38,13 @@ from flashdreams.runtime.inputs import (
     UserInputs,
     UserInputSchema,
 )
+from flashdreams.runtime.ui_input import (
+    POINTER_BUTTON_EVENT_TYPE,
+    POINTER_MOVE_EVENT_TYPE,
+    POINTER_WHEEL_EVENT_TYPE,
+    TEXT_INPUT_EVENT_TYPE,
+    VIEWPORT_EVENT_TYPE,
+)
 
 _KEYBOARD_SOURCE_SCHEMA = UserInputSchema(
     capabilities=(
@@ -69,6 +76,7 @@ class SlangPyLocalInputHandler(InputHandler):
         *,
         process_events: Callable[[], None] | None = None,
         clock: Callable[[], float] = time.monotonic,
+        raw_input_observer: Callable[[UserInputEvent], None] | None = None,
     ) -> None:
         """Create a handler for one application input schema.
 
@@ -76,6 +84,8 @@ class SlangPyLocalInputHandler(InputHandler):
             input_schema: Canonical modalities requested by the application.
             process_events: Optional callback that pumps the owning local window.
             clock: Monotonic clock used for session-relative event timestamps.
+            raw_input_observer: Optional UI mailbox callback. It is invoked on
+                the event-pump thread and never waits for model input sampling.
 
         Raises:
             ValueError: The schema requests a modality the local window cannot
@@ -104,6 +114,7 @@ class SlangPyLocalInputHandler(InputHandler):
         self._canonicalizer = InputCanonicalizer(converters)
         self._process_events = process_events
         self._clock = clock
+        self._raw_input_observer = raw_input_observer
         self._events: list[UserInputEvent] = []
         self._event_lock = Lock()
         self._session_start_s = 0.0
@@ -115,11 +126,10 @@ class SlangPyLocalInputHandler(InputHandler):
     @property
     def accepts_window_events(self) -> bool:
         """Return whether this handler needs callbacks from the local window."""
-        return bool(self._requested_names)
+        return bool(self._requested_names) or self._raw_input_observer is not None
 
     def open(self, session_info: SessionInfo) -> None:
         """Open the handler and reset device state for one session."""
-        del session_info
         self._canonicalizer.reset()
         with self._event_lock:
             self._events.clear()
@@ -128,6 +138,19 @@ class SlangPyLocalInputHandler(InputHandler):
         self._session_start_s = self._clock()
         self._window_start_s = 0.0
         self._opened = True
+        if (
+            self._raw_input_observer is not None
+            and session_info.video_width is not None
+            and session_info.video_height is not None
+        ):
+            self._notify_raw_input(
+                event_type=VIEWPORT_EVENT_TYPE,
+                payload={
+                    "width": session_info.video_width,
+                    "height": session_info.video_height,
+                },
+                source="slangpy-window",
+            )
 
     def current_inputs(self) -> CanonicalInputWindow:
         """Pump events and return canonical input levels for the elapsed window."""
@@ -176,7 +199,12 @@ class SlangPyLocalInputHandler(InputHandler):
 
     def on_keyboard_event(self, event: Any) -> None:
         """Record one SlangPy keyboard edge from the window event pump."""
-        if not self._opened or DRIVER_COMMAND.name not in self._requested_names:
+        if not self._opened:
+            return
+        if (
+            DRIVER_COMMAND.name not in self._requested_names
+            and self._raw_input_observer is None
+        ):
             return
         is_press = _event_flag(event, "is_key_press")
         is_release = _event_flag(event, "is_key_release")
@@ -187,14 +215,81 @@ class SlangPyLocalInputHandler(InputHandler):
         if key is None:
             return
         event_type = "key_up" if is_release else "key_down"
-        raw_event = UserInputEvent(
-            timestamp_s=max(0.0, self._clock() - self._session_start_s),
+        raw_event = self._raw_event(
             event_type=event_type,
             payload={"key": key},
             source="slangpy-keyboard",
         )
-        with self._event_lock:
-            self._events.append(raw_event)
+        if DRIVER_COMMAND.name in self._requested_names:
+            with self._event_lock:
+                self._events.append(raw_event)
+        self._publish_raw_input(raw_event)
+        text = getattr(event, "text", None)
+        if is_press and isinstance(text, str) and text:
+            self._notify_raw_input(
+                event_type=TEXT_INPUT_EVENT_TYPE,
+                payload={"text": text},
+                source="slangpy-keyboard",
+            )
+
+    def on_mouse_event(self, event: Any) -> None:
+        """Forward one SlangPy mouse event to the UI input mailbox."""
+        if not self._opened or self._raw_input_observer is None:
+            return
+        position = _xy(getattr(event, "pos", None))
+        if position is not None:
+            self._notify_raw_input(
+                event_type=POINTER_MOVE_EVENT_TYPE,
+                payload={"x": position[0], "y": position[1]},
+                source="slangpy-mouse",
+            )
+        event_type = _slangpy_enum_name(getattr(event, "type", None))
+        if event_type in {"button_down", "button_up"}:
+            button = _mouse_button(getattr(event, "button", None))
+            if button is not None:
+                self._notify_raw_input(
+                    event_type=POINTER_BUTTON_EVENT_TYPE,
+                    payload={"button": button, "pressed": event_type == "button_down"},
+                    source="slangpy-mouse",
+                )
+        elif event_type in {"wheel", "scroll"}:
+            wheel = _xy(getattr(event, "wheel_delta", getattr(event, "scroll", None)))
+            if wheel is not None:
+                self._notify_raw_input(
+                    event_type=POINTER_WHEEL_EVENT_TYPE,
+                    payload={"x": wheel[0], "y": wheel[1]},
+                    source="slangpy-mouse",
+                )
+
+    def _notify_raw_input(
+        self,
+        *,
+        event_type: str,
+        payload: dict[str, object],
+        source: str,
+    ) -> None:
+        self._publish_raw_input(
+            self._raw_event(event_type=event_type, payload=payload, source=source)
+        )
+
+    def _raw_event(
+        self,
+        *,
+        event_type: str,
+        payload: dict[str, object],
+        source: str,
+    ) -> UserInputEvent:
+        return UserInputEvent(
+            timestamp_s=max(0.0, self._clock() - self._session_start_s),
+            event_type=event_type,
+            payload=payload,
+            source=source,
+        )
+
+    def _publish_raw_input(self, event: UserInputEvent) -> None:
+        observer = self._raw_input_observer
+        if observer is not None:
+            observer(event)
 
     def on_gamepad_event(self, event: Any) -> None:
         """Track SlangPy gamepad connection changes."""
@@ -260,6 +355,31 @@ def _slangpy_enum_name(value: Any) -> str | None:
     if isinstance(value, str):
         return value.rsplit(".", 1)[-1].lower()
     return str(value).rsplit(".", 1)[-1].lower()
+
+
+def _xy(value: Any) -> tuple[float, float] | None:
+    if value is None:
+        return None
+    try:
+        return float(value.x), float(value.y)
+    except AttributeError:
+        try:
+            return float(value[0]), float(value[1])
+        except (IndexError, TypeError, ValueError):
+            return None
+
+
+def _mouse_button(value: Any) -> int | None:
+    name = _slangpy_enum_name(value)
+    named_buttons = {"left": 0, "right": 1, "middle": 2}
+    if name in named_buttons:
+        return named_buttons[name]
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    numeric_value = getattr(value, "value", None)
+    if isinstance(numeric_value, int) and numeric_value >= 0:
+        return numeric_value
+    return None
 
 
 def _clamp(value: float, lower: float, upper: float) -> float:

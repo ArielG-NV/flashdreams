@@ -92,6 +92,32 @@ def test_local_input_handler_tracks_keyboard_levels() -> None:
     assert released.metadata["canonical_sources"] == {"driver_command": "keyboard"}
 
 
+def test_local_input_forwards_raw_ui_events_without_model_controls() -> None:
+    events: list[Any] = []
+    handler = SlangPyLocalInputHandler(
+        CanonicalInputSchema(),
+        raw_input_observer=events.append,
+    )
+    handler.open(SessionInfo(video_width=640, video_height=360))
+
+    handler.on_keyboard_event(_KeyboardEvent("enter", "press"))
+    handler.on_mouse_event(
+        SimpleNamespace(
+            pos=SimpleNamespace(x=10.0, y=20.0),
+            type=SimpleNamespace(name="button_down"),
+            button=SimpleNamespace(name="left"),
+        )
+    )
+
+    assert [event.event_type for event in events] == [
+        "viewport",
+        "key_down",
+        "pointer_move",
+        "pointer_button",
+    ]
+    assert events[-1].payload == {"button": 0, "pressed": True}
+
+
 def test_local_input_handler_uses_active_sdl_gamepad_axes() -> None:
     handler = SlangPyLocalInputHandler(
         CanonicalInputSchema(modalities=(DRIVER_COMMAND,))

@@ -113,6 +113,26 @@ body.has-video .stageBackdrop {
   opacity: 0;
 }
 
+body.framebuffer-only {
+  overflow: hidden;
+}
+
+body.framebuffer-only .appShell,
+body.framebuffer-only .stage {
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+}
+
+body.framebuffer-only .stage > :not(.stageVideo) {
+  display: none !important;
+}
+
+body.framebuffer-only .stageVideo {
+  opacity: 1;
+}
+
 .stageVignette {
   z-index: 3;
   pointer-events: none;

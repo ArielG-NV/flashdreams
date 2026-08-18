@@ -132,6 +132,39 @@ class _StoppingSink(NullOutputSink):
         return OutputDecision(should_stop=True)
 
 
+class _FakeImGui:
+    def __init__(self, *, edited_prompt: str, click_generate: bool = True) -> None:
+        self.edited_prompt = edited_prompt
+        self.click_generate = click_generate
+        self.text_lines: list[str] = []
+        self.ended = False
+
+    def begin(self, title: str) -> tuple[bool, bool]:
+        assert title == "Text to Video"
+        return True, True
+
+    def input_text_multiline(
+        self,
+        label: str,
+        prompt: str,
+        size: tuple[float, float],
+    ) -> tuple[bool, str]:
+        assert label == "Prompt"
+        assert isinstance(prompt, str)
+        assert size == (-1.0, 120.0)
+        return True, self.edited_prompt
+
+    def button(self, label: str) -> bool:
+        assert label == "Generate"
+        return self.click_generate
+
+    def text(self, value: str) -> None:
+        self.text_lines.append(value)
+
+    def end(self) -> None:
+        self.ended = True
+
+
 def _application(pipeline: _FakePipeline) -> T2VApplication:
     return T2VApplication(
         defaults=T2VApplicationDefaults(
@@ -143,10 +176,78 @@ def _application(pipeline: _FakePipeline) -> T2VApplication:
     )
 
 
-def test_prompt_is_required() -> None:
+def test_prompt_is_optional_and_first_ui_submission_initializes_cache() -> None:
+    pipeline = _FakePipeline()
+    application = _application(pipeline)
+    application.init(["--device", "cpu"])
+    session = application.create_session()
+    session.init()
+
+    server_ui = session.server_ui()
+    assert server_ui is not None
+    snapshot = server_ui.controls.snapshot(consume_events=False)
+    assert snapshot.values["t2v.status"] == "Enter a prompt and select Generate"
+    assert pipeline.cache_initializations == []
+
+    requirements: list[StepRequirements | None] = []
+    waiter = threading.Thread(
+        target=lambda: requirements.append(session.next_step_requirements())
+    )
+    waiter.start()
+    server_ui.build_ui(
+        _FakeImGui(edited_prompt="A paper boat on a moonlit lake"),
+        server_ui.controls,
+    )
+    waiter.join(timeout=1.0)
+
+    assert not waiter.is_alive()
+    assert requirements == [
+        StepRequirements(
+            step_index=0,
+            input_frame_count=2,
+            steady_output_frame_count=2,
+        )
+    ]
+    assert pipeline.cache_initializations[-1]["text"] == [
+        "A paper boat on a moonlit lake"
+    ]
+
+
+def test_prompt_must_be_non_empty_when_provided() -> None:
     application = _application(_FakePipeline())
-    with pytest.raises(ValueError, match="--prompt is required"):
-        application.init([])
+    with pytest.raises(ValueError, match="--prompt must be non-empty"):
+        application.init(["--prompt", "  "])
+
+
+def test_imgui_prompt_submission_is_applied_on_model_thread_reset() -> None:
+    pipeline = _FakePipeline()
+    application = _application(pipeline)
+    application.init(["--prompt", "A waterfall", "--device", "cpu"])
+    session = application.create_session()
+    session.init()
+    server_ui = session.server_ui()
+    assert server_ui is not None
+    assert server_ui.controls.snapshot(consume_events=False).values["t2v.prompt"] == (
+        "A waterfall"
+    )
+
+    imgui = _FakeImGui(edited_prompt="  A fox running through snow  ")
+    server_ui.build_ui(imgui, server_ui.controls)
+
+    ui_snapshot = server_ui.controls.snapshot(consume_events=False)
+    assert imgui.ended
+    assert ui_snapshot.values["t2v.prompt"] == "A fox running through snow"
+    assert [(event.control_id, event.value) for event in ui_snapshot.events] == [
+        ("flashdreams.server_ui.generate", "A fox running through snow")
+    ]
+
+    session.reset()
+
+    assert pipeline.cache_initializations[-1]["text"] == ["A fox running through snow"]
+    assert session.session_info().metadata["prompt"] == "A fox running through snow"
+    reset_snapshot = server_ui.controls.snapshot(consume_events=False)
+    assert reset_snapshot.events == ()
+    assert reset_snapshot.values["t2v.status"] == "Generating block 1 of 4"
 
 
 def test_t2v_model_warmup_covers_observed_autoregressive_signatures() -> None:
@@ -585,3 +686,28 @@ def test_application_defaults_derive_from_runner_config() -> None:
     assert defaults.pixel_width == 640
     assert defaults.fps == 24
     assert defaults.output_layout == "cthw"
+
+
+def test_imgui_prompt_submission_seeds_the_next_reusable_session() -> None:
+    pipeline = _FakePipeline()
+    application = _application(pipeline)
+    application.init(["--prompt", "A waterfall", "--device", "cpu"])
+    first_session = application.create_session()
+    first_session.init()
+    first_ui = first_session.server_ui()
+    assert first_ui is not None
+    first_ui.build_ui(
+        _FakeImGui(edited_prompt="A paper boat on a moonlit lake"),
+        first_ui.controls,
+    )
+    first_session.close()
+
+    second_session = application.create_session()
+    second_session.init()
+
+    assert pipeline.cache_initializations[-1]["text"] == [
+        "A paper boat on a moonlit lake"
+    ]
+    second_ui = second_session.server_ui()
+    assert second_ui is not None
+    assert second_ui.controls.snapshot(consume_events=False).events == ()

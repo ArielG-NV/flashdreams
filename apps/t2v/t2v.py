@@ -36,13 +36,23 @@ from flashdreams.infra.config import derive_config
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.results import StepResult
 from flashdreams.infra.time import TimeWindow
-from flashdreams.runtime import StepRequirements
+from flashdreams.runtime import (
+    SERVER_UI_GENERATE_CONTROL_ID,
+    ServerUI,
+    StepRequirements,
+    UIControlMailbox,
+)
 
 if TYPE_CHECKING:
     from flashdreams.runtime.demo import DemoSpec, PreparedScenario
 
 _T2V_WARMUP_BLOCK_COUNT = 7
 """Leading AR blocks that cover observed specializations at indices 0, 1, and 6."""
+
+_PROMPT_CONTROL_ID = "t2v.prompt"
+_GENERATE_CONTROL_ID = SERVER_UI_GENERATE_CONTROL_ID
+_STATUS_CONTROL_ID = "t2v.status"
+_VALIDATION_CONTROL_ID = "t2v.validation_error"
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -103,8 +113,8 @@ class _T2VSessionConfig:
     pipeline_config: Any
     """Pipeline configuration selected by the concrete application."""
 
-    prompt: str
-    """Initial text prompt used to build the autoregressive cache."""
+    prompt: str | None
+    """Optional initial text prompt used to build the autoregressive cache."""
 
     total_blocks: int
     """Number of model chunks generated before the session completes."""
@@ -135,6 +145,7 @@ class T2VApplication(IFlashDreamsApplication):
         self._session_config: _T2VSessionConfig | None = None
         self._pipeline: Any | None = None
         self._closed = False
+        self._ui_controls = UIControlMailbox()
 
     @property
     def input_schema(self) -> CanonicalInputSchema:
@@ -147,7 +158,7 @@ class T2VApplication(IFlashDreamsApplication):
         return True
 
     def init(self, commandline_args: Sequence[str]) -> None:
-        """Parse session overrides and retain the required initial prompt."""
+        """Parse session overrides and retain an optional initial prompt."""
         parser = argparse.ArgumentParser(prog="flashdreams-run <t2v-slug>")
         parser.add_argument("--prompt")
         parser.add_argument(
@@ -168,9 +179,9 @@ class T2VApplication(IFlashDreamsApplication):
         )
         args = parser.parse_args(list(commandline_args))
 
-        prompt = (args.prompt or "").strip()
-        if not prompt:
-            raise ValueError("--prompt is required and must be non-empty.")
+        prompt = args.prompt.strip() if args.prompt is not None else None
+        if prompt == "":
+            raise ValueError("--prompt must be non-empty when provided.")
         if args.total_blocks <= 0:
             raise ValueError("--total-blocks must be greater than zero.")
         if args.pixel_height <= 0 or args.pixel_width <= 0:
@@ -200,7 +211,7 @@ class T2VApplication(IFlashDreamsApplication):
         )
 
     def create_session(self) -> IFlashDreamsApplicationSession:
-        """Create a model session and feed it the command-line prompt."""
+        """Create a model session and seed its optional command-line prompt."""
         if self._session_config is None:
             raise RuntimeError(
                 "T2VApplication.init() must run before create_session()."
@@ -215,11 +226,21 @@ class T2VApplication(IFlashDreamsApplication):
                 .eval()
             )
             self._pipeline = pipeline
+        prompt = self._session_config.prompt
+        ui_snapshot = self._ui_controls.snapshot()
+        for event in ui_snapshot.events:
+            if event.control_id != SERVER_UI_GENERATE_CONTROL_ID:
+                continue
+            candidate = str(event.value or "").strip()
+            if candidate:
+                prompt = candidate
         session = self.session_type(
             config=self._session_config,
             pipeline=pipeline,
+            controls=self._ui_controls,
         )
-        session.set_prompt(self._session_config.prompt)
+        if prompt is not None:
+            session.set_prompt(prompt)
         return session
 
     def create_model_warmup_sessions(
@@ -236,6 +257,8 @@ class T2VApplication(IFlashDreamsApplication):
             raise RuntimeError(
                 "T2VApplication.init() must run before model warmup planning."
             )
+        if config.prompt is None:
+            return ()
         warmup_blocks = min(config.total_blocks, _T2V_WARMUP_BLOCK_COUNT)
         return (
             ApplicationWarmupSessionInputs(
@@ -267,13 +290,23 @@ class T2VApplication(IFlashDreamsApplication):
 class T2VApplicationSession(IFlashDreamsApplicationSession):
     """Reusable cache-isolated text-to-video model session."""
 
-    def __init__(self, *, config: _T2VSessionConfig, pipeline: Any) -> None:
+    def __init__(
+        self,
+        *,
+        config: _T2VSessionConfig,
+        pipeline: Any,
+        controls: UIControlMailbox | None = None,
+    ) -> None:
         self.config = config
         self._prompt: str | None = None
         self._pipeline: Any | None = pipeline
         self._cache: Any | None = None
         self._step_index = 0
         self._closed = False
+        self._server_ui = ServerUI(
+            build_ui=self._build_ui,
+            controls=controls if controls is not None else UIControlMailbox(),
+        )
 
     def set_prompt(self, prompt: str) -> None:
         """Set the initial prompt before model cache initialization."""
@@ -283,11 +316,54 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
         if not prompt:
             raise ValueError("prompt must be non-empty.")
         self._prompt = prompt
+        self._server_ui.controls.set_value(_PROMPT_CONTROL_ID, prompt)
+
+    def server_ui(self) -> ServerUI:
+        """Expose the server-rendered ImGui prompt editor."""
+        return self._server_ui
+
+    def _build_ui(self, imgui: Any, controls: UIControlMailbox) -> None:
+        """Build one T2V prompt window on the presentation thread."""
+        snapshot = controls.snapshot(consume_events=False)
+        prompt = str(snapshot.values.get(_PROMPT_CONTROL_ID, self._prompt or ""))
+        begin_result = imgui.begin("Text to Video")
+        visible = begin_result[0] if isinstance(begin_result, tuple) else begin_result
+        try:
+            if not visible:
+                return
+            changed, edited_prompt = imgui.input_text_multiline(
+                "Prompt",
+                prompt,
+                (-1.0, 120.0),
+            )
+            if changed:
+                prompt = edited_prompt
+                controls.set_value(_PROMPT_CONTROL_ID, prompt)
+
+            if imgui.button("Generate"):
+                submitted_prompt = prompt.strip()
+                if submitted_prompt:
+                    controls.set_value(_PROMPT_CONTROL_ID, submitted_prompt)
+                    controls.set_value(_VALIDATION_CONTROL_ID, "")
+                    controls.emit(_GENERATE_CONTROL_ID, submitted_prompt)
+                else:
+                    controls.set_value(
+                        _VALIDATION_CONTROL_ID,
+                        "Enter a non-empty prompt.",
+                    )
+
+            latest = controls.snapshot(consume_events=False).values
+            validation_error = str(latest.get(_VALIDATION_CONTROL_ID, ""))
+            if validation_error:
+                imgui.text(validation_error)
+            status = str(latest.get(_STATUS_CONTROL_ID, ""))
+            if status:
+                imgui.text(status)
+        finally:
+            imgui.end()
 
     def init(self) -> None:
         """Initialize the session-local autoregressive cache."""
-        if self._prompt is None:
-            raise RuntimeError("Set a prompt before initializing the T2V session.")
         if self._closed:
             raise RuntimeError("Cannot initialize a closed T2V session.")
         if self._cache is not None:
@@ -296,9 +372,19 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
         pipeline = self._pipeline
         if pipeline is None:
             raise RuntimeError("T2V application pipeline is unavailable.")
+        if self._prompt is None:
+            self._server_ui.controls.set_value(
+                _STATUS_CONTROL_ID,
+                "Enter a prompt and select Generate",
+            )
+            return
         self._cache = self._initialize_cache(pipeline)
+        self._publish_generation_status()
 
     def _initialize_cache(self, pipeline: Any) -> Any:
+        prompt = self._prompt
+        if prompt is None:
+            raise RuntimeError("Set a prompt before initializing the T2V cache.")
         decoder = getattr(pipeline, "decoder", None)
         if decoder is None or not hasattr(decoder, "spatial_compression_ratio"):
             raise TypeError(
@@ -311,7 +397,7 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
                 f"compression ratio ({ratio})."
             )
         return pipeline.initialize_cache(
-            text=[self._prompt],
+            text=[prompt],
             image=None,
             height=self.config.pixel_height // ratio,
             width=self.config.pixel_width // ratio,
@@ -334,11 +420,15 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
             frames_per_second=self.config.fps,
             video_width=self.config.pixel_width,
             video_height=self.config.pixel_height,
-            metadata={"prompt": self._prompt or ""},
+            metadata={
+                "prompt": self._prompt or "",
+                "awaiting_ui_submission": self._prompt is None,
+            },
         )
 
     def next_step_requirements(self) -> StepRequirements | None:
         """Return requirements for the next video block."""
+        self._initialize_from_ui_prompt_if_needed()
         if self._step_index >= self.config.total_blocks:
             return None
         frame_count = None
@@ -351,6 +441,22 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
             input_frame_count=frame_count if frame_count is not None else 1,
             steady_output_frame_count=frame_count,
         )
+
+    def _initialize_from_ui_prompt_if_needed(self) -> None:
+        """Wait for the first UI submission when no CLI prompt was supplied."""
+        if self._cache is not None:
+            return
+        pipeline = self._pipeline
+        if pipeline is None:
+            raise RuntimeError("T2V application pipeline is unavailable.")
+        while self._prompt is None:
+            event = self._server_ui.controls.wait_for_event(_GENERATE_CONTROL_ID)
+            candidate = str(event.value or "").strip()
+            if candidate:
+                self._prompt = candidate
+                self._server_ui.controls.set_value(_PROMPT_CONTROL_ID, candidate)
+        self._cache = self._initialize_cache(pipeline)
+        self._publish_generation_status()
 
     def step(self, inputs: CanonicalInputWindow) -> StepResult:
         """Generate one canonical result for the next video block."""
@@ -384,6 +490,7 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
             metadata={"prompt": self._prompt or ""},
         )
         self._step_index += 1
+        self._publish_generation_status()
         return result
 
     def reset(self) -> None:
@@ -393,8 +500,34 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
         pipeline = self._pipeline
         if pipeline is None:
             raise RuntimeError("T2V application pipeline is unavailable.")
+        submitted_prompt = self._take_submitted_prompt()
+        if submitted_prompt is not None:
+            self._prompt = submitted_prompt
         self._cache = self._initialize_cache(pipeline)
         self._step_index = 0
+        self._publish_generation_status()
+
+    def _take_submitted_prompt(self) -> str | None:
+        """Drain UI actions and return the newest valid prompt submission."""
+        snapshot = self._server_ui.controls.snapshot()
+        submitted_prompt: str | None = None
+        for event in snapshot.events:
+            if event.control_id != _GENERATE_CONTROL_ID:
+                continue
+            candidate = str(event.value or "").strip()
+            if candidate:
+                submitted_prompt = candidate
+        return submitted_prompt
+
+    def _publish_generation_status(self) -> None:
+        """Publish model-owned progress for the presentation thread."""
+        if self._step_index >= self.config.total_blocks:
+            status = "Generation complete"
+        else:
+            status = (
+                f"Generating block {self._step_index + 1} of {self.config.total_blocks}"
+            )
+        self._server_ui.controls.set_value(_STATUS_CONTROL_ID, status)
 
     def close(self) -> None:
         """Release session-local autoregressive state."""

@@ -24,6 +24,7 @@ from aiortc import (
 )
 from loguru import logger
 
+from flashdreams.demo.presentation import ServerUIPresentationOutputSink
 from flashdreams.runtime.canonical import DeviceConverterSchema
 from flashdreams.runtime.demo import (
     DemoSpec,
@@ -57,6 +58,10 @@ from flashdreams.runtime.inputs import (
 )
 from flashdreams.runtime.keyboard import DEFAULT_SUPPORTED_KEYS, normalize_key
 from flashdreams.runtime.mapping import InputMapping
+from flashdreams.runtime.presentation import (
+    SERVER_UI_GENERATE_CONTROL_ID,
+    ServerUI,
+)
 from flashdreams.runtime.types import StepRequest, StepResult
 from flashdreams.serving.webrtc.encoders import (
     DefaultRTCEncoder,
@@ -565,7 +570,15 @@ class _ManagedWebRTCSessionEdgeFactory:
         )
         return SessionEdges(
             input_source=input_source,
-            output_sink=WebRTCOutputSink(bridge=bridge),
+            output_sink=ServerUIPresentationOutputSink(
+                sink=WebRTCOutputSink(bridge=bridge),
+                bind_raw_input=lambda observer: setattr(
+                    input_source, "raw_input_observer", observer
+                ),
+                server_ui_opened=lambda server_ui: setattr(
+                    self._managed_session, "server_ui", server_ui
+                ),
+            ),
             cleanup_tasks=context.cleanup_tasks,
             metrics=InMemorySessionMetricsRecorder(),
             error_policy=WebRTCErrorPolicy(),
@@ -658,6 +671,7 @@ class ManagedWebRTCSession:
     input_source: WebRTCInputSource | None = None
     transport: WebRTCTransportService | None = None
     reservation: Any | None = None
+    server_ui: ServerUI | None = None
     pending_action_arrivals: deque[float] = field(default_factory=deque)
     inference_session: Any | None = None
     """Active ``InferenceSession``; ``None`` means call ``runtime.generate_chunk``."""
@@ -2060,6 +2074,14 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                 if input_source is None or transport is None:
                     break
                 input_source.reset(start_v=asyncio.get_running_loop().time())
+                server_ui = managed_session.server_ui
+                if server_ui is not None and any(
+                    event.control_id == SERVER_UI_GENERATE_CONTROL_ID
+                    for event in server_ui.controls.snapshot(
+                        consume_events=False
+                    ).events
+                ):
+                    continue
                 # Do not construct another driver until the user submits the
                 # next prompt/generation. This keeps an idle T2V peer alive
                 # without surfacing an expected disconnect as a failed run.

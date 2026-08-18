@@ -27,6 +27,7 @@ from flashdreams.infra.results import StepResult
 from flashdreams.runtime._utils import freeze_mapping
 from flashdreams.runtime.inputs import CanonicalInputSchema, CanonicalInputWindow
 from flashdreams.runtime.output import OutputArtifact
+from flashdreams.runtime.presentation import ServerUI
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -50,6 +51,8 @@ class SessionInfo:
 
     metadata: Mapping[str, object] = field(default_factory=dict)
     """Additional immutable application metadata for sink setup."""
+    server_ui: ServerUI | None = None
+    """Optional per-session UI shared by presentation and model threads."""
 
     def __post_init__(self) -> None:
         if self.output_layout is not None and not self.output_layout.strip():

@@ -210,7 +210,14 @@ class ApplicationSession:
             raise TypeError(
                 "IFlashDreamsApplicationSession.session_info() must return SessionInfo."
             )
-        return value
+        server_ui = self.session.server_ui()
+        if server_ui is None:
+            return value
+        if value.server_ui is not None and value.server_ui is not server_ui:
+            raise ValueError(
+                "Application session returned conflicting server UI services."
+            )
+        return replace(value, server_ui=server_ui)
 
     def next_step_requirements(self) -> StepRequirements | None:
         """Return the requirements for the next application step."""

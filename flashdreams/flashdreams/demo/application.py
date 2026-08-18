@@ -45,6 +45,7 @@ from flashdreams.demo.outputs import LocalWindowOutputSink
 from flashdreams.runtime.config import InferenceConfig
 from flashdreams.runtime.inputs import CanonicalInputSchema, CanonicalInputWindow
 from flashdreams.runtime.output import OutputArtifact
+from flashdreams.runtime.presentation import ServerUI
 from flashdreams.runtime.types import StepRequirements, StepResult
 
 if TYPE_CHECKING:
@@ -80,6 +81,10 @@ class IFlashDreamsApplicationSession(ABC):
     def session_info(self) -> SessionInfo:
         """Return sink-facing metadata after session initialization."""
         return SessionInfo()
+
+    def server_ui(self) -> ServerUI | None:
+        """Return an optional UI service independent of model execution."""
+        return None
 
     @abstractmethod
     def next_step_requirements(self) -> StepRequirements | None:

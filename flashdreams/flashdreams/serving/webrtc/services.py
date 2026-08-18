@@ -33,12 +33,14 @@ from typing import Any, Literal, Protocol, runtime_checkable
 from flashdreams.demo.outputs import WebRTCOutputSink
 from flashdreams.infra.time import TimeWindow
 from flashdreams.runtime import (
+    IMGUI_RAW_INPUT_SCHEMA,
     StepRequirements,
     StepResult,
     UserInputCapability,
     UserInputEvent,
     UserInputs,
     UserInputSchema,
+    merged_user_input_schema,
 )
 from flashdreams.runtime._utils import freeze_mapping
 from flashdreams.runtime.demo import (
@@ -76,6 +78,7 @@ from .messages import (
     MESSAGE_TYPE_DISCONNECT,
     MESSAGE_TYPE_EVENT,
     MESSAGE_TYPE_HEARTBEAT,
+    MESSAGE_TYPE_INPUT,
 )
 from .server import SessionBusyError
 
@@ -83,6 +86,7 @@ WebRTCMessageKind = Literal[
     "action",
     "disconnect",
     "event",
+    "input",
     "heartbeat",
     "error",
 ]
@@ -452,6 +456,10 @@ class WebRTCInputSource:
     user_input_schema: UserInputSchema = field(
         default_factory=lambda: WEBRTC_USER_INPUT_SCHEMA
     )
+    raw_input_observer: Callable[[UserInputEvent], None] | None = field(
+        default=None,
+        repr=False,
+    )
     is_finite: bool = False
     is_deterministic: bool = False
     _activation_signal: "_ThreadSafeActivationSignal" = field(
@@ -534,6 +542,8 @@ class WebRTCInputSource:
             return WebRTCMessageResult(kind="disconnect")
         if message_type == MESSAGE_TYPE_EVENT:
             return self._record_text_event(payload, timestamp_s=timestamp_s)
+        if message_type == MESSAGE_TYPE_INPUT:
+            return self._record_raw_input(payload, timestamp_s=timestamp_s)
         if message_type == MESSAGE_TYPE_ACTION:
             action_payload = payload.get("action", payload)
             if not isinstance(action_payload, Mapping):
@@ -549,7 +559,7 @@ class WebRTCInputSource:
             kind="error",
             error=(
                 "Unsupported message type, expected "
-                "'action', 'event', 'heartbeat', or 'disconnect'."
+                "'action', 'event', 'input', 'heartbeat', or 'disconnect'."
             ),
         )
 
@@ -561,6 +571,8 @@ class WebRTCInputSource:
         payload: Mapping[str, object],
         source_event_id: str | None = None,
         activate: bool = True,
+        publish_raw_input: bool = True,
+        publish_to_model: bool = True,
     ) -> None:
         event = UserInputEvent(
             timestamp_s=timestamp_s,
@@ -570,9 +582,54 @@ class WebRTCInputSource:
             source_event_id=source_event_id,
         )
         self.user_input_schema.validate_event(event)
-        self._events.append(event)
+        if publish_to_model:
+            self._events.append(event)
+        observer = self.raw_input_observer if publish_raw_input else None
+        if observer is not None:
+            observer(event)
         if activate:
             self._activate(timestamp_s)
+
+    def _record_raw_input(
+        self,
+        message: Mapping[str, object],
+        *,
+        timestamp_s: float,
+    ) -> WebRTCMessageResult:
+        """Validate one transport-neutral UI input message."""
+        raw_payload = message.get("input", message)
+        if not isinstance(raw_payload, Mapping):
+            return WebRTCMessageResult(
+                kind="error",
+                error="'input' must be an object.",
+            )
+        event_type = str(raw_payload.get("event_type", "")).strip().lower()
+        if not event_type:
+            return WebRTCMessageResult(
+                kind="error",
+                error="Input payload must include non-empty 'event_type'.",
+            )
+        event_payload = raw_payload.get("payload", {})
+        if not isinstance(event_payload, Mapping):
+            return WebRTCMessageResult(
+                kind="error",
+                error="Input event 'payload' must be an object.",
+            )
+        source_event_id_value = raw_payload.get("event_id")
+        source_event_id = (
+            None if source_event_id_value is None else str(source_event_id_value)
+        )
+        try:
+            self.record_user_event(
+                timestamp_s=timestamp_s,
+                event_type=event_type,
+                payload={str(key): value for key, value in event_payload.items()},
+                source_event_id=source_event_id,
+                publish_to_model=False,
+            )
+        except (TypeError, ValueError) as exc:
+            return WebRTCMessageResult(kind="error", error=str(exc))
+        return WebRTCMessageResult(kind="input", activated=True)
 
     async def next_realtime_window(
         self,
@@ -660,6 +717,7 @@ class WebRTCInputSource:
             timestamp_s=timestamp_s,
             event_type="key_down" if event == "keydown" else "key_up",
             payload={"key": key},
+            publish_raw_input=False,
         )
         return WebRTCMessageResult(kind="action", activated=True)
 
@@ -1203,7 +1261,7 @@ class WebRTCSessionOfferHandler:
             task.exception()
 
 
-WEBRTC_USER_INPUT_SCHEMA = UserInputSchema(
+_WEBRTC_MODEL_INPUT_SCHEMA = UserInputSchema(
     capabilities=(
         UserInputCapability(
             event_type="key_down",
@@ -1222,6 +1280,12 @@ WEBRTC_USER_INPUT_SCHEMA = UserInputSchema(
         ),
     ),
     description="browser WebRTC data-channel events",
+)
+
+WEBRTC_USER_INPUT_SCHEMA = merged_user_input_schema(
+    _WEBRTC_MODEL_INPUT_SCHEMA,
+    IMGUI_RAW_INPUT_SCHEMA,
+    description="browser WebRTC model and server-side UI events",
 )
 
 

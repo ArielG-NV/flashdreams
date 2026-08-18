@@ -71,6 +71,7 @@ class LocalWindowInputBridge:
             )
         set_callbacks(
             on_keyboard_event=handler.on_keyboard_event,
+            on_mouse_event=handler.on_mouse_event,
             on_gamepad_event=handler.on_gamepad_event,
             on_gamepad_state=handler.on_gamepad_state,
         )
