@@ -211,6 +211,9 @@ class Mp4OutputSink(OutputSink):
     enabled: bool = True
     """Whether to retain and write submitted video chunks."""
 
+    presentation_fps: int | float | None = None
+    """Output rate used only when server-UI composition is active."""
+
     produces_artifacts: bool = field(default=True, init=False)
     """Whether this sink produces artifacts."""
 
@@ -237,10 +240,14 @@ class Mp4OutputSink(OutputSink):
     def __post_init__(self) -> None:
         if self.fps is not None and float(self.fps) <= 0:
             raise ValueError("Mp4OutputSink.fps must be > 0 when set.")
+        if self.presentation_fps is not None and float(self.presentation_fps) <= 0:
+            raise ValueError("Mp4OutputSink.presentation_fps must be > 0 when set.")
         self.output_path = Path(self.output_path)
 
     def open(self, session_info: SessionInfo) -> None:
         """Prepare the MP4 collector for a session."""
+        if session_info.server_ui is not None and self.presentation_fps is not None:
+            self.fps = self.presentation_fps
         if self.fps is None:
             if session_info.frames_per_second is None:
                 raise ValueError(

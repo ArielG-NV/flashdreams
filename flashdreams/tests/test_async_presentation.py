@@ -125,6 +125,45 @@ def test_ui_is_rendered_per_frame_while_model_thread_is_free() -> None:
     assert ui.closed
 
 
+def test_source_frames_are_repeated_at_the_presentation_rate() -> None:
+    controls = UIControlMailbox()
+    controls.set_value("version", 1)
+    ui = _UIRenderer(controls)
+    backend = _Backend(controls, expected_frames=6)
+    coordinator = AsyncPresentationCoordinator(
+        fps=120.0,
+        source_fps=40.0,
+        ui_renderer=ui,
+        compositor=_Compositor(),
+        backends=(backend,),
+    )
+    coordinator.open()
+    coordinator.submit(
+        StepResult.from_video_chunk(
+            step_index=0,
+            video_chunk=torch.stack(
+                (
+                    torch.zeros((3, 2, 2)),
+                    torch.ones((3, 2, 2)),
+                )
+            ),
+            layout="tchw",
+        )
+    )
+
+    coordinator.close()
+
+    assert [frame.frame_index for frame in backend.frames] == [0, 0, 0, 1, 1, 1]
+    assert [frame.metadata["presentation_repeated"] for frame in backend.frames] == [
+        False,
+        True,
+        True,
+        False,
+        True,
+        True,
+    ]
+
+
 def test_idle_frame_keeps_ui_rendering_without_model_output() -> None:
     controls = UIControlMailbox()
     controls.set_value("version", 1)

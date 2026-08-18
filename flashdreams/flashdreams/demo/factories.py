@@ -32,7 +32,11 @@ from flashdreams.demo.outputs import (
     NullOutputSink,
     WebRTCOutputSink,
 )
-from flashdreams.demo.presentation import ServerUIPresentationOutputSink
+from flashdreams.demo.presentation import (
+    DEFAULT_PRESENTATION_FPS,
+    LocalWindowPresentationBackend,
+    ServerUIPresentationOutputSink,
+)
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.time import TimeWindow
 from flashdreams.runtime.inputs import (
@@ -159,6 +163,9 @@ class LocalWindowIOFactory(IOFactory):
     fps: float | None = None
     """Playback rate; ``None`` uses application session metadata."""
 
+    presentation_fps: float | None = None
+    """UI rate; ``None`` uses :attr:`fps` or the 60 FPS default."""
+
     presenter_factory: Callable[..., Any] | None = None
     """Optional native presenter factory for embedded hosts and tests."""
 
@@ -204,6 +211,37 @@ class LocalWindowIOFactory(IOFactory):
         return ServerUIPresentationOutputSink(
             sink=sink,
             bind_raw_input=self._ui_input_binding.bind,
+            presentation_backend_factory=self._create_presentation_backend,
+            presentation_fps=self.resolved_presentation_fps,
+        )
+
+    @property
+    def resolved_presentation_fps(self) -> float:
+        """Return the explicit UI cadence or its backwards-compatible default."""
+        if self.presentation_fps is not None:
+            return self.presentation_fps
+        if self.fps is not None:
+            return self.fps
+        return DEFAULT_PRESENTATION_FPS
+
+    def _create_presentation_backend(
+        self,
+        session_info: SessionInfo,
+    ) -> LocalWindowPresentationBackend:
+        """Build the native backend directly on the shared UI thread."""
+        presenter_factory = self.presenter_factory
+        if presenter_factory is None:
+            from flashdreams.demo.local_window import SlangPyLocalWindowPresenter
+
+            presenter_factory = SlangPyLocalWindowPresenter
+        return LocalWindowPresentationBackend(
+            presenter_factory=presenter_factory,
+            presenter_kwargs={
+                "width": session_info.video_width,
+                "height": session_info.video_height,
+                "title": self.title,
+            },
+            presenter_opened=self._bridge.bind_background_presenter,
         )
 
     def _publish_raw_input(self, event: UserInputEvent) -> None:
@@ -246,6 +284,9 @@ class Mp4IOFactory(IOFactory):
     move_to_cpu: bool = True
     """Whether to move collected chunks to CPU memory immediately."""
 
+    presentation_fps: float = DEFAULT_PRESENTATION_FPS
+    """Server-UI composition rate written to the presentation backend."""
+
     def create_input_handler(self, input_schema: CanonicalInputSchema) -> InputHandler:
         """Create an input handler for ``input_schema``."""
         del input_schema
@@ -256,10 +297,14 @@ class Mp4IOFactory(IOFactory):
         sink = Mp4OutputSink(
             output_path=self.output_path,
             fps=self.fps,
+            presentation_fps=self.presentation_fps,
             output_layout=self.output_layout,
             move_to_cpu=self.move_to_cpu,
         )
-        return ServerUIPresentationOutputSink(sink=sink)
+        return ServerUIPresentationOutputSink(
+            sink=sink,
+            presentation_fps=self.presentation_fps,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -276,7 +321,10 @@ class WebRTCApplicationServing:
     """Port on which the WebRTC HTTP server listens."""
 
     fps: int = 30
-    """Browser video frame rate."""
+    """Model/source video frame rate."""
+
+    presentation_fps: int = int(DEFAULT_PRESENTATION_FPS)
+    """Browser UI composition and transport frame rate."""
 
     video_width: int = 1280
     """Browser video width in pixels."""
@@ -302,6 +350,8 @@ class WebRTCApplicationServing:
             raise ValueError("port must be between 1 and 65535.")
         if self.fps <= 0:
             raise ValueError("fps must be > 0.")
+        if self.presentation_fps <= 0:
+            raise ValueError("presentation_fps must be > 0.")
         if self.video_width <= 0 or self.video_height <= 0:
             raise ValueError("video dimensions must be > 0.")
         if self.warmup_chunks < 0:
@@ -324,6 +374,9 @@ class WebRTCIOFactory(IOFactory):
     )
     """Create the peer input handler bound to an application schema."""
 
+    presentation_fps: float = DEFAULT_PRESENTATION_FPS
+    """Server-UI composition rate delivered to the peer."""
+
     def create_input_handler(self, input_schema: CanonicalInputSchema) -> InputHandler:
         """Create an input handler for ``input_schema``."""
         return self.input_factory(input_schema)
@@ -331,7 +384,8 @@ class WebRTCIOFactory(IOFactory):
     def create_output_sink(self) -> OutputSink:
         """Create an output sink for one application run."""
         return ServerUIPresentationOutputSink(
-            sink=WebRTCOutputSink(bridge=self.bridge_factory())
+            sink=WebRTCOutputSink(bridge=self.bridge_factory()),
+            presentation_fps=self.presentation_fps,
         )
 
 

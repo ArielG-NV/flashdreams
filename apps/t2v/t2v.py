@@ -76,7 +76,7 @@ class T2VApplicationDefaults:
     """Default device on which the pipeline is constructed."""
 
     fps: float = 16.0
-    """Default presentation frame rate."""
+    """Default generated/source video frame rate."""
 
     output_layout: VideoTensorLayout = "tchw"
     """Layout emitted by the integration pipeline."""
@@ -130,7 +130,7 @@ class _T2VSessionConfig:
     """Device on which the pipeline is constructed."""
 
     fps: float
-    """Presentation frame rate exposed to output sinks."""
+    """Generated/source video frame rate exposed to output sinks."""
 
     output_layout: VideoTensorLayout
     """Layout emitted by the integration pipeline."""

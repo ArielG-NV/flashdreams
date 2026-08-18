@@ -5,8 +5,9 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from flashdreams.demo.io import OutputDecision, OutputSink, SessionInfo
@@ -21,6 +22,9 @@ from flashdreams.runtime.presentation import (
 )
 from flashdreams.runtime.types import StepResult
 from flashdreams.runtime.ui_input import IMGUI_RAW_INPUT_SCHEMA
+
+DEFAULT_PRESENTATION_FPS = 60.0
+"""Default server-UI composition and backend delivery rate."""
 
 
 @dataclass(slots=True)
@@ -86,6 +90,11 @@ class ServerUIPresentationOutputSink(OutputSink):
         repr=False,
     )
     renderer_factory: Callable[..., Any] | None = field(default=None, repr=False)
+    presentation_backend_factory: Callable[[SessionInfo], Any] | None = field(
+        default=None,
+        repr=False,
+    )
+    presentation_fps: float = DEFAULT_PRESENTATION_FPS
     max_pending_chunks: int = 2
     produces_artifacts: bool = field(init=False)
     _coordinator: AsyncPresentationCoordinator | None = field(
@@ -97,6 +106,8 @@ class ServerUIPresentationOutputSink(OutputSink):
 
     def __post_init__(self) -> None:
         self.produces_artifacts = self.sink.produces_artifacts
+        if not math.isfinite(self.presentation_fps) or self.presentation_fps <= 0:
+            raise ValueError("presentation_fps must be finite and > 0.")
 
     def open(self, session_info: SessionInfo) -> None:
         """Open the original sink or its async ImGui presentation decorator."""
@@ -144,13 +155,21 @@ class ServerUIPresentationOutputSink(OutputSink):
                 (session_info.video_height, session_info.video_width, 3),
                 dtype=np.uint8,
             )
-        backend = OutputSinkPresentationBackend(
-            sink=self.sink,
-            session_info=session_info,
-            frame_to_result=_presentation_frame_to_result,
+        presentation_session_info = replace(
+            session_info,
+            frames_per_second=self.presentation_fps,
         )
+        if self.presentation_backend_factory is None:
+            backend = OutputSinkPresentationBackend(
+                sink=self.sink,
+                session_info=presentation_session_info,
+                frame_to_result=_presentation_frame_to_result,
+            )
+        else:
+            backend = self.presentation_backend_factory(presentation_session_info)
         coordinator = AsyncPresentationCoordinator(
-            fps=session_info.frames_per_second,
+            fps=self.presentation_fps,
+            source_fps=session_info.frames_per_second,
             ui_renderer=renderer,
             compositor=TorchAlphaCompositor(),
             backends=(backend,),
@@ -301,6 +320,7 @@ class OutputSinkPresentationBackend:
 
 __all__ = [
     "AsyncPresentationOutputSink",
+    "DEFAULT_PRESENTATION_FPS",
     "LocalWindowPresentationBackend",
     "ServerUIPresentationOutputSink",
     "OutputSinkPresentationBackend",

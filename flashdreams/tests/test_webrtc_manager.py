@@ -1642,6 +1642,7 @@ async def test_shared_session_edges_use_base_webrtc_services(
     )
     output_sink = cast(ServerUIPresentationOutputSink, edges.output_sink)
     assert isinstance(output_sink, ServerUIPresentationOutputSink)
+    assert output_sink.presentation_fps == manager.presentation_fps
     webrtc_sink = cast(WebRTCOutputSink, output_sink.sink)
     assert isinstance(webrtc_sink, WebRTCOutputSink)
     bridge = webrtc_sink._bridge

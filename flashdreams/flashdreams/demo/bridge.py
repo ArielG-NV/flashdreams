@@ -736,7 +736,10 @@ def application_scenario(
 def output_spec_for(factory: IOFactory) -> OutputSpec:
     """Describe the output mode selected by an application I/O factory."""
     if isinstance(factory, LocalWindowIOFactory):
-        return LocalWindowOutputSpec(title=factory.title, fps=factory.fps)
+        return LocalWindowOutputSpec(
+            title=factory.title,
+            fps=factory.resolved_presentation_fps,
+        )
     if isinstance(factory, Mp4IOFactory):
         return Mp4OutputSpec(
             path=factory.output_path,

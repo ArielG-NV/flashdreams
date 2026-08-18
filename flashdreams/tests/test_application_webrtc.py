@@ -299,6 +299,8 @@ def test_webrtc_cli_options_build_serving_descriptor() -> None:
             "0.0.0.0",
             "--port",
             "9000",
+            "--presentation-fps",
+            "75",
             "--prompt",
             "hello",
         ],
@@ -308,6 +310,7 @@ def test_webrtc_cli_options_build_serving_descriptor() -> None:
         "fake-app",
         host="0.0.0.0",
         port=9000,
+        presentation_fps=75,
     )
     assert application_args == ["--prompt", "hello"]
 

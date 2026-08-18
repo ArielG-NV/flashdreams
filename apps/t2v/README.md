@@ -26,10 +26,19 @@ local-window/serving dependencies without installing unrelated integrations:
 - `t2v-cosmos-predict2` → `--package flashdreams-cosmos-predict2`
 - `t2v-self-forcing` → `--package flashdreams-self-forcing`
 
-Native SlangPy window (default):
+Native SlangPy window (default, presented at 60 FPS):
 
 ```bash
 uv run --package flashdreams-causal-forcing flashdreams-run t2v-causal-forcing
+```
+
+Use the global `--presentation-fps` option to choose a different UI and
+backend cadence. Model frames retain their configured source FPS and are held
+and recomposited between updates:
+
+```bash
+uv run --package flashdreams-causal-forcing flashdreams-run t2v-causal-forcing \
+  --presentation-fps 30
 ```
 
 The same demo can be launched from Python with the application runner used by

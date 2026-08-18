@@ -13,7 +13,7 @@ import pytest
 import torch
 
 from flashdreams.demo import LocalWindowOutputSink
-from flashdreams.runtime import OutputArtifact, StepResult, TimeWindow
+from flashdreams.runtime import OutputArtifact, ServerUI, StepResult, TimeWindow
 from flashdreams.runtime.demo import (
     BenchmarkStatsOutputSink,
     CompositeOutputSink,
@@ -119,6 +119,28 @@ def test_mp4_output_sink_writes_artifact_and_close_is_idempotent(
             "layout": "thwc",
         }
     ]
+
+
+def test_mp4_output_sink_uses_presentation_fps_for_server_ui(
+    tmp_path: Path,
+) -> None:
+    sink = Mp4OutputSink(
+        output_path=tmp_path / "ui.mp4",
+        fps=24,
+        presentation_fps=60,
+        writer=lambda *args, **kwargs: tmp_path / "ui.mp4",
+    )
+
+    sink.open(
+        SessionInfo(
+            output_layout="bvtchw",
+            frames_per_second=60,
+            server_ui=ServerUI(build_ui=lambda _imgui, _controls: None),
+        )
+    )
+
+    assert sink.fps == 60
+    assert sink.close() == ()
 
 
 def test_mp4_output_sink_closes_empty_collector_without_writing(

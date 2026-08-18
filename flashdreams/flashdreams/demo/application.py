@@ -369,6 +369,7 @@ def serve_application_webrtc(
             host=serving.host,
             port=serving.port,
             fps=serving.fps,
+            presentation_fps=serving.presentation_fps,
             video_width=serving.video_width,
             video_height=serving.video_height,
             warmup_chunks=serving.warmup_chunks,
@@ -403,6 +404,7 @@ def serve_application_webrtc(
             runtime=runtime,
             runtime_config=output,
             fps=output.fps,
+            presentation_fps=output.presentation_fps,
             identity=spec.model_id,
             busy_message="A WebRTC application session is already active.",
             warmup_label=f"{application_slug} WebRTC",
@@ -540,13 +542,19 @@ def _parse_host_io(
     output_kind = _selected_output(args)
     output_path: Path | None = None
     output_fps: float | None = None
+    presentation_fps = 60
     host = "127.0.0.1"
     port = 8080
     application_args: list[str] = []
     host_options = (
-        {"--output", "--host", "--port"}
+        {"--output", "--host", "--port", "--presentation-fps"}
         if output_kind == "webrtc"
-        else {"--output", "--output-path", "--output-fps"}
+        else {
+            "--output",
+            "--output-path",
+            "--output-fps",
+            "--presentation-fps",
+        }
     )
     index = 0
     while index < len(args):
@@ -563,18 +571,36 @@ def _parse_host_io(
                 host = value
             elif argument == "--port":
                 port = int(value)
+            elif argument == "--presentation-fps":
+                presentation_fps = int(value)
             index += 2
             continue
         application_args.append(argument)
         index += 1
 
+    if presentation_fps <= 0:
+        raise ValueError("--presentation-fps must be greater than zero.")
+
     if output_kind == "local-window":
-        return LocalWindowIOFactory(fps=output_fps), application_args
+        return (
+            LocalWindowIOFactory(
+                fps=output_fps,
+                presentation_fps=presentation_fps,
+            ),
+            application_args,
+        )
     if output_kind == "null":
         return NullIOFactory(), application_args
     if output_kind == "mp4":
         path = output_path or Path("outputs") / f"{application_slug}.mp4"
-        return Mp4IOFactory(output_path=path, fps=output_fps), application_args
+        return (
+            Mp4IOFactory(
+                output_path=path,
+                fps=output_fps,
+                presentation_fps=presentation_fps,
+            ),
+            application_args,
+        )
     if output_kind == "webrtc":
         if not 1 <= port <= 65535:
             raise ValueError("--port must be between 1 and 65535.")
@@ -583,6 +609,7 @@ def _parse_host_io(
                 application_slug,
                 host=host,
                 port=port,
+                presentation_fps=presentation_fps,
             ),
             application_args,
         )
@@ -598,7 +625,7 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
         print(
             "usage: flashdreams-run APPLICATION "
             "[--output local-window|null|mp4|webrtc] [--host HOST] [--port PORT] "
-            "[APPLICATION_ARGS ...]"
+            "[--presentation-fps FPS] [APPLICATION_ARGS ...]"
         )
         return
     application_slug = args.pop(0)

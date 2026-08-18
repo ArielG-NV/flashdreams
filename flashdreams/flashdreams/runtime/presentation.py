@@ -277,6 +277,7 @@ class AsyncPresentationCoordinator:
         *,
         fps: float,
         ui_renderer: UIFrameRenderer,
+        source_fps: float | None = None,
         compositor: FrameCompositor,
         backends: Sequence[PresentationBackend],
         max_pending_chunks: int = 2,
@@ -286,10 +287,16 @@ class AsyncPresentationCoordinator:
     ) -> None:
         if not math.isfinite(fps) or fps <= 0:
             raise ValueError("fps must be finite and > 0.")
+        if source_fps is None:
+            source_fps = fps
+        if not math.isfinite(source_fps) or source_fps <= 0:
+            raise ValueError("source_fps must be finite and > 0.")
         if max_pending_chunks <= 0:
             raise ValueError("max_pending_chunks must be > 0.")
         self._frame_interval_s = 1.0 / fps
         self._fps = fps
+        self._source_fps = source_fps
+        self._presentations_per_source_frame = fps / source_fps
         self._ui_renderer = ui_renderer
         self._compositor = compositor
         self._backends = tuple(backends)
@@ -355,7 +362,7 @@ class AsyncPresentationCoordinator:
         queued_frames = self._pending.qsize() * len(item.frames)
         return PresentationSubmission(
             replaced_chunks=replaced,
-            queued_duration_s=queued_frames / self._fps,
+            queued_duration_s=queued_frames / self._source_fps,
             should_stop=self._stop.is_set(),
         )
 
@@ -384,8 +391,9 @@ class AsyncPresentationCoordinator:
                 backend.open()
                 opened.append(backend)
             self._ready.set()
-            next_deadline_s: float | None = None
             presentation_index = 0
+            source_frame_index = 0
+            active_generation = self._generation
             session_start_s = self._clock()
             held_video_frame = self._initial_idle_frame
             held_step_index = 0
@@ -411,43 +419,54 @@ class AsyncPresentationCoordinator:
                     if self._pending.empty():
                         self._idle.set()
                     continue
+                if chunk.generation != active_generation:
+                    active_generation = chunk.generation
+                    source_frame_index = 0
                 for queued_frame_index, video_frame in enumerate(chunk.frames):
                     if self._is_stale(chunk.generation):
                         break
                     frame_index = (
                         held_frame_index if is_idle_repeat else queued_frame_index
                     )
-                    presentation_time_s = max(0.0, self._clock() - session_start_s)
-                    ui_frame = self._ui_renderer.render_ui(
-                        presentation_index=presentation_index,
-                        presentation_time_s=presentation_time_s,
-                    )
-                    composited = self._compositor.composite(video_frame, ui_frame)
-                    presented = PresentationFrame(
-                        frame=composited,
-                        generation=chunk.generation,
-                        step_index=chunk.step_index,
-                        frame_index=frame_index,
-                        presentation_index=presentation_index,
-                        presentation_time_s=presentation_time_s,
-                        metadata=chunk.metadata,
-                    )
-                    for backend in opened:
-                        backend.present(presented)
                     if not is_idle_repeat:
                         held_video_frame = video_frame
                         held_step_index = chunk.step_index
                         held_frame_index = frame_index
                         held_metadata = dict(chunk.metadata)
                         held_metadata["presentation_idle"] = True
-                    presentation_index += 1
-                    now_s = self._clock()
-                    next_deadline_s = (
-                        now_s + self._frame_interval_s
-                        if next_deadline_s is None
-                        else max(now_s, next_deadline_s + self._frame_interval_s)
+                    repeat_count = (
+                        1
+                        if is_idle_repeat
+                        else self._presentation_count(source_frame_index)
                     )
-                    self._stop.wait(max(0.0, next_deadline_s - now_s))
+                    if not is_idle_repeat:
+                        source_frame_index += 1
+                    for repeat_index in range(repeat_count):
+                        presentation_time_s = max(0.0, self._clock() - session_start_s)
+                        ui_frame = self._ui_renderer.render_ui(
+                            presentation_index=presentation_index,
+                            presentation_time_s=presentation_time_s,
+                        )
+                        composited = self._compositor.composite(video_frame, ui_frame)
+                        metadata = dict(chunk.metadata)
+                        metadata["presentation_repeated"] = repeat_index > 0
+                        presented = PresentationFrame(
+                            frame=composited,
+                            generation=chunk.generation,
+                            step_index=chunk.step_index,
+                            frame_index=frame_index,
+                            presentation_index=presentation_index,
+                            presentation_time_s=presentation_time_s,
+                            metadata=metadata,
+                        )
+                        for backend in opened:
+                            backend.present(presented)
+                        presentation_index += 1
+                        next_deadline_s = (
+                            session_start_s
+                            + presentation_index * self._frame_interval_s
+                        )
+                        self._stop.wait(max(0.0, next_deadline_s - self._clock()))
                 if self._pending.empty():
                     self._idle.set()
         except PresentationStopRequested:
@@ -487,6 +506,13 @@ class AsyncPresentationCoordinator:
             return True
         with self._state_lock:
             return generation != self._generation
+
+    def _presentation_count(self, source_frame_index: int) -> int:
+        """Return presentation ticks assigned to one source-frame interval."""
+        ratio = self._presentations_per_source_frame
+        start = math.ceil(source_frame_index * ratio)
+        end = math.ceil((source_frame_index + 1) * ratio)
+        return max(0, end - start)
 
     def _discard_pending(self) -> None:
         while True:

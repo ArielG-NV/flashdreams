@@ -578,6 +578,7 @@ class _ManagedWebRTCSessionEdgeFactory:
                 server_ui_opened=lambda server_ui: setattr(
                     self._managed_session, "server_ui", server_ui
                 ),
+                presentation_fps=self._manager.presentation_fps,
             ),
             cleanup_tasks=context.cleanup_tasks,
             metrics=InMemorySessionMetricsRecorder(),
@@ -731,6 +732,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         runtime: _RuntimeT,
         runtime_config: _RuntimeConfigT,
         fps: int,
+        presentation_fps: int | None = None,
         identity: str,
         busy_message: str = "A WebRTC session is already active.",
         warmup_label: str = "WebRTC",
@@ -750,12 +752,15 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
     ) -> None:
         if client_liveness_timeout_s <= 0:
             raise ValueError("client_liveness_timeout_s must be > 0")
+        if presentation_fps is not None and presentation_fps <= 0:
+            raise ValueError("presentation_fps must be > 0")
         if model_warmup_plan is not None and not isinstance(
             model_warmup_plan, ModelWarmupPlan
         ):
             raise TypeError("model_warmup_plan must be a ModelWarmupPlan.")
         self.runtime_config = runtime_config
         self.fps = fps
+        self.presentation_fps = fps if presentation_fps is None else presentation_fps
         self.identity = identity
         self.busy_message = busy_message
         self.warmup_label = warmup_label
@@ -962,7 +967,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         if encoder is None:
             encoder = self._shared_video_encoder
         if encoder is None:
-            encoder = DefaultRTCEncoder(fps=self.fps)
+            encoder = DefaultRTCEncoder(fps=self.presentation_fps)
         return encoder
 
     def _shared_run_context(self, loop: asyncio.AbstractEventLoop) -> RunContext:
@@ -991,6 +996,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             input_mode="webrtc",
             output=WebRTCOutputSpec(
                 fps=self.fps,
+                presentation_fps=self.presentation_fps,
                 video_width=self.runtime_config.video_width,
                 video_height=self.runtime_config.video_height,
                 warmup_chunks=self.runtime_config.warmup_chunks,
@@ -1075,7 +1081,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         # and expect it live. Runtime shutdown releases it.
         await managed_session.video_track.close()
 
-        fallback_encoder = DefaultRTCEncoder(fps=self.fps)
+        fallback_encoder = DefaultRTCEncoder(fps=self.presentation_fps)
         fallback_track = fallback_encoder.create_track(maxsize=num_frames)
         transceiver.sender.replaceTrack(fallback_track)
         managed_session.video_encoder = fallback_encoder
@@ -1491,10 +1497,10 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             backend=backend,
             width=self.runtime_config.video_width,
             height=self.runtime_config.video_height,
-            fps=self.fps,
+            fps=self.presentation_fps,
             bitrate=int(getattr(self.runtime_config, "encoder_bitrate_bps", 6_000_000)),
             gpu_id=_gpu_id_from_device_spec(device_spec),
-            gop=int(getattr(self.runtime_config, "encoder_gop", self.fps)),
+            gop=int(getattr(self.runtime_config, "encoder_gop", self.presentation_fps)),
         )
 
     async def create_answer(self, *, offer_sdp: str, offer_type: str) -> dict[str, str]:

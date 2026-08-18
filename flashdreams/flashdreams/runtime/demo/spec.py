@@ -79,6 +79,7 @@ class WebRTCOutputSpec:
     host: str = "127.0.0.1"
     port: int = 8080
     fps: int = 30
+    presentation_fps: int = 60
     video_width: int = 1280
     video_height: int = 720
     warmup_chunks: int = 0
@@ -95,6 +96,8 @@ class WebRTCOutputSpec:
             raise ValueError("WebRTCOutputSpec.port must be between 1 and 65535.")
         if self.fps <= 0:
             raise ValueError("WebRTCOutputSpec.fps must be > 0.")
+        if self.presentation_fps <= 0:
+            raise ValueError("WebRTCOutputSpec.presentation_fps must be > 0.")
         if self.video_width <= 0 or self.video_height <= 0:
             raise ValueError("WebRTCOutputSpec video dimensions must be > 0.")
         if self.warmup_chunks < 0:
