@@ -10,7 +10,7 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 
 @runtime_checkable
-class InputHandler(Protocol):
+class InputSource(Protocol):
     """Reports a list of the latest collected user input events."""
 
     @abstractmethod

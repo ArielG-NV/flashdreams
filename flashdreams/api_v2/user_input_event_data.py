@@ -3,12 +3,15 @@
 
 """User input event data protocol."""
 
-from typing import ClassVar, Protocol
-
-class UserInputEventData(Protocol):
+from abc import ABC, abstractmethod
+class UserInputEventData(ABC):
     """User input event data protocol. This protocol is open-ended regarding members a user may want to add to the event data.
     Protocol exists to provide a strong-typing for event type definition."""
-    name: ClassVar[str]
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Subclasses must provide this variable or property."""
+        ...
 
     @classmethod
     def __hash__(cls) -> int:

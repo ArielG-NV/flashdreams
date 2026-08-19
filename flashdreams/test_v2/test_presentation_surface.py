@@ -5,7 +5,7 @@
 
 import pytest
 import torch
-from flashdreams.api_v2.input_handler import InputHandler
+from flashdreams.api_v2.input_source import InputSource
 from flashdreams.api_v2.output_sink import OutputSink
 from flashdreams.api_v2.presentation_surface import IPresentationSurface
 from flashdreams.runtime_v2.session_desc import SessionDesc
@@ -23,7 +23,7 @@ pytestmark = pytest.mark.ci_cpu
 class FakePresentationSurface(IPresentationSurface):
     """Provide fake presentation input and output for one session."""
     def __init__(self, session_desc: SessionDesc) -> None:
-        super().__init__(session_desc)
+        self._session_desc = session_desc
         self._input: UserInputEvents | None = None
         self.results: list[StepResult] = []
 
@@ -31,6 +31,9 @@ class FakePresentationSurface(IPresentationSurface):
         # results if closed, it does not imply the input handler contains invalid data.
         self._is_open = False
 
+    @property
+    def session_desc(self) -> SessionDesc:
+        return self._session_desc
     def get_user_input_events(self) -> UserInputEvents:
         return self._input
 
@@ -50,7 +53,7 @@ class FakePresentationSurface(IPresentationSurface):
 
 def test_presentation_surface_for_null_model() -> None:
     
-    # Session layout desc + Factory + InputHandler + OutputSink setup
+    # Session layout desc + Factory + InputSource + OutputSink setup
     presentation_surface = FakePresentationSurface(
         SessionDesc(
             output_layout=NULL_MODEL_CONFIG.output_layout,
@@ -61,7 +64,7 @@ def test_presentation_surface_for_null_model() -> None:
         )
     )
     assert isinstance(presentation_surface, IPresentationSurface)
-    assert isinstance(presentation_surface, InputHandler)
+    assert isinstance(presentation_surface, InputSource)
     assert isinstance(presentation_surface, OutputSink)
     ## Assume the sink takes time to open due to startup time for backend
     presentation_surface.open()

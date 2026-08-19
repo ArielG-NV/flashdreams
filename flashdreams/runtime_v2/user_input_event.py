@@ -1,7 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""User input event API."""
+"""User input event API.
+
+`UserInputEvent` contains a timestamp and an UserInputEventData structure.
+The UserInputEventData structure contains event data for the event.
+"""
 
 from dataclasses import dataclass
 from typing import ClassVar
@@ -14,7 +18,9 @@ from flashdreams.api_v2.user_input_event_data import UserInputEventData
 class NumeralKeypadUserInputEventData(UserInputEventData):
     """User input event data for numeral keypad."""
 
-    name: ClassVar[str] = "numeral_keypad"
+    @property
+    def name(self) -> str:
+        return "numeral_keypad"
     value: int = 0
     """The number pressed."""
 
@@ -23,48 +29,62 @@ class NumeralKeypadUserInputEventData(UserInputEventData):
 class KeyboardUserInputEventData(UserInputEventData):
     """User input event data for keyboard."""
 
-    name: ClassVar[str] = "keyboard"
+    @property
+    def name(self) -> str:
+        return "keyboard"
 
 
 @dataclass(frozen=True, slots=True, eq=False)
 class MouseUserInputEventData(UserInputEventData):
     """User input event data for mouse."""
 
-    name: ClassVar[str] = "mouse"
+    @property
+    def name(self) -> str:
+        return "mouse"
 
 @dataclass(frozen=True, slots=True, eq=False)
 class TouchUserInputEventData(UserInputEventData):
     """User input event data for touch."""
 
-    name: ClassVar[str] = "touch"
+    @property
+    def name(self) -> str:
+        return "touch"
 
 
 @dataclass(frozen=True, slots=True, eq=False)
 class GamepadUserInputEventData(UserInputEventData):
     """User input event data for gamepad."""
 
-    name: ClassVar[str] = "gamepad"
+    @property
+    def name(self) -> str:
+        return "gamepad"
 
 
 @dataclass(frozen=True, slots=True, eq=False)
 class GameWheelUserInputEventData(UserInputEventData):
     """User input event data for game wheel."""
 
-    name: ClassVar[str] = "game_wheel"
+    @property
+    def name(self) -> str:
+        return "game_wheel"
 
 
 @dataclass(frozen=True, slots=True, eq=False)
 class XRControllerUserInputEventData(UserInputEventData):
     """User input event data for XR controllers."""
 
-    name: ClassVar[str] = "xr_controller"
+    @property
+    def name(self) -> str:
+        return "xr_controller"
 
 
 @dataclass(frozen=True, slots=True, eq=False)
 class UnknownUserInputEventData(UserInputEventData):
     """User input event data for unknown."""
 
-    name: ClassVar[str] = "unknown"
+    @property
+    def name(self) -> str:
+        return "unknown"
 
 
 @dataclass(frozen=True, slots=True)
