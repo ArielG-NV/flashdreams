@@ -16,7 +16,7 @@ Run commands from the repository root.
 uv sync --package flashdreams-null-model --group test
 ```
 
-## Run the focused test
+## Run a focused test
 
 ```bash
 uv run --package flashdreams-null-model python -m pytest flashdreams/test_v2/test_io_factory.py -v

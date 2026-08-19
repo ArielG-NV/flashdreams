@@ -4,68 +4,69 @@
 """User input event API."""
 
 from dataclasses import dataclass
-from enum import Enum
-from typing import Protocol
+from typing import ClassVar
+
 from numpy import uint64
 
+from flashdreams.api_v2.user_input_event_data import UserInputEventData
 
-class UserInputEventData(Protocol):
-    """User input event data."""
-    pass
+# These are stubbed input event data implementations for the sake of future implementation.
+@dataclass(frozen=True, slots=True, eq=False)
+class NumeralKeypadUserInputEventData(UserInputEventData):
+    """User input event data for numeral keypad."""
 
+    name: ClassVar[str] = "numeral_keypad"
+    value: int = 0
+    """The number pressed."""
+
+# These are stubbed input event data implementations for the sake of future implementation.
+@dataclass(frozen=True, slots=True, eq=False)
 class KeyboardUserInputEventData(UserInputEventData):
     """User input event data for keyboard."""
-    pass
 
+    name: ClassVar[str] = "keyboard"
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class MouseUserInputEventData(UserInputEventData):
     """User input event data for mouse."""
-    pass
 
+    name: ClassVar[str] = "mouse"
+
+@dataclass(frozen=True, slots=True, eq=False)
 class TouchUserInputEventData(UserInputEventData):
     """User input event data for touch."""
-    pass
 
+    name: ClassVar[str] = "touch"
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class GamepadUserInputEventData(UserInputEventData):
     """User input event data for gamepad."""
-    pass
 
+    name: ClassVar[str] = "gamepad"
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class GameWheelUserInputEventData(UserInputEventData):
     """User input event data for game wheel."""
-    pass
 
+    name: ClassVar[str] = "game_wheel"
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class XRControllerUserInputEventData(UserInputEventData):
     """User input event data for XR controllers."""
-    pass
 
-@dataclass(frozen=True, slots=True)
+    name: ClassVar[str] = "xr_controller"
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class UnknownUserInputEventData(UserInputEventData):
     """User input event data for unknown."""
 
-    data: object
-    """Opaque application-defined input data."""
+    name: ClassVar[str] = "unknown"
 
-class UserInputEventType(Enum):
-    """User input event type."""
-
-    KEYBOARD = "keyboard"
-    MOUSE = "mouse"
-    TOUCH = "touch"
-    GAMEPAD = "gamepad"
-    WHEEL = "wheel"
-    MOTION = "motion"
-    UNKNOWN = "unknown"
-
-    def __str__(self) -> str:
-        return self.value
-
-    def __repr__(self) -> str:
-        return self.value
-
-    def __hash__(self) -> int:
-        return hash(self.value)
-
-    def __eq__(self, other: object) -> bool:
-        return self.value == other.value
 
 @dataclass(frozen=True, slots=True)
 class UserInputEvent:
@@ -74,20 +75,13 @@ class UserInputEvent:
     timestamp: uint64
     """Timestamp in microseconds since the start of the session."""
 
-    event_type: UserInputEventType
-    """Device-independent category of the input event."""
-
     event_data: UserInputEventData
-    """Event payload."""
+    """Event data."""
 
     def get_timestamp(self) -> uint64:
         """Return the timestamp."""
         return self.timestamp
 
-    def get_event_type(self) -> UserInputEventType:
-        """Return the event type."""
-        return self.event_type
-
     def get_event_data(self) -> UserInputEventData:
-        """Return the event data."""
+        """Return the event data structure with type & data."""
         return self.event_data
