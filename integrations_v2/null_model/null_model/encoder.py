@@ -48,7 +48,7 @@ class NullInputEncoder(StreamingEncoder[StreamingEncoderCache]):
         """Return a `[1, 1]` input tensor unchanged.
 
         Args:
-            input: Scalar batch input with shape `[1, 1]`.
+            input: Tesor with shape `[1, 1]`.
             autoregressive_index: Unused because
                 this encoder has no step-dependent behavior.
             cache: Unused.

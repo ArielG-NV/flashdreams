@@ -87,3 +87,7 @@ exactly the expected value
 transformer already emits the final tensor, so there is nothing to
 decode. The component still exists because it demonstrates where a real
 integration would place a latent-to-pixel decoder.
+
+```bash
+uv run python -m pytest integrations_v2/null_model/null_model/tests/smoke.py
+```
