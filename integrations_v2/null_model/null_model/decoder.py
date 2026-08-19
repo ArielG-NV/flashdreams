@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Identity output decoder for the deterministic NULL model."""
+"""Output decoder for the NULL model."""
 
 from dataclasses import dataclass, field
 from typing import Any
@@ -17,14 +17,13 @@ from flashdreams.infra.decoder import (
 
 @dataclass(kw_only=True)
 class NullDecoderConfig(DecoderConfig):
-    """Config selecting the NULL model's identity decoder."""
+    """Config selecting the NULL model's decoder."""
 
     _target: type["NullDecoder"] = field(default_factory=lambda: NullDecoder)
 
 
 class NullDecoder(StreamingDecoder[StreamingDecoderCache]):
-    """Identity decoder effectively doing nothing, returning the provided tensor unchanged.
-    """
+    """Stateless decoder that subtracts 100 to remove minor obfuscation."""
 
     def initialize_autoregressive_cache(self, **_context: Any) -> StreamingDecoderCache:
         """Return an empty cache for a stateless decoder.
@@ -40,10 +39,10 @@ class NullDecoder(StreamingDecoder[StreamingDecoderCache]):
         autoregressive_index: int = 0,
         cache: StreamingDecoderCache | None = None,
     ) -> Tensor:
-        """Return the generated RGB chunk unchanged.
+        """Subtract 100 from the generated RGB chunk.
 
         Args:
-            input: Clean `[B, C, T, H, W]` output from the diffusion model.
+            input: Obfuscated `[B, C, T, H, W]` diffusion output.
             autoregressive_index: Current zero-based AR step; unused because
                 decoding is stateless.
             cache: Empty per-rollout cache. Typed optional to match the
@@ -51,7 +50,7 @@ class NullDecoder(StreamingDecoder[StreamingDecoderCache]):
                 this implementation does not read or mutate it.
 
         Returns:
-            The same tensor object supplied as `input`.
+            Deobfuscated RGB chunk.
         """
         del autoregressive_index, cache
-        return input
+        return input - 100
