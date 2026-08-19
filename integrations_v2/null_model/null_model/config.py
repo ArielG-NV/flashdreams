@@ -6,7 +6,7 @@
 from dataclasses import dataclass
 from typing import ClassVar
 
-from flashdreams.core_v2.video_tensor import VideoTensorLayout
+from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler import FlowMatchSchedulerConfig
 from flashdreams.infra.pipeline import StreamInferencePipelineConfig

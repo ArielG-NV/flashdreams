@@ -5,7 +5,7 @@
 
 from dataclasses import dataclass
 
-from flashdreams.core_v2.user_input_event import UserInputEvent
+from flashdreams.runtime_v2.user_input_event import UserInputEvent
 
 @dataclass(frozen=True)
 class UserInputEventsData:

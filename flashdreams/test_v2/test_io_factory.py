@@ -8,13 +8,13 @@ import torch
 from flashdreams.api_v2.input_handler import InputHandler
 from flashdreams.api_v2.io_factory import IOFactory
 from flashdreams.api_v2.output_sink import OutputSink
-from flashdreams.core_v2.session_desc import SessionDesc
-from flashdreams.core_v2.step_result import StepResult
-from flashdreams.core_v2.user_input_event import (
+from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.user_input_event import (
     UserInputEvent,
     NumeralKeypadUserInputEventData,
 )
-from flashdreams.core_v2.user_input_events import UserInputEvents
+from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from null_model import NULL_MODEL_CONFIG
 
 pytestmark = pytest.mark.ci_cpu

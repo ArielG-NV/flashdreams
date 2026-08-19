@@ -6,7 +6,7 @@
 from abc import abstractmethod
 from typing import Protocol, runtime_checkable
 
-from flashdreams.core_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.session_desc import SessionDesc
 
 from .input_handler import InputHandler
 from .output_sink import OutputSink

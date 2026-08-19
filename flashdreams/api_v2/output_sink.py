@@ -6,7 +6,7 @@
 from abc import abstractmethod
 from typing import Protocol, runtime_checkable
 
-from flashdreams.core_v2.step_result import StepResult
+from flashdreams.runtime_v2.step_result import StepResult
 
 @runtime_checkable
 class OutputSink(Protocol):

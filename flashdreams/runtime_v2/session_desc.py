@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
-from flashdreams.core_v2.video_tensor import VideoTensorLayout
+from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)

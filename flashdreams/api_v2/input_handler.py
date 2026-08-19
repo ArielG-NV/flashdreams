@@ -6,7 +6,7 @@
 from abc import abstractmethod
 from typing import Protocol, runtime_checkable
 
-from flashdreams.core_v2.user_input_events import UserInputEvents
+from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 
 @runtime_checkable
