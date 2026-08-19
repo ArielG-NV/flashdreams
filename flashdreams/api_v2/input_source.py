@@ -11,9 +11,16 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 @runtime_checkable
 class InputSource(Protocol):
-    """Reports a list of the latest collected user input events."""
+    """Provide user input.
+
+    The caller calls `get_user_input_events` when it needs to see the latest list of user input events.
+    That have ocurred.
+    """
 
     @abstractmethod
     def get_user_input_events(self) -> UserInputEvents:
-        """Return all collected UserInputEvents. Implementor decides whether to empty the backing-store of inputs once called."""
+        """Return the user input events collected so far.
+
+        Implementations decide whether returned events remain or empty between calls.
+        """
         ...

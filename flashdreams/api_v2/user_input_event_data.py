@@ -4,21 +4,29 @@
 """User input event data protocol."""
 
 from abc import ABC, abstractmethod
+
+
 class UserInputEventData(ABC):
-    """User input event data protocol. This protocol is open-ended regarding members a user may want to add to the event data.
-    Protocol exists to provide a strong-typing for event type definition."""
+    """Base class for data stored in `UserInputEvent`.
+
+    Implementations provide `type_name` and may add fields for their event data
+    when implementing.
+    """
+
     @property
     @abstractmethod
-    def name(self) -> str:
-        """Subclasses must provide this variable or property."""
+    def type_name(self) -> str:
+        """Return the event type name."""
         ...
 
     @classmethod
     def __hash__(cls) -> int:
-        """Return the hash of the concrete type name. This is the unique UserInputEventData 'Type' identifier."""
+        """Return the hash of the concrete class name.
+
+        The value is not stable across processes.
+        """
         return hash(str(cls.__name__))
 
-    @classmethod
-    def get_name(cls) -> str:
-        """Return the type name string."""
-        return cls.name
+    def get_type_name(self) -> str:
+        """Return the event type name."""
+        return self.type_name

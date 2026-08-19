@@ -19,7 +19,7 @@ class NumeralKeypadUserInputEventData(UserInputEventData):
     """User input event data for numeral keypad."""
 
     @property
-    def name(self) -> str:
+    def type_name(self) -> str:
         return "numeral_keypad"
     value: int = 0
     """The number pressed."""
@@ -30,7 +30,7 @@ class KeyboardUserInputEventData(UserInputEventData):
     """User input event data for keyboard."""
 
     @property
-    def name(self) -> str:
+    def type_name(self) -> str:
         return "keyboard"
 
 
@@ -39,7 +39,7 @@ class MouseUserInputEventData(UserInputEventData):
     """User input event data for mouse."""
 
     @property
-    def name(self) -> str:
+    def type_name(self) -> str:
         return "mouse"
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -47,7 +47,7 @@ class TouchUserInputEventData(UserInputEventData):
     """User input event data for touch."""
 
     @property
-    def name(self) -> str:
+    def type_name(self) -> str:
         return "touch"
 
 
@@ -56,7 +56,7 @@ class GamepadUserInputEventData(UserInputEventData):
     """User input event data for gamepad."""
 
     @property
-    def name(self) -> str:
+    def type_name(self) -> str:
         return "gamepad"
 
 
@@ -65,7 +65,7 @@ class GameWheelUserInputEventData(UserInputEventData):
     """User input event data for game wheel."""
 
     @property
-    def name(self) -> str:
+    def type_name(self) -> str:
         return "game_wheel"
 
 
@@ -74,7 +74,7 @@ class XRControllerUserInputEventData(UserInputEventData):
     """User input event data for XR controllers."""
 
     @property
-    def name(self) -> str:
+    def type_name(self) -> str:
         return "xr_controller"
 
 
@@ -83,7 +83,7 @@ class UnknownUserInputEventData(UserInputEventData):
     """User input event data for unknown."""
 
     @property
-    def name(self) -> str:
+    def type_name(self) -> str:
         return "unknown"
 
 

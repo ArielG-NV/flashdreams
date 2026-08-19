@@ -12,10 +12,15 @@ from .output_sink import OutputSink
 
 
 class IClientWindow(InputSource, OutputSink, ABC):
-    """Handle application input and output for one client window."""
+    """Handle input and output for one client window.
+
+    Use is generally: calls `open` at application start (when outputs are ready to be written),
+    reads input, generates, then writes results. Finally we call `close` when outputs are no longer
+    accepted (generally, application closed or is resetting).
+    """
 
     @property
     @abstractmethod
     def session_desc(self) -> SessionDesc:
-        """Return the session description for the client window."""
+        """Return the session description for this window."""
         ...

@@ -107,6 +107,7 @@ def test_client_window_for_null_model() -> None:
         ))
 
         assert numeral_keypad_input.get_event_data().__hash__() == NumeralKeypadUserInputEventData.__hash__()
+        assert event_data.get_type_name() == "numeral_keypad"
         assert event_data.value == test_event_data
         assert output.shape == (1, 3, 1, 1, 1)
         assert output[0, 0, 0, 0, 0].item() == current_step_index + test_event_data
