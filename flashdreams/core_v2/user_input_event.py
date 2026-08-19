@@ -6,7 +6,7 @@
 from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
-from numpy import int64
+from numpy import uint64
 
 
 class UserInputEventData(Protocol):
@@ -71,7 +71,7 @@ class UserInputEventType(Enum):
 class UserInputEvent:
     """User input event."""
 
-    timestamp: int64
+    timestamp: uint64
     """Timestamp in microseconds since the start of the session."""
 
     event_type: UserInputEventType
@@ -80,7 +80,7 @@ class UserInputEvent:
     event_data: UserInputEventData
     """Event payload."""
 
-    def get_timestamp(self) -> int64:
+    def get_timestamp(self) -> uint64:
         """Return the timestamp."""
         return self.timestamp
 
