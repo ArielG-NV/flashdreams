@@ -55,8 +55,8 @@ The encoder performs minor obfuscation by adding 100 to the 1 by 1 input tensor.
 
 ### Implement the transformer
 
-In order the following were defined: 
-1. `latent_shape` declares one batch, three channels, one frame, and one pixel as the shape of the output tensor. 
+In order the following were defined:
+1. `latent_shape` declares one batch, three channels, one frame, and one pixel as the shape of the output tensor.
 2. `initialize_autoregressive_cache()` creates a cache object which tracks the autoregressive step of each continuous generation.
 3. `initial_noise()` returns zeros so that the scheduler does not have any 'noise' to 'denoise' from the `predict_flow` method result.
 4. `predict_flow()` computes the flow utilizing our encoded_input tensor and the autoregressive step reported by the autoregressive cache.

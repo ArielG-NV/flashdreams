@@ -7,9 +7,10 @@ import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
+from typing import Any
 
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from typing import Any
+
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class SessionDesc:
@@ -34,10 +35,20 @@ class SessionDesc:
     """Additional flags to share downstream."""
 
     def __post_init__(self) -> None:
-        if not math.isfinite(self.frames_per_second_for_ui) or self.frames_per_second_for_ui <= 0:
-            raise ValueError("SessionDesc.frames_per_second_for_ui must be > 0 when set.")
-        if not math.isfinite(self.frames_per_second_for_step) or self.frames_per_second_for_step <= 0:
-            raise ValueError("SessionDesc.frames_per_second_for_step must be > 0 when set.")
+        if (
+            not math.isfinite(self.frames_per_second_for_ui)
+            or self.frames_per_second_for_ui <= 0
+        ):
+            raise ValueError(
+                "SessionDesc.frames_per_second_for_ui must be > 0 when set."
+            )
+        if (
+            not math.isfinite(self.frames_per_second_for_step)
+            or self.frames_per_second_for_step <= 0
+        ):
+            raise ValueError(
+                "SessionDesc.frames_per_second_for_step must be > 0 when set."
+            )
         if self.video_width <= 0:
             raise ValueError("SessionDesc.video_width must be > 0 when set.")
         if self.video_height <= 0:

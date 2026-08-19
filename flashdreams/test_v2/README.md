@@ -10,22 +10,16 @@ model integration.
 
 Run commands from the repository root.
 
-## Set up the test environment
-
-```bash
-uv sync --package flashdreams-null-model --group test
-```
-
 ## Run a focused test
 
 ```bash
-uv run --package flashdreams-null-model python -m pytest flashdreams/test_v2/test_client_window.py -v
+uv run python -m pytest flashdreams/test_v2/test_client_window.py -v
 ```
 
 To run every test in this directory:
 
 ```bash
-uv run --package flashdreams-null-model python -m pytest flashdreams/test_v2 -v
+uv run python -m pytest flashdreams/test_v2/ -v
 ```
 
 The tests are marked `ci_cpu`; they do not require a GPU or model checkpoint.

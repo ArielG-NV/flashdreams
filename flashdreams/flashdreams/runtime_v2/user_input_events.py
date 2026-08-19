@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from flashdreams.runtime_v2.user_input_event import UserInputEvent
 
+
 @dataclass(frozen=True)
 class UserInputEventsData:
     """Data for user input events."""

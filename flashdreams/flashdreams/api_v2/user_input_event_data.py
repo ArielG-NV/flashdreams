@@ -13,9 +13,9 @@ class UserInputEventData(ABC):
     when implementing.
     """
 
-    @property
+    @classmethod
     @abstractmethod
-    def type_name(self) -> str:
+    def get_type_name(cls) -> str:
         """Return the event type name."""
         ...
 
@@ -26,7 +26,3 @@ class UserInputEventData(ABC):
         The value is not stable across processes.
         """
         return hash(str(cls.__name__))
-
-    def get_type_name(self) -> str:
-        """Return the event type name."""
-        return self.type_name

@@ -14,23 +14,28 @@ from numpy import uint64
 
 from flashdreams.api_v2.user_input_event_data import UserInputEventData
 
+
 @dataclass(frozen=True, slots=True, eq=False)
 class NumeralKeypadUserInputEventData(UserInputEventData):
     """User input event data for numeral keypad."""
 
-    @property
-    def type_name(self) -> str:
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
         return "numeral_keypad"
+
     value: int = 0
     """The number pressed."""
+
 
 # Below are stubbed input event data implementations for the sake of future implementation.
 @dataclass(frozen=True, slots=True, eq=False)
 class KeyboardUserInputEventData(UserInputEventData):
     """User input event data for keyboard."""
 
-    @property
-    def type_name(self) -> str:
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
         return "keyboard"
 
 
@@ -38,16 +43,19 @@ class KeyboardUserInputEventData(UserInputEventData):
 class MouseUserInputEventData(UserInputEventData):
     """User input event data for mouse."""
 
-    @property
-    def type_name(self) -> str:
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
         return "mouse"
+
 
 @dataclass(frozen=True, slots=True, eq=False)
 class TouchUserInputEventData(UserInputEventData):
     """User input event data for touch."""
 
-    @property
-    def type_name(self) -> str:
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
         return "touch"
 
 
@@ -55,8 +63,9 @@ class TouchUserInputEventData(UserInputEventData):
 class GamepadUserInputEventData(UserInputEventData):
     """User input event data for gamepad."""
 
-    @property
-    def type_name(self) -> str:
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
         return "gamepad"
 
 
@@ -64,8 +73,9 @@ class GamepadUserInputEventData(UserInputEventData):
 class GameWheelUserInputEventData(UserInputEventData):
     """User input event data for game wheel."""
 
-    @property
-    def type_name(self) -> str:
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
         return "game_wheel"
 
 
@@ -73,8 +83,9 @@ class GameWheelUserInputEventData(UserInputEventData):
 class XRControllerUserInputEventData(UserInputEventData):
     """User input event data for XR controllers."""
 
-    @property
-    def type_name(self) -> str:
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
         return "xr_controller"
 
 
@@ -82,8 +93,9 @@ class XRControllerUserInputEventData(UserInputEventData):
 class UnknownUserInputEventData(UserInputEventData):
     """User input event data for unknown."""
 
-    @property
-    def type_name(self) -> str:
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
         return "unknown"
 
 

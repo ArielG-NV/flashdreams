@@ -3,7 +3,6 @@
 
 import pytest
 import torch
-
 from null_model import NULL_MODEL_CONFIG
 
 pytestmark = pytest.mark.ci_cpu

@@ -8,6 +8,7 @@ from enum import Enum
 
 class VideoTensorLayout(Enum):
     """Supported/Recognized tensor layouts."""
+
     tchw = "tchw"
     btchw = "btchw"
     bcthw = "bcthw"

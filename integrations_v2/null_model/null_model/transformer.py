@@ -20,8 +20,7 @@ from flashdreams.infra.diffusion.transformer import (
 
 @dataclass(kw_only=True)
 class NullTransformerCache(TransformerAutoregressiveCache):
-    """Minimal per-rollout state demonstrating minimal transformer cache lifecycle without `finalize`.
-    """
+    """Minimal per-rollout state demonstrating minimal transformer cache lifecycle without `finalize`."""
 
     autoregressive_index: int = -1
     """Current AR step; `-1` before the first `start` call."""
@@ -46,8 +45,7 @@ class NullTransformerConfig(TransformerConfig):
 
 
 class NullTransformer(Transformer[NullTransformerCache]):
-    """Deterministic RGB transformer driven by the scalar input and AR step.
-    """
+    """Deterministic RGB transformer driven by the scalar input and AR step."""
 
     def __init__(self, config: NullTransformerConfig) -> None:
         """
@@ -134,11 +132,9 @@ class NullTransformer(Transformer[NullTransformerCache]):
         return noisy_latent - (input + cache.autoregressive_index)
 
     def patchify_and_maybe_split_cp(self, x: Any) -> Any:
-        """Stubbed out for compatibility with the transformer interface. No patching of inputs is needed for the NULL model.
-        """
+        """Stubbed out for compatibility with the transformer interface. No patching of inputs is needed for the NULL model."""
         return x
 
     def unpatchify_and_maybe_gather_cp(self, x: Tensor) -> Tensor:
-        """Stubbed out for compatibility with the transformer interface. No unpatchifying of outputs is needed for the NULL model.
-        """
+        """Stubbed out for compatibility with the transformer interface. No unpatchifying of outputs is needed for the NULL model."""
         return x
