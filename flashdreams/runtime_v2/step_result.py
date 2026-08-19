@@ -14,13 +14,13 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 class StepResult:
     """Generated output returned by one inference step."""
 
-    # number of the step
     step_index: int
-    # output tensor
+    """Number of the step."""
     output: Tensor
-    # chunk size in frames
+    """Output tensor."""
     frame_count: int
-    # output tensor layout
+    """Chunk size in frames."""
     output_layout: VideoTensorLayout
-    # metrics
+    """Output tensor layout."""
     metrics: dict[str, float | int]
+    """Metrics."""

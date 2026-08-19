@@ -10,7 +10,6 @@ from numpy import uint64
 
 from flashdreams.api_v2.user_input_event_data import UserInputEventData
 
-# These are stubbed input event data implementations for the sake of future implementation.
 @dataclass(frozen=True, slots=True, eq=False)
 class NumeralKeypadUserInputEventData(UserInputEventData):
     """User input event data for numeral keypad."""
@@ -19,7 +18,7 @@ class NumeralKeypadUserInputEventData(UserInputEventData):
     value: int = 0
     """The number pressed."""
 
-# These are stubbed input event data implementations for the sake of future implementation.
+# Below are stubbed input event data implementations for the sake of future implementation.
 @dataclass(frozen=True, slots=True, eq=False)
 class KeyboardUserInputEventData(UserInputEventData):
     """User input event data for keyboard."""

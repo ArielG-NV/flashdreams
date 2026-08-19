@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-
+from typing import Any
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class SessionDesc:
@@ -30,7 +30,7 @@ class SessionDesc:
     video_height: int = 720
     """Output video height in pixels."""
 
-    metadata: Mapping[str, object] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
     """Additional flags to share downstream."""
 
     def __post_init__(self) -> None:
@@ -42,4 +42,3 @@ class SessionDesc:
             raise ValueError("SessionDesc.video_width must be > 0 when set.")
         if self.video_height <= 0:
             raise ValueError("SessionDesc.video_height must be > 0 when set.")
-        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))

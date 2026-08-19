@@ -7,7 +7,7 @@ from enum import Enum
 
 
 class VideoTensorLayout(Enum):
-    """Supported RGB video tensor layouts at the post-processing boundary."""
+    """Supported/Recognized tensor layouts."""
     tchw = "tchw"
     btchw = "btchw"
     bcthw = "bcthw"

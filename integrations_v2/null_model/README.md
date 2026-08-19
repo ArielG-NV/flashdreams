@@ -6,9 +6,6 @@ SPDX-License-Identifier: Apache-2.0
 # FlashDreams NULL Model
 ## Observable contract
 
-For autoregressive step `k`, the model accepts one scalar tensor and emits a
-one-pixel RGB video chunk:
-
 | Property | Value |
 | --- | --- |
 | Input | Tensor with shape `[1, 1]` |
@@ -16,11 +13,12 @@ one-pixel RGB video chunk:
 | Output value | Output is `Input + cache.autoregressive_index` |
 | Output layout | `VideoTensorLayout.bcthw` |
 
-##Files
-config.py           Defines the 'null model' pipeline
-encoder.py          Adds 100 to the input for minor obfuscation
-transformer.py      Processes the encoded-input into a latent/flow that scheduler must 'denoise'
-decoder.py          Removes the minor obfuscation created by the encoder by subtracting 100
+## Files
+
+`config.py`           Defines the 'null model' pipeline
+`encoder.py`          Adds 100 to the input for minor obfuscation
+`transformer.py`      Processes the encoded-input into a latent/flow that scheduler must 'denoise'
+`decoder.py`          Removes the minor obfuscation created by the encoder by subtracting 100
 
 ```python
 NULL_MODEL_CONFIG = NullModelConfig(
