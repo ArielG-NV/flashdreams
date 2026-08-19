@@ -18,11 +18,15 @@ from .transformer import NullTransformerConfig
 
 @dataclass(kw_only=True)
 class NullModelConfig(StreamInferencePipelineConfig):
-    """Config for the deterministic NULL model pipeline."""
+    """Pipeline config that is externally visible.
+    """
 
     output_layout: ClassVar[VideoTensorLayout] = VideoTensorLayout.bcthw
-    """Layout of the emitted ``[B, C, T, H, W]`` RGB tensor."""
+    """Layout of the emitted tensor.
+    """
 
+
+## Pipeline definition for our 'Null Model'
 
 NULL_MODEL_CONFIG = NullModelConfig(
     name="null-model",
@@ -36,4 +40,3 @@ NULL_MODEL_CONFIG = NullModelConfig(
     ),
     decoder=NullDecoderConfig(),
 )
-"""CPU-safe pipeline whose RGB output is filled with the current AR index."""

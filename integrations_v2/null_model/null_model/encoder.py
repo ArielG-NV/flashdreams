@@ -17,20 +17,26 @@ from flashdreams.infra.encoder import (
 
 @dataclass(kw_only=True)
 class NullInputEncoderConfig(EncoderConfig):
-    """Config for the NULL model scalar input encoder."""
+    """Config selecting the NULL model's per-step scalar encoder."""
 
-    _target: type["NullInputEncoder"] = field(
-        default_factory=lambda: NullInputEncoder
-    )
+    _target: type["NullInputEncoder"] = field(default_factory=lambda: NullInputEncoder)
 
 
 class NullInputEncoder(StreamingEncoder[StreamingEncoderCache]):
-    """Validate and pass through one scalar per-step input."""
+    """Stateless per-step encoder of model inputs.
 
-    def initialize_autoregressive_cache(
-        self, **_context: Any
-    ) -> StreamingEncoderCache:
-        """Return an empty per-rollout cache."""
+    The pipeline's `encoder` slot requires
+    `flashdreams.infra.encoder.StreamingEncoder` because we decided to allow the null encoder to ingest an input 
+    every AR step. This reference encoder is stateless as it does not use its encoder cache.
+    """
+
+    def initialize_autoregressive_cache(self, **_context: Any) -> StreamingEncoderCache:
+        """Return an empty cache for a stateless encoder.
+
+        The pipeline calls this once when it initializes a rollout. Real
+        control encoders can consume `_context` and return a cache subclass
+        carrying state between AR steps.
+        """
         return StreamingEncoderCache()
 
     def forward(
@@ -39,20 +45,22 @@ class NullInputEncoder(StreamingEncoder[StreamingEncoderCache]):
         autoregressive_index: int = 0,
         cache: StreamingEncoderCache | None = None,
     ) -> Tensor:
-        """Return a ``[1, 1]`` input tensor unchanged.
+        """Return a `[1, 1]` input tensor unchanged.
 
         Args:
-            input: Scalar batch input with shape ``[1, 1]``.
-            autoregressive_index: Current zero-based AR step.
-            cache: Stateless per-rollout encoder cache.
+            input: Scalar batch input with shape `[1, 1]`.
+            autoregressive_index: Unused because
+                this encoder has no step-dependent behavior.
+            cache: Unused.
 
         Returns:
             The validated input tensor.
 
         Raises:
-            AssertionError: ``input`` is not a tensor with shape ``[1, 1]``.
+            AssertionError: `input` is not a tensor with shape `[1, 1]`.
         """
         del autoregressive_index, cache
+
         assert isinstance(input, Tensor), (
             f"expected input to be a Tensor, got {type(input).__name__}"
         )

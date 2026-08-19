@@ -20,13 +20,17 @@ from flashdreams.infra.diffusion.transformer import (
 
 @dataclass(kw_only=True)
 class NullTransformerCache(TransformerAutoregressiveCache):
-    """Long-lived AR cache for the NULL transformer."""
+    """Minimal per-rollout state demonstrating minimal transformer cache lifecycle without `finalize`.
+    """
 
     autoregressive_index: int = -1
-    """Current AR step; ``-1`` before the first :meth:`start` call."""
+    """Current AR step; `-1` before the first `start` call."""
 
     def start(self, autoregressive_index: int) -> None:
         """Record the AR step that determines the output value.
+
+        The diffusion model calls this before `NullTransformer.predict_flow`,
+        so every denoising invocation observes the correct step.
 
         Args:
             autoregressive_index: Current zero-based AR step.
@@ -36,16 +40,23 @@ class NullTransformerCache(TransformerAutoregressiveCache):
 
 @dataclass(kw_only=True)
 class NullTransformerConfig(TransformerConfig):
-    """Config for the deterministic NULL transformer."""
+    """Config selecting the deterministic NULL transformer implementation."""
 
     _target: type["NullTransformer"] = field(default_factory=lambda: NullTransformer)
 
 
 class NullTransformer(Transformer[NullTransformerCache]):
-    """Emit RGB chunks filled with the scalar input plus the current AR step."""
+    """Deterministic RGB transformer driven by the scalar input and AR step.
+    """
 
     def __init__(self, config: NullTransformerConfig) -> None:
+        """
+        Args:
+            config: Transformer instantiation config supplied by the inherited
+                `setup()` mechanism.
+        """
         super().__init__(config)
+
         self._device_anchor = torch.nn.Parameter(
             torch.zeros(()),
             requires_grad=False,
@@ -53,11 +64,19 @@ class NullTransformer(Transformer[NullTransformerCache]):
 
     @property
     def latent_shape(self) -> tuple[int, ...]:
-        """Return output shape ``[B, C=3, T, H, W]``."""
+        """Return the fixed one-pixel RGB chunk shape ``[B, C, T, H, W]``.
+
+        The NULL model uses `[1, 3, 1, 1, 1]` as both its diffusion latent and
+        final output shape.
+        """
         return (1, 3, 1, 1, 1)
 
     def initialize_autoregressive_cache(self) -> NullTransformerCache:
-        """Return a fresh cache for a deterministic rollout."""
+        """Return a fresh step-index cache for one rollout.
+
+        The pipeline calls this method once from `initialize_cache` and sends the
+        result through every `generate` / `finalize` pair to keep track of the autoregressive step.
+        """
         return NullTransformerCache()
 
     def initial_noise(
@@ -68,7 +87,21 @@ class NullTransformer(Transformer[NullTransformerCache]):
         cache: NullTransformerCache,
         input: Any = None,
     ) -> Tensor:
-        """Return zeros so the RGB result is exact."""
+        """Return a deterministic starting latent so that the scheduler does not have any 'noise' to 'denoise' from the `predict_flow` method result.
+
+        Args:
+            latent_shape: Shape requested by the diffusion model.
+            rng: Framework RNG; unused because the tensor is deterministic.
+            cache: Per-rollout transformer cache; not needed to initialize zeros.
+            input: Encoded per-step scalar; not needed until flow prediction.
+
+        Returns:
+            A zero tensor on the transformer's current device and dtype.
+
+        Note:
+            A real diffusion integration normally inherits the base Gaussian
+            implementation.
+        """
         del rng, cache, input
         return torch.zeros(latent_shape, device=self.device, dtype=self.dtype)
 
@@ -77,21 +110,18 @@ class NullTransformer(Transformer[NullTransformerCache]):
         noisy_latent: Tensor,
         timestep: Tensor,
         cache: NullTransformerCache,
-        input: Tensor = None,
+        input: Tensor | None = None,
     ) -> Tensor:
         """Predict flow from random noise to the input value plus AR step.
 
         Args:
             noisy_latent: Current noisy RGB output tensor.
-            timestep: Current denoising timestep.
-            cache: Per-rollout cache containing the current AR step.
-            input: Scalar batch input with shape ``[1, 1]``.
+            timestep: Ignored
+            cache: Tracks AR step via `cache.autoregressive_index`.
+            input: Encoded-input with shape ``[1, 1]``.
 
         Returns:
-            Flow that produces an RGB tensor filled with ``input + step``.
-
-        Raises:
-            AssertionError: ``input`` is not a tensor with shape ``[1, 1]``.
+            Flow that produces a tensor filled with `input + cache.autoregressive_index`.
         """
         del timestep
         assert isinstance(input, Tensor), (
@@ -100,16 +130,15 @@ class NullTransformer(Transformer[NullTransformerCache]):
         assert input.shape == (1, 1), (
             f"expected input tensor shape (1, 1), got {tuple(input.shape)}"
         )
-        output_value = input.to(
-            device=noisy_latent.device,
-            dtype=noisy_latent.dtype,
-        ) + cache.autoregressive_index
-        return noisy_latent - output_value
+
+        return noisy_latent - (input + cache.autoregressive_index)
 
     def patchify_and_maybe_split_cp(self, x: Any) -> Any:
-        """Return ``x`` unchanged."""
+        """Stubbed out for compatibility with the transformer interface. No patching of inputs is needed for the NULL model.
+        """
         return x
 
     def unpatchify_and_maybe_gather_cp(self, x: Tensor) -> Tensor:
-        """Return ``x`` unchanged."""
+        """Stubbed out for compatibility with the transformer interface. No unpatchifying of outputs is needed for the NULL model.
+        """
         return x
