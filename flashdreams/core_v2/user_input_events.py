@@ -37,4 +37,4 @@ class UserInputEvents:
 
     def get_events(self) -> list[UserInputEvent]:
         """Return the user input events."""
-        return self._data.events
+        return list(self._data.events)
