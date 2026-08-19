@@ -10,7 +10,7 @@ from .input_source import InputSource
 from .output_sink import OutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
 
-class IPresentationSurface(InputSource, OutputSink, ABC):
+class IPresentationBackend(InputSource, OutputSink, ABC):
     """Handle application input and output for one presentation backend."""
     @property
     @abstractmethod
