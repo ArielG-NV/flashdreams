@@ -26,6 +26,7 @@ members = [
     "flashdreams-flashvsr",
     "flashdreams-hy-worldplay",
     "flashdreams-lingbot",
+    "flashdreams-null-model",
     "flashdreams-omnidreams",
     "flashdreams-sana-wm",
     "flashdreams-self-forcing",
@@ -1284,6 +1285,17 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.11" },
 ]
 provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-null-model"
+version = "0.1.0"
+source = { editable = "integrations_v2/null_model" }
+dependencies = [
+    { name = "flashdreams" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "flashdreams", editable = "flashdreams" }]
 
 [[package]]
 name = "flashdreams-omnidreams"
