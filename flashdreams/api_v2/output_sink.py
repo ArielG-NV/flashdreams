@@ -10,7 +10,7 @@ from flashdreams.runtime_v2.step_result import StepResult
 
 @runtime_checkable
 class OutputSink(Protocol):
-    """Consume canonical generated results for one application session."""
+    """Writes to implementor a StepResult."""
 
     @abstractmethod
     def open(self) -> None:

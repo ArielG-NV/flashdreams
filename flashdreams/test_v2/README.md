@@ -19,7 +19,7 @@ uv sync --package flashdreams-null-model --group test
 ## Run a focused test
 
 ```bash
-uv run --package flashdreams-null-model python -m pytest flashdreams/test_v2/test_io_factory.py -v
+uv run --package flashdreams-null-model python -m pytest flashdreams/test_v2/test_presentation_surface.py -v
 ```
 
 To run every test in this directory:
@@ -37,5 +37,5 @@ directory for the current PowerShell session:
 
 ```powershell
 $env:UV_CACHE_DIR = Join-Path $env:TEMP "flashdreams-uv-cache"
-uv run --package flashdreams-null-model python -m pytest flashdreams/test_v2/test_io_factory.py -v
+uv run --package flashdreams-null-model python -m pytest flashdreams/test_v2/test_presentation_surface.py -v
 ```
