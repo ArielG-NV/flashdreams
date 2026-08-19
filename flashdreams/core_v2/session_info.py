@@ -30,8 +30,11 @@ class SessionInfo:
     output_layout: VideoTensorLayout = VideoTensorLayout.tchw
     """Declared tensor layout for generated video results."""
 
-    frames_per_second: float = 0
-    """frame rate to display individual frames at. This is the ui-thread AND model-generation thread frame rate."""
+    frames_per_second_for_ui: int = 60
+    """frame rate to display ui-thread frames at."""
+
+    frames_per_second_for_step: int = 30
+    """frame rate to display model-generation thread frames at."""
 
     video_width: int = 720
     """Output video width in pixels."""
@@ -43,8 +46,10 @@ class SessionInfo:
     """Additional flags to share downstream."""
 
     def __post_init__(self) -> None:
-        if not math.isfinite(self.frames_per_second) or self.frames_per_second <= 0:
-            raise ValueError("SessionInfo.frames_per_second must be > 0 when set.")
+        if not math.isfinite(self.frames_per_second_for_ui) or self.frames_per_second_for_ui <= 0:
+            raise ValueError("SessionInfo.frames_per_second_for_ui must be > 0 when set.")
+        if not math.isfinite(self.frames_per_second_for_step) or self.frames_per_second_for_step <= 0:
+            raise ValueError("SessionInfo.frames_per_second_for_step must be > 0 when set.")
         if self.video_width <= 0:
             raise ValueError("SessionInfo.video_width must be > 0 when set.")
         if self.video_height <= 0:

@@ -15,6 +15,7 @@
 
 """User input event API."""
 
+from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
 
@@ -47,9 +48,12 @@ class UserInputEventDataGameMotion(UserInputEventData):
     """User input event data for game motion."""
     pass
 
+@dataclass(frozen=True, slots=True)
 class UserInputEventDataUnknown(UserInputEventData):
     """User input event data for unknown."""
-    pass
+
+    data: object
+    """Opaque application-defined input data."""
 
 class UserInputEventType(Enum):
     """User input event type."""
@@ -74,13 +78,27 @@ class UserInputEventType(Enum):
     def __eq__(self, other: object) -> bool:
         return self.value == other.value
 
+@dataclass(frozen=True, slots=True)
 class UserInputEvent:
     """User input event."""
 
-    event_type: UserInputEventType = UserInputEventType.UNKNOWN
-    event_data: UserInputEventData = UserInputEventDataUnknown()
+    timestamp: float
+    """Timestamp in seconds since the start of the session."""
 
-    def __init__(self, event_type: UserInputEventType, event_data: UserInputEventData) -> None:
-        self.event_type = event_type
-        self.event_data = event_data
-    
+    event_type: UserInputEventType
+    """Device-independent category of the input event."""
+
+    event_data: UserInputEventData
+    """Event payload."""
+
+    def get_timestamp(self) -> float:
+        """Return the timestamp."""
+        return self.timestamp
+
+    def get_event_type(self) -> UserInputEventType:
+        """Return the event type."""
+        return self.event_type
+
+    def get_event_data(self) -> UserInputEventData:
+        """Return the event data."""
+        return self.event_data

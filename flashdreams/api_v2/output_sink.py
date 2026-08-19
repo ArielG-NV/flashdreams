@@ -30,8 +30,8 @@ class OutputSink(Protocol):
         ...
 
     @abstractmethod
-    def write(self, result: StepResult) -> bool:
-        """Consume one result and return whether writing failed (is closed)."""
+    def write(self, result: StepResult) -> None:
+        """Consume one result."""
         ...
 
     @abstractmethod

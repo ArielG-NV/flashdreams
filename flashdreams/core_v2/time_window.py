@@ -11,8 +11,8 @@ from dataclasses import dataclass
 class TimeWindow:
     """Half-open time window in seconds since session start."""
 
-    start_s: float
-    end_s: float
+    start_s: float = 0
+    end_s: float = 0
 
     def __init__(self, start_s: float = 0, end_s: float = 0):
         if not math.isfinite(start_s) or not math.isfinite(end_s):
