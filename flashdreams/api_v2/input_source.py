@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Canonical application input handling protocol."""
+"""Application input handling protocol."""
 
 from abc import abstractmethod
 from typing import Protocol, runtime_checkable

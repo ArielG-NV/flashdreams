@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Canonical application output delivery protocol."""
+"""Application output delivery protocol."""
 
 from abc import abstractmethod
 from typing import Protocol, runtime_checkable

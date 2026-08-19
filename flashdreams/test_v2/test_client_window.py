@@ -1,13 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""CPU test for the v2 presentation surface protocol."""
+"""CPU test for the v2 client window abstraction."""
 
 import pytest
 import torch
+from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.input_source import InputSource
 from flashdreams.api_v2.output_sink import OutputSink
-from flashdreams.api_v2.presentation_backend import IPresentationBackend
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -20,15 +20,15 @@ from null_model import NULL_MODEL_CONFIG
 pytestmark = pytest.mark.ci_cpu
 
 
-class FakePresentationBackend(IPresentationBackend):
-    """Provide fake presentation input and output for one session."""
+class FakeClientWindow(IClientWindow):
+    """Provide fake client input and output for one session."""
     def __init__(self, session_desc: SessionDesc) -> None:
         self._session_desc = session_desc
         self._input: UserInputEvents | None = None
         self.results: list[StepResult] = []
 
         # Only applies to writing to output; reading from input will just not produce "new"
-        # results if closed, it does not imply the input handler contains invalid data.
+        # results if closed, it does not imply the InputSource contains invalid data.
         self._is_open = False
 
     @property
@@ -51,10 +51,10 @@ class FakePresentationBackend(IPresentationBackend):
         self._input = input
 
 
-def test_presentation_backend_for_null_model() -> None:
+def test_client_window_for_null_model() -> None:
     
     # Session layout desc + Factory + InputSource + OutputSink setup
-    presentation_backend = FakePresentationBackend(
+    client_window = FakeClientWindow(
         SessionDesc(
             output_layout=NULL_MODEL_CONFIG.output_layout,
             frames_per_second_for_ui=1,
@@ -63,11 +63,11 @@ def test_presentation_backend_for_null_model() -> None:
             video_height=1,
         )
     )
-    assert isinstance(presentation_backend, IPresentationBackend)
-    assert isinstance(presentation_backend, InputSource)
-    assert isinstance(presentation_backend, OutputSink)
+    assert isinstance(client_window, IClientWindow)
+    assert isinstance(client_window, InputSource)
+    assert isinstance(client_window, OutputSink)
     ## Assume the sink takes time to open due to startup time for backend
-    presentation_backend.open()
+    client_window.open()
 
     # Pipeline setup
     pipeline = NULL_MODEL_CONFIG.setup().to("cpu")
@@ -84,21 +84,21 @@ def test_presentation_backend_for_null_model() -> None:
             event_data=NumeralKeypadUserInputEventData(value=test_event_data),
         )
 
-        # This is the presentation backend updating user-inputs handled by the
-        # input handler.
-        presentation_backend.update_input_events(
+        # This is the client-windowing system updating user-inputs handled by the
+        # InputSource.
+        client_window.update_input_events(
             UserInputEvents([numeral_keypad_input])
         )
 
-        # This is the input handler getting the user-inputs to send to our `step`/`ui_step` loops
-        get_user_input_events = presentation_backend.get_user_input_events()
+        # This is the InputSource getting the user-inputs to send to our `step`/`ui_step` loops
+        get_user_input_events = client_window.get_user_input_events()
         assert get_user_input_events.get_events() == [numeral_keypad_input]
         event_data = get_user_input_events.get_events()[0].get_event_data()
 
         # This is inside our `step` loop.
         output = pipeline.generate(current_step_index, cache, input=torch.tensor([[event_data.value]]))
         ## Note: model output is in bcthw layout, but in theory the model could output bctwh and we would require a swizzle operation to get to bcthw
-        presentation_backend.write(StepResult(
+        client_window.write(StepResult(
             step_index=current_step_index,
             output=output,
             frame_count=1,
@@ -110,4 +110,4 @@ def test_presentation_backend_for_null_model() -> None:
         assert event_data.value == test_event_data
         assert output.shape == (1, 3, 1, 1, 1)
         assert output[0, 0, 0, 0, 0].item() == current_step_index + test_event_data
-    presentation_backend.close()
+    client_window.close()
