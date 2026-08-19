@@ -22,9 +22,8 @@ pytestmark = pytest.mark.ci_cpu
 
 class FakePresentationSurface(IPresentationSurface):
     """Provide fake presentation input and output for one session."""
-
     def __init__(self, session_desc: SessionDesc) -> None:
-        self.session_desc = session_desc
+        super().__init__(session_desc)
         self._input: UserInputEvents | None = None
         self.results: list[StepResult] = []
 

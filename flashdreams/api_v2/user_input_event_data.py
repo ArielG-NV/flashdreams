@@ -12,7 +12,7 @@ class UserInputEventData(Protocol):
 
     @classmethod
     def __hash__(cls) -> int:
-        """Return the hash of the concrete type name."""
+        """Return the hash of the concrete type name. This is the unique UserInputEventData 'Type' identifier."""
         return hash(str(cls.__name__))
 
     @classmethod

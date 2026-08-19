@@ -13,7 +13,7 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class SessionDesc:
-    """Sink-facing metadata known after application session initialization."""
+    """Sink-facing metadata container."""
 
     output_layout: VideoTensorLayout = VideoTensorLayout.tchw
     """Declared tensor layout for generated video results."""
