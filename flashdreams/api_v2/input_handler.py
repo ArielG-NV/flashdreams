@@ -11,19 +11,9 @@ from flashdreams.core_v2.user_input_events import UserInputEvents
 
 @runtime_checkable
 class InputHandler(Protocol):
-    """Provide time-windowed canonical input state to the host."""
+    """Reports a list of the latest collected user input events."""
 
     @abstractmethod
-    def open(self) -> None:
-        """Enable reading."""
-        ...
-
-    @abstractmethod
-    def current_inputs(self) -> UserInputEvents:
-        """Return the latest user input events."""
-        ...
-
-    @abstractmethod
-    def close(self) -> None:
-        """Disable further reading."""
+    def get_user_input_events(self) -> UserInputEvents:
+        """Return all collected UserInputEvents. Implementor decides whether to empty the backing-store of inputs once called."""
         ...

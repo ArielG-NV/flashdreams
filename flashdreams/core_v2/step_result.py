@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 
 from torch import Tensor
 
-from flashdreams.core_v2.time_window import TimeWindow
 from flashdreams.core_v2.video_tensor import VideoTensorLayout
 
 

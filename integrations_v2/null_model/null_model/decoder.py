@@ -31,6 +31,8 @@ class NullDecoder(StreamingDecoder[StreamingDecoderCache]):
         """Return an empty per-rollout cache."""
         return StreamingDecoderCache()
 
+    # Ingest an `input` tensor and return it unchanged.
+    # This effectively means that decoding is a no-op.
     def forward(
         self,
         input: Tensor,
@@ -38,5 +40,5 @@ class NullDecoder(StreamingDecoder[StreamingDecoderCache]):
         cache: StreamingDecoderCache | None = None,
     ) -> Tensor:
         """Return ``input`` unchanged."""
-        _ = autoregressive_index, cache
+        del autoregressive_index, cache
         return input

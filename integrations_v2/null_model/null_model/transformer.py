@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Deterministic RGB transformer for the NULL model."""
+"""Input-conditioned deterministic RGB transformer for the NULL model."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ class NullTransformerConfig(TransformerConfig):
 
 
 class NullTransformer(Transformer[NullTransformerCache]):
-    """Emit constant RGB chunks whose value equals the current AR index."""
+    """Emit RGB chunks filled with the scalar input plus the current AR step."""
 
     def __init__(self, config: NullTransformerConfig) -> None:
         super().__init__(config)
@@ -77,11 +77,34 @@ class NullTransformer(Transformer[NullTransformerCache]):
         noisy_latent: Tensor,
         timestep: Tensor,
         cache: NullTransformerCache,
-        input: Any = None,
+        input: Tensor = None,
     ) -> Tensor:
-        """Predict flow from random noise to the current AR value."""
-        del timestep, input
-        return noisy_latent - cache.autoregressive_index
+        """Predict flow from random noise to the input value plus AR step.
+
+        Args:
+            noisy_latent: Current noisy RGB output tensor.
+            timestep: Current denoising timestep.
+            cache: Per-rollout cache containing the current AR step.
+            input: Scalar batch input with shape ``[1, 1]``.
+
+        Returns:
+            Flow that produces an RGB tensor filled with ``input + step``.
+
+        Raises:
+            AssertionError: ``input`` is not a tensor with shape ``[1, 1]``.
+        """
+        del timestep
+        assert isinstance(input, Tensor), (
+            f"expected input to be a Tensor, got {type(input).__name__}"
+        )
+        assert input.shape == (1, 1), (
+            f"expected input tensor shape (1, 1), got {tuple(input.shape)}"
+        )
+        output_value = input.to(
+            device=noisy_latent.device,
+            dtype=noisy_latent.dtype,
+        ) + cache.autoregressive_index
+        return noisy_latent - output_value
 
     def patchify_and_maybe_split_cp(self, x: Any) -> Any:
         """Return ``x`` unchanged."""

@@ -6,38 +6,39 @@
 from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
+from numpy import int64
 
 
 class UserInputEventData(Protocol):
     """User input event data."""
     pass
 
-class UserInputEventDataKeyboard(UserInputEventData):
+class KeyboardUserInputEventData(UserInputEventData):
     """User input event data for keyboard."""
     pass
 
-class UserInputEventDataMouse(UserInputEventData):
+class MouseUserInputEventData(UserInputEventData):
     """User input event data for mouse."""
     pass
 
-class UserInputEventDataTouch(UserInputEventData):
+class TouchUserInputEventData(UserInputEventData):
     """User input event data for touch."""
     pass
 
-class UserInputEventDataGamepad(UserInputEventData):
+class GamepadUserInputEventData(UserInputEventData):
     """User input event data for gamepad."""
     pass
 
-class UserInputEventDataGameWheel(UserInputEventData):
+class GameWheelUserInputEventData(UserInputEventData):
     """User input event data for game wheel."""
     pass
 
-class UserInputEventDataGameMotion(UserInputEventData):
-    """User input event data for game motion."""
+class XRControllerUserInputEventData(UserInputEventData):
+    """User input event data for XR controllers."""
     pass
 
 @dataclass(frozen=True, slots=True)
-class UserInputEventDataUnknown(UserInputEventData):
+class UnknownUserInputEventData(UserInputEventData):
     """User input event data for unknown."""
 
     data: object
@@ -70,8 +71,8 @@ class UserInputEventType(Enum):
 class UserInputEvent:
     """User input event."""
 
-    timestamp: float
-    """Timestamp in seconds since the start of the session."""
+    timestamp: int64
+    """Timestamp in microseconds since the start of the session."""
 
     event_type: UserInputEventType
     """Device-independent category of the input event."""
@@ -79,7 +80,7 @@ class UserInputEvent:
     event_data: UserInputEventData
     """Event payload."""
 
-    def get_timestamp(self) -> float:
+    def get_timestamp(self) -> int64:
         """Return the timestamp."""
         return self.timestamp
 

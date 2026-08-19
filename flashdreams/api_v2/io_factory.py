@@ -6,7 +6,7 @@
 from abc import abstractmethod
 from typing import Protocol, runtime_checkable
 
-from flashdreams.core_v2.session_info import SessionInfo
+from flashdreams.core_v2.session_desc import SessionDesc
 
 from .input_handler import InputHandler
 from .output_sink import OutputSink
@@ -16,7 +16,7 @@ from .output_sink import OutputSink
 class IOFactory(Protocol):
     """Create isolated application input handling and output delivery."""
 
-    def __init__(self, session_info: SessionInfo) -> None:
+    def __init__(self, session_desc: SessionDesc) -> None:
         """Initialize the factory according to session information."""
         ...
 
