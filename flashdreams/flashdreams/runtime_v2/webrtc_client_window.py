@@ -3,10 +3,13 @@
 
 """WebRTC client window for the v2 runtime."""
 
+import queue
+
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.runtime_v2.serving.webrtc_server import WebRTCServer
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 
@@ -26,11 +29,17 @@ class WebRTCClientWindow(IClientWindow):
             port: Listening port. Zero asks the operating system to choose one.
             startup_timeout_seconds: Maximum time to wait for server startup.
         """
+        self._input_events: queue.SimpleQueue[UserInputEvent] = queue.SimpleQueue()
         self.server = WebRTCServer(
             host=host,
             port=port,
             startup_timeout_seconds=startup_timeout_seconds,
         )
+
+        def handle_input(event: UserInputEvent) -> None:
+            self._input_events.put(event)
+
+        self.server.register_input_callback(handle_input)
 
     def open(self, session_desc: SessionDesc) -> None:
         """Configure WebRTC output for the session.
@@ -42,7 +51,12 @@ class WebRTCClientWindow(IClientWindow):
 
     def get_user_input_events(self) -> UserInputEvents:
         """Drain and return buffered browser events in timestamp order."""
-        return self.server.get_user_input_events()
+        events = []
+        while True:
+            try:
+                events.append(self._input_events.get_nowait())
+            except queue.Empty:
+                return UserInputEvents(events)
 
     def write(self, result: StepResult) -> None:
         """Deliver one generated result to the browser.

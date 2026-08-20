@@ -79,7 +79,7 @@ async def _connect_browser(
 
 
 @pytest.mark.asyncio
-async def test_server_buffers_browser_events_until_drained() -> None:
+async def test_window_buffers_browser_events_until_drained() -> None:
     window = WebRTCClientWindow()
     peer: RTCPeerConnection | None = None
     try:

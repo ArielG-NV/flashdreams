@@ -10,7 +10,7 @@ import json
 import socket
 import threading
 import time
-from collections import deque
+from collections.abc import Callable
 from fractions import Fraction
 from typing import Any
 
@@ -29,7 +29,6 @@ from flashdreams.runtime_v2.user_input_event import (
     ResetUserInputEventData,
     UserInputEvent,
 )
-from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 _BROWSER_PAGE = """<!doctype html>
@@ -171,8 +170,7 @@ class WebRTCServer:
         self._host = host
         self._port = port
         self._startup_timeout_seconds = startup_timeout_seconds
-        self._events: deque[UserInputEvent] = deque()
-        self._events_lock = threading.Lock()
+        self._input_callback: Callable[[UserInputEvent], None] | None = None
         self._started = threading.Event()
         self._startup_error: BaseException | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -224,15 +222,25 @@ class WebRTCServer:
             raise RuntimeError("Cannot open a closed WebRTC server.")
         if self._session_desc is not None:
             raise RuntimeError("WebRTC server is already open.")
+        if self._input_callback is None:
+            raise RuntimeError("Register an input callback before opening WebRTC.")
         self._session_desc = session_desc
         self._session_start_ns = time.monotonic_ns()
 
-    def get_user_input_events(self) -> UserInputEvents:
-        """Drain and return browser events in timestamp order."""
-        with self._events_lock:
-            events = list(self._events)
-            self._events.clear()
-        return UserInputEvents(events)
+    def register_input_callback(
+        self, callback: Callable[[UserInputEvent], None]
+    ) -> None:
+        """Register the function called for each received browser event.
+
+        Args:
+            callback: Function that accepts one validated, timestamped event.
+
+        Raises:
+            RuntimeError: A callback has already been registered.
+        """
+        if self._input_callback is not None:
+            raise RuntimeError("An input callback is already registered.")
+        self._input_callback = callback
 
     def write(self, result: StepResult) -> None:
         """Deliver one generated result to the browser's video track.
@@ -442,10 +450,13 @@ class WebRTCServer:
         if session_start_ns is None:
             return
         timestamp_us = np.uint64((time.monotonic_ns() - session_start_ns) // 1_000)
-        with self._events_lock:
-            self._events.append(
-                UserInputEvent(timestamp=timestamp_us, event_data=event_data)
-            )
+        event = UserInputEvent(timestamp=timestamp_us, event_data=event_data)
+        callback = self._input_callback
+        if callback is None:
+            raise RuntimeError("WebRTC input callback is not registered.")
+        #  Pass that UserInputEvent to the callback.
+        #  The callback stores it in WebRTCClientWindow’s thread-safe queue.
+        callback(event)
 
     def _record_client_disconnect(self) -> None:
         """Buffer one close event when the active browser disconnects."""

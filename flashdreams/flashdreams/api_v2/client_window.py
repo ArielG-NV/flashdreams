@@ -20,7 +20,7 @@ class IClientWindow(InputSource, OutputSink, ABC):
     is given that description in :meth:`OutputSink.open`.
 
     One thread makes every call on a window, so an implementation needs no
-    locking of its own.
+    locking except when its backend delivers input from another thread.
 
     Created by the runtime, never by an application.
     """
