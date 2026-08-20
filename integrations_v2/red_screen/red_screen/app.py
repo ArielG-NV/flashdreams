@@ -11,9 +11,9 @@ import torch
 from torch import Tensor
 
 from flashdreams.api_v2.application import IApplication
-from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.application_runner import ApplicationRunner
+from flashdreams.runtime_v2.client_window_factory import create_client_window
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import KeyboardUserInputEventData
@@ -167,24 +167,6 @@ class RedScreenApplication(IApplication):
 def create_app() -> IApplication:
     """Return a new red screen application."""
     return RedScreenApplication()
-
-
-def create_client_window(parsed_args: argparse.Namespace) -> IClientWindow:
-    """Create the client window selected by the presentation mode.
-
-    Args:
-        parsed_args: Runtime arguments. Mode-specific fields are read only by
-            the selected mode.
-
-    Returns:
-        Client window for the selected mode.
-
-    Raises:
-        ValueError: ``mode`` is unsupported.
-    """
-    if parsed_args.mode == "webrtc":
-        return WebRTCClientWindow(host=parsed_args.host, port=parsed_args.port)
-    raise ValueError(f"Unsupported client-window mode: {parsed_args.mode!r}.")
 
 
 def _parse_args(commandline_args: Sequence[str] | None) -> argparse.Namespace:

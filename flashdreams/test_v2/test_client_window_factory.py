@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""CPU tests for the red-screen client-window factory."""
+"""CPU tests for the v2 client-window factory."""
 
 import argparse
 
@@ -12,8 +12,7 @@ pytestmark = pytest.mark.ci_cpu
 pytest.importorskip("aiohttp")
 pytest.importorskip("aiortc")
 
-from red_screen.app import create_client_window
-
+from flashdreams.runtime_v2.client_window_factory import create_client_window
 from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
 
 
