@@ -100,12 +100,13 @@ def _key_event(*, pressed: bool, key: str = _ACTIVATION_KEY) -> UserInputEvents:
 
 def _is_red(result: StepResult) -> bool:
     return bool(
-        torch.all(result.output[:, 0] == 1.0) and torch.all(result.output[:, 1:] == 0.0)
+        torch.all(result.output[:, 0] == 1.0)
+        and torch.all(result.output[:, 1:] == -1.0)
     )
 
 
 def _is_black(result: StepResult) -> bool:
-    return bool(torch.all(result.output == 0.0))
+    return bool(torch.all(result.output == -1.0))
 
 
 def _run(
@@ -152,6 +153,33 @@ def test_red_screen_ignores_other_keys() -> None:
     session = _new_session()
 
     assert _is_black(session.step(0, _key_event(pressed=True, key="q")))
+
+
+def test_red_screen_uses_last_event_to_adjust_color_intensity() -> None:
+    session = _new_session()
+
+    increased = session.step(0, _key_event(pressed=True, key="w"))
+    last_event_decreases = session.step(
+        1,
+        UserInputEvents(
+            [
+                UserInputEvent(
+                    timestamp=uint64(0),
+                    event_data=KeyboardUserInputEventData(key="w", pressed=True),
+                ),
+                UserInputEvent(
+                    timestamp=uint64(1),
+                    event_data=KeyboardUserInputEventData(key="s", pressed=True),
+                ),
+            ]
+        ),
+    )
+
+    assert torch.allclose(
+        increased.output[:, 0],
+        torch.full_like(increased.output[:, 0], -0.8),
+    )
+    assert _is_black(last_event_decreases)
 
 
 def test_red_screen_starts_black_without_input() -> None:

@@ -35,6 +35,7 @@ _BROWSER_PAGE = """<!doctype html>
 <html>
   <body>
     <video id="video" autoplay playsinline></video>
+    <button id="activate" type="button">Activate</button>
     <button id="reset" type="button">Reset</button>
     <script>
       const peer = new RTCPeerConnection();
@@ -55,7 +56,16 @@ _BROWSER_PAGE = """<!doctype html>
       window.addEventListener("keyup", event => {
         send({type: "keyboard", key: event.key, pressed: false});
       });
-      document.getElementById("reset").onclick = () => send({type: "reset"});
+      let activationPressed = false;
+      document.getElementById("activate").onclick = event => {
+        activationPressed = !activationPressed;
+        event.currentTarget.textContent =
+          activationPressed ? "Deactivate" : "Activate";
+        send({type: "keyboard", key: "r", pressed: activationPressed});
+      };
+      document.getElementById("reset").onclick = () => {
+        send({type: "reset"});
+      };
       window.addEventListener("beforeunload", () => send({type: "close"}));
 
       async function connect() {

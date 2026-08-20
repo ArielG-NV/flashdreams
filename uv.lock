@@ -1384,11 +1384,11 @@ name = "flashdreams-red-screen"
 version = "0.1.0"
 source = { editable = "integrations_v2/red_screen" }
 dependencies = [
-    { name = "flashdreams" },
+    { name = "flashdreams", extra = ["serving"] },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "flashdreams", editable = "flashdreams" }]
+requires-dist = [{ name = "flashdreams", extras = ["serving"], editable = "flashdreams" }]
 
 [[package]]
 name = "flashdreams-sana-wm"

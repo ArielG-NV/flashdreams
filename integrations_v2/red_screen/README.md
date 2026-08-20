@@ -6,9 +6,8 @@ SPDX-License-Identifier: Apache-2.0
 # Red Screen
 
 Smallest end-to-end application on the v2 API. It holds no model: a session emits
-a solid red frame while the activation key is held and a solid black frame
-otherwise. It runs the whole path — `IApplication`, `ISession`, `run_session`,
-`IClientWindow` — on CPU.
+red frames controlled by activation and intensity keys. It runs the whole path —
+`IApplication`, `ISession`, `run_session`, `IClientWindow` — on CPU.
 
 ## What it demonstrates
 
@@ -29,6 +28,28 @@ otherwise. It runs the whole path — `IApplication`, `ISession`, `run_session`,
 - `reset()` is implemented, so one session can run again.
 
 ## Usage
+
+Start the WebRTC server and open the printed URL:
+
+```bash
+uv run red-screen-webrtc
+```
+
+Hold `r` in the browser to turn the generated video red, or click **Activate**
+to toggle the same keyboard event. Press `w` to increase the red intensity by
+0.1 and `s` to decrease it by 0.1. Runtime options configure the browser session:
+
+```bash
+uv run red-screen-webrtc --mode webrtc --host 0.0.0.0 --port 8080 --width 1280 --height 720 --fps 30
+```
+
+Arguments after `--` belong to the application:
+
+```bash
+uv run red-screen-webrtc -- --key x
+```
+
+The same application can be driven directly without WebRTC:
 
 ```python
 from flashdreams.runtime_v2.session_desc import SessionDesc
@@ -76,5 +97,6 @@ it was not asked about, which the framework tests import.
 Frame geometry comes from the `SessionDesc`, and the step count from the caller
 that drives the session. Neither is a command-line argument.
 
-Output is a `[1, 3, 1, H, W]` float32 tensor in `bcthw` layout, with channel 0
-at `1.0` when red.
+Output is a `[1, 3, 1, H, W]` float32 tensor in `bcthw` layout and the `[-1, 1]`
+range expected by WebRTC. Black is `-1.0` in every channel; full red uses `1.0`
+in channel 0 and `-1.0` in the other channels.

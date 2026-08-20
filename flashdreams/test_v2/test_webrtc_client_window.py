@@ -90,6 +90,11 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                     "open": False,
                     "client_connected": False,
                 }
+            async with client.get(window.server.url) as response:
+                browser_page = await response.text()
+                assert response.status == 200
+                assert 'id="activate"' in browser_page
+                assert 'key: "r", pressed: activationPressed' in browser_page
 
         window.open(_session_desc())
         peer, channel, _ = await _connect_browser(window)
@@ -104,11 +109,15 @@ async def test_window_buffers_browser_events_until_drained() -> None:
             await asyncio.sleep(0.01)
 
         assert len(events) == 2
-        assert [
-            (event.get_event_data().key, event.get_event_data().pressed)
+        keyboard_events = [
+            data
             for event in events
-            if isinstance(event.get_event_data(), KeyboardUserInputEventData)
-        ] == [("w", True), ("w", False)]
+            if isinstance(data := event.get_event_data(), KeyboardUserInputEventData)
+        ]
+        assert [(event.key, event.pressed) for event in keyboard_events] == [
+            ("w", True),
+            ("w", False),
+        ]
         assert events[0].get_timestamp() <= events[1].get_timestamp()
         assert window.get_user_input_events().get_events() == []
     finally:
