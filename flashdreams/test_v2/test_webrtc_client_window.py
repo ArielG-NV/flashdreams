@@ -94,7 +94,11 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 browser_page = await response.text()
                 assert response.status == 200
                 assert 'id="activate"' in browser_page
-                assert 'key: "r", pressed: activationPressed' in browser_page
+                assert '<script src="/app.js"></script>' in browser_page
+            async with client.get(f"{window.server.url}app.js") as response:
+                browser_script = await response.text()
+                assert response.status == 200
+                assert 'key: "r", pressed: activationPressed' in browser_script
 
         window.open(_session_desc())
         peer, channel, _ = await _connect_browser(window)

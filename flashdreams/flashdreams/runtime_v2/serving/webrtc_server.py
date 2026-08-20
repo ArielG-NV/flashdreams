@@ -12,6 +12,7 @@ import threading
 import time
 from collections.abc import Callable
 from fractions import Fraction
+from importlib.resources import files
 from typing import Any
 
 import numpy as np
@@ -31,67 +32,9 @@ from flashdreams.runtime_v2.user_input_event import (
 )
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
-_BROWSER_PAGE = """<!doctype html>
-<html>
-  <body>
-    <video id="video" autoplay playsinline></video>
-    <button id="activate" type="button">Activate</button>
-    <button id="reset" type="button">Reset</button>
-    <script>
-      const peer = new RTCPeerConnection();
-      const controls = peer.createDataChannel("controls");
-      peer.addTransceiver("video", {direction: "recvonly"});
-      peer.ontrack = event => {
-        document.getElementById("video").srcObject =
-          event.streams[0] ?? new MediaStream([event.track]);
-      };
-      const send = payload => {
-        if (controls.readyState === "open") {
-          controls.send(JSON.stringify(payload));
-        }
-      };
-      window.addEventListener("keydown", event => {
-        send({type: "keyboard", key: event.key, pressed: true});
-      });
-      window.addEventListener("keyup", event => {
-        send({type: "keyboard", key: event.key, pressed: false});
-      });
-      let activationPressed = false;
-      document.getElementById("activate").onclick = event => {
-        activationPressed = !activationPressed;
-        event.currentTarget.textContent =
-          activationPressed ? "Deactivate" : "Activate";
-        send({type: "keyboard", key: "r", pressed: activationPressed});
-      };
-      document.getElementById("reset").onclick = () => {
-        send({type: "reset"});
-      };
-      window.addEventListener("beforeunload", () => send({type: "close"}));
-
-      async function connect() {
-        while (true) {
-          const health = await fetch("/healthz");
-          if (health.ok && (await health.json()).open) {
-            break;
-          }
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
-        await peer.setLocalDescription(await peer.createOffer());
-        const response = await fetch("/api/webrtc/offer", {
-          method: "POST",
-          headers: {"content-type": "application/json"},
-          body: JSON.stringify(peer.localDescription),
-        });
-        if (!response.ok) {
-          throw new Error(await response.text());
-        }
-        await peer.setRemoteDescription(await response.json());
-      }
-      connect();
-    </script>
-  </body>
-</html>
-"""
+_WEB_RESOURCES = files("flashdreams.runtime_v2.serving").joinpath("web")
+_BROWSER_PAGE = _WEB_RESOURCES.joinpath("index.html").read_text(encoding="utf-8")
+_BROWSER_SCRIPT = _WEB_RESOURCES.joinpath("app.js").read_text(encoding="utf-8")
 
 
 class _VideoTrack(MediaStreamTrack):
@@ -312,6 +255,7 @@ class WebRTCServer:
         """Create and bind the standalone aiohttp application."""
         app = web.Application()
         app.router.add_get("/", self._serve_browser)
+        app.router.add_get("/app.js", self._serve_browser_script)
         app.router.add_get("/healthz", self._health)
         app.router.add_post("/api/webrtc/offer", self._offer)
         runner = web.AppRunner(app)
@@ -335,6 +279,10 @@ class WebRTCServer:
     async def _serve_browser(self, _: web.Request) -> web.Response:
         """Return the minimal browser client."""
         return web.Response(text=_BROWSER_PAGE, content_type="text/html")
+
+    async def _serve_browser_script(self, _: web.Request) -> web.Response:
+        """Return the browser client's JavaScript."""
+        return web.Response(text=_BROWSER_SCRIPT, content_type="text/javascript")
 
     async def _health(self, _: web.Request) -> web.Response:
         """Report whether the server has an open session and client."""

@@ -143,6 +143,7 @@ exclude = ["tests", "flashdreams._pytest_plugins*"]
 
 [tool.setuptools.package-data]
 "flashdreams.serving.webrtc" = ["web/*.html", "web/*.css", "web/*.js", "web/assets/*.svg"]
+"flashdreams.runtime_v2.serving" = ["web/*.html", "web/*.js"]
 
 [dependency-groups]
 # Default CUDA 13 profile. No source binding -- Linux falls through to
