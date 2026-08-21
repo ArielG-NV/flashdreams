@@ -86,7 +86,7 @@ def test_client_window_for_null_model() -> None:
         # InputSource.
         client_window.update_input_events(UserInputEvents([numeral_keypad_input]))
 
-        # This is the InputSource getting user input for worker step loops.
+        # This is the InputSource getting user input for our event_buffer (and transitively, `step` loops).
         get_user_input_events = client_window.get_user_input_events()
         assert get_user_input_events.get_events() == [numeral_keypad_input]
         event_data = get_user_input_events.get_events()[0].get_event_data()
