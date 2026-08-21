@@ -9,6 +9,7 @@ import queue
 import threading
 import time
 from abc import ABC, abstractmethod
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Generic, TypeVar, final
@@ -74,6 +75,7 @@ class InternalThread(ABC, Generic[StateT]):
         self.latest_step: StepResult | None = None
         self._message_queue: queue.Queue[Message[StateT]] = queue.Queue()
         self._latest: _LatestStep | None = None
+        self._pending_steps: deque[_LatestStep] = deque()
         self._last_presented_frame: _PresentedFrame | None = None
         self._latest_lock = threading.Lock()
         self._lifecycle_lock = threading.Lock()
@@ -160,6 +162,7 @@ class InternalThread(ABC, Generic[StateT]):
         steps_run = 0
         generation = 0
         last_step_started: float | None = None
+        event_buffer.register(thread_id)
         try:
             while not stop.is_set() and (max_steps is None or steps_run < max_steps):
                 self._run_message_batch()
@@ -184,6 +187,7 @@ class InternalThread(ABC, Generic[StateT]):
                 with self._latest_lock:
                     self.latest_step = result
                     self._latest = _LatestStep(generation, result)
+                    self._pending_steps.append(self._latest)
                 step_index += 1
                 steps_run += 1
         except BaseException as error:
@@ -228,6 +232,14 @@ class InternalThread(ABC, Generic[StateT]):
             return self._latest
 
     @final
+    def _take_pending_steps(self) -> list[_LatestStep]:
+        """Take every completed step not yet consumed by presentation."""
+        with self._latest_lock:
+            pending = list(self._pending_steps)
+            self._pending_steps.clear()
+            return pending
+
+    @final
     def _bind_thread_manager(self, thread_manager: _ThreadManager) -> None:
         """Bind this thread to its parent manager."""
         if self._thread_manager is not None:
@@ -251,6 +263,7 @@ class InternalThread(ABC, Generic[StateT]):
         """Discard the frame retained from the previous generation."""
         with self._latest_lock:
             self._last_presented_frame = None
+            self._pending_steps.clear()
 
     @final
     def _join(self) -> None:

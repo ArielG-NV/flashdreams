@@ -1070,4 +1070,4 @@ def _relpath(path: Path, root: Path) -> str:
     try:
         return path.resolve().relative_to(root.resolve()).as_posix()
     except ValueError:
-        return path.as_posix()
+        return str(path.resolve())

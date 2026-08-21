@@ -528,7 +528,7 @@ def test_auxiliary_frame_is_presented_while_main_generation_is_blocked() -> None
     assert torch.all(window.results[0].output == 7.0)
 
 
-def test_compositing_selects_the_latest_frame_from_each_result() -> None:
+def test_model_only_presentation_preserves_every_frame_from_result() -> None:
     log = CallLog()
 
     class MultiFrameSession(FakeSession):
@@ -552,8 +552,10 @@ def test_compositing_selects_the_latest_frame_from_each_result() -> None:
         when_full=WhenFull.BLOCK,
     )
 
-    assert window.results
-    assert all(result.output[0, 0, 0, 0, 0].item() == 3.0 for result in window.results)
+    assert len(window.results) == 1
+    result = window.results[0]
+    assert result.frame_count == 4
+    assert result.output[0, 0, :, 0, 0].tolist() == [0.0, 1.0, 2.0, 3.0]
 
 
 def test_blocking_backpressure_writes_the_oldest_ui_composite() -> None:

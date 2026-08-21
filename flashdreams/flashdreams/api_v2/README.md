@@ -159,8 +159,9 @@ then ID `1`, and so on. RGB layers are opaque; RGBA layers use their alpha
 channel. Compositing follows `frames_per_second_for_ui` even while main
 generation has no new frame.
 
-The compositor emits one frame in the session's declared layout. Only this
-composited UI presentation stream is bounded by `max_pending`.
+For sessions with auxiliary workers, the compositor emits one frame in the
+session's declared layout, egarly compositing.
+For sessions with **only** a model-generation-thread, all processed steps are deterministically forwardwarded to the presentation_buffer. This is a lossless path for MP4 output and benchmarking.
 `WhenFull.BLOCK` applies back-pressure while presenting it, and
 `WhenFull.DROP_OLDEST` replaces its oldest pending composite. Neither policy
 paces or drops an individual user-visible-thread's rendering. The output sink remains a

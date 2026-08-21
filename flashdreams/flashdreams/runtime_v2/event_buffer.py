@@ -64,6 +64,11 @@ class EventBuffer:
             self._event_indexes[thread_id] = self._base_index + len(self._events)
             return UserInputEvents(events), self._generation
 
+    def register(self, thread_id: int) -> None:
+        """Register a thread to read events."""
+        with self._lock:
+            self._event_indexes.setdefault(thread_id, self._base_index)
+
     def unregister(self, thread_id: int) -> None:
         """Stop retaining events on behalf of ``thread_id``."""
         with self._lock:

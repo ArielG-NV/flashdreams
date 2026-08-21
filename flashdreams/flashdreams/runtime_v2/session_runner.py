@@ -160,14 +160,14 @@ def run_session(
                 event_buffer.collect_garbage()
                 main_was_finished = main_finished.is_set()
 
-                composite = thread_manager._composite_next(
+                presentable = thread_manager._take_presentable_results(
                     event_buffer.generation,
                     presentation_index,
                     session.session_desc.output_layout,
                 )
-                if composite is not None:
+                for result in presentable:
                     dropped_frames += presentation_buffer.push(
-                        composite,
+                        result,
                         window.write,
                     )
                     presentation_index += 1

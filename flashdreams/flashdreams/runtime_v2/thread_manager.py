@@ -165,18 +165,51 @@ class _ThreadManager:
             )
 
     @final
-    def _composite_next(
+    def _take_presentable_results(
         self,
         generation: int,
         presentation_index: int,
         output_layout: VideoTensorLayout,
-    ) -> StepResult | None:
-        """Record eligible frames and composite the visible ones."""
+    ) -> list[StepResult]:
+        """Take original model results or one newly composited UI frame.
+
+        A model-only run is also the lossless file/benchmark path, so every
+        original result must retain its full frame batch and metrics. Sessions
+        with auxiliary workers are presentation streams: they consume each
+        worker's newest result and composite a single current frame.
+        """
         self._set_generation(generation)
+        threads = self._freeze()
+
+        # Only 1 thread means we should present predictably,
+        # just return `StepResult`` from the model-generation-threads
+        # pending `StepResult`s.
+        if set(threads) == {_MODEL_GENERATION_THREAD_ID}:
+            model_thread = threads[_MODEL_GENERATION_THREAD_ID]
+            results: list[StepResult] = []
+            for latest in model_thread._take_pending_steps():
+                if latest.generation != generation:
+                    continue
+                result = latest.result
+                if result.presentation_mode is PresentationMode.disablePresentation:
+                    continue
+                frame = _latest_frame(result)
+                if frame is not None:
+                    model_thread._set_last_presented_frame(generation, frame)
+                if result.presentation_mode is PresentationMode.showPresentation:
+                    results.append(result)
+            return results
+
         composed: Tensor | None = None
         recorded: list[tuple[InternalThread[Any], Tensor]] = []
-        threads = self._freeze()
+        has_new_visible_result = False
         for thread_id in sorted(threads):
+            pending = threads[thread_id]._take_pending_steps()
+            has_new_visible_result = has_new_visible_result or any(
+                latest.generation == generation
+                and latest.result.presentation_mode is PresentationMode.showPresentation
+                for latest in pending
+            )
             latest = threads[thread_id]._snapshot_latest()
             if latest is None or latest.generation != generation:
                 continue
@@ -189,14 +222,17 @@ class _ThreadManager:
                 composed = _composite_frame(composed, frame)
         for thread, frame in recorded:
             thread._set_last_presented_frame(generation, frame)
-        if composed is None:
-            return None
-        return StepResult(
-            step_index=presentation_index,
-            output=_frame_to_layout(composed, output_layout),
-            frame_count=1,
-            output_layout=output_layout,
-        )
+        if composed is None or not has_new_visible_result:
+            return []
+        return [
+            StepResult(
+                step_index=presentation_index,
+                output=_frame_to_layout(composed, output_layout),
+                frame_count=1,
+                output_layout=output_layout,
+                metrics=_model_metrics(threads, generation),
+            )
+        ]
 
     @final
     def _stop(self) -> None:
@@ -244,6 +280,17 @@ def _latest_frame(result: StepResult) -> Tensor:
     if frame.ndim != 3 or frame.shape[0] not in (1, 3, 4):
         raise ValueError("A composited frame must have one, three, or four channels.")
     return frame
+
+
+def _model_metrics(
+    threads: dict[int, InternalThread[Any]], generation: int
+) -> dict[str, float | int]:
+    """Return current model metrics for a composited presentation frame."""
+    model = threads.get(_MODEL_GENERATION_THREAD_ID)
+    latest = model._snapshot_latest() if model is not None else None
+    if latest is None or latest.generation != generation:
+        return {}
+    return dict(latest.result.metrics)
 
 
 def _composite_frame(bottom: Tensor | None, top: Tensor) -> Tensor:

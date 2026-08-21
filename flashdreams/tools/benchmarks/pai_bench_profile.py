@@ -229,7 +229,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         preflight = _run_preflight(
             runner=args.runner,
-            python_command=shlex.split(args.python),
+            python_command=_split_python_command(args.python),
             checkout=checkout,
             dimensions=args.dimensions,
             log_path=quality_dir / "pai_bench_preflight.log",
@@ -290,7 +290,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     external_log_path = quality_dir / "pai_bench_command.log"
     invocation = _build_paibench_invocation(
         runner=args.runner,
-        python_command=shlex.split(args.python),
+        python_command=_split_python_command(args.python),
         checkout=checkout,
         videos_path=staged.videos_dir,
         prompt_file=staged.prompt_file,
@@ -410,9 +410,28 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         parser.error("--segment-duration must be > 0")
     if args.nproc_per_node <= 0:
         parser.error("--nproc-per-node must be > 0")
-    if not shlex.split(args.python):
+    if not _split_python_command(args.python):
         parser.error("--python must not be empty")
     return args
+
+
+def _split_python_command(value: str) -> tuple[str, ...]:
+    """Split a Python command without consuming Windows path separators."""
+    parts = shlex.split(value, posix=os.name != "nt")
+    if os.name == "nt":
+        parts = [
+            part[1:-1]
+            if len(part) >= 2 and part[0] == part[-1] and part[0] in {'"', "'"}
+            else part
+            for part in parts
+        ]
+        if (
+            len(parts) == 1
+            and Path(parts[0]).is_file()
+            and Path(parts[0]).suffix.lower() not in {".exe", ".com", ".bat", ".cmd"}
+        ):
+            parts.insert(0, sys.executable)
+    return tuple(parts)
 
 
 def _runner_setup_warnings(args: argparse.Namespace) -> list[str]:

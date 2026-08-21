@@ -362,6 +362,9 @@ def render_template(
         return source_env[name]
 
     rendered = _ENV_PLACEHOLDER_RE.sub(replace_env, value)
+    contains_path_context = any(
+        placeholder in value for placeholder in ("{repo_root}", "{output_dir}")
+    )
 
     def replace_context(match: re.Match[str]) -> str:
         name = match.group(1)
@@ -369,7 +372,10 @@ def render_template(
             raise KeyError(f"unknown benchmark placeholder {name!r}")
         return context[name]
 
-    return _CONTEXT_PLACEHOLDER_RE.sub(replace_context, rendered)
+    rendered = _CONTEXT_PLACEHOLDER_RE.sub(replace_context, rendered)
+    if contains_path_context and os.sep != "/":
+        rendered = rendered.replace("/", os.sep)
+    return rendered
 
 
 def _has_output_dir_arg(command: Sequence[str], output_dir_arg: str) -> bool:
