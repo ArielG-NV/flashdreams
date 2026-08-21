@@ -11,10 +11,12 @@ import numpy as np
 import pytest
 import torch
 from color_fade import create_app
+from color_fade.app import ColorFadeThread
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.application_runner import ApplicationRunner
+from flashdreams.runtime_v2.application_registry import registered_application_slugs
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -101,10 +103,19 @@ def _colours(result: StepResult) -> list[tuple[float, float, float]]:
 
 def _step_colours(session: ISession, steps: int) -> list[tuple[float, float, float]]:
     """Run ``steps`` steps and return every frame's colour, oldest first."""
+    model_generation_thread = _model_thread(session)
     colours: list[tuple[float, float, float]] = []
     for step_index in range(steps):
-        colours.extend(_colours(session.step(step_index, UserInputEvents([]))))
+        colours.extend(
+            _colours(model_generation_thread.step(step_index, UserInputEvents([])))
+        )
     return colours
+
+
+def _model_thread(session: ISession) -> ColorFadeThread:
+    model_generation_thread = session._ensure_thread_manager()._get_thread(0)
+    assert isinstance(model_generation_thread, ColorFadeThread)
+    return model_generation_thread
 
 
 def _decode(path: Path, *, width: int, height: int) -> np.ndarray:
@@ -178,8 +189,9 @@ def test_a_frames_colour_depends_on_when_it_plays_not_on_the_chunk_size() -> Non
 
 def test_frames_match_the_session_desc() -> None:
     session = _session(frames_per_step=4)
+    model_generation_thread = _model_thread(session)
 
-    result = session.step(0, UserInputEvents([]))
+    result = model_generation_thread.step(0, UserInputEvents([]))
 
     assert result.output.shape == (1, 3, 4, _HEIGHT, _WIDTH)
     assert result.output.dtype is torch.float32
@@ -188,27 +200,45 @@ def test_frames_match_the_session_desc() -> None:
     assert result.step_index == 0
 
 
+def test_application_describes_playable_shared_cli_defaults() -> None:
+    assert create_app().session_desc() == SessionDesc(
+        output_layout=VideoTensorLayout.bcthw,
+        frames_per_second_for_ui=30,
+        frames_per_second_for_step=30,
+        video_width=854,
+        video_height=480,
+    )
+
+
+def test_application_is_registered() -> None:
+    assert "color-fade" in registered_application_slugs()
+
+
 def test_the_fade_ignores_input_and_repeats_after_a_reset() -> None:
     session = _session(frames_per_step=3)
-    first = _colours(session.step(0, UserInputEvents([])))
-    session.step(1, UserInputEvents([]))
+    model_generation_thread = _model_thread(session)
+    first = _colours(model_generation_thread.step(0, UserInputEvents([])))
+    model_generation_thread.step(1, UserInputEvents([]))
 
-    session.reset()
+    model_generation_thread.reset()
 
-    assert _colours(session.step(0, UserInputEvents([]))) == pytest.approx(first)
+    assert _colours(model_generation_thread.step(0, UserInputEvents([]))) == (
+        pytest.approx(first)
+    )
 
 
 def test_the_session_finishes_once_it_has_generated_the_fade() -> None:
     session = _session(frames_per_step=5)
+    model_generation_thread = _model_thread(session)
 
-    assert not session.is_finished()
+    assert not model_generation_thread.is_finished()
     for step_index in range(_STEPS_FOR_THE_FADE):
-        session.step(step_index, UserInputEvents([]))
+        model_generation_thread.step(step_index, UserInputEvents([]))
 
-    assert session.is_finished()
+    assert model_generation_thread.is_finished()
     # A client asking to start over gets the fade again, not a finished session.
-    session.reset()
-    assert not session.is_finished()
+    model_generation_thread.reset()
+    assert not model_generation_thread.is_finished()
 
 
 def test_session_desc_available_before_any_output_is_opened() -> None:

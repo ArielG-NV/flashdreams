@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Runtime-owned session worker behavior."""
+"""Runtime-owned user-visible-thread behavior."""
 
 from __future__ import annotations
 
@@ -52,13 +52,13 @@ class _PresentedFrame:
 
 
 class InternalThread(ABC, Generic[StateT]):
-    """Provide runtime-owned behavior for the public worker interface."""
+    """Provide runtime-owned behavior for the public user-visible-thread API."""
 
     def __init__(self, *, state: StateT, frequency: int) -> None:
-        """Initialize a session worker without starting it.
+        """Initialize a user-visible-thread without starting it.
 
         Args:
-            state: Mutable state owned by this worker.
+            state: Mutable state owned by this user-visible-thread.
             frequency: Maximum steps per second. Zero runs without pacing.
 
         Raises:
@@ -100,6 +100,11 @@ class InternalThread(ABC, Generic[StateT]):
         ...
 
     @abstractmethod
+    def is_finished(self) -> bool:
+        """Return whether this user-visible-thread has completed its workload."""
+        ...
+
+    @abstractmethod
     def reset(self) -> None:
         """Reset state before the first step of a new generation."""
         ...
@@ -109,10 +114,10 @@ class InternalThread(ABC, Generic[StateT]):
         """Queue an operation to run before the next ``step`` or ``step_ui``.
 
         Args:
-            operation: Callable that receives the worker-owned state.
+            operation: Callable that receives the user-visible-thread-owned state.
 
         Raises:
-            RuntimeError: The worker is shutting down.
+            RuntimeError: The user-visible-thread is shutting down.
         """
         with self._lifecycle_lock:
             if not self._accepting_messages:
@@ -124,6 +129,7 @@ class InternalThread(ABC, Generic[StateT]):
         self,
         *,
         thread_id: int,
+        thread_name: str,
         event_buffer: EventBuffer,
         stop: threading.Event,
         failure: queue.Queue[BaseException],
@@ -133,7 +139,7 @@ class InternalThread(ABC, Generic[StateT]):
         with self._lifecycle_lock:
             if self._native_thread is not None:
                 raise RuntimeError("Thread has already been started.")
-            # Register the reader before starting the native thread.
+            # Register the event reader before starting the user-visible-thread.
             event_buffer.register(thread_id)
             self._native_thread = threading.Thread(
                 target=self._run,
@@ -145,7 +151,7 @@ class InternalThread(ABC, Generic[StateT]):
                     "finished": finished,
                     "max_steps": max_steps,
                 },
-                name=f"flashdreams-session-{thread_id}",
+                name=thread_name,
             )
             try:
                 self._native_thread.start()
@@ -182,7 +188,7 @@ class InternalThread(ABC, Generic[StateT]):
                     self._clear_last_presented_frame()
                     step_index = 0
                     generation = read_generation
-                if self._is_finished():
+                if self.is_finished():
                     break
                 last_step_started = self._pace(last_step_started, stop)
                 if stop.is_set():
@@ -273,13 +279,13 @@ class InternalThread(ABC, Generic[StateT]):
 
     @final
     def _join(self, timeout: float | None = None) -> bool:
-        """Wait for this worker to stop.
+        """Wait for this user-visible-thread to stop.
 
         Args:
             timeout: Maximum seconds to wait; ``None`` waits indefinitely.
 
         Returns:
-            Whether the worker stopped before the timeout.
+            Whether the user-visible-thread stopped before the timeout.
         """
         native_thread = self._native_thread
         if native_thread is None:
@@ -293,12 +299,8 @@ class InternalThread(ABC, Generic[StateT]):
             self._accepting_messages = False
 
     def _close(self) -> None:
-        """Release worker-owned resources on the native worker thread."""
+        """Release resources owned by this user-visible-thread."""
         return
-
-    def _is_finished(self) -> bool:
-        """Return whether this worker has completed its finite workload."""
-        return False
 
     @final
     def _empty_message_queue(self) -> None:

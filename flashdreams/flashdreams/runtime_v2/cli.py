@@ -120,7 +120,13 @@ def _add_session_arguments(parser: argparse.ArgumentParser) -> None:
         "--fps",
         type=int,
         default=None,
-        help="Rate the generated frames are meant to play at.",
+        help="Maximum model-generation-thread steps per second.",
+    )
+    parser.add_argument(
+        "--ui-fps",
+        type=int,
+        default=None,
+        help="Rate to read input and present finished results.",
     )
     parser.add_argument(
         "--layout",
@@ -144,6 +150,7 @@ def _session_desc(
         field: value
         for field, value in (
             ("output_layout", parsed_args.layout),
+            ("frames_per_second_for_ui", parsed_args.ui_fps),
             ("frames_per_second_for_step", parsed_args.fps),
             ("video_width", parsed_args.pixel_width),
             ("video_height", parsed_args.pixel_height),

@@ -7,12 +7,12 @@ SPDX-License-Identifier: Apache-2.0
 
 Three small v2 UI examples:
 
-- `imgui-demo-webrtc` renders one button from auxiliary thread `1` while thread
-  `0` uses `disablePresentation`.
-- `imgui-frame-sharing-webrtc` rotates red, green, and blue model frames every
+- `imgui-demo` renders one button from the ImGui-thread at ID `1` while
+  the model-generation-thread at ID `0` uses `disablePresentation`.
+- `imgui-frame-sharing` rotates red, green, and blue model frames every
   ten model iterations. Thread `0` uses `hidePresentation`, so ImGui can draw
   its latest frame without blitting that frame directly to the client backbuffer.
-- `imgui-message-webrtc` prompts for the W key. The model-generation thread
+- `imgui-message` prompts for the W key. The model-generation-thread
   receives the key event and uses `IThread.invoke_async` to change UI-owned text
   from `W is not Pressed` to `W is Pressed`.
 
@@ -22,13 +22,14 @@ Install the demo and launch its WebRTC client:
 
 ```bash
 uv sync --package flashdreams-imgui-demo --inexact
-uv run imgui-demo-webrtc
-uv run imgui-frame-sharing-webrtc
-uv run imgui-message-webrtc
+uv run --no-sync flashdreams-run-v2 imgui-demo --mode webrtc
+uv run --no-sync flashdreams-run-v2 imgui-frame-sharing --mode webrtc
+uv run --no-sync flashdreams-run-v2 imgui-message --mode webrtc
 ```
 
-All three launchers run model generation at 30 FPS. `--fps` controls the UI and
-presentation rate.
+All three applications run model generation at 30 FPS and UI presentation at
+60 FPS by default. The shared command's `--fps` and `--ui-fps` override those
+rates independently.
 
 Open the printed URL. CUDA, Vulkan/CUDA interop, SlangPy, and `imgui-bundle` are
 required by the live renderer. The package's tests only construct the lazily

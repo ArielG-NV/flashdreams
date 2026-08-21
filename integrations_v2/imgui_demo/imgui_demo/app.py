@@ -20,31 +20,40 @@ from dataclasses import dataclass
 from typing import Any
 
 import torch
-
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
+from flashdreams.api_v2.thread import IThread
 from flashdreams.runtime_v2.imgui_thread import ImGUIThread
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import PresentationMode, StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
-from .runner import run_demo
+DEFAULT_SESSION_DESC = SessionDesc(video_width=640, video_height=480)
+"""Session defaults shared by the three ImGui applications."""
 
 _IMGUI_THREAD_ID = 1
-"""Auxiliary worker identifier for the UI layer."""
+"""User-visible-thread identifier for the ImGui layer."""
 
 
 @dataclass(slots=True)
 class ImGUIDemoState:
-    """Button state owned by the UI worker."""
+    """Button state owned by the ImGui-thread."""
 
     clicks: int = 0
     """Number of times the button has been activated."""
 
 
+@dataclass(frozen=True, slots=True)
+class DemoModelState:
+    """Output state owned by the model-generation-thread."""
+
+    output: torch.Tensor
+    output_layout: VideoTensorLayout
+
+
 class DemoImGUIThread(ImGUIThread[ImGUIDemoState]):
-    """Draw the demo widgets on an independent UI worker."""
+    """Draw the demo widgets on an independent ImGui-thread."""
 
     def draw_ui(
         self,
@@ -69,8 +78,26 @@ class DemoImGUIThread(ImGUIThread[ImGUIDemoState]):
         super().reset()
 
 
+class DemoModelThread(IThread[DemoModelState]):
+    """Publish the disabled model layer from the model-generation-thread."""
+
+    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+        """Return a result that skips model-frame presentation work."""
+        del events
+        return StepResult(
+            step_index=step_index,
+            output=self.state.output,
+            frame_count=1,
+            output_layout=self.state.output_layout,
+            presentation_mode=PresentationMode.disablePresentation,
+        )
+
+    def reset(self) -> None:
+        return
+
+
 class ImGUIDemoSession(ISession):
-    """Run a ``disablePresentation`` generation layer beneath one ImGui layer."""
+    """Run a model-generation-thread beneath one ImGui-thread."""
 
     def __init__(self, session_desc: SessionDesc) -> None:
         """Configure a demo session.
@@ -87,10 +114,6 @@ class ImGUIDemoSession(ISession):
                 f"{session_desc.output_layout.value}."
             )
         self._session_desc = session_desc
-        self._output = torch.empty(
-            (1, 3, session_desc.video_height, session_desc.video_width),
-            dtype=torch.float32,
-        )
 
     @property
     def session_desc(self) -> SessionDesc:
@@ -98,7 +121,22 @@ class ImGUIDemoSession(ISession):
         return self._session_desc
 
     def init(self) -> None:
-        """Register the ImGui worker before the runtime freezes registration."""
+        """Register the model-generation-thread and ImGui-thread."""
+        self.register_model_generation_thread(
+            DemoModelThread,
+            state=DemoModelState(
+                output=torch.empty(
+                    (
+                        1,
+                        3,
+                        self._session_desc.video_height,
+                        self._session_desc.video_width,
+                    ),
+                    dtype=torch.float32,
+                ),
+                output_layout=self._session_desc.output_layout,
+            ),
+        )
         self.register_thread(
             _IMGUI_THREAD_ID,
             DemoImGUIThread,
@@ -109,21 +147,6 @@ class ImGUIDemoSession(ISession):
             height=self._session_desc.video_height,
         )
 
-    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
-        """Return a result that skips model-frame presentation work."""
-        del events
-        return StepResult(
-            step_index=step_index,
-            output=self._output,
-            frame_count=1,
-            output_layout=self._session_desc.output_layout,
-            presentation_mode=PresentationMode.disablePresentation,
-        )
-
-    def reset(self) -> None:
-        """Keep model frames in ``disablePresentation`` across reset."""
-        return
-
 
 class ImGUIDemoApplication(IApplication):
     """Create ImGui-only sessions for the v2 runtime."""
@@ -133,6 +156,10 @@ class ImGUIDemoApplication(IApplication):
         if commandline_args:
             raise ValueError("The ImGui demo takes no application arguments.")
 
+    def session_desc(self) -> SessionDesc:
+        """Return the demo's established dimensions and thread frequencies."""
+        return DEFAULT_SESSION_DESC
+
     def create_session(self, session_desc: SessionDesc) -> ISession:
         """Create one uninitialized ImGui demo session."""
         return ImGUIDemoSession(session_desc)
@@ -141,17 +168,3 @@ class ImGUIDemoApplication(IApplication):
 def create_app() -> IApplication:
     """Return a new ImGui demo application."""
     return ImGUIDemoApplication()
-
-
-def main(commandline_args: Sequence[str] | None = None) -> int:
-    """Serve the ImGui demo until the browser disconnects."""
-    return run_demo(
-        create_app,
-        commandline_args,
-        program="imgui-demo-webrtc",
-        description="Serve the v2 Dear ImGui input demo.",
-    )
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

@@ -13,7 +13,6 @@ import json
 import shutil
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
 
 import pytest
 import torch
@@ -21,6 +20,7 @@ import torch
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
+from flashdreams.api_v2.thread import IThread
 from flashdreams.runtime_v2 import cli
 from flashdreams.runtime_v2.application_registry import (
     APPLICATION_ENTRY_POINT_GROUP,
@@ -98,6 +98,17 @@ class UndescribedApplication(IApplication):
         return OneStepSession(session_desc)
 
 
+class OneStepThread(IThread["OneStepSession"]):
+    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+        return self.state._step(step_index, events)
+
+    def is_finished(self) -> bool:
+        return self.state._generated
+
+    def reset(self) -> None:
+        self.state._generated = False
+
+
 class OneStepSession(ISession):
     """A session generating one frame and reporting itself finished."""
 
@@ -106,26 +117,44 @@ class OneStepSession(ISession):
         self._generated = False
 
     def init(self) -> None:
-        return
+        self.register_model_generation_thread(OneStepThread, state=self)
 
     @property
     def session_desc(self) -> SessionDesc:
         return self._session_desc
 
-    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+    def _step(self, step_index: int, events: UserInputEvents) -> StepResult:
         del events
         self._generated = True
+        if self._session_desc.output_layout is VideoTensorLayout.tchw:
+            shape = (
+                1,
+                3,
+                self._session_desc.video_height,
+                self._session_desc.video_width,
+            )
+        elif self._session_desc.output_layout is VideoTensorLayout.btchw:
+            shape = (
+                1,
+                1,
+                3,
+                self._session_desc.video_height,
+                self._session_desc.video_width,
+            )
+        else:
+            shape = (
+                1,
+                3,
+                1,
+                self._session_desc.video_height,
+                self._session_desc.video_width,
+            )
         return StepResult(
             step_index=step_index,
-            output=torch.zeros(
-                1, 3, self._session_desc.video_height, self._session_desc.video_width
-            ),
+            output=torch.zeros(shape),
             frame_count=1,
             output_layout=self._session_desc.output_layout,
         )
-
-    def is_finished(self) -> bool:
-        return self._generated
 
 
 class RecordingWindow(IClientWindow):
@@ -408,6 +437,8 @@ def test_an_application_with_no_session_of_its_own_is_described_by_the_arguments
             "32",
             "--fps",
             "12",
+            "--ui-fps",
+            "24",
             "--layout",
             "bcthw",
         ]
@@ -415,6 +446,7 @@ def test_an_application_with_no_session_of_its_own_is_described_by_the_arguments
 
     assert application.asked_for == SessionDesc(
         output_layout=VideoTensorLayout.bcthw,
+        frames_per_second_for_ui=24,
         frames_per_second_for_step=12,
         video_width=64,
         video_height=32,

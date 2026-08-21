@@ -4,16 +4,14 @@
 """Key-driven red screen application for end-to-end v2 API testing."""
 
 import argparse
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 
 import torch
-from torch import Tensor
-
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
-from flashdreams.runtime_v2.application_runner import ApplicationRunner
-from flashdreams.runtime_v2.client_window_factory import create_client_window
+from flashdreams.api_v2.thread import IThread
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -22,10 +20,15 @@ from flashdreams.runtime_v2.user_input_event import (
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
+from torch import Tensor
 
 _DEFAULT_ACTIVATION_KEY = "r"
 """Key that turns the screen red while held."""
+
+_DEFAULT_WIDTH = 640
+_DEFAULT_HEIGHT = 360
+_DEFAULT_FPS = 30
+"""Session defaults preserved from the original WebRTC launcher."""
 
 _RED_CHANNEL = 0
 """Channel index set to full intensity while the activation key is held."""
@@ -45,7 +48,70 @@ class RedScreenConfig:
     """Key whose held state selects red over black."""
 
 
+@dataclass(slots=True)
+class RedScreenState:
+    """Per-session state owned by the model-generation-thread."""
+
+    config: RedScreenConfig
+    session_desc: SessionDesc
+    key_held: bool = False
+    color_intensity: float = 0.0
+
+
 ## Session
+
+
+class RedScreenThread(IThread[RedScreenState]):
+    """Generate red-screen frames on the model-generation-thread."""
+
+    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+        """Apply the input events, then emit one frame."""
+        self._apply_events(events)
+        # Simulate the real model inference time.
+        time.sleep(0.1)
+        return StepResult(
+            step_index=step_index,
+            output=self._frame(),
+            frame_count=1,
+            output_layout=self.state.session_desc.output_layout,
+        )
+
+    def reset(self) -> None:
+        """Restore the initial key and color state."""
+        self.state.key_held = False
+        self.state.color_intensity = 0.0
+
+    def _apply_events(self, events: UserInputEvents) -> None:
+        received_events = events.get_events()
+        if not received_events:
+            return
+        data = received_events[-1].get_event_data()
+        if not isinstance(data, KeyboardUserInputEventData):
+            return
+        if data.key == self.state.config.activation_key:
+            self.state.key_held = data.state is KeyboardInputState.Pressed
+        elif data.state is KeyboardInputState.Pressed and data.key.lower() == "w":
+            self.state.color_intensity = min(1.0, self.state.color_intensity + 0.1)
+        elif data.state is KeyboardInputState.Pressed and data.key.lower() == "s":
+            self.state.color_intensity = max(0.0, self.state.color_intensity - 0.1)
+
+    def _frame(self) -> Tensor:
+        state = self.state
+        frame = torch.full(
+            (
+                1,
+                3,
+                1,
+                state.session_desc.video_height,
+                state.session_desc.video_width,
+            ),
+            _NO_INTENSITY,
+            dtype=torch.float32,
+        )
+        frame[:, _RED_CHANNEL] = (
+            _FULL_INTENSITY if state.key_held else 2.0 * state.color_intensity - 1.0
+        )
+        return frame
 
 
 class RedScreenSession(ISession):
@@ -68,68 +134,20 @@ class RedScreenSession(ISession):
             )
         self._config = config
         self._session_desc = session_desc
-        self._key_held = False
-        self._color_intensity = 0.0
 
     def init(self) -> None:
-        """Reset key state and color intensity to start on a black frame."""
-        self._key_held = False
-        self._color_intensity = 0.0
+        """Register a model-generation-thread starting on a black frame."""
+        self.register_model_generation_thread(
+            RedScreenThread,
+            state=RedScreenState(
+                config=self._config,
+                session_desc=self._session_desc,
+            ),
+        )
 
     @property
     def session_desc(self) -> SessionDesc:
         return self._session_desc
-
-    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
-        """Apply the events, then emit one frame for ``step_index``.
-
-        Args:
-            step_index: Zero-based index of this step.
-            events: Events collected since the previous step.
-
-        Returns:
-            Result carrying a single ``[1, 3, 1, H, W]`` frame.
-        """
-        self._apply_events(events)
-        import time
-
-        # Simulate the real model inference time
-        time.sleep(0.1)
-        return StepResult(
-            step_index=step_index,
-            output=self._frame(),
-            frame_count=1,
-            output_layout=self._session_desc.output_layout,
-        )
-
-    def reset(self) -> None:
-        """Restart the session so it can produce another generation."""
-        self.init()
-
-    def _apply_events(self, events: UserInputEvents) -> None:
-        received_events = events.get_events()
-        if not received_events:
-            return
-        data = received_events[-1].get_event_data()
-        if not isinstance(data, KeyboardUserInputEventData):
-            return
-        if data.key == self._config.activation_key:
-            self._key_held = data.state is KeyboardInputState.Pressed
-        elif data.state is KeyboardInputState.Pressed and data.key.lower() == "w":
-            self._color_intensity = min(1.0, self._color_intensity + 0.1)
-        elif data.state is KeyboardInputState.Pressed and data.key.lower() == "s":
-            self._color_intensity = max(0.0, self._color_intensity - 0.1)
-
-    def _frame(self) -> Tensor:
-        frame = torch.full(
-            (1, 3, 1, self._session_desc.video_height, self._session_desc.video_width),
-            _NO_INTENSITY,
-            dtype=torch.float32,
-        )
-        frame[:, _RED_CHANNEL] = (
-            _FULL_INTENSITY if self._key_held else 2.0 * self._color_intensity - 1.0
-        )
-        return frame
 
 
 ## Application
@@ -161,6 +179,16 @@ class RedScreenApplication(IApplication):
 
         self._config = RedScreenConfig(activation_key=args.key)
 
+    def session_desc(self) -> SessionDesc:
+        """Return the application's established interactive defaults."""
+        return SessionDesc(
+            output_layout=VideoTensorLayout.bcthw,
+            frames_per_second_for_ui=_DEFAULT_FPS,
+            frames_per_second_for_step=_DEFAULT_FPS,
+            video_width=_DEFAULT_WIDTH,
+            video_height=_DEFAULT_HEIGHT,
+        )
+
     def create_session(self, session_desc: SessionDesc) -> ISession:
         """Create one uninitialized red screen session.
 
@@ -177,61 +205,3 @@ class RedScreenApplication(IApplication):
 def create_app() -> IApplication:
     """Return a new red screen application."""
     return RedScreenApplication()
-
-
-def _parse_args(commandline_args: Sequence[str] | None) -> argparse.Namespace:
-    """Parse runtime arguments and preserve application arguments."""
-    parser = argparse.ArgumentParser(
-        prog="red-screen-webrtc",
-        description="Serve the red-screen v2 application.",
-    )
-    parser.add_argument("--mode", choices=("webrtc",), default="webrtc")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=0)
-    parser.add_argument("--width", type=int, default=640)
-    parser.add_argument("--height", type=int, default=360)
-    parser.add_argument("--fps", type=int, default=30)
-    parser.add_argument(
-        "application_args",
-        nargs=argparse.REMAINDER,
-        help="Arguments after -- are passed to the red-screen application.",
-    )
-    return parser.parse_args(commandline_args)
-
-
-def main(commandline_args: Sequence[str] | None = None) -> int:
-    """Run red screen until the client disconnects or the process is interrupted."""
-    args = _parse_args(commandline_args)
-    application_args = list(args.application_args)
-    if application_args[:1] == ["--"]:
-        application_args = application_args[1:]
-
-    window = create_client_window(args)
-    app = create_app()
-    if isinstance(window, WebRTCClientWindow):
-        print(f"Open {window.server.url} in a browser.", flush=True)
-    try:
-        # ApplicationRunner is a FlashDreams runtime component that takes an IApplication instance, a IClientWindow instance,
-        # and drives the main loop.
-
-        # TODO: in production, commandline argument parsing and IClientWindow creation should be done by flashdreams-run, a CLI tool
-        # basically, we need to generailze this main function to be shared by all applications
-        ApplicationRunner(app, window).run(
-            SessionDesc(
-                output_layout=VideoTensorLayout.bcthw,
-                frames_per_second_for_ui=args.fps,
-                frames_per_second_for_step=args.fps,
-                video_width=args.width,
-                video_height=args.height,
-            ),
-            application_args,
-        )
-    except KeyboardInterrupt:
-        return 130
-    finally:
-        window.close()
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

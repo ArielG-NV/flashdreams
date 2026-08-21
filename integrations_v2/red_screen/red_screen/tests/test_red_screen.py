@@ -9,9 +9,10 @@ import pytest
 import torch
 from numpy import uint64
 from red_screen import create_app
+from red_screen.app import RedScreenThread
 
 from flashdreams.api_v2.client_window import IClientWindow
-from flashdreams.api_v2.session import ISession
+from flashdreams.runtime_v2.application_registry import registered_application_slugs
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.session_runner import run_session
 from flashdreams.runtime_v2.step_result import StepResult
@@ -133,12 +134,14 @@ def _run(
     return window
 
 
-def _new_session() -> ISession:
+def _new_session() -> RedScreenThread:
     app = create_app()
     app.init([])
     session = app.create_session(_session_desc())
     session.init()
-    return session
+    model_generation_thread = session._ensure_thread_manager()._get_thread(0)
+    assert isinstance(model_generation_thread, RedScreenThread)
+    return model_generation_thread
 
 
 ## Tests
@@ -256,6 +259,20 @@ def test_session_desc_available_before_any_client_window() -> None:
     assert session.session_desc == _session_desc()
 
 
+def test_application_describes_the_shared_cli_defaults() -> None:
+    assert create_app().session_desc() == SessionDesc(
+        output_layout=VideoTensorLayout.bcthw,
+        frames_per_second_for_ui=30,
+        frames_per_second_for_step=30,
+        video_width=640,
+        video_height=360,
+    )
+
+
+def test_application_is_registered() -> None:
+    assert "red-screen" in registered_application_slugs()
+
+
 def test_create_session_rejects_unsupported_layout() -> None:
     app = create_app()
     app.init([])
@@ -276,8 +293,10 @@ def test_reset_releases_the_held_key() -> None:
     app.init([])
     session = app.create_session(_session_desc())
     session.init()
-    assert _is_red(session.step(0, _key_event(pressed=True)))
+    model_generation_thread = session._ensure_thread_manager()._get_thread(0)
+    assert isinstance(model_generation_thread, RedScreenThread)
+    assert _is_red(model_generation_thread.step(0, _key_event(pressed=True)))
 
-    session.reset()
+    model_generation_thread.reset()
 
-    assert _is_black(session.step(0, UserInputEvents([])))
+    assert _is_black(model_generation_thread.step(0, UserInputEvents([])))

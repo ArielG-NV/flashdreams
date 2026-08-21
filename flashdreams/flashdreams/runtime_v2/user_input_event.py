@@ -68,8 +68,8 @@ class CloseUserInputEventData(UserInputEventData):
 class ResetUserInputEventData(UserInputEventData):
     """The client asked to start the run over.
 
-    ``run_session`` calls :meth:`ISession.reset` when it sees one, and the step
-    index starts again from zero. The window stays open.
+    Each user-visible-thread calls :meth:`IThread.reset` when it sees one, and
+    its step index starts again from zero. The window stays open.
     """
 
     @classmethod

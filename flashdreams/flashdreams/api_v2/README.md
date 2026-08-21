@@ -40,11 +40,11 @@ starts, or the file once there is something in it. So a new way of watching a
 run is a mode added there, and the command is unchanged.
 
 The session it asks for comes from `IApplication.session_desc`, with
-`--pixel-width`, `--pixel-height`, `--fps`, and `--layout` overriding whatever
-they name. That is the whole of what the command knows about the kind of
-application it is running: a model answers with the clip its checkpoint was
-trained for, and an application that generates whatever it is asked for answers
-nothing and is described by those arguments alone.
+`--pixel-width`, `--pixel-height`, `--fps`, `--ui-fps`, and `--layout`
+overriding whatever they name. That is the whole of what the command knows
+about the kind of application it is running: a model answers with the clip its
+checkpoint was trained for, and an application that generates whatever it is
+asked for answers nothing and is described by those arguments alone.
 
 `--stats-path` asks a run to record what it cost as well as what it generated.
 `Mp4ClientWindow` takes that path and adds a `MetricsOutputSink` beside the MP4
@@ -112,33 +112,34 @@ Agreed design decisions. Change them by discussion.
 Threading
 ---------
 
-`IApplication` creates one `ISession` for each run. The session implements the
-primary model-generation `step` and may register independent `IThread`
+`IApplication` creates one `ISession` for each run. During initialization the
+session registers one model-generation-thread and may register additional
 user-visible-threads for UI, game logic, or other stateful work.
 
 ### Thread model
 
 - `IApplication` lasts for the process and holds state shared by sessions.
-- `ISession` owns state for one run. Its `step` and `reset` methods execute on
-  reserved user-visible-thread ID `0`.
+- `ISession` owns the lifecycle and thread registry for one run.
+- The registered model-generation-thread executes on reserved
+  user-visible-thread ID `0`.
 - `ISession` defines no constructor, so application sessions keep complete
   control of their own construction. Its user-visible-thread registry
   initializes lazily.
-- User-invisible threads:
+- `user-invisible-threads`:
 
-  - Main program thread:
+  - `main-program-thread`:
 
     - Runs the session through `run_session`, called through the provided
       `create_app` method.
     - Launches all other threads.
-    - Coordinates I/O-thread initialization with user-visible-thread
+    - Coordinates io-thread initialization with user-visible-thread
       initialization.
     - Rejoins the threads launched with the rest of the demo so signals end the
       program as intended. This is a spin loop waiting for threads to rejoin.
 
-  - I/O thread:
+  - `io-thread`:
 
-    - Is the first thread launched by the main program thread. The logic is in
+    - Is the first thread launched by the main-program-thread. The logic is in
       `run_session.run_io`.
     - Launches the client window (WebRTC, native, or another implementation) and
       collects events from it.
@@ -148,19 +149,18 @@ user-visible-threads for UI, game logic, or other stateful work.
       controls what happens when a frame is generated while the buffer is full.
       Thread ID `0` is the bottom layer, followed by ID `1`, and so on.
 
-- User-visible threads:
+- `user-visible-threads`:
 
-  - Model-generation thread:
+  - `model-generation-thread`:
 
-    - Is an `IThread` launched implicitly for the `ISession` author.
-      `IThread.step` is `ISession.step`; `IThread.reset` is `ISession.reset`.
-    - Uses the current `ISession` as its `IThread.state` and 'owns' the `ISession`.
+    - Is an `IThread` explicitly registered by `ISession.init` through
+      `ISession.register_model_generation_thread`.
     - Reserves thread ID `0` for itself, returned by
       `IThread.get_model_generation_thread_id`.
     - Ticks `step` at
       `SessionDesc.frames_per_second_for_step`.
 
-  - All other user-visible threads:
+  - All other user-visible-threads:
 
     - Register with
       `ISession.register_thread(thread_id, thread_type, state=..., frequency=..., ...)`
@@ -170,8 +170,8 @@ user-visible-threads for UI, game logic, or other stateful work.
       `__init__` method.
     - Tick at `IThread.frequency`.
     - Implement `IThread` or a subclass such as `UIThread` or `ImGUIThread`.
-  
-  - All user-visible threads:
+
+  - All user-visible-threads:
     - Communicate through `IThread.invoke_async` from a user-visible-thread to another user-visible-thread:
       `invoke_async(thread_id, lambda state: ...)`, where `state` is the target thread's
       `IThread.state` (typed by `IThread.StateT`). This method adds a message to
@@ -183,40 +183,42 @@ user-visible-threads for UI, game logic, or other stateful work.
 
 ### Lifecycle
 
-Main program thread:
+`main-program-thread`:
 
-1. Register the model-generation thread and call `ISession.init`.
-2. Start the I/O thread and wait for it to open the client window.
-3. Start the user-visible threads.
-4. Wait for the I/O thread to finish.
-5. Stop and join the user-visible threads, clear `event_buffer`, and call
+1. Call `ISession.init`, which registers the model-generation-thread and any
+   additional user-visible-threads.
+2. Start the io-thread and wait for it to open the client window.
+3. Start the user-visible-threads.
+4. Wait for the io-thread to finish.
+5. Stop and join the user-visible-threads, clear `event_buffer`, and call
    `ISession.close`.
 
-I/O thread:
+`io-thread`:
 
 1. Open the client window and read its input into `event_buffer`.
-2. Wait for the user-visible threads to launch.
+2. Wait for the user-visible-threads to launch.
 3. At each `SessionDesc.frames_per_second_for_ui` tick:
 
    1. Read client-window input into `event_buffer`.
    2. Collect `event_buffer` garbage.
-   3. Compose the next presentable frame from all user-visible threads.
+   3. Compose the next presentable frame from all user-visible-threads.
    4. Add the frame to `presentation_buffer` using the `when_full` policy.
    5. Drain `presentation_buffer` into the client window.
 
-Each user-visible thread:
+Each `user-visible-thread`:
 
 1. Snapshot `message_queue` and process the snapshot.
 2. Read new user events from `event_buffer`.
 3. End the thread if it receives a close event.
-4. If detected that a reset was triggered, call `IThread.reset`.
-5. Wait as needed to maintain `IThread.frequency`.
-6. End the thread if a close event was set while waiting.
-7. Run `IThread.step`.
-8. Store the generated step and the last-presented frame for presentation and
+4. If detected that a reset was triggered (via `UserInputEvents`), call `IThread.reset`.
+5. End the thread if `IThread.is_finished` reports completion.
+6. Wait as needed to maintain `IThread.frequency`.
+7. End the thread if a close event was set while waiting.
+8. Run `IThread.step`.
+9. Store the generated step and the last-presented frame for presentation and
    compositing.
 
-### Using `ISession` user-visible threads
+### Using `ISession` user-visible-threads
 
 Implement `IThread` and register it from `ISession.init`:
 
@@ -226,7 +228,6 @@ from dataclasses import dataclass
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.thread import IThread
 from flashdreams.runtime_v2.step_result import StepResult
-
 
 # This is the ID of the game thread.
 GAME_THREAD_ID = 1
@@ -247,8 +248,19 @@ class GameThread(IThread[GameState]):
         self.state.score = 0
 
 
+class ModelThread(IThread[None]):
+    def step(self, step_index, events) -> StepResult:
+        # Send a message from the model-generation-thread to the game-thread.
+        self.invoke_async(
+            GAME_THREAD_ID,
+            lambda state: state.increment_score(),
+        )
+        ...
+
+
 class MySession(ISession):
     def init(self) -> None:
+        self.register_model_generation_thread(ModelThread, state=self)
         self.register_thread(
             GAME_THREAD_ID,
             GameThread,
@@ -256,17 +268,12 @@ class MySession(ISession):
             frequency=60,
         )
         ...
-
-    def step(self, step_index, events) -> StepResult:
-        # Send message from model-generation-thread to game-thread via invoke_async.
-        self.invoke_async(
-            GAME_THREAD_ID,
-            lambda state: state.increment_score(),
-        )
-        ...
 ```
 
-`register_thread` constructs the requested `IThread` subclass, and registers it.
+Both registration methods construct the requested `IThread` subclass and
+register it. `register_model_generation_thread` derives its frequency from
+`SessionDesc.frames_per_second_for_step`; `register_thread` accepts an explicit
+frequency.
 All arguments from `state` and beyond are forwarded unchanged to the constructor
 of the used `IThread` subclass.
 For example, an `ImGUIThread` registration also has in its constructor `output_layout`, `width`, and `height`:
@@ -283,14 +290,14 @@ self.register_thread(
 )
 ```
 
-`frequency` is a required non-negative integer giving the maximum number of step
-starts per second. Zero means unbounded. Each user-visible-thread has its own `step_index`,
+`frequency` is a required non-negative integer giving the maximum number of `step` calls per second.
+Zero means unbounded. Each user-visible-thread has its own `step_index`,
 which returns to zero after reset. `SessionDesc.frames_per_second_for_step`
 supplies this value only for the model-generation-thread; every user-visible-thread
 supplies its own value when registered.
 
 `IThread.invoke_async` puts a fire-and-forget `Message`
-in the target user-visible-thread's `message_queue`, snapshotting and processing the queue 
+in the target user-visible-thread's `message_queue`, snapshotting and processing the queue
 before the next `step`/`step_ui` of that user-visible-thread.
 
 
@@ -305,7 +312,7 @@ current generation. Unknown user-visible-thread IDs raise `KeyError`.
 
 ### Input events
 
-The I/O thread appends window input to one arrival-ordered buffer. Every user-visible-thread
+The io-thread appends window input to one arrival-ordered buffer. Every user-visible-thread
 has an independent cursor and receives each retained event once. Periodic garbage
 collection removes the prefix every active user-visible-thread has read.
 
@@ -313,7 +320,7 @@ A close event requests session-wide shutdown immediately. A reset event advances
 the session generation. Every user-visible-thread resets before its next step, and any result
 that was still being produced for the previous generation is not presented.
 
-### UI user-visible threads and compositing
+### UI user-visible-threads and compositing
 
 `UIThread` implements `step` for the user. A subclass implements `step_ui`, which
 returns one frame which is ready to be presented.
@@ -325,7 +332,7 @@ The renderer owns the ImGui context, external-memory buffer, and synchronization
 details on the UI user-visible-thread. `ImGUIThread.draw_frame` places a normalized
 `[C, H, W]` video frame inside the active ImGui layout.
 
-Each user-visible-thread publishes its `latest_step` independently. At every I/O tick, the
+Each user-visible-thread publishes its `latest_step` independently. At every io-thread tick, the
 runtime snapshots the latest current-generation result from each user-visible-thread, selects
 its latest frame, and applies its `PresentationMode`:
 
@@ -337,15 +344,15 @@ its latest frame, and applies its `PresentationMode`:
 
 Visible frames composite by ascending thread ID: ID `0` is the bottom layer,
 then ID `1`, and so on. RGB layers are opaque; RGBA layers use their alpha
-channel. Compositing follows `frames_per_second_for_ui` even while main
-generation has no new frame.
+channel. Compositing follows `frames_per_second_for_ui` even while the
+model-generation-thread has no new frame.
 
-For sessions with auxiliary workers, the compositor eagerly emits one frame in
-the session's declared layout. For sessions with only a model-generation thread,
-all processed steps are forwarded deterministically to the presentation buffer.
+For sessions with additional user-visible-threads, the compositor eagerly emits
+one frame in the session's declared layout. For sessions with only a
+model-generation-thread, all processed steps are forwarded deterministically to
+the presentation buffer.
 This is a lossless path for MP4 output and benchmarking.
 `WhenFull.BLOCK` applies back-pressure while presenting it, and
 `WhenFull.DROP_OLDEST` replaces its oldest pending composite. Neither policy
 paces or drops an individual user-visible-thread's rendering. The output sink remains a
 synchronous consumer and needs no capacity API.
-

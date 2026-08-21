@@ -51,7 +51,7 @@ class EventBuffer:
         An unknown thread starts at the beginning of the retained buffer.
 
         Args:
-            thread_id: Session thread, added as a reader on first use.
+            thread_id: User-visible-thread added as a reader on first use.
 
         Returns:
             Unread events and the reset generation current at the read.

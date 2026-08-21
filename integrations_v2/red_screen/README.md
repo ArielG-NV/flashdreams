@@ -32,7 +32,7 @@ red frames controlled by activation and intensity keys. It runs the whole path â
 Start the WebRTC server and open the printed URL:
 
 ```bash
-uv run red-screen-webrtc
+uv run --no-sync flashdreams-run-v2 red-screen --mode webrtc
 ```
 
 Hold `r` in the browser to turn the generated video red, or click **Activate**
@@ -40,13 +40,15 @@ to toggle the same keyboard event. Press `w` to increase the red intensity by
 0.1 and `s` to decrease it by 0.1. Runtime options configure the browser session:
 
 ```bash
-uv run red-screen-webrtc --mode webrtc --host 0.0.0.0 --port 8080 --width 1280 --height 720 --fps 30
+uv run --no-sync flashdreams-run-v2 red-screen --mode webrtc \
+    --host 0.0.0.0 --port 8080 \
+    --pixel-width 1280 --pixel-height 720 --fps 30 --ui-fps 30
 ```
 
 Arguments after `--` belong to the application:
 
 ```bash
-uv run red-screen-webrtc -- --key x
+uv run --no-sync flashdreams-run-v2 red-screen --mode webrtc -- --key x
 ```
 
 The same application can be driven directly without WebRTC:

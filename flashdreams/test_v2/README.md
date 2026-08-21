@@ -9,7 +9,8 @@ CPU-only tests for the v2 protocols themselves:
 
 - `test_client_window.py` covers client-window I/O against the NULL model.
 - `test_application_runner.py` covers application, session, and window lifecycle.
-- `test_session_runner.py` covers session workers, events, presentation, and shutdown.
+- `test_session_runner.py` covers user-visible-threads, events, presentation,
+  and shutdown.
 - `test_imgui_thread.py` covers ImGUIThread implementation, testing input routing and renderer.
 - `test_mp4_client_window.py` covers file-window output and benchmark metrics.
 - `test_mp4_output_sink.py` covers MP4 encoding and output validation.

@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Dear ImGui worker and SlangPy Vulkan/CUDA renderer."""
+"""Dear ImGui user-visible-thread and SlangPy Vulkan/CUDA renderer."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ StateT = TypeVar("StateT")
 
 
 class ImGUIThread(UIThread[StateT], ABC):
-    """UI worker rendered through SlangPy with Vulkan/CUDA interop."""
+    """UI-thread rendered through SlangPy with Vulkan/CUDA interop."""
 
     def __init__(
         self,
@@ -50,10 +50,10 @@ class ImGUIThread(UIThread[StateT], ABC):
         width: int,
         height: int,
     ) -> None:
-        """Initialize a SlangPy ImGui worker without creating GPU resources.
+        """Initialize a SlangPy thread without creating GPU resources.
 
         Args:
-            state: Mutable state owned by this worker.
+            state: Mutable state owned by this thread.
             frequency: Maximum UI frames per second.
             output_layout: Layout used to wrap the rendered frame.
             width: Render target width in pixels.
@@ -105,7 +105,7 @@ class ImGUIThread(UIThread[StateT], ABC):
         self._renderer.reset()
 
     def _close(self) -> None:
-        """Release renderer resources on the UI worker thread."""
+        """Release renderer resources."""
         self._renderer.close()
 
 

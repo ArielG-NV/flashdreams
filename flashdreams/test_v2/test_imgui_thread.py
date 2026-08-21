@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""CPU tests for Dear ImGui worker input routing."""
+"""CPU tests for Dear ImGui-thread input routing."""
 
 from types import SimpleNamespace
 from typing import Any

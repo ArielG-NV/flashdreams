@@ -15,6 +15,7 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from flashdreams.t2v_v2.application import T2VApplication
 from flashdreams.t2v_v2.defaults import T2VApplicationDefaults
+from flashdreams.t2v_v2.session import T2VModelThread, T2VSession
 from flashdreams.t2v_v2.testing import FakeT2VPipeline, FakeT2VPipelineConfig
 
 pytestmark = pytest.mark.ci_cpu
@@ -93,12 +94,24 @@ def _application() -> tuple[T2VApplication, FakeT2VPipeline]:
     return app, pipeline
 
 
+def _session(app: T2VApplication) -> T2VSession:
+    session = app.create_session(_session_desc())
+    assert isinstance(session, T2VSession)
+    return session
+
+
+def _model_thread(session: T2VSession) -> T2VModelThread:
+    model_generation_thread = session._ensure_thread_manager()._get_thread(0)
+    assert isinstance(model_generation_thread, T2VModelThread)
+    return model_generation_thread
+
+
 ## One rollout
 
 
 def test_a_rollout_starts_from_the_prompt_at_the_requested_size() -> None:
     app, pipeline = _application()
-    session = app.create_session(_session_desc())
+    session = _session(app)
 
     session.init()
 
@@ -114,18 +127,23 @@ def test_a_rollout_starts_from_the_prompt_at_the_requested_size() -> None:
 
 def test_a_step_before_the_rollout_starts_is_refused() -> None:
     app, _ = _application()
-    session = app.create_session(_session_desc())
+    session = _session(app)
+    model_generation_thread = T2VModelThread(
+        state=session,
+        frequency=session.session_desc.frames_per_second_for_step,
+    )
     with pytest.raises(RuntimeError, match="init.. must run before step"):
-        session.step(0, _NO_EVENTS)
+        model_generation_thread.step(0, _NO_EVENTS)
 
 
 def test_a_step_generates_a_block_and_advances_the_rollout() -> None:
     app, pipeline = _application()
-    session = app.create_session(_session_desc())
+    session = _session(app)
     session.init()
+    model_generation_thread = _model_thread(session)
 
-    first = session.step(0, _NO_EVENTS)
-    second = session.step(1, _NO_EVENTS)
+    first = model_generation_thread.step(0, _NO_EVENTS)
+    second = model_generation_thread.step(1, _NO_EVENTS)
 
     # Generating a block and advancing past it are separate calls.
     assert pipeline.generated == [0, 1]
@@ -138,11 +156,12 @@ def test_a_step_generates_a_block_and_advances_the_rollout() -> None:
 def test_a_result_reports_the_frames_it_carries() -> None:
     """The first block of a causal decode is shorter than the rest."""
     app, _ = _application()
-    session = app.create_session(_session_desc())
+    session = _session(app)
     session.init()
+    model_generation_thread = _model_thread(session)
 
-    first = session.step(0, _NO_EVENTS)
-    second = session.step(1, _NO_EVENTS)
+    first = model_generation_thread.step(0, _NO_EVENTS)
+    second = model_generation_thread.step(1, _NO_EVENTS)
 
     assert first.frame_count == _FIRST_BLOCK_FRAMES
     assert tuple(first.output.shape) == (_FIRST_BLOCK_FRAMES, 3, _HEIGHT, _WIDTH)
@@ -151,11 +170,12 @@ def test_a_result_reports_the_frames_it_carries() -> None:
 
 def test_resetting_starts_the_rollout_again_from_the_same_prompt() -> None:
     app, pipeline = _application()
-    session = app.create_session(_session_desc())
+    session = _session(app)
     session.init()
-    session.step(0, _NO_EVENTS)
+    model_generation_thread = _model_thread(session)
+    model_generation_thread.step(0, _NO_EVENTS)
 
-    session.reset()
+    model_generation_thread.reset()
 
     assert len(pipeline.caches) == 2
     assert pipeline.caches[0] == pipeline.caches[1]
@@ -164,35 +184,38 @@ def test_resetting_starts_the_rollout_again_from_the_same_prompt() -> None:
 def test_a_rollout_finishes_once_it_has_generated_its_blocks() -> None:
     """How long a run lasts comes from here, so nobody counts steps for it."""
     app, _ = _application()
-    session = app.create_session(_session_desc())
+    session = _session(app)
     session.init()
+    model_generation_thread = _model_thread(session)
 
     for step_index in range(_TOTAL_BLOCKS):
-        assert not session.is_finished()
-        session.step(step_index, _NO_EVENTS)
+        assert not model_generation_thread.is_finished()
+        model_generation_thread.step(step_index, _NO_EVENTS)
 
-    assert session.is_finished()
+    assert model_generation_thread.is_finished()
 
 
 def test_a_reset_rollout_has_its_whole_length_again() -> None:
     app, _ = _application()
-    session = app.create_session(_session_desc())
+    session = _session(app)
     session.init()
+    model_generation_thread = _model_thread(session)
     for step_index in range(_TOTAL_BLOCKS):
-        session.step(step_index, _NO_EVENTS)
+        model_generation_thread.step(step_index, _NO_EVENTS)
 
-    session.reset()
+    model_generation_thread.reset()
 
-    assert not session.is_finished()
+    assert not model_generation_thread.is_finished()
 
 
 def test_closing_a_session_leaves_the_model_for_the_next_one() -> None:
     app, pipeline = _application()
-    session = app.create_session(_session_desc())
+    session = _session(app)
     session.init()
+    model_generation_thread = _model_thread(session)
 
     session.close()
 
     assert not pipeline.closed
     with pytest.raises(RuntimeError, match="init.. must run before step"):
-        session.step(0, _NO_EVENTS)
+        model_generation_thread.step(0, _NO_EVENTS)

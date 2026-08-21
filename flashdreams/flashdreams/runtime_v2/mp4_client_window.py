@@ -33,10 +33,9 @@ class Mp4ClientWindow(IClientWindow):
 
     What a run against this window generates is what a run against any other
     window would generate, since a session is given the same empty input every
-    step. The one thing that differs is how often ``ISession.step_ui`` is called,
-    which follows a wall clock, so a session generating differently because of
-    what it did there generates differently here run to run. That is why it must
-    not.
+    step. Additional UI-threads still follow a wall clock, so the
+    model-generation-thread must not depend on how many UI steps happen during
+    the run.
 
     Everything about the file itself — what an ``open`` accepts, what a failed
     encode raises — belongs to

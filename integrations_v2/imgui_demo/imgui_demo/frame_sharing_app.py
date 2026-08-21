@@ -20,37 +20,45 @@ from dataclasses import dataclass
 from typing import Any
 
 import torch
-
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
+from flashdreams.api_v2.thread import IThread
 from flashdreams.runtime_v2.imgui_thread import ImGUIThread
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import PresentationMode, StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
-from .runner import run_demo
+from .app import DEFAULT_SESSION_DESC
 
 _IMGUI_THREAD_ID = 1
-"""Auxiliary worker identifier for the UI layer."""
+"""User-visible-thread identifier for the ImGui layer."""
 
 _STEPS_PER_COLOR = 10
 """Model iterations that present each color before rotating."""
 
 _RGB_COLORS = ((255, 0, 0), (0, 255, 0), (0, 0, 255))
-"""Eight-bit RGB colors emitted by the model-generation thread."""
+"""Eight-bit RGB colors emitted by the model-generation-thread."""
 
 
 @dataclass(frozen=True, slots=True)
 class FrameSharingState:
-    """Display geometry owned by the frame-sharing UI worker."""
+    """Display geometry owned by the frame-sharing ImGui-thread."""
 
     image_size: tuple[float, float]
     """Width and height used to draw the model frame inside the UI window."""
 
 
+@dataclass(frozen=True, slots=True)
+class FrameSharingModelState:
+    """Output state owned by the model-generation-thread."""
+
+    frames: tuple[torch.Tensor, ...]
+    output_layout: VideoTensorLayout
+
+
 class FrameSharingImGUIThread(ImGUIThread[FrameSharingState]):
-    """Display the model-generation worker's latest presented frame."""
+    """Display the model-generation-thread's latest presented frame."""
 
     def draw_ui(
         self,
@@ -75,8 +83,27 @@ class FrameSharingImGUIThread(ImGUIThread[FrameSharingState]):
         imgui.end()
 
 
+class FrameSharingModelThread(IThread[FrameSharingModelState]):
+    """Publish rotating model frames from the model-generation-thread."""
+
+    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+        """Return the color selected for this model iteration."""
+        del events
+        color_index = (step_index // _STEPS_PER_COLOR) % len(self.state.frames)
+        return StepResult(
+            step_index=step_index,
+            output=self.state.frames[color_index],
+            frame_count=1,
+            output_layout=self.state.output_layout,
+            presentation_mode=PresentationMode.hidePresentation,
+        )
+
+    def reset(self) -> None:
+        return
+
+
 class FrameSharingSession(ISession):
-    """Rotate model colors while an ImGui worker displays the latest frame."""
+    """Rotate model colors while an ImGui-thread displays the latest frame."""
 
     def __init__(
         self,
@@ -87,7 +114,7 @@ class FrameSharingSession(ISession):
         """Configure one frame-sharing session.
 
         Args:
-            session_desc: Output dimensions and worker frequencies.
+            session_desc: Output dimensions and user-visible-thread frequencies.
             device: Device used for model frames. The live UI requires ``"cuda"``;
                 tests may inject ``"cpu"``.
 
@@ -99,10 +126,8 @@ class FrameSharingSession(ISession):
                 "The frame-sharing demo requires tchw output, got "
                 f"{session_desc.output_layout.value}."
             )
+        self._device = device
         self._session_desc = session_desc
-        self._frames = tuple(
-            _solid_frame(rgb, session_desc, device=device) for rgb in _RGB_COLORS
-        )
 
     @property
     def session_desc(self) -> SessionDesc:
@@ -110,7 +135,21 @@ class FrameSharingSession(ISession):
         return self._session_desc
 
     def init(self) -> None:
-        """Construct and register the frame-sharing UI worker."""
+        """Register the model-generation-thread and frame-sharing ImGui-thread."""
+        self.register_model_generation_thread(
+            FrameSharingModelThread,
+            state=FrameSharingModelState(
+                frames=tuple(
+                    _solid_frame(
+                        rgb,
+                        self._session_desc,
+                        device=self._device,
+                    )
+                    for rgb in _RGB_COLORS
+                ),
+                output_layout=self._session_desc.output_layout,
+            ),
+        )
         self.register_thread(
             _IMGUI_THREAD_ID,
             FrameSharingImGUIThread,
@@ -121,30 +160,18 @@ class FrameSharingSession(ISession):
             height=self._session_desc.video_height,
         )
 
-    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
-        """Return the color selected for this model iteration."""
-        del events
-        color_index = (step_index // _STEPS_PER_COLOR) % len(self._frames)
-        return StepResult(
-            step_index=step_index,
-            output=self._frames[color_index],
-            frame_count=1,
-            output_layout=self._session_desc.output_layout,
-            presentation_mode=PresentationMode.hidePresentation,
-        )
-
-    def reset(self) -> None:
-        """Restart color rotation from red through the reset step index."""
-        return
-
 
 class FrameSharingApplication(IApplication):
-    """Create sessions that share model frames with an ImGui worker."""
+    """Create sessions that share model frames with an ImGui-thread."""
 
     def init(self, commandline_args: Sequence[str]) -> None:
         """Reject application-specific arguments."""
         if commandline_args:
             raise ValueError("The frame-sharing demo takes no application arguments.")
+
+    def session_desc(self) -> SessionDesc:
+        """Return the demo's established dimensions and thread frequencies."""
+        return DEFAULT_SESSION_DESC
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
         """Create one uninitialized frame-sharing session."""
@@ -178,17 +205,3 @@ def _image_size(session_desc: SessionDesc) -> tuple[float, float]:
 def create_app() -> IApplication:
     """Return a new frame-sharing application."""
     return FrameSharingApplication()
-
-
-def main(commandline_args: Sequence[str] | None = None) -> int:
-    """Serve the frame-sharing demo until the browser disconnects."""
-    return run_demo(
-        create_app,
-        commandline_args,
-        program="imgui-frame-sharing-webrtc",
-        description="Show the model thread's latest frame inside ImGui.",
-    )
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

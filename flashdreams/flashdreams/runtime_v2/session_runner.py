@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Session worker lifecycle, input fan-out, and frame compositing."""
+"""User-visible-thread lifecycle, input fan-out, and frame compositing."""
 
 import logging
 import queue
@@ -95,17 +95,19 @@ def run_session(
     max_pending: int = 2,
     when_full: WhenFull = WhenFull.BLOCK,
 ) -> None:
-    """Run one session and its user_visible_threads against one client window.
+    """Run one session and its user-visible-threads against one client window.
 
-    Thread zero delegates to :meth:`ISession.step`. Auxiliary user_visible_threads registered
-    by :meth:`ISession.init` run independently at their own frequencies. The I/O
-    thread owns the window, fans each input event out to every worker, and
-    composites their latest enabled frames in ascending thread-ID order.
+    The model-generation-thread and additional user-visible-threads registered
+    by :meth:`ISession.init` run independently at their own frequencies. The
+    io-thread owns the window, fans each input event out to every
+    user-visible-thread, and composites their latest enabled frames in ascending
+    thread-ID order.
 
     Args:
         session: Uninitialized session to run.
         window: Client window supplying input and presenting frames.
-        steps: Number of main-generation steps; ``None`` runs until close input.
+        steps: Number of model-generation-thread steps; ``None`` runs until
+            close input.
         max_pending: Maximum composited frames waiting for UI presentation.
         when_full: Whether full UI presentation waits or drops its oldest frame.
 
@@ -117,10 +119,10 @@ def run_session(
     if max_pending <= 0:
         raise ValueError(f"max_pending must be > 0, got {max_pending}.")
 
-    session._register_model_generation_thread()
     thread_manager = session._ensure_thread_manager()
     try:
         session.init()
+        thread_manager._require_model_generation_thread()
     except Exception:
         thread_manager._stop()
         session.close()
@@ -131,7 +133,7 @@ def run_session(
     stop = threading.Event()
     opened = threading.Event()
     user_visible_threads_started = threading.Event()
-    main_finished = threading.Event()
+    model_generation_finished = threading.Event()
     failures: queue.Queue[BaseException] = queue.Queue()
     io_failures: queue.Queue[Exception] = queue.Queue()
     tick_seconds = 1.0 / session.session_desc.frames_per_second_for_ui
@@ -158,7 +160,7 @@ def run_session(
             while not stop.wait(tick_seconds):
                 read_input()
                 event_buffer.collect_garbage()
-                main_was_finished = main_finished.is_set()
+                model_generation_was_finished = model_generation_finished.is_set()
 
                 presentable = thread_manager._take_presentable_results(
                     event_buffer.generation,
@@ -173,7 +175,7 @@ def run_session(
                     presentation_index += 1
                 presentation_buffer.drain(window.write)
 
-                if main_was_finished:
+                if model_generation_was_finished:
                     stop.set()
         except Exception as error:
             io_failures.put(error)
@@ -187,7 +189,7 @@ def run_session(
                 io_failures.put(error)
             stop.set()
 
-    io_thread = threading.Thread(target=run_io, name="flashdreams-io")
+    io_thread = threading.Thread(target=run_io, name="flashdreams-io-thread")
     io_thread.start()
     try:
         # Before we start threads working on the window we should wait for the window to be opened.
@@ -197,7 +199,7 @@ def run_session(
                 event_buffer=event_buffer,
                 stop=stop,
                 failure=failures,
-                finished=main_finished,
+                finished=model_generation_finished,
                 max_steps=steps,
             )
     except Exception as error:

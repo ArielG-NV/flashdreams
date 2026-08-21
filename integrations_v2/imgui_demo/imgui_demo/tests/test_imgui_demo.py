@@ -17,12 +17,27 @@
 
 import pytest
 import torch
-from imgui_demo.app import DemoImGUIThread, ImGUIDemoSession, ImGUIDemoState
-from imgui_demo.frame_sharing_app import FrameSharingSession
-from imgui_demo.message_app import MessageImGUIThread, MessageSession
-from imgui_demo.runner import _parse_args, _session_desc
+from imgui_demo.app import (
+    DemoImGUIThread,
+    DemoModelThread,
+    ImGUIDemoApplication,
+    ImGUIDemoSession,
+    ImGUIDemoState,
+)
+from imgui_demo.frame_sharing_app import (
+    FrameSharingApplication,
+    FrameSharingModelThread,
+    FrameSharingSession,
+)
+from imgui_demo.message_app import (
+    MessageApplication,
+    MessageImGUIThread,
+    MessageModelThread,
+    MessageSession,
+)
 from numpy import uint64
 
+from flashdreams.runtime_v2.application_registry import registered_application_slugs
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import PresentationMode
 from flashdreams.runtime_v2.user_input_event import (
@@ -48,31 +63,47 @@ def _session() -> ImGUIDemoSession:
 
 def test_main_generation_disables_presentation() -> None:
     session = _session()
+    session.init()
+    model_generation_thread = session._ensure_thread_manager()._get_thread(0)
+    assert isinstance(model_generation_thread, DemoModelThread)
 
-    result = session.step(3, UserInputEvents([]))
+    result = model_generation_thread.step(3, UserInputEvents([]))
 
     assert result.step_index == 3
     assert result.presentation_mode is PresentationMode.disablePresentation
     assert result.output.shape == (1, 3, 24, 32)
 
 
-def test_launcher_keeps_model_generation_at_thirty_fps() -> None:
-    args = _parse_args(
-        ["--fps", "72"],
-        program="test-imgui-demo",
-        description="Test parser.",
-    )
+@pytest.mark.parametrize(
+    "application_type",
+    (ImGUIDemoApplication, FrameSharingApplication, MessageApplication),
+)
+def test_applications_preserve_the_demo_session_defaults(
+    application_type: type,
+) -> None:
+    session_desc = application_type().session_desc()
 
-    session_desc = _session_desc(args)
+    assert session_desc == SessionDesc(video_width=640, video_height=480)
 
-    assert session_desc.frames_per_second_for_ui == 72
-    assert session_desc.frames_per_second_for_step == 30
+
+def test_all_imgui_applications_are_registered() -> None:
+    assert {
+        "imgui-demo",
+        "imgui-frame-sharing",
+        "imgui-message",
+    }.issubset(registered_application_slugs())
 
 
 def test_frame_sharing_hides_model_frame_and_rotates_colors() -> None:
     session = FrameSharingSession(_session().session_desc, device="cpu")
+    session.init()
+    model_generation_thread = session._ensure_thread_manager()._get_thread(0)
+    assert isinstance(model_generation_thread, FrameSharingModelThread)
 
-    results = [session.step(step, UserInputEvents([])) for step in (0, 10, 20, 30)]
+    results = [
+        model_generation_thread.step(step, UserInputEvents([]))
+        for step in (0, 10, 20, 30)
+    ]
     colors = [
         tuple(
             result.output[0, :, 0, 0]
@@ -96,7 +127,9 @@ def test_message_demo_disables_model_presentation_and_updates_ui_by_message() ->
     session = MessageSession(_session().session_desc)
     session.init()
     ui_thread = session._ensure_thread_manager()._get_thread(1)
+    model_thread = session._ensure_thread_manager()._get_thread(0)
     assert isinstance(ui_thread, MessageImGUIThread)
+    assert isinstance(model_thread, MessageModelThread)
     events = UserInputEvents(
         [
             UserInputEvent(
@@ -108,7 +141,7 @@ def test_message_demo_disables_model_presentation_and_updates_ui_by_message() ->
         ]
     )
 
-    result = session.step(0, events)
+    result = model_thread.step(0, events)
     ui_thread._run_message_batch()
 
     assert result.presentation_mode is PresentationMode.disablePresentation
@@ -124,19 +157,20 @@ def test_message_demo_disables_model_presentation_and_updates_ui_by_message() ->
             )
         ]
     )
-    session.step(1, release_events)
+    model_thread.step(1, release_events)
     ui_thread._run_message_batch()
 
     assert ui_thread.state.status == "W is not Pressed"
 
 
-def test_init_registers_imgui_as_auxiliary_thread() -> None:
+def test_init_registers_imgui_as_user_visible_thread() -> None:
     session = _session()
 
     session.init()
     threads = session._ensure_thread_manager()._freeze()
 
-    assert list(threads) == [1]
+    assert list(threads) == [0, 1]
+    assert threads[0].frequency == session.session_desc.frames_per_second_for_step
     assert threads[1].frequency == session.session_desc.frames_per_second_for_ui
 
 

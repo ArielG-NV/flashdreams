@@ -26,7 +26,7 @@ class SessionDesc:
     """Rate to read input and present finished results at, in frames per second."""
 
     frames_per_second_for_step: int = 30
-    """Maximum main-generation steps per second; zero runs without pacing."""
+    """Maximum model-generation-thread steps per second; zero disables pacing."""
 
     video_width: int = 1280
     """Output video width in pixels."""

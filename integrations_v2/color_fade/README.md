@@ -16,6 +16,18 @@ is what makes the file it writes the same on every run.
 Writing an MP4 needs an `ffmpeg` executable on `PATH`, and a frame size that is
 even in both directions.
 
+## Usage
+
+Run the same registered application through the shared v2 command, either in a
+browser or to a file:
+
+```bash
+uv run --no-sync flashdreams-run-v2 color-fade --mode webrtc
+uv run --no-sync flashdreams-run-v2 color-fade --output-path fade.mp4
+```
+
+Application arguments follow `--`, for example `-- --seconds 3`.
+
 ## Tests
 
 Run from the repository root. The tests that write a file are skipped when

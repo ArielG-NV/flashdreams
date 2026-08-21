@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Session worker-thread interfaces."""
+"""Session user-visible-thread interfaces."""
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -43,7 +43,7 @@ class IThread(InternalThread[StateT]):
 
     @final
     def get_model_generation_thread_id(self) -> int:
-        """Return the reserved model-generation thread identifier.
+        """Return the reserved model-generation-thread identifier.
 
         Raises:
             RuntimeError: This thread has not been registered.
@@ -72,16 +72,47 @@ class IThread(InternalThread[StateT]):
 
     @abstractmethod
     def step(self, step_index: int, events: UserInputEvents) -> StepResult:
-        """Produce one result from the events received since the previous step."""
+        """Produce one result for ``step_index``.
+
+        Args:
+            step_index: Zero-based index of the step to produce.
+            events: User input events collected since the previous step.
+
+        Returns:
+            Result carrying ``step_index``.
+        """
         ...
 
+    def is_finished(self) -> bool:
+        """Report whether this user-visible-thread has completed its workload.
+
+        The runtime asks before every step.
+        If finished, that particular thread ends.
+        Additionally, if finishing the model-generation-thread, the session ends (all threads will finish after finishing current work).
+        Returns:
+            Whether this user-visible-thread should stop before its next step.
+        """
+        return False
+
     def reset(self) -> None:
-        """Reset state before the first step of a new generation."""
-        pass
+        """Reset per-generation state so the session can run again.
+
+        ``run_session`` calls this when a window reports a reset event, and then
+        steps from index zero again.
+
+        The next :meth:`step` still receives the batch the reset arrived in,
+        including the events before it, so a held key stays held across the
+        restart. Ignore the older events here if this session must not inherit
+        them.
+
+        Raises:
+            NotImplementedError: The session does not support reuse.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support reset.")
 
 
 class UIThread(IThread[StateT], ABC):
-    """Wrap one-frame UI rendering in the regular worker-step contract."""
+    """Wrap an IThread to produce a one-frame-at-a-time render, with intention of use for UI."""
 
     def __init__(
         self,

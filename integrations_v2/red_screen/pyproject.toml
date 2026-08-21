@@ -16,8 +16,8 @@ dependencies = [
     "flashdreams[serving]",
 ]
 
-[project.scripts]
-red-screen-webrtc = "red_screen.app:main"
+[project.entry-points."flashdreams.applications_v2"]
+"red-screen" = "red_screen.app:create_app"
 
 [tool.uv.sources]
 # Resolve the framework from this repository while developing the workspace.

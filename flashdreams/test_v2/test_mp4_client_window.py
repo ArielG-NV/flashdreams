@@ -18,6 +18,7 @@ import pytest
 import torch
 
 from flashdreams.api_v2.session import ISession
+from flashdreams.api_v2.thread import IThread
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.session_runner import run_session
@@ -42,6 +43,14 @@ _FRAMES_PER_STEP = 2
 """Frames each step generates, above one so a frame count is not a step count."""
 
 
+class FakeModelThread(IThread["FakeSession"]):
+    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+        return self.state._step(step_index, events)
+
+    def reset(self) -> None:
+        return
+
+
 class FakeSession(ISession):
     """Emit blank frames, recording the input each step was given."""
 
@@ -50,13 +59,13 @@ class FakeSession(ISession):
         self.observed_events: list[UserInputEvents] = []
 
     def init(self) -> None:
-        return
+        self.register_model_generation_thread(FakeModelThread, state=self)
 
     @property
     def session_desc(self) -> SessionDesc:
         return self._session_desc
 
-    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+    def _step(self, step_index: int, events: UserInputEvents) -> StepResult:
         self.observed_events.append(events)
         return StepResult(
             step_index=step_index,

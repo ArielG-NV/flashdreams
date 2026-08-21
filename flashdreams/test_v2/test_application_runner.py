@@ -13,6 +13,7 @@ from numpy import uint64
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
+from flashdreams.api_v2.thread import IThread
 from flashdreams.runtime_v2.application_runner import ApplicationRunner
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -26,6 +27,17 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 pytestmark = pytest.mark.ci_cpu
 
 _RUNNER_LOGGER = "flashdreams.runtime_v2.application_runner"
+
+
+class _ModelThread(IThread["_Session"]):
+    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+        return self.state.step(step_index, events)
+
+    def is_finished(self) -> bool:
+        return self.state.is_finished()
+
+    def reset(self) -> None:
+        return
 
 
 class _Session(ISession):
@@ -46,6 +58,7 @@ class _Session(ISession):
 
     def init(self) -> None:
         self._calls.append("session.init")
+        self.register_model_generation_thread(_ModelThread, state=self)
 
     @property
     def session_desc(self) -> SessionDesc:

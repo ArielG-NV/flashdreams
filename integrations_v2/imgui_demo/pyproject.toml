@@ -15,10 +15,10 @@ dependencies = [
     "flashdreams[local-window,serving,ui]",
 ]
 
-[project.scripts]
-imgui-demo-webrtc = "imgui_demo.app:main"
-imgui-frame-sharing-webrtc = "imgui_demo.frame_sharing_app:main"
-imgui-message-webrtc = "imgui_demo.message_app:main"
+[project.entry-points."flashdreams.applications_v2"]
+"imgui-demo" = "imgui_demo.app:create_app"
+"imgui-frame-sharing" = "imgui_demo.frame_sharing_app:create_app"
+"imgui-message" = "imgui_demo.message_app:create_app"
 
 [tool.uv.sources]
 flashdreams = { workspace = true }

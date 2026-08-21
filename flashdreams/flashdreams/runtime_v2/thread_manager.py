@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Session thread ownership, communication, lifecycle, and compositing."""
+"""User-visible-thread ownership, communication, lifecycle, and compositing."""
 
 from __future__ import annotations
 
@@ -32,14 +32,14 @@ from flashdreams.runtime_v2.step_result import PresentationMode, StepResult
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 _MODEL_GENERATION_THREAD_ID = 0
-"""Reserved identifier for the session's generation worker."""
+"""Reserved identifier for the session's model-generation-thread."""
 
 _THREAD_STOP_TIMEOUT_SECONDS = 30.0
-"""Maximum total wait for all session workers to stop."""
+"""Maximum total wait for all user-visible-threads to stop."""
 
 
 class _ThreadManager:
-    """Own session threads and coordinate communication between them."""
+    """Own a session's user-visible-threads and coordinate communication."""
 
     def __init__(self) -> None:
         self._threads: dict[int, InternalThread[Any]] = {}
@@ -49,7 +49,7 @@ class _ThreadManager:
 
     @final
     def _get_model_generation_thread_id(self) -> int:
-        """Return the reserved main-generation thread identifier."""
+        """Return the reserved model-generation-thread identifier."""
         return _MODEL_GENERATION_THREAD_ID
 
     @final
@@ -58,10 +58,10 @@ class _ThreadManager:
         thread: InternalThread[Any],
         thread_id: int,
     ) -> None:
-        """Register an auxiliary thread.
+        """Register an additional user-visible-thread.
 
         Args:
-            thread: Constructed worker owned by this manager.
+            thread: Constructed user-visible-thread owned by this manager.
             thread_id: Positive manager-unique identifier.
 
         Raises:
@@ -72,7 +72,7 @@ class _ThreadManager:
         if isinstance(thread_id, bool) or not isinstance(thread_id, int):
             raise TypeError("thread_id must be an integer.")
         if thread_id == _MODEL_GENERATION_THREAD_ID:
-            raise ValueError("Thread ID 0 is reserved for main generation.")
+            raise ValueError("Thread ID 0 is reserved for the model-generation-thread.")
         self._register(thread, thread_id)
 
     @final
@@ -117,8 +117,16 @@ class _ThreadManager:
 
     @final
     def _register_model_generation_thread(self, thread: InternalThread[Any]) -> None:
-        """Register the runtime's main-generation adapter."""
+        """Register the session's unique model-generation-thread."""
         self._register(thread, _MODEL_GENERATION_THREAD_ID)
+
+    @final
+    def _require_model_generation_thread(self) -> None:
+        """Validate that session initialization registered its required thread."""
+        if _MODEL_GENERATION_THREAD_ID not in self._threads:
+            raise RuntimeError(
+                "ISession.init() must register exactly one model-generation-thread."
+            )
 
     def _register(self, thread: InternalThread[Any], thread_id: int) -> None:
         if self._registry_frozen:
@@ -156,16 +164,22 @@ class _ThreadManager:
         finished: threading.Event,
         max_steps: int | None,
     ) -> None:
-        """Start all registered threads."""
-        for thread_id, worker in self._freeze().items():
-            is_main = thread_id == _MODEL_GENERATION_THREAD_ID
-            worker._start(
+        """Start all registered user-visible-threads."""
+        for thread_id, user_visible_thread in self._freeze().items():
+            is_model_generation = thread_id == _MODEL_GENERATION_THREAD_ID
+            thread_name = (
+                "flashdreams-model-generation-thread"
+                if is_model_generation
+                else f"flashdreams-user-visible-thread-{thread_id}"
+            )
+            user_visible_thread._start(
                 thread_id=thread_id,
+                thread_name=thread_name,
                 event_buffer=event_buffer,
                 stop=stop,
                 failure=failure,
-                finished=finished if is_main else None,
-                max_steps=max_steps if is_main else None,
+                finished=finished if is_model_generation else None,
+                max_steps=max_steps if is_model_generation else None,
             )
 
     @final
@@ -179,19 +193,18 @@ class _ThreadManager:
 
         A model-only run is also the lossless file/benchmark path, so every
         original result must retain its full frame batch and metrics. Sessions
-        with auxiliary workers are presentation streams: they consume each
-        worker's newest result and composite a single current frame.
+        with additional user-visible-threads are presentation streams: they
+        consume each thread's newest result and composite one current frame.
         """
         self._set_generation(generation)
         threads = self._freeze()
 
-        # Only 1 thread means we should present predictably,
-        # just return `StepResult`` from the model-generation-threads
-        # pending `StepResult`s.
+        # Preserve every model result when there are no additional
+        # user-visible-threads to composite.
         if set(threads) == {_MODEL_GENERATION_THREAD_ID}:
-            model_thread = threads[_MODEL_GENERATION_THREAD_ID]
+            model_generation_thread = threads[_MODEL_GENERATION_THREAD_ID]
             results: list[StepResult] = []
-            for latest in model_thread._take_pending_steps():
+            for latest in model_generation_thread._take_pending_steps():
                 if latest.generation != generation:
                     continue
                 result = latest.result
@@ -199,7 +212,7 @@ class _ThreadManager:
                     continue
                 frame = _latest_frame(result)
                 if frame is not None:
-                    model_thread._set_last_presented_frame(generation, frame)
+                    model_generation_thread._set_last_presented_frame(generation, frame)
                 if result.presentation_mode is PresentationMode.showPresentation:
                     results.append(result)
             return results
@@ -243,33 +256,35 @@ class _ThreadManager:
         """Stop all threads within one shared timeout.
 
         Args:
-            timeout_seconds: Maximum total seconds to wait for every worker.
+            timeout_seconds: Maximum total seconds to wait for every
+                user-visible-thread.
 
         Raises:
             ValueError: ``timeout_seconds`` is negative.
-            TimeoutError: One or more workers remain alive after the timeout.
+            TimeoutError: One or more user-visible-threads remain alive after
+                the timeout.
         """
         if timeout_seconds < 0:
             raise ValueError("timeout_seconds must be >= 0.")
 
         threads = self._freeze()
-        for worker in threads.values():
-            worker._stop_accepting_messages()
+        for user_visible_thread in threads.values():
+            user_visible_thread._stop_accepting_messages()
 
         deadline = time.monotonic() + timeout_seconds
         timed_out: list[int] = []
-        for thread_id, worker in threads.items():
+        for thread_id, user_visible_thread in threads.items():
             remaining = max(0.0, deadline - time.monotonic())
-            if not worker._join(timeout=remaining):
+            if not user_visible_thread._join(timeout=remaining):
                 timed_out.append(thread_id)
 
-        for worker in threads.values():
-            worker._empty_message_queue()
+        for user_visible_thread in threads.values():
+            user_visible_thread._empty_message_queue()
 
         if timed_out:
             raise TimeoutError(
                 f"Timed out after {timeout_seconds:g} seconds waiting for "
-                f"session threads to stop: {timed_out}."
+                f"user-visible-threads to stop: {timed_out}."
             )
 
     @final

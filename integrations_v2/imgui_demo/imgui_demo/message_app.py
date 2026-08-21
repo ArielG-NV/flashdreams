@@ -13,16 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""ImGui demo for messages sent from model generation to the UI worker."""
+"""ImGui demo for model-generation-thread messages to an ImGui-thread."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
 import torch
-
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
+from flashdreams.api_v2.thread import IThread
 from flashdreams.runtime_v2.imgui_thread import ImGUIThread
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import PresentationMode, StepResult
@@ -33,10 +33,10 @@ from flashdreams.runtime_v2.user_input_event import (
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
-from .runner import run_demo
+from .app import DEFAULT_SESSION_DESC
 
 _IMGUI_THREAD_ID = 1
-"""Auxiliary worker identifier for the UI layer."""
+"""User-visible-thread identifier for the ImGui layer."""
 
 _W_NOT_PRESSED = "W is not Pressed"
 """UI status shown before model generation receives a W key-down event."""
@@ -47,10 +47,18 @@ _W_PRESSED = "W is Pressed"
 
 @dataclass(slots=True)
 class MessageState:
-    """Status text owned exclusively by the UI worker."""
+    """Status text owned exclusively by the ImGui-thread."""
 
     status: str = _W_NOT_PRESSED
     """Text displayed beneath the keyboard prompt."""
+
+
+@dataclass(frozen=True, slots=True)
+class MessageModelState:
+    """Output state owned by the model-generation-thread."""
+
+    output: torch.Tensor
+    output_layout: VideoTensorLayout
 
 
 class MessageImGUIThread(ImGUIThread[MessageState]):
@@ -77,6 +85,27 @@ class MessageImGUIThread(ImGUIThread[MessageState]):
         super().reset()
 
 
+class MessageModelThread(IThread[MessageModelState]):
+    """Publish the model layer and send input updates to the ImGui-thread."""
+
+    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+        state = _last_w_key_state(events)
+        if state is KeyboardInputState.Pressed:
+            self.invoke_async(_IMGUI_THREAD_ID, _mark_w_pressed)
+        elif state is KeyboardInputState.Released:
+            self.invoke_async(_IMGUI_THREAD_ID, _mark_w_released)
+        return StepResult(
+            step_index=step_index,
+            output=self.state.output,
+            frame_count=1,
+            output_layout=self.state.output_layout,
+            presentation_mode=PresentationMode.disablePresentation,
+        )
+
+    def reset(self) -> None:
+        return
+
+
 class MessageSession(ISession):
     """Send a UI-state operation when model generation receives W input."""
 
@@ -84,7 +113,7 @@ class MessageSession(ISession):
         """Configure one message demo session.
 
         Args:
-            session_desc: Output dimensions and worker frequencies.
+            session_desc: Output dimensions and user-visible-thread frequencies.
 
         Raises:
             ValueError: ``session_desc`` does not request ``tchw`` output.
@@ -95,10 +124,6 @@ class MessageSession(ISession):
                 f"{session_desc.output_layout.value}."
             )
         self._session_desc = session_desc
-        self._output = torch.empty(
-            (1, 3, session_desc.video_height, session_desc.video_width),
-            dtype=torch.float32,
-        )
 
     @property
     def session_desc(self) -> SessionDesc:
@@ -106,7 +131,22 @@ class MessageSession(ISession):
         return self._session_desc
 
     def init(self) -> None:
-        """Construct and register the message-receiving UI worker."""
+        """Register the model-generation-thread and message-receiving ImGui-thread."""
+        self.register_model_generation_thread(
+            MessageModelThread,
+            state=MessageModelState(
+                output=torch.empty(
+                    (
+                        1,
+                        3,
+                        self._session_desc.video_height,
+                        self._session_desc.video_width,
+                    ),
+                    dtype=torch.float32,
+                ),
+                output_layout=self._session_desc.output_layout,
+            ),
+        )
         self.register_thread(
             _IMGUI_THREAD_ID,
             MessageImGUIThread,
@@ -117,25 +157,6 @@ class MessageSession(ISession):
             height=self._session_desc.video_height,
         )
 
-    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
-        """Send a UI update when this iteration receives a W state change."""
-        state = _last_w_key_state(events)
-        if state is KeyboardInputState.Pressed:
-            self.invoke_async(_IMGUI_THREAD_ID, _mark_w_pressed)
-        elif state is KeyboardInputState.Released:
-            self.invoke_async(_IMGUI_THREAD_ID, _mark_w_released)
-        return StepResult(
-            step_index=step_index,
-            output=self._output,
-            frame_count=1,
-            output_layout=self._session_desc.output_layout,
-            presentation_mode=PresentationMode.disablePresentation,
-        )
-
-    def reset(self) -> None:
-        """Leave UI-state reset to its owning worker."""
-        return
-
 
 class MessageApplication(IApplication):
     """Create sessions that demonstrate model-to-UI messages."""
@@ -144,6 +165,10 @@ class MessageApplication(IApplication):
         """Reject application-specific arguments."""
         if commandline_args:
             raise ValueError("The message demo takes no application arguments.")
+
+    def session_desc(self) -> SessionDesc:
+        """Return the demo's established dimensions and thread frequencies."""
+        return DEFAULT_SESSION_DESC
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
         """Create one uninitialized message demo session."""
@@ -171,17 +196,3 @@ def _mark_w_released(state: MessageState) -> None:
 def create_app() -> IApplication:
     """Return a new model-to-UI message application."""
     return MessageApplication()
-
-
-def main(commandline_args: Sequence[str] | None = None) -> int:
-    """Serve the message demo until the browser disconnects."""
-    return run_demo(
-        create_app,
-        commandline_args,
-        program="imgui-message-webrtc",
-        description="Show model-generation messages updating ImGui state.",
-    )
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

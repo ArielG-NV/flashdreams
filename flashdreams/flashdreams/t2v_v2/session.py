@@ -6,9 +6,23 @@
 from typing import Any
 
 from flashdreams.api_v2.session import ISession
+from flashdreams.api_v2.thread import IThread
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
+
+
+class T2VModelThread(IThread["T2VSession"]):
+    """Run one text-to-video rollout on the model-generation-thread."""
+
+    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+        return self.state._step(step_index, events)
+
+    def is_finished(self) -> bool:
+        return self.state._is_finished()
+
+    def reset(self) -> None:
+        self.state._reset()
 
 
 class T2VSession(ISession):
@@ -52,12 +66,13 @@ class T2VSession(ISession):
         Where the text encoder runs, so it is slower than a step.
         """
         self._cache = self._new_cache()
+        self.register_model_generation_thread(T2VModelThread, state=self)
 
     @property
     def session_desc(self) -> SessionDesc:
         return self._session_desc
 
-    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+    def _step(self, step_index: int, events: UserInputEvents) -> StepResult:
         """Generate the next block of frames.
 
         Args:
@@ -88,11 +103,11 @@ class T2VSession(ISession):
             metrics=dict(metrics or {}),
         )
 
-    def is_finished(self) -> bool:
+    def _is_finished(self) -> bool:
         """Report whether ``total_blocks`` blocks have been generated."""
         return self._blocks_generated >= self._total_blocks
 
-    def reset(self) -> None:
+    def _reset(self) -> None:
         """Start the rollout again from the same prompt.
 
         The cache is replaced rather than cleared, so nothing of the abandoned

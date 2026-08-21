@@ -9,14 +9,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 import torch
-from torch import Tensor
-
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
+from flashdreams.api_v2.thread import IThread
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
+from torch import Tensor
 
 _DEFAULT_SECONDS = 10.0
 """How long the fade takes by default."""
@@ -24,6 +24,11 @@ _DEFAULT_SECONDS = 10.0
 _DEFAULT_FRAMES_PER_STEP = 8
 """Frames one step generates by default. More than one, because a model
 generates several frames a step rather than a single frame."""
+
+_DEFAULT_WIDTH = 854
+_DEFAULT_HEIGHT = 480
+_DEFAULT_FPS = 30
+"""Playable session defaults used by the shared v2 command."""
 
 _RED_CHANNEL = 0
 """Channel at full intensity when the fade starts."""
@@ -49,7 +54,66 @@ class ColorFadeConfig:
     """Frames one step generates."""
 
 
+@dataclass(slots=True)
+class ColorFadeState:
+    """Per-session state owned by the model-generation-thread."""
+
+    config: ColorFadeConfig
+    session_desc: SessionDesc
+    total_steps: int
+    steps_generated: int = 0
+
+
 ## Session
+
+
+class ColorFadeThread(IThread[ColorFadeState]):
+    """Generate the color fade on the model-generation-thread."""
+
+    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+        """Emit the frames belonging to ``step_index``."""
+        del events
+        self.state.steps_generated += 1
+        return StepResult(
+            step_index=step_index,
+            output=self._frames(step_index),
+            frame_count=self.state.config.frames_per_step,
+            output_layout=self.state.session_desc.output_layout,
+        )
+
+    def is_finished(self) -> bool:
+        """Return whether the whole fade has been generated."""
+        return self.state.steps_generated >= self.state.total_steps
+
+    def reset(self) -> None:
+        """Start the fade again."""
+        self.state.steps_generated = 0
+
+    def _frames(self, step_index: int) -> Tensor:
+        state = self.state
+        frames_per_step = state.config.frames_per_step
+        seconds_per_frame = 1.0 / state.session_desc.frames_per_second_for_step
+        frame_times = (
+            torch.arange(frames_per_step, dtype=torch.float32)
+            + step_index * frames_per_step
+        ) * seconds_per_frame
+        progress = (frame_times / state.config.seconds).clamp(max=1.0)
+
+        channels = torch.full((3, frames_per_step), _NO_INTENSITY, dtype=torch.float32)
+        span = _FULL_INTENSITY - _NO_INTENSITY
+        channels[_RED_CHANNEL] = _FULL_INTENSITY - span * progress
+        channels[_GREEN_CHANNEL] = _NO_INTENSITY + span * progress
+        return (
+            channels.view(1, 3, frames_per_step, 1, 1)
+            .expand(
+                -1,
+                -1,
+                -1,
+                state.session_desc.video_height,
+                state.session_desc.video_width,
+            )
+            .contiguous()
+        )
 
 
 class ColorFadeSession(ISession):
@@ -85,85 +149,26 @@ class ColorFadeSession(ISession):
             )
         self._config = config
         self._session_desc = session_desc
-        self._steps_generated = 0
+
+    def init(self) -> None:
+        """Register the model-generation-thread; there is no model to load."""
         # One step past the fade's last whole frame, so the run ends on a frame
         # that is fully green rather than a shade short of it.
         frames = 1 + math.floor(
-            config.seconds * session_desc.frames_per_second_for_step
+            self._config.seconds * self._session_desc.frames_per_second_for_step
         )
-        self._steps = math.ceil(frames / config.frames_per_step)
-
-    def init(self) -> None:
-        """Do nothing: there is no model here to load."""
-        return
+        self.register_model_generation_thread(
+            ColorFadeThread,
+            state=ColorFadeState(
+                config=self._config,
+                session_desc=self._session_desc,
+                total_steps=math.ceil(frames / self._config.frames_per_step),
+            ),
+        )
 
     @property
     def session_desc(self) -> SessionDesc:
         return self._session_desc
-
-    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
-        """Emit the frames belonging to ``step_index``.
-
-        Args:
-            step_index: Zero-based index of this step.
-            events: Ignored. The fade responds to nothing, which is what makes
-                its output the same on every run.
-
-        Returns:
-            Result carrying ``[1, 3, frames_per_step, H, W]``.
-        """
-        self._steps_generated += 1
-        return StepResult(
-            step_index=step_index,
-            output=self._frames(step_index),
-            frame_count=self._config.frames_per_step,
-            output_layout=self._session_desc.output_layout,
-        )
-
-    def is_finished(self) -> bool:
-        """Report whether the whole fade has been generated.
-
-        Returns:
-            Whether the frames generated so far cover ``seconds`` of fade. The
-            last step may run a little past it, since a step generates whole
-            frames and the frames after the fade are green.
-        """
-        return self._steps_generated >= self._steps
-
-    def reset(self) -> None:
-        """Start the fade again.
-
-        Every frame is a function of its step index, so there is nothing else to
-        undo. Only the count of what has been generated goes back, which is what
-        makes this session unfinished again.
-        """
-        self._steps_generated = 0
-
-    def _frames(self, step_index: int) -> Tensor:
-        frames_per_step = self._config.frames_per_step
-        seconds_per_frame = 1.0 / self._session_desc.frames_per_second_for_step
-        frame_times = (
-            torch.arange(frames_per_step, dtype=torch.float32)
-            + step_index * frames_per_step
-        ) * seconds_per_frame
-        progress = (frame_times / self._config.seconds).clamp(max=1.0)
-
-        channels = torch.full((3, frames_per_step), _NO_INTENSITY, dtype=torch.float32)
-        span = _FULL_INTENSITY - _NO_INTENSITY
-        channels[_RED_CHANNEL] = _FULL_INTENSITY - span * progress
-        channels[_GREEN_CHANNEL] = _NO_INTENSITY + span * progress
-        # One colour per frame, spread over every pixel of that frame.
-        return (
-            channels.view(1, 3, frames_per_step, 1, 1)
-            .expand(
-                -1,
-                -1,
-                -1,
-                self._session_desc.video_height,
-                self._session_desc.video_width,
-            )
-            .contiguous()
-        )
 
 
 ## Application
@@ -204,6 +209,16 @@ class ColorFadeApplication(IApplication):
             )
         self._config = ColorFadeConfig(
             seconds=args.seconds, frames_per_step=args.frames_per_step
+        )
+
+    def session_desc(self) -> SessionDesc:
+        """Return a playable file and browser presentation description."""
+        return SessionDesc(
+            output_layout=VideoTensorLayout.bcthw,
+            frames_per_second_for_ui=_DEFAULT_FPS,
+            frames_per_second_for_step=_DEFAULT_FPS,
+            video_width=_DEFAULT_WIDTH,
+            video_height=_DEFAULT_HEIGHT,
         )
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
