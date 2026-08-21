@@ -266,10 +266,20 @@ class InternalThread(ABC, Generic[StateT]):
             self._pending_steps.clear()
 
     @final
-    def _join(self) -> None:
+    def _join(self, timeout: float | None = None) -> bool:
+        """Wait for this worker to stop.
+
+        Args:
+            timeout: Maximum seconds to wait; ``None`` waits indefinitely.
+
+        Returns:
+            Whether the worker stopped before the timeout.
+        """
         native_thread = self._native_thread
-        if native_thread is not None:
-            native_thread.join()
+        if native_thread is None:
+            return True
+        native_thread.join(timeout=timeout)
+        return not native_thread.is_alive()
 
     @final
     def _stop_accepting_messages(self) -> None:

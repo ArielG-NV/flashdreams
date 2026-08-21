@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from collections.abc import Callable
 from typing import Any, final
 
@@ -32,6 +33,9 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 _MODEL_GENERATION_THREAD_ID = 0
 """Reserved identifier for the session's generation worker."""
+
+_THREAD_STOP_TIMEOUT_SECONDS = 30.0
+"""Maximum total wait for all session workers to stop."""
 
 
 class _ThreadManager:
@@ -235,15 +239,38 @@ class _ThreadManager:
         ]
 
     @final
-    def _stop(self) -> None:
-        """Stop all threads and discard pending messages."""
-        threads = self._freeze().values()
-        for worker in threads:
+    def _stop(self, timeout_seconds: float = _THREAD_STOP_TIMEOUT_SECONDS) -> None:
+        """Stop all threads within one shared timeout.
+
+        Args:
+            timeout_seconds: Maximum total seconds to wait for every worker.
+
+        Raises:
+            ValueError: ``timeout_seconds`` is negative.
+            TimeoutError: One or more workers remain alive after the timeout.
+        """
+        if timeout_seconds < 0:
+            raise ValueError("timeout_seconds must be >= 0.")
+
+        threads = self._freeze()
+        for worker in threads.values():
             worker._stop_accepting_messages()
-        for worker in threads:
-            worker._join()
-        for worker in threads:
+
+        deadline = time.monotonic() + timeout_seconds
+        timed_out: list[int] = []
+        for thread_id, worker in threads.items():
+            remaining = max(0.0, deadline - time.monotonic())
+            if not worker._join(timeout=remaining):
+                timed_out.append(thread_id)
+
+        for worker in threads.values():
             worker._empty_message_queue()
+
+        if timed_out:
+            raise TimeoutError(
+                f"Timed out after {timeout_seconds:g} seconds waiting for "
+                f"session threads to stop: {timed_out}."
+            )
 
     @final
     def _set_generation(self, generation: int) -> None:

@@ -644,6 +644,37 @@ def test_keyboard_interrupt_stops_workers_and_closes_resources(
     )
 
 
+def test_worker_shutdown_has_one_bounded_timeout() -> None:
+    class NeverStops:
+        timeout: float | None = None
+
+        def join(self, timeout: float | None = None) -> None:
+            self.timeout = timeout
+
+        def is_alive(self) -> bool:
+            return True
+
+    class Worker(IThread[None]):
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            raise AssertionError("worker must not run")
+
+        def reset(self) -> None:
+            return
+
+    native_thread = NeverStops()
+    worker = Worker(state=None, frequency=0)
+    worker._native_thread = native_thread  # type: ignore[assignment]
+    manager = thread_manager_module._ThreadManager()
+    manager._register_thread(worker, 1)
+
+    with pytest.raises(TimeoutError, match=r"session threads.*\[1\]"):
+        manager._stop(timeout_seconds=0)
+
+    assert native_thread.timeout == 0
+    with pytest.raises(RuntimeError, match="shutting down"):
+        worker.invoke_async(1, lambda state: None)
+
+
 def test_partly_initialized_session_is_closed_without_opening_window() -> None:
     log = CallLog()
 

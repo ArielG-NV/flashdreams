@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 # FlashDreams v2 API
 
 `IApplication` creates one `ISession` for each run. The session implements the
-main generation `step` and may register independent `IThread` user-visible-threads such as
+primary model-generation `step`. Session may register independent `IThread` user-visible-threads for tasks such as
 UI, game logic, or other stateful work.
 
 ## Ownership
@@ -85,6 +85,10 @@ from dataclasses import dataclass
 from flashdreams.api_v2.thread import IThread
 
 
+# This is the ID of the game thread.
+GAME_THREAD_ID = 1
+
+# GameState is the state of the game thread.
 @dataclass
 class GameState:
     score: int = 0
@@ -99,6 +103,16 @@ class GameThread(IThread[GameState]):
 
     def reset(self) -> None:
         self.state.score = 0
+
+class MySession(ISession):
+  def init(self) -> None:
+    self.register_thread(GameThread(), GAME_THREAD_ID)
+    ...
+  
+  def step(self, step_index, events) -> StepResult:
+    # Increment the game thread's score via message from model-generation-thread.
+    invoke_async(GAME_THREAD_ID, lambda state: state.score += 1)
+    ...
 ```
 
 `frequency` is a required non-negative integer giving the maximum number of step
