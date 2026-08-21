@@ -15,8 +15,8 @@ from color_fade.app import ColorFadeThread
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
-from flashdreams.runtime_v2.application_runner import ApplicationRunner
 from flashdreams.runtime_v2.application_registry import registered_application_slugs
+from flashdreams.runtime_v2.application_runner import ApplicationRunner
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult

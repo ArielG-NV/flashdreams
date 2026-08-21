@@ -9,6 +9,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 import torch
+from torch import Tensor
+
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.thread import IThread
@@ -16,7 +18,6 @@ from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from torch import Tensor
 
 _DEFAULT_SECONDS = 10.0
 """How long the fade takes by default."""
