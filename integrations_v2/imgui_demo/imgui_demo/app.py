@@ -76,8 +76,6 @@ class DemoImGUIThread(ImGUIThread[ImGUIDemoState]):
     def reset(self) -> None:
         """Restore widget values for a new generation."""
         self.state.clicks = 0
-        super().reset()
-
 
 class DemoModelThread(IThread[DemoModelState]):
     """Publish the disabled model layer from the model-generation-thread."""
