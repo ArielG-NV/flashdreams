@@ -14,8 +14,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Generic, TypeVar, final
 
-from torch import Tensor
-
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import CloseUserInputEventData
@@ -43,14 +41,6 @@ class _LatestStep:
     result: StepResult
 
 
-@dataclass(frozen=True, slots=True)
-class _PresentedFrame:
-    """Presented frame plus the session generation that selected it."""
-
-    generation: int
-    frame: Tensor
-
-
 class InternalThread(ABC, Generic[StateT]):
     """Provide runtime-owned behavior for the public user-visible-thread API."""
 
@@ -76,7 +66,6 @@ class InternalThread(ABC, Generic[StateT]):
         self._message_queue: queue.Queue[Message[StateT]] = queue.Queue()
         self._latest: _LatestStep | None = None
         self._pending_steps: deque[_LatestStep] = deque()
-        self._last_presented_frame: _PresentedFrame | None = None
         self._latest_lock = threading.Lock()
         self._lifecycle_lock = threading.Lock()
         self._accepting_messages = True
@@ -185,7 +174,7 @@ class InternalThread(ABC, Generic[StateT]):
                     break
                 if read_generation != generation:
                     self.reset()
-                    self._clear_last_presented_frame()
+                    self._clear_pending_steps()
                     step_index = 0
                     generation = read_generation
                 if self.is_finished():
@@ -259,22 +248,9 @@ class InternalThread(ABC, Generic[StateT]):
         self._thread_manager = thread_manager
 
     @final
-    def _set_last_presented_frame(self, generation: int, frame: Tensor) -> None:
-        """Record the frame most recently selected by the compositor."""
+    def _clear_pending_steps(self) -> None:
+        """Discard presentation work retained from the previous generation."""
         with self._latest_lock:
-            self._last_presented_frame = _PresentedFrame(generation, frame)
-
-    @final
-    def _snapshot_last_presented_frame(self) -> _PresentedFrame | None:
-        """Return the frame most recently selected by the compositor."""
-        with self._latest_lock:
-            return self._last_presented_frame
-
-    @final
-    def _clear_last_presented_frame(self) -> None:
-        """Discard the frame retained from the previous generation."""
-        with self._latest_lock:
-            self._last_presented_frame = None
             self._pending_steps.clear()
 
     @final

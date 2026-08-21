@@ -86,9 +86,8 @@ Keep dependency direction strict: `core` -> `infra` -> recipes/integrations. `co
 
 ## Names Of Threads That Power The Flashdreams IApplication Development API
 
-- user-invisible-threads ==> threads that are not visible to the user, such as the main-program-thread and io-thread
-    - main-program-thread ==> thread that launches app/run_session/launches other threads/...
-    - io-thread ==> thread that handled event_buffer/presentation/client-window-events/...
+- user-invisible-threads ==> threads that are not visible to the user, such as the main-program-thread
+    - main-program-thread ==> thread that launches app/run_session/user-visible-threads and handles event_buffer/presentation/client-window-events/...
 - user-visible-threads ==> threads that are visible to the user, such as the model-generation-thread and any other threads that are registered in the ISession
     - model-generation-thread ==> primary thread of our ISession, mandatory
     - any other threads that are registered in the ISession

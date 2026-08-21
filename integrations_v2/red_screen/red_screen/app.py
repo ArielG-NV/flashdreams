@@ -90,10 +90,10 @@ class RedScreenThread(IThread[RedScreenState]):
         if not isinstance(data, KeyboardUserInputEventData):
             return
         if data.key == self.state.config.activation_key:
-            self.state.key_held = data.state is KeyboardInputState.Pressed
-        elif data.state is KeyboardInputState.Pressed and data.key.lower() == "w":
+            self.state.key_held = data.state is KeyboardInputState.PRESSED
+        elif data.state is KeyboardInputState.PRESSED and data.key.lower() == "w":
             self.state.color_intensity = min(1.0, self.state.color_intensity + 0.1)
-        elif data.state is KeyboardInputState.Pressed and data.key.lower() == "s":
+        elif data.state is KeyboardInputState.PRESSED and data.key.lower() == "s":
             self.state.color_intensity = max(0.0, self.state.color_intensity - 0.1)
 
     def _frame(self) -> Tensor:

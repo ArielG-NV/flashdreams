@@ -50,26 +50,6 @@ class IThread(InternalThread[StateT]):
         """
         return self._get_thread_manager()._get_model_generation_thread_id()
 
-    @final
-    def get_last_presented_frame(self, thread_id: int) -> Tensor | None:
-        """Return a thread's most recently presented frame.
-
-        The returned ``[C, H, W]`` tensor is shared with the producing thread and
-        must be treated as read-only. ``None`` means no enabled frame from that
-        thread has been presented in the current generation.
-
-        Args:
-            thread_id: Identifier of the thread whose frame is requested.
-
-        Returns:
-            Latest presented frame, or ``None`` before its first presentation.
-
-        Raises:
-            KeyError: No thread is registered under ``thread_id``.
-            RuntimeError: This thread has not been registered.
-        """
-        return self._get_thread_manager()._get_last_presented_frame(thread_id)
-
     @abstractmethod
     def step(self, step_index: int, events: UserInputEvents) -> StepResult:
         """Produce one result for ``step_index``.

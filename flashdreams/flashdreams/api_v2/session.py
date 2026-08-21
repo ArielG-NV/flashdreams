@@ -9,6 +9,7 @@ from typing import Any, final
 
 from flashdreams.api_v2.thread import IThread
 from flashdreams.runtime_v2.internal_session import InternalSession
+from flashdreams.runtime_v2.presentation_cordinator import PresentationCordinator
 from flashdreams.runtime_v2.session_desc import SessionDesc
 
 
@@ -25,6 +26,11 @@ class ISession(InternalSession):
         until the model-generation-thread finishes. :meth:`close` runs after
         every user-visible-thread has stopped.
     """
+
+    @final
+    def get_presentation_cordinator(self) -> PresentationCordinator:
+        """Return the presentation coordinator owned by this session."""
+        return self._ensure_presentation_cordinator()
 
     @final
     def register_model_generation_thread(
@@ -58,6 +64,9 @@ class ISession(InternalSession):
             **thread_kwargs,
         )
         self._ensure_thread_manager()._register_model_generation_thread(thread)
+        self.get_presentation_cordinator()._register_thread(
+            self.get_model_generation_thread_id()
+        )
 
     @final
     def get_model_generation_thread_id(self) -> int:
@@ -97,6 +106,7 @@ class ISession(InternalSession):
             **thread_kwargs,
         )
         self._ensure_thread_manager()._register_thread(thread, thread_id)
+        self.get_presentation_cordinator()._register_thread(thread_id)
 
     @final
     def invoke_async(

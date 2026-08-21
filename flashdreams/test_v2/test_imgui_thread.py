@@ -85,17 +85,17 @@ def test_routes_all_imgui_input_categories_in_order() -> None:
             _event(
                 4,
                 KeyboardUserInputEventData(
-                    key="ArrowLeft", state=KeyboardInputState.Pressed
+                    key="ArrowLeft", state=KeyboardInputState.PRESSED
                 ),
             ),
             _event(
                 5,
-                KeyboardUserInputEventData(key="h", state=KeyboardInputState.Pressed),
+                KeyboardUserInputEventData(key="h", state=KeyboardInputState.PRESSED),
             ),
             _event(
                 6,
                 KeyboardUserInputEventData(
-                    key="ArrowLeft", state=KeyboardInputState.Released
+                    key="ArrowLeft", state=KeyboardInputState.RELEASED
                 ),
             ),
             _event(7, FocusUserInputEventData(focused=True)),

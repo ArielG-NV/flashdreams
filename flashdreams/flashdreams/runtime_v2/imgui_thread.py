@@ -392,7 +392,7 @@ def _route_input_events(
     for event in events.get_events():
         data = event.get_event_data()
         if isinstance(data, KeyboardUserInputEventData):
-            pressed = data.state is KeyboardInputState.Pressed
+            pressed = data.state is KeyboardInputState.PRESSED
             key = _resolve_imgui_key(imgui, data.key)
             if key is not None:
                 io.add_key_event(key, pressed)

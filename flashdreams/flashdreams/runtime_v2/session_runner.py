@@ -6,72 +6,21 @@
 import logging
 import queue
 import threading
-from collections import deque
-from collections.abc import Callable
-from enum import Enum
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.user_input_event_data import UserInputEventData
 from flashdreams.runtime_v2.event_buffer import EventBuffer
-from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.presentation_cordinator import (
+    PresentationCordinator,
+    WhenFull,
+)
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEventData,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 _LOGGER = logging.getLogger(__name__)
-_INTERRUPT_POLL_SECONDS = 0.1
-
-
-class WhenFull(Enum):
-    """What UI presentation does when its bounded frame queue is full."""
-
-    BLOCK = "block"
-    """Wait for presentation capacity so every generated frame is retained."""
-
-    DROP_OLDEST = "drop_oldest"
-    """Discard the oldest queued frame in favor of the newest frame."""
-
-
-class _PresentationBuffer:
-    """Hold composited single frames until the client window writes them."""
-
-    def __init__(self, max_pending: int, when_full: WhenFull) -> None:
-        self._max_pending = max_pending
-        self._when_full = when_full
-        self._frames: deque[StepResult] = deque()
-
-    def push(
-        self,
-        frame: StepResult,
-        write: Callable[[StepResult], None],
-    ) -> int:
-        """Queue one composite, applying the configured full-buffer policy.
-
-        Args:
-            frame: Single composited frame to present.
-            write: Synchronous window write used to apply back-pressure.
-
-        Returns:
-            Number of frames dropped to make room.
-        """
-        if len(self._frames) >= self._max_pending:
-            if self._when_full is WhenFull.DROP_OLDEST:
-                self._frames.popleft()
-                dropped = 1
-            else:
-                write(self._frames.popleft())
-                dropped = 0
-        else:
-            dropped = 0
-        self._frames.append(frame)
-        return dropped
-
-    def drain(self, write: Callable[[StepResult], None]) -> None:
-        """Write every queued composite in presentation order."""
-        while self._frames:
-            write(self._frames.popleft())
 
 
 def _contains(events: UserInputEvents, event_type: type[UserInputEventData]) -> bool:
@@ -79,12 +28,6 @@ def _contains(events: UserInputEvents, event_type: type[UserInputEventData]) -> 
     return any(
         isinstance(event.get_event_data(), event_type) for event in events.get_events()
     )
-
-
-def _join_interruptibly(thread: threading.Thread) -> None:
-    """Join a thread without indefinitely blocking Python signal handling."""
-    while thread.is_alive():
-        thread.join(timeout=_INTERRUPT_POLL_SECONDS)
 
 
 def run_session(
@@ -99,7 +42,7 @@ def run_session(
 
     The model-generation-thread and additional user-visible-threads registered
     by :meth:`ISession.init` run independently at their own frequencies. The
-    io-thread owns the window, fans each input event out to every
+    main-program-thread owns the window, fans each input event out to every
     user-visible-thread, and composites their latest enabled frames in ascending
     thread-ID order.
 
@@ -120,6 +63,10 @@ def run_session(
         raise ValueError(f"max_pending must be > 0, got {max_pending}.")
 
     thread_manager = session._ensure_thread_manager()
+    presentation_cordinator = session._ensure_presentation_cordinator(
+        max_pending=max_pending,
+        when_full=when_full,
+    )
     try:
         session.init()
         thread_manager._require_model_generation_thread()
@@ -131,70 +78,24 @@ def run_session(
     event_buffer = EventBuffer()
 
     stop = threading.Event()
-    opened = threading.Event()
-    user_visible_threads_started = threading.Event()
     model_generation_finished = threading.Event()
     failures: queue.Queue[BaseException] = queue.Queue()
-    io_failures: queue.Queue[Exception] = queue.Queue()
+    presentation_failures: queue.Queue[Exception] = queue.Queue()
     tick_seconds = 1.0 / session.session_desc.frames_per_second_for_ui
-    presentation_buffer = _PresentationBuffer(max_pending, when_full)
     dropped_frames = 0
 
-    def run_io() -> None:
-        def read_input() -> None:
-            events = window.get_user_input_events()
-            event_buffer.append(events)
-            thread_manager._set_generation(event_buffer.generation)
-            if _contains(events, CloseUserInputEventData):
-                stop.set()
-
-        nonlocal dropped_frames
-        presentation_index = 0
-        try:
-            window.open(session.session_desc)
-            read_input()
-            opened.set()
-
-            # Before we start trying to read input and composite frames we should wait for the user_visible_threads to be started.
-            user_visible_threads_started.wait()
-            while not stop.wait(tick_seconds):
-                read_input()
-                event_buffer.collect_garbage()
-                model_generation_was_finished = model_generation_finished.is_set()
-
-                presentable = thread_manager._take_presentable_results(
-                    event_buffer.generation,
-                    presentation_index,
-                    session.session_desc.output_layout,
-                )
-                for result in presentable:
-                    dropped_frames += presentation_buffer.push(
-                        result,
-                        window.write,
-                    )
-                    presentation_index += 1
-                presentation_buffer.drain(window.write)
-
-                if model_generation_was_finished:
-                    stop.set()
-        except Exception as error:
-            io_failures.put(error)
-            stop.set()
-        finally:
-            opened.set()
-            user_visible_threads_started.set()
-            try:
-                window.close()
-            except Exception as error:
-                io_failures.put(error)
+    def read_input() -> None:
+        events = window.get_user_input_events()
+        event_buffer.append(events)
+        presentation_cordinator._set_generation(event_buffer.generation)
+        if _contains(events, CloseUserInputEventData):
             stop.set()
 
-    io_thread = threading.Thread(target=run_io, name="flashdreams-io-thread")
-    io_thread.start()
+    presentation_index = 0
     try:
-        # Before we start threads working on the window we should wait for the window to be opened.
-        opened.wait()
-        if io_failures.empty() and not stop.is_set():
+        window.open(session.session_desc)
+        read_input()
+        if not stop.is_set():
             thread_manager._start(
                 event_buffer=event_buffer,
                 stop=stop,
@@ -202,19 +103,41 @@ def run_session(
                 finished=model_generation_finished,
                 max_steps=steps,
             )
-    except Exception as error:
-        failures.put(error)
-        stop.set()
-    finally:
-        user_visible_threads_started.set()
+            while not stop.wait(tick_seconds):
+                read_input()
+                event_buffer.collect_garbage()
+                model_generation_was_finished = model_generation_finished.is_set()
 
-    try:
-        _join_interruptibly(io_thread)
+                presentable = presentation_cordinator._take_presentable_results(
+                    thread_manager._freeze(),
+                    event_buffer.generation,
+                    presentation_index,
+                    session.session_desc.output_layout,
+                )
+                for result in presentable:
+                    dropped_frames += presentation_cordinator.push(
+                        result,
+                        window.write,
+                    )
+                    presentation_index += 1
+                presentation_cordinator.drain(window.write)
+
+                if model_generation_was_finished:
+                    stop.set()
+    except Exception as error:
+        presentation_failures.put(error)
     finally:
         stop.set()
-        io_thread.join()
-        thread_manager._stop()
+        try:
+            thread_manager._stop()
+        except Exception as error:
+            failures.put(error)
         event_buffer.clear()
+
+        try:
+            window.close()
+        except Exception as error:
+            presentation_failures.put(error)
 
         try:
             session.close()
@@ -223,14 +146,14 @@ def run_session(
 
     if dropped_frames:
         _LOGGER.warning(
-            "Dropped %d frames the presentation thread could not keep up with.",
+            "Dropped %d frames the client window could not keep up with.",
             dropped_frames,
         )
 
     if not failures.empty():
         raise failures.get()
-    if not io_failures.empty():
-        raise io_failures.get()
+    if not presentation_failures.empty():
+        raise presentation_failures.get()
 
 
-__all__ = ["WhenFull", "run_session"]
+__all__ = ["PresentationCordinator", "WhenFull", "run_session"]

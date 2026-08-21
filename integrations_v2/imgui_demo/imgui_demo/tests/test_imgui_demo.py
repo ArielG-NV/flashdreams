@@ -135,7 +135,7 @@ def test_message_demo_disables_model_presentation_and_updates_ui_by_message() ->
             UserInputEvent(
                 timestamp=uint64(0),
                 event_data=KeyboardUserInputEventData(
-                    key="W", state=KeyboardInputState.Pressed
+                    key="W", state=KeyboardInputState.PRESSED
                 ),
             )
         ]
@@ -152,7 +152,7 @@ def test_message_demo_disables_model_presentation_and_updates_ui_by_message() ->
             UserInputEvent(
                 timestamp=uint64(1),
                 event_data=KeyboardUserInputEventData(
-                    key="W", state=KeyboardInputState.Released
+                    key="W", state=KeyboardInputState.RELEASED
                 ),
             )
         ]

@@ -15,10 +15,10 @@ from flashdreams.api_v2.user_input_event_data import UserInputEventData
 class KeyboardInputState(Enum):
     """State transition reported by a keyboard input event."""
 
-    Released = "Released"
+    RELEASED = "Released"
     """The key changed to the released state."""
 
-    Pressed = "Pressed"
+    PRESSED = "Pressed"
     """The key changed to the pressed state."""
 
 

@@ -25,6 +25,9 @@ from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.thread import IThread
 from flashdreams.runtime_v2.imgui_thread import ImGUIThread
+from flashdreams.runtime_v2.presentation_cordinator import (
+    PresentedFrame,
+)
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import PresentationMode, StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -48,6 +51,9 @@ class FrameSharingState:
 
     image_size: tuple[float, float]
     """Width and height used to draw the model frame inside the UI window."""
+
+    model_generation_thread_frame: PresentedFrame
+    """Read-only handle to the model-generation-thread's presented frame."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,7 +82,7 @@ class FrameSharingImGUIThread(ImGUIThread[FrameSharingState]):
             imgui.Cond_.once,
         )
         imgui.begin("Latest model frame")
-        frame = self.get_last_presented_frame(self.get_model_generation_thread_id())
+        frame = self.state.model_generation_thread_frame.get()
         if frame is None:
             imgui.text("Waiting for the first presented model frame...")
         else:
@@ -154,7 +160,12 @@ class FrameSharingSession(ISession):
         self.register_thread(
             _IMGUI_THREAD_ID,
             FrameSharingImGUIThread,
-            state=FrameSharingState(image_size=_image_size(self._session_desc)),
+            state=FrameSharingState(
+                image_size=_image_size(self._session_desc),
+                model_generation_thread_frame=self.get_presentation_cordinator().get_last_presented_frame(
+                    self.get_model_generation_thread_id()
+                ),
+            ),
             frequency=self._session_desc.frames_per_second_for_ui,
             output_layout=self._session_desc.output_layout,
             width=self._session_desc.video_width,

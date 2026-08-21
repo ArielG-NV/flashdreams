@@ -98,9 +98,9 @@ def _key_event(*, pressed: bool, key: str = _ACTIVATION_KEY) -> UserInputEvents:
                 event_data=KeyboardUserInputEventData(
                     key=key,
                     state=(
-                        KeyboardInputState.Pressed
+                        KeyboardInputState.PRESSED
                         if pressed
-                        else KeyboardInputState.Released
+                        else KeyboardInputState.RELEASED
                     ),
                 ),
             )
@@ -179,13 +179,13 @@ def test_red_screen_uses_last_event_to_adjust_color_intensity() -> None:
                 UserInputEvent(
                     timestamp=uint64(0),
                     event_data=KeyboardUserInputEventData(
-                        key="w", state=KeyboardInputState.Pressed
+                        key="w", state=KeyboardInputState.PRESSED
                     ),
                 ),
                 UserInputEvent(
                     timestamp=uint64(1),
                     event_data=KeyboardUserInputEventData(
-                        key="s", state=KeyboardInputState.Pressed
+                        key="s", state=KeyboardInputState.PRESSED
                     ),
                 ),
             ]

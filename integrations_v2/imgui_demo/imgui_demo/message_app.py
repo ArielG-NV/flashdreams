@@ -91,9 +91,9 @@ class MessageModelThread(IThread[MessageModelState]):
 
     def step(self, step_index: int, events: UserInputEvents) -> StepResult:
         state = _last_w_key_state(events)
-        if state is KeyboardInputState.Pressed:
+        if state is KeyboardInputState.PRESSED:
             self.invoke_async(_IMGUI_THREAD_ID, _mark_w_pressed)
-        elif state is KeyboardInputState.Released:
+        elif state is KeyboardInputState.RELEASED:
             self.invoke_async(_IMGUI_THREAD_ID, _mark_w_released)
         return StepResult(
             step_index=step_index,

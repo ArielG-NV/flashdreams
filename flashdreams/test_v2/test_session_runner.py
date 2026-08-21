@@ -14,14 +14,13 @@ from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.thread import IThread
 from flashdreams.api_v2.user_input_event_data import UserInputEventData
-from flashdreams.runtime_v2 import session_runner as session_runner_module
 from flashdreams.runtime_v2 import thread_manager as thread_manager_module
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.internal_thread import InternalThread
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.session_runner import (
+    PresentationCordinator,
     WhenFull,
-    _PresentationBuffer,
     run_session,
 )
 from flashdreams.runtime_v2.step_result import PresentationMode, StepResult
@@ -199,11 +198,10 @@ def test_model_generation_runs_on_reserved_thread_and_presents_latest() -> None:
     assert log.threads_for("session.step") == {"flashdreams-model-generation-thread"}
     assert window.results
     assert torch.all(window.results[-1].output == 2.0)
-    manager = session._ensure_thread_manager()
-    model_generation_thread = manager._freeze()[0]
-    assert isinstance(model_generation_thread, IThread)
-    presented = model_generation_thread.get_last_presented_frame(
-        model_generation_thread.get_model_generation_thread_id()
+    presented = (
+        session.get_presentation_cordinator()
+        .get_last_presented_frame(session.get_model_generation_thread_id())
+        .get()
     )
     assert presented is not None
     assert presented.shape == (3, 2, 2)
@@ -213,36 +211,38 @@ def test_model_generation_runs_on_reserved_thread_and_presents_latest() -> None:
 def test_last_presented_frame_is_none_before_compositing() -> None:
     session = FakeSession(_session_desc(), CallLog())
     session.init()
-    model_generation_thread = session._ensure_thread_manager()._freeze()[0]
-    assert isinstance(model_generation_thread, IThread)
+    presentation_cordinator = session.get_presentation_cordinator()
+    container = presentation_cordinator.get_last_presented_frame(0)
 
-    assert model_generation_thread.get_last_presented_frame(0) is None
+    assert container.get() is None
+    assert presentation_cordinator.get_last_presented_frame(0) is container
+    assert {name for name in dir(container) if not name.startswith("_")} == {"get"}
     with pytest.raises(KeyError, match="No thread"):
-        model_generation_thread.get_last_presented_frame(99)
+        presentation_cordinator.get_last_presented_frame(99)
 
 
 def test_last_presented_frame_does_not_cross_generations() -> None:
     session = FakeSession(_session_desc(), CallLog())
     session.init()
-    manager = session._ensure_thread_manager()
-    model_generation_thread = manager._freeze()[0]
-    assert isinstance(model_generation_thread, IThread)
+    presentation_cordinator = session.get_presentation_cordinator()
+    container = presentation_cordinator.get_last_presented_frame(0)
     frame = torch.zeros((3, 2, 2))
-    model_generation_thread._set_last_presented_frame(0, frame)
+    presentation_cordinator._record_last_presented_frame(0, frame)
 
-    assert model_generation_thread.get_last_presented_frame(0) is frame
+    assert container.get() is frame
 
-    manager._set_generation(1)
+    presentation_cordinator._set_generation(1)
 
-    assert model_generation_thread.get_last_presented_frame(0) is None
+    assert container.get() is None
 
 
-def test_window_calls_stay_on_the_io_thread() -> None:
+def test_window_calls_stay_on_the_main_program_thread() -> None:
     log = CallLog()
+    main_program_thread = threading.current_thread().name
 
     run_session(FakeSession(_session_desc(), log), RecordingWindow(log), steps=1)
 
-    assert log.threads_for("window.") == {"flashdreams-io-thread"}
+    assert log.threads_for("window.") == {main_program_thread}
 
 
 def test_first_step_receives_input_collected_before_user_visible_threads_start() -> (
@@ -250,7 +250,7 @@ def test_first_step_receives_input_collected_before_user_visible_threads_start()
 ):
     log = CallLog()
     session = FakeSession(_session_desc(), log)
-    key = KeyboardUserInputEventData(key="a", state=KeyboardInputState.Pressed)
+    key = KeyboardUserInputEventData(key="a", state=KeyboardInputState.PRESSED)
 
     run_session(session, RecordingWindow(log, [_event(key)]), steps=1)
 
@@ -260,7 +260,7 @@ def test_first_step_receives_input_collected_before_user_visible_threads_start()
 def test_delayed_user_visible_thread_keeps_input_collected_during_startup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Ensure the io-thread barrier covers event-cursor registration."""
+    """Ensure startup covers event-cursor registration before event collection."""
     log = CallLog()
     allow_additional_thread_to_run = threading.Event()
     additional_thread_observed_input = threading.Event()
@@ -306,7 +306,7 @@ def test_delayed_user_visible_thread_keeps_input_collected_during_startup(
             assert additional_thread_observed_input.wait(timeout=2)
             return super().step(step_index, events)
 
-    key = KeyboardUserInputEventData(key="a", state=KeyboardInputState.Pressed)
+    key = KeyboardUserInputEventData(key="a", state=KeyboardInputState.PRESSED)
     run_session(
         Session(_session_desc(), log), RecordingWindow(log, [_event(key)]), steps=1
     )
@@ -531,10 +531,11 @@ def test_thread_management_is_exposed_only_through_public_interfaces() -> None:
     assert "get_model_generation_thread_id" in ISession.__dict__
     assert "register_thread" in ISession.__dict__
     assert "invoke_async" in ISession.__dict__
+    assert "get_presentation_cordinator" in ISession.__dict__
     assert "thread_manager" not in ISession.__dict__
     assert "invoke_async" in IThread.__dict__
     assert "get_model_generation_thread_id" in IThread.__dict__
-    assert "get_last_presented_frame" in IThread.__dict__
+    assert "get_last_presented_frame" not in IThread.__dict__
     assert not hasattr(thread_manager_module, "ThreadManager")
 
 
@@ -644,9 +645,9 @@ def test_disabled_presentation_skips_backbuffer_and_last_frame_update() -> None:
     run_session(session, window, steps=1)
 
     assert torch.all(window.results[-1].output == 3.0)
-    disabled_presentation_thread = session._ensure_thread_manager()._get_thread(1)
-    assert isinstance(disabled_presentation_thread, DisabledPresentation)
-    assert disabled_presentation_thread.get_last_presented_frame(1) is None
+    assert (
+        session.get_presentation_cordinator().get_last_presented_frame(1).get() is None
+    )
 
 
 def test_hidden_presentation_updates_last_frame_without_affecting_backbuffer() -> None:
@@ -686,9 +687,7 @@ def test_hidden_presentation_updates_last_frame_without_affecting_backbuffer() -
     run_session(session, window, steps=1)
 
     assert torch.all(window.results[-1].output == 3.0)
-    hidden_presentation_thread = session._ensure_thread_manager()._get_thread(1)
-    assert isinstance(hidden_presentation_thread, HiddenPresentation)
-    hidden = hidden_presentation_thread.get_last_presented_frame(1)
+    hidden = session.get_presentation_cordinator().get_last_presented_frame(1).get()
     assert hidden is not None
     assert torch.all(hidden == 9.0)
 
@@ -758,7 +757,7 @@ def test_model_only_presentation_preserves_every_frame_from_result() -> None:
 
 
 def test_blocking_backpressure_writes_the_oldest_ui_composite() -> None:
-    presentation = _PresentationBuffer(1, WhenFull.BLOCK)
+    presentation = PresentationCordinator(1, WhenFull.BLOCK)
     first = _result(0, 0.0)
     second = _result(1, 1.0)
     written: list[StepResult] = []
@@ -772,7 +771,7 @@ def test_blocking_backpressure_writes_the_oldest_ui_composite() -> None:
 
 
 def test_drop_oldest_backpressure_keeps_the_newest_ui_composite() -> None:
-    presentation = _PresentationBuffer(1, WhenFull.DROP_OLDEST)
+    presentation = PresentationCordinator(1, WhenFull.DROP_OLDEST)
     first = _result(0, 0.0)
     second = _result(1, 1.0)
     written: list[StepResult] = []
@@ -804,38 +803,20 @@ def test_session_and_window_close_after_step_failure() -> None:
     assert log.calls[-2:] == ["window.close", "session.close"]
 
 
-def test_io_join_uses_bounded_waits_that_propagate_keyboard_interrupt() -> None:
-    class InterruptibleThread:
-        timeout: float | None = None
-
-        def is_alive(self) -> bool:
-            return True
-
-        def join(self, timeout: float | None = None) -> None:
-            self.timeout = timeout
-            raise KeyboardInterrupt
-
-    thread: Any = InterruptibleThread()
-
-    with pytest.raises(KeyboardInterrupt):
-        session_runner_module._join_interruptibly(thread)
-
-    assert thread.timeout == 0.1
-
-
-def test_keyboard_interrupt_stops_user_visible_threads_and_closes_resources(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_keyboard_interrupt_stops_user_visible_threads_and_closes_resources() -> None:
     log = CallLog()
 
-    def interrupt_join(thread: threading.Thread) -> None:
-        assert thread.name == "flashdreams-io-thread"
-        raise KeyboardInterrupt
-
-    monkeypatch.setattr(session_runner_module, "_join_interruptibly", interrupt_join)
+    class InterruptingWindow(RecordingWindow):
+        def get_user_input_events(self) -> UserInputEvents:
+            if "window.read" in self._log.calls:
+                raise KeyboardInterrupt
+            return super().get_user_input_events()
 
     with pytest.raises(KeyboardInterrupt):
-        run_session(FakeSession(_session_desc(), log), RecordingWindow(log))
+        run_session(
+            FakeSession(_session_desc(frames_per_second_for_ui=1000), log),
+            InterruptingWindow(log),
+        )
 
     assert log.calls[-2:] == ["window.close", "session.close"]
     assert not any(

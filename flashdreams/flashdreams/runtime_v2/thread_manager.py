@@ -23,13 +23,8 @@ import time
 from collections.abc import Callable
 from typing import Any, final
 
-import torch
-from torch import Tensor
-
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.internal_thread import InternalThread
-from flashdreams.runtime_v2.step_result import PresentationMode, StepResult
-from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 _MODEL_GENERATION_THREAD_ID = 0
 """Reserved identifier for the session's model-generation-thread."""
@@ -44,8 +39,6 @@ class _ThreadManager:
     def __init__(self) -> None:
         self._threads: dict[int, InternalThread[Any]] = {}
         self._registry_frozen = False
-        self._generation = 0
-        self._generation_lock = threading.Lock()
 
     @final
     def _get_model_generation_thread_id(self) -> int:
@@ -92,28 +85,6 @@ class _ThreadManager:
             RuntimeError: The target thread is shutting down.
         """
         self._get_thread(thread_id)._enqueue_message(operation)
-
-    @final
-    def _get_last_presented_frame(self, thread_id: int) -> Tensor | None:
-        """Return a thread's most recently presented frame.
-
-        The returned ``[C, H, W]`` tensor is shared with the producing thread and
-        must be treated as read-only. ``None`` means no enabled frame from that
-        thread has been presented in the current generation.
-
-        Args:
-            thread_id: Identifier of the thread whose frame is requested.
-
-        Returns:
-            Latest presented frame, or ``None`` before its first presentation.
-
-        Raises:
-            KeyError: No thread is registered under ``thread_id``.
-        """
-        presented = self._get_thread(thread_id)._snapshot_last_presented_frame()
-        if presented is None or presented.generation != self._snapshot_generation():
-            return None
-        return presented.frame
 
     @final
     def _register_model_generation_thread(self, thread: InternalThread[Any]) -> None:
@@ -183,75 +154,6 @@ class _ThreadManager:
             )
 
     @final
-    def _take_presentable_results(
-        self,
-        generation: int,
-        presentation_index: int,
-        output_layout: VideoTensorLayout,
-    ) -> list[StepResult]:
-        """Take original model results or one newly composited UI frame.
-
-        A model-only run is also the lossless file/benchmark path, so every
-        original result must retain its full frame batch and metrics. Sessions
-        with additional user-visible-threads are presentation streams: they
-        consume each thread's newest result and composite one current frame.
-        """
-        self._set_generation(generation)
-        threads = self._freeze()
-
-        # Preserve every model result when there are no additional
-        # user-visible-threads to composite.
-        if set(threads) == {_MODEL_GENERATION_THREAD_ID}:
-            model_generation_thread = threads[_MODEL_GENERATION_THREAD_ID]
-            results: list[StepResult] = []
-            for latest in model_generation_thread._take_pending_steps():
-                if latest.generation != generation:
-                    continue
-                result = latest.result
-                if result.presentation_mode is PresentationMode.DISABLE_PRESENTATION:
-                    continue
-                frame = _latest_frame(result)
-                if frame is not None:
-                    model_generation_thread._set_last_presented_frame(generation, frame)
-                if result.presentation_mode is PresentationMode.SHOW_PRESENTATION:
-                    results.append(result)
-            return results
-
-        composed: Tensor | None = None
-        recorded: list[tuple[InternalThread[Any], Tensor]] = []
-        has_new_visible_result = False
-        for thread_id in sorted(threads):
-            pending = threads[thread_id]._take_pending_steps()
-            has_new_visible_result = has_new_visible_result or any(
-                latest.generation == generation
-                and latest.result.presentation_mode is PresentationMode.SHOW_PRESENTATION
-                for latest in pending
-            )
-            latest = threads[thread_id]._snapshot_latest()
-            if latest is None or latest.generation != generation:
-                continue
-            mode = latest.result.presentation_mode
-            if mode is PresentationMode.DISABLE_PRESENTATION:
-                continue
-            frame = _latest_frame(latest.result)
-            recorded.append((threads[thread_id], frame))
-            if mode is PresentationMode.SHOW_PRESENTATION:
-                composed = _composite_frame(composed, frame)
-        for thread, frame in recorded:
-            thread._set_last_presented_frame(generation, frame)
-        if composed is None or not has_new_visible_result:
-            return []
-        return [
-            StepResult(
-                step_index=presentation_index,
-                output=_frame_to_layout(composed, output_layout),
-                frame_count=1,
-                output_layout=output_layout,
-                metrics=_model_metrics(threads, generation),
-            )
-        ]
-
-    @final
     def _stop(self, timeout_seconds: float = _THREAD_STOP_TIMEOUT_SECONDS) -> None:
         """Stop all threads within one shared timeout.
 
@@ -286,90 +188,6 @@ class _ThreadManager:
                 f"Timed out after {timeout_seconds:g} seconds waiting for "
                 f"user-visible-threads to stop: {timed_out}."
             )
-
-    @final
-    def _set_generation(self, generation: int) -> None:
-        """Publish the current input generation."""
-        with self._generation_lock:
-            self._generation = generation
-
-    def _snapshot_generation(self) -> int:
-        with self._generation_lock:
-            return self._generation
-
-
-def _latest_frame(result: StepResult) -> Tensor:
-    """Return the newest frame as ``[C, H, W]``."""
-    output = result.output
-    if result.output_layout is VideoTensorLayout.tchw:
-        frame = output[-1]
-    elif result.output_layout is VideoTensorLayout.btchw:
-        if output.ndim != 5 or output.shape[0] != 1:
-            raise ValueError("btchw compositing requires a batch size of one.")
-        frame = output[0, -1]
-    elif result.output_layout is VideoTensorLayout.bcthw:
-        if output.ndim != 5 or output.shape[0] != 1:
-            raise ValueError("bcthw compositing requires a batch size of one.")
-        frame = output[0, :, -1]
-    elif result.output_layout is VideoTensorLayout.bvtchw:
-        if output.ndim != 6 or output.shape[:2] != (1, 1):
-            raise ValueError(
-                "bvtchw compositing requires one batch and one video view."
-            )
-        frame = output[0, 0, -1]
-    else:
-        raise ValueError(f"Unsupported compositing layout: {result.output_layout}.")
-    if frame.ndim != 3 or frame.shape[0] not in (1, 3, 4):
-        raise ValueError("A composited frame must have one, three, or four channels.")
-    return frame
-
-
-def _model_metrics(
-    threads: dict[int, InternalThread[Any]], generation: int
-) -> dict[str, float | int]:
-    """Return current model metrics for a composited presentation frame."""
-    model = threads.get(_MODEL_GENERATION_THREAD_ID)
-    latest = model._snapshot_latest() if model is not None else None
-    if latest is None or latest.generation != generation:
-        return {}
-    return dict(latest.result.metrics)
-
-
-def _composite_frame(bottom: Tensor | None, top: Tensor) -> Tensor:
-    """Place one RGB or RGBA frame over the accumulated RGB frame."""
-    color = top[:3]
-    if color.shape[0] == 1:
-        color = color.repeat(3, 1, 1)
-    if bottom is not None and color.shape[1:] != bottom.shape[1:]:
-        raise ValueError("All composited frames must have the same dimensions.")
-    if bottom is not None and (
-        color.device != bottom.device or color.dtype != bottom.dtype
-    ):
-        raise ValueError("All composited frames must have the same device and dtype.")
-    if top.shape[0] != 4:
-        return color
-    if not top.is_floating_point():
-        raise ValueError("RGBA compositing requires a floating-point tensor.")
-
-    if bottom is None:
-        fill_value = -1.0 if color.is_floating_point() else 0
-        bottom = torch.full_like(color, fill_value)
-    alpha = top[3:4].to(device=bottom.device, dtype=torch.float32)
-    alpha = alpha.clamp(0.0, 1.0).to(bottom.dtype)
-    return color * alpha + bottom * (1.0 - alpha)
-
-
-def _frame_to_layout(frame: Tensor, layout: VideoTensorLayout) -> Tensor:
-    """Add singleton time, batch, and view dimensions for ``layout``."""
-    if layout is VideoTensorLayout.tchw:
-        return frame.unsqueeze(0)
-    if layout is VideoTensorLayout.btchw:
-        return frame.unsqueeze(0).unsqueeze(0)
-    if layout is VideoTensorLayout.bcthw:
-        return frame.unsqueeze(0).unsqueeze(2)
-    if layout is VideoTensorLayout.bvtchw:
-        return frame.unsqueeze(0).unsqueeze(0).unsqueeze(0)
-    raise ValueError(f"Unsupported compositing layout: {layout}.")
 
 
 __all__: list[str] = []

@@ -391,9 +391,9 @@ class WebRTCServer:
             event_data = KeyboardUserInputEventData(
                 key=key,
                 state=(
-                    KeyboardInputState.Pressed
+                    KeyboardInputState.PRESSED
                     if pressed
-                    else KeyboardInputState.Released
+                    else KeyboardInputState.RELEASED
                 ),
             )
         elif event_type == "mouse":

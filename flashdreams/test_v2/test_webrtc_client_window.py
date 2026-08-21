@@ -139,8 +139,8 @@ async def test_window_buffers_browser_events_until_drained() -> None:
             if isinstance(data := event.get_event_data(), KeyboardUserInputEventData)
         ]
         assert [(event.key, event.state) for event in keyboard_events] == [
-            ("w", KeyboardInputState.Pressed),
-            ("w", KeyboardInputState.Released),
+            ("w", KeyboardInputState.PRESSED),
+            ("w", KeyboardInputState.RELEASED),
         ]
         assert events[0].get_timestamp() <= events[1].get_timestamp()
         mouse = next(

@@ -15,9 +15,10 @@ Protocols for the FlashDreams API.
 - `user_input_event_data.py`: base type for event payloads.
 
 `flashdreams.runtime_v2.session_runner.run_session` drives a session against a
-window until the session reports `is_finished` or the window reports a close, or
-for a fixed number of steps a caller asks for. A caller holding an application
-uses `flashdreams.runtime_v2.application_runner.ApplicationRunner` to get there,
+window until the model-generation-thread reports `is_finished`, the window
+reports a close, or the caller-requested step count is reached. A caller holding
+an application uses
+`flashdreams.runtime_v2.application_runner.ApplicationRunner` to get there,
 which takes no step count: how long a run lasts is the application's business. A
 run whose output is a file goes the same way, against
 `flashdreams.runtime_v2.mp4_client_window.Mp4ClientWindow`, which reports no
@@ -79,11 +80,14 @@ Agreed design decisions. Change them by discussion.
   default says nothing, for an application that generates whatever it is asked
   for.
 - `ISession` is one run: KV cache, game state, and anything else that must not
-  carry into another run. It also says when that run is over, through
-  `is_finished`. The default never finishes.
+  carry into another run. During `init`, it registers exactly one
+  model-generation-thread and any additional user-visible-threads. The
+  model-generation-thread says when the run is over through `is_finished`; the
+  default is to never finish.
 - `InputSource` and `OutputSink` belong to the runtime. The runner reads from the
-  source and writes to the sink, so a session takes `UserInputEvents` in, returns
-  a `StepResult`, and holds neither.
+  source, passes `UserInputEvents` to each registered `IThread`, and routes each
+  `StepResult` to presentation. Neither a session nor its threads own the source
+  or sink.
 - `IClientWindow` pairs one client's input source and output sink. It is internal
   to the runtime, which is why it appears in no signature on `IApplication` or
   `ISession`. A window whose client disconnects reconnects itself rather than the
@@ -119,30 +123,28 @@ user-visible-threads for UI, game logic, or other stateful work.
 ### Thread model
 
 - `IApplication` lasts for the process and holds state shared by sessions.
-- `ISession` owns the lifecycle and thread registry for one run.
+- `ISession` owns the session lifecycle, thread registry, and one
+  `PresentationCordinator` for the run. Call
+  `ISession.get_presentation_cordinator` to access it.
 - The registered model-generation-thread executes on reserved
   user-visible-thread ID `0`.
-- `ISession` defines `init` to register threads and `close` to clean-up any auxillary resources initialized in `init`. 
+- `ISession` defines `init` to register threads and `close` to clean-up any auxillary resources initialized in `init`.
 
 Program Threads:
   - `main-program-thread`:
 
     - Runs the session through `run_session`, called through (generally) a provided
       `create_app` method.
-    - Launches all other threads.
-    - Coordinates io-thread initialization with user-visible-thread
-      initialization.
+    - Opens and owns the client window, collects input, and ticks presentation
+      at `SessionDesc.frames_per_second_for_ui`.
+    - Launches all user-visible-threads after the client window is open.
     - Rejoins the threads launched with the rest of the demo when signals are appropriately received (ctrl+c, model-generation-thread finishes, etc...).
-
-  - `io-thread`:
-
-    - Is the first thread launched by the main-program-thread. The logic is in
-      `run_session.run_io`.
-    - Launches the client window (WebRTC, native, or another implementation) and
-      collects events from it.
-    - Ticks at rate of `SessionDesc.frames_per_second_for_ui`.
-    - Merges presentation-ready frames from each user-visible-thread into a single frame storing result in our `presentation_buffer`. The buffer drains into the client window as often as the window permits, subject to back-pressure.
-      - `run_session.when_full` controls what happens when a frame is generated while the buffer is full.
+    - Merges presentation-ready frames from each user-visible-thread into a
+      single frame through the session's `PresentationCordinator`. The
+      coordinator drains into the client window as often as the window permits,
+      subject to back-pressure.
+      - The `run_session` `when_full` argument controls what happens when a
+        frame is generated while the coordinator is full.
     - When compositing a frame to present, Thread ID `0` is the bottom layer, followed by ID `1`, and so on.
     - When compositing, queue up frames for lossless presentation if only model-generation-thread is present. This is primarily for testing purposes where visual consistency is important.
 
@@ -154,7 +156,7 @@ Program Threads:
       `ISession.register_model_generation_thread`.
     - Reserves thread ID `0` for itself, returned by
       `IThread.get_model_generation_thread_id`.
-    - Ticks `step` at rate of 
+    - Ticks `step` at rate of
       `SessionDesc.frames_per_second_for_step`.
 
   - All user-visible-threads except for the model-generation-thread:
@@ -174,9 +176,11 @@ Program Threads:
       `IThread.state` (typed by `IThread.StateT`). This method adds a message to
       a threads `message_queue`.
     - Message queue processes via: 1. Snapshot the queue, 2. Processing the snapshot, 3. Clearing the processed messages.
-    - Fetch a thread's last-presented frame through
-      `IThread.get_last_presented_frame`. This can be used with `ImGUIThread.draw_frame` to paint the last-presented frame of
-      another user-visible-thread (like the model-generation-thread) onto ImGUI UI elements.
+    - After the source thread is registered, obtain its stable, read-only
+      `PresentedFrame` handle during `ISession.init` through
+      `ISession.get_presentation_cordinator().get_last_presented_frame(thread_id)`.
+      Pass the handle to another user-visible-thread and call `get` to paint the
+      source thread's frame with `ImGUIThread.draw_frame`.
     - ISession can `invoke_async` to queue up 'start-up' messages in `init` for user-visible-threads to execute before their first `step` call.
 
 ### Lifecycle
@@ -185,23 +189,18 @@ Program Threads:
 
 1. Call `ISession.init`, which registers the model-generation-thread and any
    additional user-visible-threads.
-2. Start the io-thread and wait for it to open the client window.
+2. Open the client window and read its input into `event_buffer`.
 3. Start the user-visible-threads.
-4. Wait for the io-thread to finish.
-5. Stop and join the user-visible-threads, clear `event_buffer`, and call
-   `ISession.close`.
-
-`io-thread`:
-
-1. Open the client window and read its input into `event_buffer`.
-2. Wait for the user-visible-threads to launch.
-3. At each `SessionDesc.frames_per_second_for_ui` tick:
+4. At each `SessionDesc.frames_per_second_for_ui` tick:
 
    1. Read client-window input into `event_buffer`.
    2. Collect `event_buffer` garbage.
    3. Compose the next presentable frame from all user-visible-threads.
-   4. Add the frame to `presentation_buffer` using the `when_full` policy.
-   5. Drain `presentation_buffer` into the client window.
+   4. Add the frame to `PresentationCordinator` using the `when_full` policy.
+   5. Drain `PresentationCordinator` into the client window.
+
+5. Stop and join the user-visible-threads, clear `event_buffer`, close the
+   client window, and call `ISession.close`.
 
 Each `user-visible-thread` repeats the following loop:
 
@@ -212,8 +211,8 @@ Each `user-visible-thread` repeats the following loop:
 4. If the generation changed because of a reset event:
 
    1. Call `IThread.reset`.
-   2. Discard pending results and the last-presented frame from the previous
-      generation.
+   2. Discard pending results. `PresentationCordinator` clears the value exposed
+      by every `PresentedFrame` handle for the previous generation.
    3. Reset the thread's `step_index` to zero.
 
 5. Leave the loop if `IThread.is_finished` reports completion.
@@ -223,7 +222,7 @@ Each `user-visible-thread` repeats the following loop:
 7. Call `IThread.step` with the current `step_index` and event batch.
 8. If shutdown was requested while `step` ran, discard its result and leave the
    loop. Otherwise, publish the result under the current generation for the
-   io-thread to present or composite, then increment `step_index`.
+   main-program-thread to present or composite, then increment `step_index`.
 
 When the loop ends, whether because of close input, completion, failure, a
 model-generation step limit, or session-wide shutdown, the user-visible-thread
@@ -319,14 +318,38 @@ An operation that raises or returns a value other than `None` fails the user-vis
 and triggers shutdown of the entire session. Message queue operations that have not started
 when the session stops are discarded.
 
-`IThread.get_model_generation_thread_id` returns the reserved model-generation-thread ID.
-`IThread.get_last_presented_frame` returns a shared, read-only `[C, H, W]` tensor.
-It returns `None` if the target user-visible-thread has not contributed a frame to the
-current generation. Unknown user-visible-thread IDs raise `KeyError`.
+`IThread.get_model_generation_thread_id` returns the reserved
+model-generation-thread ID. Thread registration also registers that thread with
+the session's presentation coordinator. After registration,
+`ISession.get_presentation_cordinator().get_last_presented_frame(thread_id)`
+returns a stable, read-only `PresentedFrame` handle. Its `get` method returns
+a `[C, H, W]` tensor, or `None` if the target user-visible-thread has
+not contributed a frame to the current generation. Unknown IDs raise
+`KeyError`. The handle remains the same object across presentation updates. During an update, its underlying value changes. During a `reset`, its value is cleared to `None`.
+
+For example, a session can pass the model-generation-thread's handle into an
+ImGui-thread's state while registering that thread:
+
+```python
+model_frame = (
+    self.get_presentation_cordinator().get_last_presented_frame(
+        self.get_model_generation_thread_id()
+    )
+)
+self.register_thread(
+    UI_THREAD_ID,
+    MyImGUIThread,
+    state=UIState(model_frame=model_frame),
+    frequency=self.session_desc.frames_per_second_for_ui,
+    output_layout=self.session_desc.output_layout,
+    width=self.session_desc.video_width,
+    height=self.session_desc.video_height,
+)
+```
 
 ### Input events
 
-The io-thread appends window input to one arrival-ordered buffer. Every user-visible-thread
+The main-program-thread appends window input to one arrival-ordered buffer. Every user-visible-thread
 has an independent cursor and receives each retained event once. Periodic garbage
 collection removes the prefix every active user-visible-thread has read.
 
@@ -346,15 +369,15 @@ The renderer owns the ImGui context, external-memory buffer, and synchronization
 details on the UI user-visible-thread. `ImGUIThread.draw_frame` places a normalized
 `[C, H, W]` video frame inside the active ImGui layout.
 
-Each user-visible-thread publishes its `latest_step` independently. At every io-thread tick, the
+Each user-visible-thread publishes its `latest_step` independently. At every main-program-thread tick, the
 runtime snapshots the latest current-generation result from each user-visible-thread, selects
 its latest frame, and applies its `PresentationMode`:
 
-- `SHOW_PRESENTATION` updates the user-visible-thread's last-presented frame and composites it
-  into the client backbuffer.
-- `HIDE_PRESENTATION` updates the last-presented frame without affecting the
-  client backbuffer.
-- `DISABLE_PRESENTATION` skips presentation and updating the last-presented frame.
+- `SHOW_PRESENTATION` updates the user-visible-thread's `PresentedFrame` value
+  and uses it to compose a presentation into the client backbuffer.
+- `HIDE_PRESENTATION` updates `PresentedFrame` value without affecting our final composed frame for presentation.
+- `DISABLE_PRESENTATION` skips frame extraction, `PresentedFrame` updates, and
+  final frame composition for presentation.
 
 Visible frames composite by ascending thread ID: ID `0` is the bottom layer,
 then ID `1`, and so on. RGB layers are opaque; RGBA layers use their alpha
