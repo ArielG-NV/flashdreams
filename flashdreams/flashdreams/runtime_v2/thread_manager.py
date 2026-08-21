@@ -112,7 +112,7 @@ class _ThreadManager:
         return presented.frame
 
     @final
-    def _register_main_thread(self, thread: InternalThread[Any]) -> None:
+    def _register_model_generation_thread(self, thread: InternalThread[Any]) -> None:
         """Register the runtime's main-generation adapter."""
         self._register(thread, _MODEL_GENERATION_THREAD_ID)
 

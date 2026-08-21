@@ -49,17 +49,17 @@ class InternalSession(ABC):
 
     @final
     def _register_model_generation_thread(self) -> None:
-        """Register the adapter that runs :meth:`step` as the main thread."""
+        """Register the adapter that runs :meth:`step` as the model-generation-thread."""
         manager = self._ensure_thread_manager()
-        manager._register_main_thread(
-            _MainGenerationThread(
+        manager._register_model_generation_thread(
+            _ModelGenerationThread(
                 state=self,
                 frequency=self.session_desc.frames_per_second_for_step,
             )
         )
 
 
-class _MainGenerationThread(IThread[InternalSession]):
+class _ModelGenerationThread(IThread[InternalSession]):
     """Adapt the session's generation methods to the worker contract."""
 
     def step(self, step_index: int, events: UserInputEvents) -> StepResult:
