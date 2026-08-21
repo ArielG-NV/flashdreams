@@ -292,8 +292,7 @@ that was still being produced for the previous generation is not presented.
 ### UI user-visible threads and compositing
 
 `UIThread` implements `step` for the user. A subclass implements `step_ui`, which
-returns one frame, and `wait_for_ui_to_render`, which returns that frame after any
-required rendering synchronization.
+returns one frame which is ready to be presented.
 
 `flashdreams.runtime_v2.imgui_thread.ImGUIThread` uses
 `SlangPyImGUIRenderer`, so an application subclass only supplies the render

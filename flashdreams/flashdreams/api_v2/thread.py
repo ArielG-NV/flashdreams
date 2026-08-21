@@ -99,15 +99,10 @@ class UIThread(IThread[StateT], ABC):
         """Render and return one frame backed by CUDA memory."""
         ...
 
-    @abstractmethod
-    def wait_for_ui_to_render(self, frame: Tensor) -> Tensor:
-        """Wait for rendering to finish and return the CUDA-visible frame."""
-        ...
-
     @final
     def step(self, step_index: int, events: UserInputEvents) -> StepResult:
         """Render one UI frame and wrap it in a step result."""
-        frame = self.wait_for_ui_to_render(self.step_ui(step_index, events))
+        frame = self.step_ui(step_index, events)
         return StepResult(
             step_index=step_index,
             output=frame,

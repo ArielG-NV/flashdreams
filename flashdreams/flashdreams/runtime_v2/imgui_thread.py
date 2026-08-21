@@ -86,12 +86,9 @@ class ImGUIThread(UIThread[StateT], ABC):
     def step_ui(self, step_index: int, events: UserInputEvents) -> Tensor:
         """Route input and queue one UI frame for rendering."""
 
-        return self._renderer.render(step_index, events, self.draw_ui)
-
-    @final
-    def wait_for_ui_to_render(self, frame: Tensor) -> Tensor:
-        """Return the CUDA frame after the renderer signals completion."""
-        return self._renderer.wait_for_cuda_frame(frame)
+        return self._renderer.wait_for_cuda_frame(
+            self._renderer.render(step_index, events, self.draw_ui)
+        )
 
     @final
     def draw_frame(
