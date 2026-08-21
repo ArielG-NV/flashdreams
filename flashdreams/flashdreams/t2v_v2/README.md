@@ -10,9 +10,13 @@ than writes. A prompt goes in, an MP4 comes out.
 
 ```bash
 export HF_TOKEN=<your-hf-token>
-uv run --project integrations_v2/t2v_self_forcing flashdreams-run-v2 \
-    t2v-self-forcing --output-path clip.mp4 \
+
+# For MP4 mode, use the following command:
+uv run flashdreams-run-v2 <slug> --output-path clip.mp4 \
     -- --prompt "A cat surfing" --total-blocks 7 --no-compile
+
+# For webRTC mode, use the following command:
+uv run flashdreams-run-v2 <slug> --mode webrtc -- --prompt "A cat surfing"
 ```
 
 The slug names the model, arguments before `--` describe the run, and arguments

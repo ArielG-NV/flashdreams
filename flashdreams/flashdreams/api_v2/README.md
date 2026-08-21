@@ -127,13 +127,12 @@ user-visible-threads for UI, game logic, or other stateful work.
 Program Threads:
   - `main-program-thread`:
 
-    - Runs the session through `run_session`, called through the provided
+    - Runs the session through `run_session`, called through (generally) a provided
       `create_app` method.
     - Launches all other threads.
     - Coordinates io-thread initialization with user-visible-thread
       initialization.
-    - Rejoins the threads launched with the rest of the demo so signals end the
-      program as intended. This is a spin loop waiting for threads to rejoin.
+    - Rejoins the threads launched with the rest of the demo when signals are appropriately received (ctrl+c, model-generation-thread finishes, etc...).
 
   - `io-thread`:
 
@@ -141,11 +140,11 @@ Program Threads:
       `run_session.run_io`.
     - Launches the client window (WebRTC, native, or another implementation) and
       collects events from it.
-    - Ticks at `SessionDesc.frames_per_second_for_ui`.
-    - Merges presentation-ready frames from each user-visible-thread into a single frame storing result in our `presentation_buffer`. The buffer drains into the client window as often
-      as the window permits, subject to back-pressure. `run_session.when_full`
-      controls what happens when a frame is generated while the buffer is full.
-      Thread ID `0` is the bottom layer, followed by ID `1`, and so on.
+    - Ticks at rate of `SessionDesc.frames_per_second_for_ui`.
+    - Merges presentation-ready frames from each user-visible-thread into a single frame storing result in our `presentation_buffer`. The buffer drains into the client window as often as the window permits, subject to back-pressure.
+      - `run_session.when_full` controls what happens when a frame is generated while the buffer is full.
+    - When compositing a frame to present, Thread ID `0` is the bottom layer, followed by ID `1`, and so on.
+    - When compositing, queue up frames for lossless presentation if only model-generation-thread is present. This is primarily for testing purposes where visual consistency is important.
 
 - `user-visible-threads`:
 
@@ -155,10 +154,10 @@ Program Threads:
       `ISession.register_model_generation_thread`.
     - Reserves thread ID `0` for itself, returned by
       `IThread.get_model_generation_thread_id`.
-    - Ticks `step` at
+    - Ticks `step` at rate of 
       `SessionDesc.frames_per_second_for_step`.
 
-  - All other user-visible-threads:
+  - All user-visible-threads except for the model-generation-thread:
 
     - Register with
       `ISession.register_thread(thread_id, thread_type, state=..., frequency=..., ...)`
@@ -166,8 +165,8 @@ Program Threads:
       Arguments depend on the type of thread being registered; all arguments
       from `state` onward are forwarded to the `IThread` implementation's
       `__init__` method.
-    - Tick at `IThread.frequency`.
-    - Implement `IThread` or a subclass such as `UIThread` or `ImGUIThread`.
+    - Ticks `step` at rate of `IThread.frequency`.
+    - Register via implementing `IThread` or a subclass such as `UIThread` or `ImGUIThread`. Refer to `integrations_v2\imgui_demo\imgui_demo\app.py` for an example.
 
   - All user-visible-threads:
     - Communicate through `IThread.invoke_async` from a user-visible-thread to another user-visible-thread:
@@ -178,6 +177,7 @@ Program Threads:
     - Fetch a thread's last-presented frame through
       `IThread.get_last_presented_frame`. This can be used with `ImGUIThread.draw_frame` to paint the last-presented frame of
       another user-visible-thread (like the model-generation-thread) onto ImGUI UI elements.
+    - ISession can `invoke_async` to queue up 'start-up' messages in `init` for user-visible-threads to execute before their first `step` call.
 
 ### Lifecycle
 
@@ -203,18 +203,34 @@ Program Threads:
    4. Add the frame to `presentation_buffer` using the `when_full` policy.
    5. Drain `presentation_buffer` into the client window.
 
-Each `user-visible-thread`:
+Each `user-visible-thread` repeats the following loop:
 
-1. Snapshot `message_queue` and process the snapshot.
-2. Read new user events from `event_buffer`.
-3. End the thread if it receives a close event.
-4. If detected that a reset was triggered (via `UserInputEvents`), call `IThread.reset`.
-5. End the thread if `IThread.is_finished` reports completion.
-6. Wait as needed to maintain `IThread.frequency`.
-7. End the thread if a close event was set while waiting.
-8. Run `IThread.step`.
-9. Store the generated step and the last-presented frame for presentation and
-   compositing.
+1. Snapshot `message_queue` and process the messages in that snapshot.
+2. Read new user events and the current generation from `event_buffer`.
+3. If the events contain a close event, request session-wide shutdown and leave
+   the loop.
+4. If the generation changed because of a reset event:
+
+   1. Call `IThread.reset`.
+   2. Discard pending results and the last-presented frame from the previous
+      generation.
+   3. Reset the thread's `step_index` to zero.
+
+5. Leave the loop if `IThread.is_finished` reports completion.
+  - If completed thread is model-generation-thread, the session is finished and will propegate a session-wide shutdown event to all other user-visible-threads.
+6. Wait as needed to maintain `IThread.frequency`, leaving the loop if
+   session-wide shutdown is requested while waiting.
+7. Call `IThread.step` with the current `step_index` and event batch.
+8. If shutdown was requested while `step` ran, discard its result and leave the
+   loop. Otherwise, publish the result under the current generation for the
+   io-thread to present or composite, then increment `step_index`.
+
+When the loop ends, whether because of close input, completion, failure, a
+model-generation step limit, or session-wide shutdown, the user-visible-thread
+closes its thread-owned resources, stops accepting messages, discards messages
+that have not started, and unregisters from `event_buffer`. After every
+user-visible-thread has stopped, the main-program-thread calls `ISession.close`
+for session-owned resources.
 
 ### Using `ISession` user-visible-threads
 
