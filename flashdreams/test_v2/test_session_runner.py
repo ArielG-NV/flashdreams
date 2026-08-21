@@ -14,6 +14,8 @@ from flashdreams.api_v2.thread import IThread
 from flashdreams.api_v2.user_input_event_data import UserInputEventData
 from flashdreams.runtime_v2 import session_runner as session_runner_module
 from flashdreams.runtime_v2 import thread_manager as thread_manager_module
+from flashdreams.runtime_v2.event_buffer import EventBuffer
+from flashdreams.runtime_v2.internal_thread import InternalThread
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.session_runner import (
     WhenFull,
@@ -230,6 +232,64 @@ def test_first_step_receives_input_collected_before_workers_start() -> None:
     run_session(session, RecordingWindow(log, [_event(key)]), steps=1)
 
     assert session.observed_events[0].get_events()[0].get_event_data() is key
+
+
+def test_delayed_auxiliary_thread_keeps_input_collected_during_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The I/O barrier must cover cursor registration, not just OS startup."""
+    log = CallLog()
+    allow_auxiliary_to_run = threading.Event()
+    auxiliary_observed_input = threading.Event()
+    observed_event_data: list[UserInputEventData] = []
+    original_run = InternalThread._run
+    original_collect_garbage = EventBuffer.collect_garbage
+
+    def delayed_run(worker: InternalThread[Any], **kwargs: Any) -> None:
+        if kwargs["thread_id"] == 1:
+            assert allow_auxiliary_to_run.wait(timeout=2)
+        original_run(worker, **kwargs)
+
+    def collect_garbage(buffer: EventBuffer) -> int:
+        removed = original_collect_garbage(buffer)
+        allow_auxiliary_to_run.set()
+        return removed
+
+    monkeypatch.setattr(InternalThread, "_run", delayed_run)
+    monkeypatch.setattr(EventBuffer, "collect_garbage", collect_garbage)
+
+    class Auxiliary(IThread[None]):
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            if events.get_events():
+                observed_event_data.extend(
+                    event.get_event_data() for event in events.get_events()
+                )
+                auxiliary_observed_input.set()
+            return _result(
+                step_index,
+                0.0,
+                presentation_mode=PresentationMode.disablePresentation,
+            )
+
+        def reset(self) -> None:
+            return
+
+    class Session(FakeSession):
+        def init(self) -> None:
+            super().init()
+            self.register_thread(Auxiliary(state=None, frequency=0), 1)
+
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            assert auxiliary_observed_input.wait(timeout=2)
+            return super().step(step_index, events)
+
+    key = KeyboardUserInputEventData(key="a", state=KeyboardInputState.Pressed)
+    run_session(
+        Session(_session_desc(), log), RecordingWindow(log, [_event(key)]), steps=1
+    )
+
+    assert auxiliary_observed_input.is_set()
+    assert observed_event_data == [key]
 
 
 def test_close_before_worker_start_opens_and_closes_without_a_step() -> None:

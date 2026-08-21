@@ -133,6 +133,8 @@ class InternalThread(ABC, Generic[StateT]):
         with self._lifecycle_lock:
             if self._native_thread is not None:
                 raise RuntimeError("Thread has already been started.")
+            # Register the reader before starting the native thread.
+            event_buffer.register(thread_id)
             self._native_thread = threading.Thread(
                 target=self._run,
                 kwargs={
@@ -145,7 +147,12 @@ class InternalThread(ABC, Generic[StateT]):
                 },
                 name=f"flashdreams-session-{thread_id}",
             )
-            self._native_thread.start()
+            try:
+                self._native_thread.start()
+            except Exception:
+                event_buffer.unregister(thread_id)
+                self._native_thread = None
+                raise
 
     @final
     def _run(
@@ -162,7 +169,6 @@ class InternalThread(ABC, Generic[StateT]):
         steps_run = 0
         generation = 0
         last_step_started: float | None = None
-        event_buffer.register(thread_id)
         try:
             while not stop.is_set() and (max_steps is None or steps_run < max_steps):
                 self._run_message_batch()
@@ -190,13 +196,13 @@ class InternalThread(ABC, Generic[StateT]):
                     self._pending_steps.append(self._latest)
                 step_index += 1
                 steps_run += 1
-        except BaseException as error:
+        except Exception as error:
             failure.put(error)
             stop.set()
         finally:
             try:
                 self._close()
-            except BaseException as error:
+            except Exception as error:
                 failure.put(error)
                 stop.set()
             with self._lifecycle_lock:

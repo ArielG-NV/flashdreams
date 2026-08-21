@@ -3,86 +3,225 @@ SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All 
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# FlashDreams v2 API
+Protocols for the FlashDreams API.
+
+- `application.py` / `session.py`: `IApplication` creates an `ISession` from a
+  `SessionDesc`, and the session reports what it resolved to. `session_desc`
+  is the description the application would choose for itself, for a caller with
+  none of its own.
+- `input_source.py` / `output_sink.py` / `client_window.py`: `IClientWindow` is
+  one client's input and output together. It is given the session's `SessionDesc`
+  in `OutputSink.open`.
+- `user_input_event_data.py`: base type for event payloads.
+
+`flashdreams.runtime_v2.session_runner.run_session` drives a session against a
+window until the session reports `is_finished` or the window reports a close, or
+for a fixed number of steps a caller asks for. A caller holding an application
+uses `flashdreams.runtime_v2.application_runner.ApplicationRunner` to get there,
+which takes no step count: how long a run lasts is the application's business. A
+run whose output is a file goes the same way, against
+`flashdreams.runtime_v2.mp4_client_window.Mp4ClientWindow`, which reports no
+input and encodes every result. Since it never reports a close, such a run needs
+a session that finishes.
+
+`flashdreams-run-v2` is that run from a shell: `flashdreams.runtime_v2.cli` finds
+an application by slug, gives it the arguments after `--`, and hands it to
+`ApplicationRunner` with the window `--mode` asked for, an MP4 file or a client
+over WebRTC. Applications are found through the `flashdreams.applications_v2`
+entry point group, or by the name of the package an integration ships when it
+has registered nothing, which is
+`flashdreams.runtime_v2.application_registry`'s job.
+
+What the modes are belongs to
+`flashdreams.runtime_v2.client_window_factory`, not to the command. A mode owns
+the arguments only it takes, such as `--output-path` for a file or `--port` for
+a browser, and what to say about where the run went: a URL to open before it
+starts, or the file once there is something in it. So a new way of watching a
+run is a mode added there, and the command is unchanged.
+
+The session it asks for comes from `IApplication.session_desc`, with
+`--pixel-width`, `--pixel-height`, `--fps`, and `--layout` overriding whatever
+they name. That is the whole of what the command knows about the kind of
+application it is running: a model answers with the clip its checkpoint was
+trained for, and an application that generates whatever it is asked for answers
+nothing and is described by those arguments alone.
+
+`--stats-path` asks a run to record what it cost as well as what it generated.
+`Mp4ClientWindow` takes that path and adds a `MetricsOutputSink` beside the MP4
+writer, which records each step's measurements as the artifact
+`flashdreams-benchmark` reads. The measurements are the model's own: a step reports what
+it measured and this writes it down, converting milliseconds to seconds because
+a report cannot compare two units. Nothing is measured unless a run asks, so an
+ordinary run pays nothing for this.
+[`configs/v2_model_benchmarks.json`](../../../configs/v2_model_benchmarks.json)
+is the suite that uses it, comparing every t2v model on one prompt and seed, and
+[running it](../../tools/benchmarks/README.md) is written down beside the
+harness.
+
+`flashdreams.t2v_v2` is text-to-video on top of these protocols rather than part
+of them: one `T2VApplication` owns the command line every t2v model needs, an
+integration supplies only its own defaults, and `testing.check_t2v_model_impl`
+is the check its tests run to cover the batch path in one call. See
+[its README](../t2v_v2/README.md). The five `integrations_v2/t2v_*` packages are
+the models behind it, and each is a factory of about forty lines.
+
+Ownership
+---------
+
+Agreed design decisions. Change them by discussion.
+
+- An application module implements `IApplication` and `ISession`. The runtime
+  creates every other protocol here and passes it in.
+- `IApplication` lasts as long as the process. It holds what its sessions share,
+  such as a checkpoint or a compiled pipeline, and outlives every session it
+  creates. It also says what session it would generate unasked, through
+  `session_desc`, since only it knows what its model was trained for. The
+  default says nothing, for an application that generates whatever it is asked
+  for.
+- `ISession` is one run: KV cache, game state, and anything else that must not
+  carry into another run. It also says when that run is over, through
+  `is_finished`. The default never finishes.
+- `InputSource` and `OutputSink` belong to the runtime. The runner reads from the
+  source and writes to the sink, so a session takes `UserInputEvents` in, returns
+  a `StepResult`, and holds neither.
+- `IClientWindow` pairs one client's input source and output sink. It is internal
+  to the runtime, which is why it appears in no signature on `IApplication` or
+  `ISession`. A window whose client disconnects reconnects itself rather than the
+  runtime creating a second session.
+- Application and session logic, including UI rendering, runs on the server side
+  and is presented or streamed to a client window.
+- The `UserInputEventData` types in `flashdreams.runtime_v2` cover the input
+  modalities supported today, and integrations consume them. Nothing stops an
+  integration subclassing the base class, and whether it should be able to is not
+  settled, so this is a convention rather than something the code enforces.
+- Ending and restarting a run are events on that same stream, not separate calls:
+  a window reports `CloseUserInputEventData` when its client closes or goes away,
+  and `ResetUserInputEventData` to start over. This is how native windowing
+  systems deliver a close, ordered with the input around it, and each
+  user-visible-thread is handed the batch it arrived in, so a session can react
+  rather than just being abandoned.
+- A reset does not split the input around it. The batch reaches the first step of
+  the new generation whole, so a key held down when the client restarts is still
+  held after, because it is the earlier edge that says so. A session that must
+  not inherit that input ignores the older events itself.
+- An `OutputSink` reads `StepResult.output` as one of two things: floats holding
+  `[-1, 1]`, which is what FlashDreams models emit, or integers holding raw
+  `0`-`255`. `SessionDesc` carries no range and a session cannot declare one, so
+  this is a convention every sink follows.
+
+Threading
+---------
 
 `IApplication` creates one `ISession` for each run. The session implements the
-primary model-generation `step`. Session may register independent `IThread` user-visible-threads for tasks such as
-UI, game logic, or other stateful work.
+primary model-generation `step` and may register independent `IThread`
+user-visible-threads for UI, game logic, or other stateful work.
 
-## Ownership
+### Thread model
 
 - `IApplication` lasts for the process and holds state shared by sessions.
 - `ISession` owns state for one run. Its `step` and `reset` methods execute on
   reserved user-visible-thread ID `0`.
 - `ISession` defines no constructor, so application sessions keep complete
-  control of their own construction. Its user-visible-thread registry initializes lazily.
-- User Invisible Threads
-    - main-program-thread:
-       - Runs session via `run_session` through provided `create_app` method.
-      - Launches all other threads.
-      - Coordinates io thread initialization with user-visible-thread initialization.
-      - Handles rejoining threads launched with rest of the demo to ensure signals to end the program work as intended. This is a spin-loop waiting for threads to rejoin.
-    - io-thread:
-      - This thread is the first thread launched by the main-program-thread. Logic contained in `run_session::run_io`..
-      - Handles initial client-window (WebRTC, Native,...) launch, event collection from client-window.
-      - Ticks at a rate of `SessionDesc::frames_per_second_for_ui`.
-      - Composites all presentation-ready frames from each backend into a `presentation_buffer` which drains into client-window as often as window permits (adhering to back-pressure). `run_session::when_full` controls the policy to handle a new frame being generated when `presentation_buffer` is full. Composites for presentation onto the client-window backbuffer such-that frame zero is the bottom layer, then frame one, and so on.
-- User Visible Threads:
-  - model-generation-thread
-    - Is an `IThread` that launches implicitly for `ISession` author. `IThread::step` == `ISession::step`, `IThread::reset` == `ISession::reset`.
-    - Associated `IThread::state` is the `ISession` that manages your current program session. This thread "owns" your `ISession`.
-    - `thread-id` is aquired via `self.get_model_generation_thread()`, Thread-id is 0.
-    - Thread is launched implicitly for the user
-    - Runs `step` (and therefore presentation) at a tick rate of `frames_per_second_for_step`.
-  - All other user-visible-threads
-    - Register thread to launch with `ISession::register_thread(thread, thread_id)` inside `ISession::init` via `register_thread`. Trying to register in a different portion of `ISession` will trigger an exception.
-    - Tick rate of thread is set by `IThread::frequency`.
-    - Thread is implemented via providing a `IThread` or derivative like `UIThread`/ImGUIThread.
-    - Threads communicate via `IThread::invoke_async(thread_id, lambda state: ...)`, where `state` is filled with a reference to `IThread::state` (typed via `IThread::StateT`) of the specified `thread_id`. `IThread::invoke_async` adds a message to the `message_queue` of the thread named `thread_id`. `message_queue` for a thread is snapshotted and then processes the snapshot before its next `step` method starts.
-    - Fetch a threads last-presented-frame via `IThread::get_last_presented_frame`. Useful for drawing the thread's latest frame in a UI thread (`ImGUIThread::draw_frame`).
+  control of their own construction. Its user-visible-thread registry
+  initializes lazily.
+- User-invisible threads:
 
-## Step-By-Step Of Our Threading Model Lifecycle
+  - Main program thread:
 
-**In main-program-thread**
-Call `ISession.init`
-Start io-thread
-[wait for io-thread to launch client-window]
-Start user-visible-threads in order from smallest to greatest thread-id
-[spin-lock wait for threads to rejoin]
-Stop all user-visible-threads
-Stop io-thread
-Call `ISession.close`
+    - Runs the session through `run_session`, called through the provided
+      `create_app` method.
+    - Launches all other threads.
+    - Coordinates I/O-thread initialization with user-visible-thread
+      initialization.
+    - Rejoins the threads launched with the rest of the demo so signals end the
+      program as intended. This is a spin loop waiting for threads to rejoin.
 
-**In io-thread**
-Launch client-window
-Read client-window input into event_buffer
-[wait for user-visible-threads to launch]
-[loop with tick rate of `SessionDesc::frames_per_second_for_ui`]
-Read client-window input into event_buffer
-Collect event_buffer garbage
-Compose next presentable frame out of all user-visible-threads
-Add frame to presentation_buffer using `when_full` policy.
-Drain/present from presentation_buffer
+  - I/O thread:
 
-**In any user-visible-thread**
-[On loop]
-Snapshot message_queue & process the snapshot
-Read from event_buffer new user events
-End thread if we see a `program-close` user event
-If ISesion triggered a `reset`, call `IThread::reset`.
-Ensure `IThread` adheres to its tick rate of `IThread::frequency`
-End thread if `program-close` user event was set
-Run `IThread::step`
-Store the last-generated-step & set the last-presented-frame for fetching for 'presentation'/compositing.
+    - Is the first thread launched by the main program thread. The logic is in
+      `run_session.run_io`.
+    - Launches the client window (WebRTC, native, or another implementation) and
+      collects events from it.
+    - Ticks at `SessionDesc.frames_per_second_for_ui`.
+    - Merges presentation-ready frames from each user-visible-thread into a single frame storing result in our `presentation_buffer`. The buffer drains into the client window as often
+      as the window permits, subject to back-pressure. `run_session.when_full`
+      controls what happens when a frame is generated while the buffer is full.
+      Thread ID `0` is the bottom layer, followed by ID `1`, and so on.
 
-## Using ISession user-visible-threads
+- User-visible threads:
 
-A user-visible-thread supplies only its state, frequency, and mechanics:
+  - Model-generation thread:
+
+    - Is an `IThread` launched implicitly for the `ISession` author.
+      `IThread.step` is `ISession.step`; `IThread.reset` is `ISession.reset`.
+    - Uses the current `ISession` as its `IThread.state` and 'owns' the `ISession`.
+    - Reserves thread ID `0` for itself, returned by
+      `IThread.get_model_generation_thread_id`.
+    - Ticks `step` at
+      `SessionDesc.frames_per_second_for_step`.
+
+  - All other user-visible threads:
+
+    - Register with `ISession.register_thread(thread, thread_id)` during
+      `ISession.init`. Registering elsewhere raises an exception.
+    - Tick at `IThread.frequency`.
+    - Implement `IThread` or a subclass such as `UIThread` or `ImGUIThread`.
+  
+  - All user-visible threads:
+    - Communicate through
+      `IThread.invoke_async(thread_id, lambda state: ...)`, where `state` is the
+      target thread's `IThread.state` (typed by `IThread.StateT`). The method
+      adds a message to that thread's `message_queue`. The thread snapshots and
+      processes the queue before its next `step`.
+    - Fetch a thread's last-presented frame through
+      `IThread.get_last_presented_frame`, for example for
+      `ImGUIThread.draw_frame`.
+
+### Lifecycle
+
+Main program thread:
+
+1. Register the model-generation thread and call `ISession.init`.
+2. Start the I/O thread and wait for it to open the client window.
+3. Start the user-visible threads.
+4. Wait for the I/O thread to finish.
+5. Stop and join the user-visible threads, clear `event_buffer`, and call
+   `ISession.close`.
+
+I/O thread:
+
+1. Open the client window and read its input into `event_buffer`.
+2. Wait for the user-visible threads to launch.
+3. At each `SessionDesc.frames_per_second_for_ui` tick:
+
+   1. Read client-window input into `event_buffer`.
+   2. Collect `event_buffer` garbage.
+   3. Compose the next presentable frame from all user-visible threads.
+   4. Add the frame to `presentation_buffer` using the `when_full` policy.
+   5. Drain `presentation_buffer` into the client window.
+
+Each user-visible thread:
+
+1. Snapshot `message_queue` and process the snapshot.
+2. Read new user events from `event_buffer`.
+3. End the thread if it receives a close event.
+4. If `ISession` triggered a reset, call `IThread.reset`.
+5. Wait as needed to maintain `IThread.frequency`.
+6. End the thread if a close event was set while waiting.
+7. Run `IThread.step`.
+8. Store the generated step and the last-presented frame for presentation and
+   compositing.
+
+### Using `ISession` user-visible threads
+
+Implement `IThread` and register it from `ISession.init`:
 
 ```python
 from dataclasses import dataclass
 
+from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.thread import IThread
+from flashdreams.runtime_v2.step_result import StepResult
 
 
 # This is the ID of the game thread.
@@ -93,6 +232,8 @@ GAME_THREAD_ID = 1
 class GameState:
     score: int = 0
 
+    def increment_score(self) -> None:
+        self.score += 1
 
 class GameThread(IThread[GameState]):
     def __init__(self) -> None:
@@ -104,15 +245,19 @@ class GameThread(IThread[GameState]):
     def reset(self) -> None:
         self.state.score = 0
 
+
 class MySession(ISession):
-  def init(self) -> None:
-    self.register_thread(GameThread(), GAME_THREAD_ID)
-    ...
-  
-  def step(self, step_index, events) -> StepResult:
-    # Increment the game thread's score via message from model-generation-thread.
-    invoke_async(GAME_THREAD_ID, lambda state: state.score += 1)
-    ...
+    def init(self) -> None:
+        self.register_thread(GameThread(...), GAME_THREAD_ID)
+        ...
+
+    def step(self, step_index, events) -> StepResult:
+        # Send message from model-generation-thread to game-thread via invoke_async.
+        self.game_thread.invoke_async(
+            GAME_THREAD_ID,
+            lambda state: state.increment_score(),
+        )
+        ...
 ```
 
 `frequency` is a required non-negative integer giving the maximum number of step
@@ -123,19 +268,18 @@ supplies its own value when constructed.
 
 `IThread.invoke_async` puts a fire-and-forget `Message` in the target user-visible-thread's
 thread-safe queue. The operation receives the user-visible-thread's state, must return
-`None`, and runs before the next `step`/`step_ui` of that user-visible-thread:
+`None`, and runs before the next `step`/`step_ui` of that user-visible-thread.
 
-```python
-self.invoke_async(game_thread_id, lambda state: state.reset_score())
-```
+An operation that raises or returns a value other than `None` fails the user-visible-thread
+and triggers shutdown of the entire session. Message queue operations that have not started
+when the session stops are discarded.
 
-An operation that raises or returns a value other than `None`, fails the user-visible-thread
-and triggers shut-down of the entire session. Message Queue operations that have not started when the session stops are discarded.
+`IThread.get_model_generation_thread_id` returns the reserved model-generation-thread ID.
+`IThread.get_last_presented_frame` returns a shared, read-only `[C, H, W]` tensor.
+It returns `None` if the target user-visible-thread has not contributed a frame to the
+current generation. Unknown user-visible-thread IDs raise `KeyError`.
 
-`IThread.get_model_generation_thread_id` returns the reserved model-generation-thread ID. `IThread.get_last_presented_frame` returns a shared, read-only
-`[C, H, W]` tensor. `None` is returned if the target user-visible-thread has contributed a frame to the current generation. Unknown user-visible-thread IDs raise an Exception.
-
-## Input events
+### Input events
 
 The I/O thread appends window input to one arrival-ordered buffer. Every user-visible-thread
 has an independent cursor and receives each retained event once. Periodic garbage
@@ -145,7 +289,7 @@ A close event requests session-wide shutdown immediately. A reset event advances
 the session generation. Every user-visible-thread resets before its next step, and any result
 that was still being produced for the previous generation is not presented.
 
-## UI user-visible-threads and compositing
+### UI user-visible threads and compositing
 
 `UIThread` implements `step` for the user. A subclass implements `step_ui`, which
 returns one frame, and `wait_for_ui_to_render`, which returns that frame after any
@@ -173,9 +317,10 @@ then ID `1`, and so on. RGB layers are opaque; RGBA layers use their alpha
 channel. Compositing follows `frames_per_second_for_ui` even while main
 generation has no new frame.
 
-For sessions with auxiliary workers, the compositor emits one frame in the
-session's declared layout, egarly compositing.
-For sessions with **only** a model-generation-thread, all processed steps are deterministically forwardwarded to the presentation_buffer. This is a lossless path for MP4 output and benchmarking.
+For sessions with auxiliary workers, the compositor eagerly emits one frame in
+the session's declared layout. For sessions with only a model-generation thread,
+all processed steps are forwarded deterministically to the presentation buffer.
+This is a lossless path for MP4 output and benchmarking.
 `WhenFull.BLOCK` applies back-pressure while presenting it, and
 `WhenFull.DROP_OLDEST` replaces its oldest pending composite. Neither policy
 paces or drops an individual user-visible-thread's rendering. The output sink remains a

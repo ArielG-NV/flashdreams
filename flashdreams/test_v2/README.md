@@ -7,21 +7,21 @@ SPDX-License-Identifier: Apache-2.0
 
 CPU-only tests for the v2 protocols themselves:
 
-- `test_client_window.py` drives the I/O protocols against the deterministic NULL
-  model integration.
-- `test_session_runner.py` covers worker lifecycle, input delivery, reset
-  generations, compositing, and window thread affinity.
-- `test_thread.py` covers worker frequency validation, event-buffer fan-out, and
-  the UI/ImGUI result wrapper.
-- `test_mp4_client_window.py` covers lossless file-oriented session output and
-  the optional benchmark metrics file written beside an MP4.
-- `test_mp4_output_sink.py` and `test_metrics_output_sink.py` cover the two
-  output sinks independently, including the runtime-stats schema consumed by
-  the benchmark harness.
-- `test_cli.py` covers `flashdreams-run-v2`, including `--stats-path` benchmark
-  output and application discovery.
-- `test_t2v_application.py`, `test_t2v_session.py`, and
-  `test_t2v_model_check.py` cover finite text-to-video sessions and stand-ins.
+- `test_client_window.py` covers client-window I/O against the NULL model.
+- `test_application_runner.py` covers application, session, and window lifecycle.
+- `test_session_runner.py` covers session workers, events, presentation, and shutdown.
+- `test_imgui_thread.py` covers ImGUIThread implementation, testing input routing and renderer.
+- `test_mp4_client_window.py` covers file-window output and benchmark metrics.
+- `test_mp4_output_sink.py` covers MP4 encoding and output validation.
+- `test_client_window_factory.py` covers presentation-mode arguments and selection.
+- `test_webrtc_client_window.py` covers browser input and video-frame delivery.
+- `test_t2v_application.py` covers shared text-to-video application behavior.
+- `test_t2v_session.py` covers text-to-video rollout, reset, and cleanup.
+- `test_t2v_model_check.py` covers text-to-video integration failure reporting.
+- `test_cli.py` covers v2 application discovery, arguments, and output modes.
+- `test_metrics_output_sink.py` covers the benchmark runtime-metrics schema.
+
+Every `test_*.py` file in this directory must have one entry in this list.
 
 Application behaviour is tested by the application that owns it — see
 `integrations_v2/red_screen/red_screen/tests/` and
