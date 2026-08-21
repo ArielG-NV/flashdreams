@@ -70,7 +70,7 @@ def test_main_generation_disables_presentation() -> None:
     result = model_generation_thread.step(3, UserInputEvents([]))
 
     assert result.step_index == 3
-    assert result.presentation_mode is PresentationMode.disablePresentation
+    assert result.presentation_mode is PresentationMode.DISABLE_PRESENTATION
     assert result.output.shape == (1, 3, 24, 32)
 
 
@@ -118,7 +118,7 @@ def test_frame_sharing_hides_model_frame_and_rotates_colors() -> None:
 
     assert colors == [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 0, 0)]
     assert all(
-        result.presentation_mode is PresentationMode.hidePresentation
+        result.presentation_mode is PresentationMode.HIDE_PRESENTATION
         for result in results
     )
 
@@ -144,7 +144,7 @@ def test_message_demo_disables_model_presentation_and_updates_ui_by_message() ->
     result = model_thread.step(0, events)
     ui_thread._run_message_batch()
 
-    assert result.presentation_mode is PresentationMode.disablePresentation
+    assert result.presentation_mode is PresentationMode.DISABLE_PRESENTATION
     assert ui_thread.state.status == "W is Pressed"
 
     release_events = UserInputEvents(

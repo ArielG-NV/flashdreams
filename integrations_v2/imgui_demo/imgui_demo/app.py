@@ -90,7 +90,7 @@ class DemoModelThread(IThread[DemoModelState]):
             output=self.state.output,
             frame_count=1,
             output_layout=self.state.output_layout,
-            presentation_mode=PresentationMode.disablePresentation,
+            presentation_mode=PresentationMode.DISABLE_PRESENTATION,
         )
 
     def reset(self) -> None:

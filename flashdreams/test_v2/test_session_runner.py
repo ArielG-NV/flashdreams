@@ -169,7 +169,7 @@ def _result(
     value: float,
     *,
     channels: int = 3,
-    presentation_mode: PresentationMode = PresentationMode.showPresentation,
+    presentation_mode: PresentationMode = PresentationMode.SHOW_PRESENTATION,
 ) -> StepResult:
     return StepResult(
         step_index=step_index,
@@ -291,7 +291,7 @@ def test_delayed_user_visible_thread_keeps_input_collected_during_startup(
             return _result(
                 step_index,
                 0.0,
-                presentation_mode=PresentationMode.disablePresentation,
+                presentation_mode=PresentationMode.DISABLE_PRESENTATION,
             )
 
         def reset(self) -> None:
@@ -374,7 +374,7 @@ def test_additional_user_visible_thread_receives_async_state_operation() -> None
             return _result(
                 step_index,
                 0.0,
-                presentation_mode=PresentationMode.disablePresentation,
+                presentation_mode=PresentationMode.DISABLE_PRESENTATION,
             )
 
         def reset(self) -> None:
@@ -619,7 +619,7 @@ def test_disabled_presentation_skips_backbuffer_and_last_frame_update() -> None:
             return _result(
                 step_index,
                 9.0,
-                presentation_mode=PresentationMode.disablePresentation,
+                presentation_mode=PresentationMode.DISABLE_PRESENTATION,
             )
 
         def reset(self) -> None:
@@ -661,7 +661,7 @@ def test_hidden_presentation_updates_last_frame_without_affecting_backbuffer() -
             return _result(
                 step_index,
                 9.0,
-                presentation_mode=PresentationMode.hidePresentation,
+                presentation_mode=PresentationMode.HIDE_PRESENTATION,
             )
 
         def reset(self) -> None:

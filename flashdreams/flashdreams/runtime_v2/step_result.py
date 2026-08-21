@@ -14,13 +14,13 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 class PresentationMode(Enum):
     """Control how a step result participates in frame presentation."""
 
-    showPresentation = "showPresentation"
+    SHOW_PRESENTATION = "SHOW_PRESENTATION"
     """Update the last-presented frame and composite it into the client backbuffer."""
 
-    hidePresentation = "hidePresentation"
+    HIDE_PRESENTATION = "HIDE_PRESENTATION"
     """Update the last-presented frame without affecting the client backbuffer."""
 
-    disablePresentation = "disablePresentation"
+    DISABLE_PRESENTATION = "DISABLE_PRESENTATION"
     """Skip frame extraction, updates to the last-frame presented, and backbuffer compositing.
     Primarily used for testing without blitting the frame to the client backbuffer."""
 
@@ -39,7 +39,7 @@ class StepResult:
     """Layout of ``output``."""
     metrics: dict[str, float | int] = field(default_factory=dict)
     """Measurements for this step, such as timings, keyed by name."""
-    presentation_mode: PresentationMode = PresentationMode.showPresentation
+    presentation_mode: PresentationMode = PresentationMode.SHOW_PRESENTATION
     """How the latest frame updates shared state and the client backbuffer."""
 
 

@@ -208,12 +208,12 @@ class _ThreadManager:
                 if latest.generation != generation:
                     continue
                 result = latest.result
-                if result.presentation_mode is PresentationMode.disablePresentation:
+                if result.presentation_mode is PresentationMode.DISABLE_PRESENTATION:
                     continue
                 frame = _latest_frame(result)
                 if frame is not None:
                     model_generation_thread._set_last_presented_frame(generation, frame)
-                if result.presentation_mode is PresentationMode.showPresentation:
+                if result.presentation_mode is PresentationMode.SHOW_PRESENTATION:
                     results.append(result)
             return results
 
@@ -224,18 +224,18 @@ class _ThreadManager:
             pending = threads[thread_id]._take_pending_steps()
             has_new_visible_result = has_new_visible_result or any(
                 latest.generation == generation
-                and latest.result.presentation_mode is PresentationMode.showPresentation
+                and latest.result.presentation_mode is PresentationMode.SHOW_PRESENTATION
                 for latest in pending
             )
             latest = threads[thread_id]._snapshot_latest()
             if latest is None or latest.generation != generation:
                 continue
             mode = latest.result.presentation_mode
-            if mode is PresentationMode.disablePresentation:
+            if mode is PresentationMode.DISABLE_PRESENTATION:
                 continue
             frame = _latest_frame(latest.result)
             recorded.append((threads[thread_id], frame))
-            if mode is PresentationMode.showPresentation:
+            if mode is PresentationMode.SHOW_PRESENTATION:
                 composed = _composite_frame(composed, frame)
         for thread, frame in recorded:
             thread._set_last_presented_frame(generation, frame)

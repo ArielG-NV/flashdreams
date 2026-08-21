@@ -350,11 +350,11 @@ Each user-visible-thread publishes its `latest_step` independently. At every io-
 runtime snapshots the latest current-generation result from each user-visible-thread, selects
 its latest frame, and applies its `PresentationMode`:
 
-- `showPresentation` updates the user-visible-thread's last-presented frame and composites it
+- `SHOW_PRESENTATION` updates the user-visible-thread's last-presented frame and composites it
   into the client backbuffer.
-- `hidePresentation` updates the last-presented frame without affecting the
+- `HIDE_PRESENTATION` updates the last-presented frame without affecting the
   client backbuffer.
-- `disablePresentation` skips presentation and updating the last-presented frame.
+- `DISABLE_PRESENTATION` skips presentation and updating the last-presented frame.
 
 Visible frames composite by ascending thread ID: ID `0` is the bottom layer,
 then ID `1`, and so on. RGB layers are opaque; RGBA layers use their alpha

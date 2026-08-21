@@ -96,7 +96,7 @@ class FrameSharingModelThread(IThread[FrameSharingModelState]):
             output=self.state.frames[color_index],
             frame_count=1,
             output_layout=self.state.output_layout,
-            presentation_mode=PresentationMode.hidePresentation,
+            presentation_mode=PresentationMode.HIDE_PRESENTATION,
         )
 
     def reset(self) -> None:
