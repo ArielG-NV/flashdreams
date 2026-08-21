@@ -122,11 +122,9 @@ user-visible-threads for UI, game logic, or other stateful work.
 - `ISession` owns the lifecycle and thread registry for one run.
 - The registered model-generation-thread executes on reserved
   user-visible-thread ID `0`.
-- `ISession` defines no constructor, so application sessions keep complete
-  control of their own construction. Its user-visible-thread registry
-  initializes lazily.
-- `user-invisible-threads`:
+- `ISession` defines `init` to register threads and `close` to clean-up any auxillary resources initialized in `init`. 
 
+Program Threads:
   - `main-program-thread`:
 
     - Runs the session through `run_session`, called through the provided
