@@ -28,6 +28,7 @@ from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEventData,
     FocusUserInputEventData,
+    KeyboardInputState,
     KeyboardUserInputEventData,
     MouseUserInputEventData,
     ResetUserInputEventData,
@@ -387,7 +388,14 @@ class WebRTCServer:
                 raise ValueError("Keyboard event requires a non-empty key.")
             if not isinstance(pressed, bool):
                 raise ValueError("Keyboard event requires a boolean pressed value.")
-            event_data = KeyboardUserInputEventData(key=key, pressed=pressed)
+            event_data = KeyboardUserInputEventData(
+                key=key,
+                state=(
+                    KeyboardInputState.Pressed
+                    if pressed
+                    else KeyboardInputState.Released
+                ),
+            )
         elif event_type == "mouse":
             action = payload.get("action")
             if action not in {"move", "button", "wheel"}:

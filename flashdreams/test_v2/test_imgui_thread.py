@@ -27,6 +27,7 @@ from flashdreams.runtime_v2.imgui_thread import (
 )
 from flashdreams.runtime_v2.user_input_event import (
     FocusUserInputEventData,
+    KeyboardInputState,
     KeyboardUserInputEventData,
     MouseUserInputEventData,
     UserInputEvent,
@@ -81,9 +82,23 @@ def test_routes_all_imgui_input_categories_in_order() -> None:
                     action="wheel", x=0.25, y=0.5, wheel_x=-1.0, wheel_y=2.0
                 ),
             ),
-            _event(4, KeyboardUserInputEventData(key="ArrowLeft", pressed=True)),
-            _event(5, KeyboardUserInputEventData(key="h", pressed=True)),
-            _event(6, FocusUserInputEventData(focused=True)),
+            _event(
+                4,
+                KeyboardUserInputEventData(
+                    key="ArrowLeft", state=KeyboardInputState.Pressed
+                ),
+            ),
+            _event(
+                5,
+                KeyboardUserInputEventData(key="h", state=KeyboardInputState.Pressed),
+            ),
+            _event(
+                6,
+                KeyboardUserInputEventData(
+                    key="ArrowLeft", state=KeyboardInputState.Released
+                ),
+            ),
+            _event(7, FocusUserInputEventData(focused=True)),
         ]
     )
 
@@ -97,6 +112,7 @@ def test_routes_all_imgui_input_categories_in_order() -> None:
         ("wheel", -1.0, 2.0),
         ("key", "left", True),
         ("text", "h"),
+        ("key", "left", False),
         ("focus", True),
     ]
 

@@ -16,6 +16,7 @@ from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.session_runner import run_session
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
+    KeyboardInputState,
     KeyboardUserInputEventData,
     UserInputEvent,
 )
@@ -93,7 +94,14 @@ def _key_event(*, pressed: bool, key: str = _ACTIVATION_KEY) -> UserInputEvents:
         [
             UserInputEvent(
                 timestamp=uint64(0),
-                event_data=KeyboardUserInputEventData(key=key, pressed=pressed),
+                event_data=KeyboardUserInputEventData(
+                    key=key,
+                    state=(
+                        KeyboardInputState.Pressed
+                        if pressed
+                        else KeyboardInputState.Released
+                    ),
+                ),
             )
         ]
     )
@@ -167,11 +175,15 @@ def test_red_screen_uses_last_event_to_adjust_color_intensity() -> None:
             [
                 UserInputEvent(
                     timestamp=uint64(0),
-                    event_data=KeyboardUserInputEventData(key="w", pressed=True),
+                    event_data=KeyboardUserInputEventData(
+                        key="w", state=KeyboardInputState.Pressed
+                    ),
                 ),
                 UserInputEvent(
                     timestamp=uint64(1),
-                    event_data=KeyboardUserInputEventData(key="s", pressed=True),
+                    event_data=KeyboardUserInputEventData(
+                        key="s", state=KeyboardInputState.Pressed
+                    ),
                 ),
             ]
         ),

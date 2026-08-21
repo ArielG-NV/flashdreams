@@ -17,6 +17,8 @@ dependencies = [
 
 [project.scripts]
 imgui-demo-webrtc = "imgui_demo.app:main"
+imgui-frame-sharing-webrtc = "imgui_demo.frame_sharing_app:main"
+imgui-message-webrtc = "imgui_demo.message_app:main"
 
 [tool.uv.sources]
 flashdreams = { workspace = true }

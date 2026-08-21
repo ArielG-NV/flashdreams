@@ -97,11 +97,18 @@ details on the UI worker. `ImGUIThread.draw_frame` places a normalized
 
 Each worker publishes its `latest_step` independently. At every I/O tick, the
 runtime snapshots the latest current-generation result from each worker, selects
-its latest frame, and composites enabled frames by ascending thread ID: ID `0`
-is the bottom layer, then ID `1`, and so on. RGB layers are opaque; RGBA layers
-use their alpha channel. `StepResult.disabled` hides that worker's layer.
-Compositing follows `frames_per_second_for_ui` even while main generation has no
-new frame.
+its latest frame, and applies its `PresentationMode`:
+
+- `showPresentation` updates the worker's last-presented frame and composites it
+  into the client backbuffer.
+- `hidePresentation` updates the last-presented frame without affecting the
+  client backbuffer.
+- `disablePresentation` skips presentation and updating the last-presented frame.
+
+Visible frames composite by ascending thread ID: ID `0` is the bottom layer,
+then ID `1`, and so on. RGB layers are opaque; RGBA layers use their alpha
+channel. Compositing follows `frames_per_second_for_ui` even while main
+generation has no new frame.
 
 The compositor emits one frame in the session's declared layout. Only this
 composited UI presentation stream is bounded by `max_pending`.

@@ -16,9 +16,20 @@
 """CPU tests for the v2 Dear ImGui demo integration."""
 
 import pytest
+import torch
 from imgui_demo.app import DemoImGUIThread, ImGUIDemoSession, ImGUIDemoState
+from imgui_demo.frame_sharing_app import FrameSharingSession
+from imgui_demo.message_app import MessageSession
+from imgui_demo.runner import _parse_args, _session_desc
+from numpy import uint64
 
 from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.step_result import PresentationMode
+from flashdreams.runtime_v2.user_input_event import (
+    KeyboardInputState,
+    KeyboardUserInputEventData,
+    UserInputEvent,
+)
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
@@ -35,14 +46,86 @@ def _session() -> ImGUIDemoSession:
     )
 
 
-def test_main_generation_result_is_disabled() -> None:
+def test_main_generation_disables_presentation() -> None:
     session = _session()
 
     result = session.step(3, UserInputEvents([]))
 
     assert result.step_index == 3
-    assert result.disabled
+    assert result.presentation_mode is PresentationMode.disablePresentation
     assert result.output.shape == (1, 3, 24, 32)
+
+
+def test_launcher_keeps_model_generation_at_thirty_fps() -> None:
+    args = _parse_args(
+        ["--fps", "72"],
+        program="test-imgui-demo",
+        description="Test parser.",
+    )
+
+    session_desc = _session_desc(args)
+
+    assert session_desc.frames_per_second_for_ui == 72
+    assert session_desc.frames_per_second_for_step == 30
+
+
+def test_frame_sharing_hides_model_frame_and_rotates_colors() -> None:
+    session = FrameSharingSession(_session().session_desc, device="cpu")
+
+    results = [session.step(step, UserInputEvents([])) for step in (0, 10, 20, 30)]
+    colors = [
+        tuple(
+            result.output[0, :, 0, 0]
+            .add(1.0)
+            .mul(127.5)
+            .round()
+            .to(torch.int32)
+            .tolist()
+        )
+        for result in results
+    ]
+
+    assert colors == [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 0, 0)]
+    assert all(
+        result.presentation_mode is PresentationMode.hidePresentation
+        for result in results
+    )
+
+
+def test_message_demo_disables_model_presentation_and_updates_ui_by_message() -> None:
+    session = MessageSession(_session().session_desc)
+    session.init()
+    events = UserInputEvents(
+        [
+            UserInputEvent(
+                timestamp=uint64(0),
+                event_data=KeyboardUserInputEventData(
+                    key="W", state=KeyboardInputState.Pressed
+                ),
+            )
+        ]
+    )
+
+    result = session.step(0, events)
+    session._ui_thread._run_message_batch()
+
+    assert result.presentation_mode is PresentationMode.disablePresentation
+    assert session._ui_thread.state.status == "W is Pressed"
+
+    release_events = UserInputEvents(
+        [
+            UserInputEvent(
+                timestamp=uint64(1),
+                event_data=KeyboardUserInputEventData(
+                    key="W", state=KeyboardInputState.Released
+                ),
+            )
+        ]
+    )
+    session.step(1, release_events)
+    session._ui_thread._run_message_batch()
+
+    assert session._ui_thread.state.status == "W is not Pressed"
 
 
 def test_init_registers_imgui_as_auxiliary_thread() -> None:

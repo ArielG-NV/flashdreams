@@ -4,11 +4,22 @@
 """User input events, each a timestamp plus the data for one input modality."""
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import Literal
 
 from numpy import uint64
 
 from flashdreams.api_v2.user_input_event_data import UserInputEventData
+
+
+class KeyboardInputState(Enum):
+    """State transition reported by a keyboard input event."""
+
+    Released = "Released"
+    """The key changed to the released state."""
+
+    Pressed = "Pressed"
+    """The key changed to the pressed state."""
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -33,10 +44,10 @@ class KeyboardUserInputEventData(UserInputEventData):
         """Return the event type name."""
         return "keyboard"
 
-    key: str = ""
+    key: str
     """Identifier of the key this event refers to, e.g. ``"r"``."""
-    pressed: bool = False
-    """Whether the key is down; ``False`` marks a key-up edge."""
+    state: KeyboardInputState
+    """State transition reported for ``key``."""
 
 
 @dataclass(frozen=True, slots=True, eq=False)

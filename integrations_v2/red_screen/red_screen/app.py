@@ -16,7 +16,10 @@ from flashdreams.runtime_v2.application_runner import ApplicationRunner
 from flashdreams.runtime_v2.client_window_factory import create_client_window
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_event import KeyboardUserInputEventData
+from flashdreams.runtime_v2.user_input_event import (
+    KeyboardInputState,
+    KeyboardUserInputEventData,
+)
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
@@ -111,10 +114,10 @@ class RedScreenSession(ISession):
         if not isinstance(data, KeyboardUserInputEventData):
             return
         if data.key == self._config.activation_key:
-            self._key_held = data.pressed
-        elif data.pressed and data.key.lower() == "w":
+            self._key_held = data.state is KeyboardInputState.Pressed
+        elif data.state is KeyboardInputState.Pressed and data.key.lower() == "w":
             self._color_intensity = min(1.0, self._color_intensity + 0.1)
-        elif data.pressed and data.key.lower() == "s":
+        elif data.state is KeyboardInputState.Pressed and data.key.lower() == "s":
             self._color_intensity = max(0.0, self._color_intensity - 0.1)
 
     def _frame(self) -> Tensor:

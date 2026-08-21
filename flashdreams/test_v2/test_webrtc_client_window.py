@@ -27,6 +27,7 @@ from flashdreams.runtime_v2.session_desc import SessionDesc  # noqa: E402
 from flashdreams.runtime_v2.step_result import StepResult  # noqa: E402
 from flashdreams.runtime_v2.user_input_event import (  # noqa: E402
     FocusUserInputEventData,
+    KeyboardInputState,
     KeyboardUserInputEventData,
     MouseUserInputEventData,
 )
@@ -137,9 +138,9 @@ async def test_window_buffers_browser_events_until_drained() -> None:
             for event in events
             if isinstance(data := event.get_event_data(), KeyboardUserInputEventData)
         ]
-        assert [(event.key, event.pressed) for event in keyboard_events] == [
-            ("w", True),
-            ("w", False),
+        assert [(event.key, event.state) for event in keyboard_events] == [
+            ("w", KeyboardInputState.Pressed),
+            ("w", KeyboardInputState.Released),
         ]
         assert events[0].get_timestamp() <= events[1].get_timestamp()
         mouse = next(

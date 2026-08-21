@@ -27,7 +27,7 @@ from torch import Tensor
 
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.internal_thread import InternalThread
-from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.step_result import PresentationMode, StepResult
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 _MODEL_GENERATION_THREAD_ID = 0
@@ -171,26 +171,26 @@ class _ThreadManager:
         presentation_index: int,
         output_layout: VideoTensorLayout,
     ) -> StepResult | None:
-        """Composite the latest current-generation frame from each thread."""
+        """Record eligible frames and composite the visible ones."""
         self._set_generation(generation)
         composed: Tensor | None = None
-        presented: list[tuple[InternalThread[Any], Tensor]] = []
+        recorded: list[tuple[InternalThread[Any], Tensor]] = []
         threads = self._freeze()
         for thread_id in sorted(threads):
             latest = threads[thread_id]._snapshot_latest()
-            if (
-                latest is None
-                or latest.generation != generation
-                or latest.result.disabled
-            ):
+            if latest is None or latest.generation != generation:
+                continue
+            mode = latest.result.presentation_mode
+            if mode is PresentationMode.disablePresentation:
                 continue
             frame = _latest_frame(latest.result)
-            composed = _composite_frame(composed, frame)
-            presented.append((threads[thread_id], frame))
+            recorded.append((threads[thread_id], frame))
+            if mode is PresentationMode.showPresentation:
+                composed = _composite_frame(composed, frame)
+        for thread, frame in recorded:
+            thread._set_last_presented_frame(generation, frame)
         if composed is None:
             return None
-        for thread, frame in presented:
-            thread._set_last_presented_frame(generation, frame)
         return StepResult(
             step_index=presentation_index,
             output=_frame_to_layout(composed, output_layout),

@@ -28,6 +28,7 @@ from torch import Tensor
 from flashdreams.api_v2.thread import UIThread
 from flashdreams.runtime_v2.user_input_event import (
     FocusUserInputEventData,
+    KeyboardInputState,
     KeyboardUserInputEventData,
     MouseUserInputEventData,
 )
@@ -85,10 +86,7 @@ class ImGUIThread(UIThread[StateT], ABC):
     def step_ui(self, step_index: int, events: UserInputEvents) -> Tensor:
         """Route input and queue one UI frame for rendering."""
 
-        def draw_ui(imgui: Any) -> None:
-            self.draw_ui(imgui, step_index, events)
-
-        return self._renderer.render(events, draw_ui)
+        return self._renderer.render(step_index, events, self.draw_ui)
 
     @final
     def wait_for_ui_to_render(self, frame: Tensor) -> Tensor:
@@ -157,8 +155,9 @@ class SlangPyImGUIRenderer:
 
     def render(
         self,
+        step_index: int,
         events: UserInputEvents,
-        draw_ui: Callable[[Any], None],
+        draw_ui: Callable[[Any, int, UserInputEvents], None],
     ) -> Tensor:
         """Queue input and render one ImGui frame into shared RGBA storage."""
         self._ensure_initialized()
@@ -182,7 +181,7 @@ class SlangPyImGUIRenderer:
             height=self.height,
         )
         self._imgui.new_frame()
-        draw_ui(self._imgui)
+        draw_ui(self._imgui, step_index, events)
         self._imgui.render()
         draw_data = self._imgui.get_draw_data()
         self._imgui_backend.sync_draw_data_textures(
@@ -396,10 +395,11 @@ def _route_input_events(
     for event in events.get_events():
         data = event.get_event_data()
         if isinstance(data, KeyboardUserInputEventData):
+            pressed = data.state is KeyboardInputState.Pressed
             key = _resolve_imgui_key(imgui, data.key)
             if key is not None:
-                io.add_key_event(key, data.pressed)
-            if data.pressed and len(data.key) == 1:
+                io.add_key_event(key, pressed)
+            if pressed and len(data.key) == 1:
                 io.add_input_characters_utf8(data.key)
         elif isinstance(data, FocusUserInputEventData):
             io.add_focus_event(data.focused)

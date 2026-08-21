@@ -20,9 +20,10 @@ from flashdreams.runtime_v2.session_runner import (
     _PresentationBuffer,
     run_session,
 )
-from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.step_result import PresentationMode, StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEventData,
+    KeyboardInputState,
     KeyboardUserInputEventData,
     ResetUserInputEventData,
     UserInputEvent,
@@ -148,14 +149,14 @@ def _result(
     value: float,
     *,
     channels: int = 3,
-    disabled: bool = False,
+    presentation_mode: PresentationMode = PresentationMode.showPresentation,
 ) -> StepResult:
     return StepResult(
         step_index=step_index,
         output=torch.full((1, channels, 1, 2, 2), value),
         frame_count=1,
         output_layout=VideoTensorLayout.bcthw,
-        disabled=disabled,
+        presentation_mode=presentation_mode,
     )
 
 
@@ -224,7 +225,7 @@ def test_window_calls_stay_on_the_io_thread() -> None:
 def test_first_step_receives_input_collected_before_workers_start() -> None:
     log = CallLog()
     session = FakeSession(_session_desc(), log)
-    key = KeyboardUserInputEventData(key="a", pressed=True)
+    key = KeyboardUserInputEventData(key="a", state=KeyboardInputState.Pressed)
 
     run_session(session, RecordingWindow(log, [_event(key)]), steps=1)
 
@@ -287,7 +288,11 @@ def test_auxiliary_thread_receives_async_state_operation() -> None:
     class Auxiliary(IThread[dict[str, int]]):
         def step(self, step_index: int, events: UserInputEvents) -> StepResult:
             del events
-            return _result(step_index, 0.0, disabled=True)
+            return _result(
+                step_index,
+                0.0,
+                presentation_mode=PresentationMode.disablePresentation,
+            )
 
         def reset(self) -> None:
             self.state.clear()
@@ -416,15 +421,19 @@ def test_higher_thread_ids_alpha_composite_over_lower_ids() -> None:
     assert torch.allclose(final[:, 1:], torch.zeros_like(final[:, 1:]))
 
 
-def test_disabled_auxiliary_frame_leaves_main_frame_visible() -> None:
+def test_disabled_presentation_skips_backbuffer_and_last_frame_update() -> None:
     log = CallLog()
     auxiliary_ready = threading.Event()
 
-    class Disabled(IThread[None]):
+    class DisabledPresentation(IThread[None]):
         def step(self, step_index: int, events: UserInputEvents) -> StepResult:
             del events
             auxiliary_ready.set()
-            return _result(step_index, 9.0, disabled=True)
+            return _result(
+                step_index,
+                9.0,
+                presentation_mode=PresentationMode.disablePresentation,
+            )
 
         def reset(self) -> None:
             return
@@ -432,8 +441,8 @@ def test_disabled_auxiliary_frame_leaves_main_frame_visible() -> None:
     class Session(FakeSession):
         def init(self) -> None:
             super().init()
-            self.disabled = Disabled(state=None, frequency=0)
-            self.register_thread(self.disabled, 1)
+            self.worker = DisabledPresentation(state=None, frequency=0)
+            self.register_thread(self.worker, 1)
 
         def step(self, step_index: int, events: UserInputEvents) -> StepResult:
             auxiliary_ready.wait(timeout=2)
@@ -444,7 +453,45 @@ def test_disabled_auxiliary_frame_leaves_main_frame_visible() -> None:
     run_session(session, window, steps=1)
 
     assert torch.all(window.results[-1].output == 3.0)
-    assert session.disabled.get_last_presented_frame(1) is None
+    assert session.worker.get_last_presented_frame(1) is None
+
+
+def test_hidden_presentation_updates_last_frame_without_affecting_backbuffer() -> None:
+    log = CallLog()
+    hidden_frame_published = threading.Event()
+
+    class HiddenPresentation(IThread[None]):
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            del events
+            if step_index > 0:
+                hidden_frame_published.set()
+            return _result(
+                step_index,
+                9.0,
+                presentation_mode=PresentationMode.hidePresentation,
+            )
+
+        def reset(self) -> None:
+            return
+
+    class Session(FakeSession):
+        def init(self) -> None:
+            super().init()
+            self.worker = HiddenPresentation(state=None, frequency=0)
+            self.register_thread(self.worker, 1)
+
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            hidden_frame_published.wait(timeout=2)
+            return _result(step_index, 3.0)
+
+    window = RecordingWindow(log)
+    session = Session(_session_desc(), log)
+    run_session(session, window, steps=1)
+
+    assert torch.all(window.results[-1].output == 3.0)
+    hidden = session.worker.get_last_presented_frame(1)
+    assert hidden is not None
+    assert torch.all(hidden == 9.0)
 
 
 def test_auxiliary_frame_is_presented_while_main_generation_is_blocked() -> None:
