@@ -1870,6 +1870,9 @@ def test_pai_bench_preflight_reports_missing_import(tmp_path: Path) -> None:
     assert not (tmp_path / "quality" / "staged" / "videos").exists()
 
 
+@pytest.mark.skipif(
+    os.name == "nt", reason="test evaluator uses a Unix shebang executable"
+)
 def test_pai_bench_profile_normalizes_public_evaluator_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

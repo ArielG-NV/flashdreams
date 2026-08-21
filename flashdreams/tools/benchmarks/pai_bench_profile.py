@@ -416,22 +416,8 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 
 
 def _split_python_command(value: str) -> tuple[str, ...]:
-    """Split a Python command without consuming Windows path separators."""
-    parts = shlex.split(value, posix=os.name != "nt")
-    if os.name == "nt":
-        parts = [
-            part[1:-1]
-            if len(part) >= 2 and part[0] == part[-1] and part[0] in {'"', "'"}
-            else part
-            for part in parts
-        ]
-        if (
-            len(parts) == 1
-            and Path(parts[0]).is_file()
-            and Path(parts[0]).suffix.lower() not in {".exe", ".com", ".bat", ".cmd"}
-        ):
-            parts.insert(0, sys.executable)
-    return tuple(parts)
+    """Split a Python command after normalizing path separators."""
+    return tuple(shlex.split(value.replace(os.sep, "/")))
 
 
 def _runner_setup_warnings(args: argparse.Namespace) -> list[str]:
