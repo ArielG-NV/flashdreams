@@ -26,7 +26,7 @@ class SessionDesc:
     """Rate to read input and present finished results at, in frames per second."""
 
     frames_per_second_for_step: int = 30
-    """Rate to generate at, in frames per second. Nothing paces by it yet."""
+    """Maximum main-generation steps per second; zero runs without pacing."""
 
     video_width: int = 1280
     """Output video width in pixels."""
@@ -46,11 +46,12 @@ class SessionDesc:
                 "SessionDesc.frames_per_second_for_ui must be > 0 when set."
             )
         if (
-            not math.isfinite(self.frames_per_second_for_step)
-            or self.frames_per_second_for_step <= 0
+            isinstance(self.frames_per_second_for_step, bool)
+            or not isinstance(self.frames_per_second_for_step, int)
+            or self.frames_per_second_for_step < 0
         ):
             raise ValueError(
-                "SessionDesc.frames_per_second_for_step must be > 0 when set."
+                "SessionDesc.frames_per_second_for_step must be an integer >= 0."
             )
         if self.video_width <= 0:
             raise ValueError("SessionDesc.video_width must be > 0 when set.")

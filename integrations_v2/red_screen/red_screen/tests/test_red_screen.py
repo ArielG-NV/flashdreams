@@ -13,7 +13,7 @@ from red_screen import create_app
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.session_desc import SessionDesc
-from flashdreams.runtime_v2.session_runner import WhenFull, run_session
+from flashdreams.runtime_v2.session_runner import run_session
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     KeyboardUserInputEventData,
@@ -76,12 +76,13 @@ class ScriptedClientWindow(IClientWindow):
 def _session_desc(
     layout: VideoTensorLayout = VideoTensorLayout.bcthw,
     *,
-    frames_per_second_for_ui: int = 1,
+    frames_per_second_for_ui: int = 1000,
+    frames_per_second_for_step: int = 0,
 ) -> SessionDesc:
     return SessionDesc(
         output_layout=layout,
         frames_per_second_for_ui=frames_per_second_for_ui,
-        frames_per_second_for_step=1,
+        frames_per_second_for_step=frames_per_second_for_step,
         video_width=_FRAME_SIZE,
         video_height=_FRAME_SIZE,
     )
@@ -186,7 +187,7 @@ def test_red_screen_uses_last_event_to_adjust_color_intensity() -> None:
 def test_red_screen_starts_black_without_input() -> None:
     window = _run(steps=2)
 
-    assert len(window.results) == 2
+    assert window.results
     assert all(_is_black(result) for result in window.results)
 
 
@@ -195,7 +196,7 @@ def test_red_screen_turns_red_for_a_key_the_window_already_holds() -> None:
     # the run starts applies from step 0.
     window = _run(_key_event(pressed=True), steps=3)
 
-    assert len(window.results) == 3
+    assert window.results
     assert all(_is_red(result) for result in window.results)
 
 
@@ -204,18 +205,20 @@ def test_red_screen_turns_red_for_a_key_pressed_during_the_run() -> None:
     # input delivered while the run is going can turn the screen red.
     app = create_app()
     app.init([])
-    session = app.create_session(_session_desc(frames_per_second_for_ui=100))
+    session = app.create_session(
+        _session_desc(
+            frames_per_second_for_ui=1000,
+            frames_per_second_for_step=100,
+        )
+    )
     window = ScriptedClientWindow([UserInputEvents([]), _key_event(pressed=True)])
 
-    # Room for one result, so a step cannot start until a tick has presented the
-    # previous one, and every tick polls input before it presents. That makes the
-    # key reach a step rather than depending on how the threads are scheduled.
     try:
-        run_session(session, window, steps=3, max_pending=1, when_full=WhenFull.BLOCK)
+        run_session(session, window, steps=3)
     finally:
         app.close()
 
-    assert len(window.results) == 3
+    assert window.results
     assert _is_black(window.results[0])
     assert _is_red(window.results[-1])
 

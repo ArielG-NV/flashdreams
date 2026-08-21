@@ -3,26 +3,91 @@
 
 """Application session abstract interface."""
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
+from collections.abc import Callable
+from typing import Any, final
 
+from flashdreams.api_v2.thread import IThread
+from flashdreams.runtime_v2.internal_session import (
+    _MAIN_GENERATION_THREAD_ID,
+    InternalSession,
+)
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 
-class ISession(ABC):
+class ISession(InternalSession):
     """One run of an application, and the state that run builds up.
 
     Created by :meth:`IApplication.create_session`. Holds the KV cache, game
     state and anything else that must not carry into another run; anything shared
-    between runs belongs to the application. A session runs no loop of its own:
-    the runtime calls :meth:`step` once per step and decides when to stop.
+    between runs belongs to the application. The runtime wraps :meth:`step` in
+    thread zero. Additional workers may be registered during :meth:`init`.
 
     Note:
         Call order is :meth:`init`, then :meth:`step` per step from index zero.
         :meth:`reset` can happen mid-run, after which the index starts again from
-        zero. :meth:`close` ends it.
+        zero. :meth:`close` runs after every worker has stopped.
     """
+
+    @final
+    def register_thread(self, thread_type: IThread[Any], thread_id: int) -> None:
+        """Register one auxiliary worker under ``id``.
+
+        Args:
+            thread_type: Constructed worker to run with this session.
+            thread_id: Positive session-unique identifier. Zero is reserved.
+
+        Raises:
+            RuntimeError: The session has started running.
+            TypeError: ``thread_id`` is not an integer or ``thread_type`` is invalid.
+            ValueError: ``thread_id`` is reserved, negative, or already registered.
+        """
+        self._ensure_thread_registry()
+        if self._thread_registry_frozen:
+            raise RuntimeError("Cannot register a thread after the session starts.")
+        if not isinstance(thread_type, IThread):
+            raise TypeError("thread_type must be an IThread instance.")
+        if isinstance(thread_id, bool) or not isinstance(thread_id, int):
+            raise TypeError("thread_id must be an integer.")
+        if thread_id == _MAIN_GENERATION_THREAD_ID:
+            raise ValueError("Thread ID 0 is reserved for main generation.")
+        if thread_id < 0:
+            raise ValueError("Thread IDs must be >= 0.")
+        if thread_id in self._threads:
+            raise ValueError(f"Thread ID {thread_id} is already registered.")
+        self._threads[thread_id] = thread_type
+
+    @staticmethod
+    @final
+    def get_main_generation_thread_id() -> int:
+        """Return the reserved main-generation thread identifier."""
+        return _MAIN_GENERATION_THREAD_ID
+
+    @final
+    def invoke_async(
+        self,
+        thread_id: int,
+        operation: Callable[[Any], None],
+    ) -> None:
+        """Schedule a state operation on one registered worker.
+
+        Runs before the next `step`/`step_ui` of the target thread.
+
+        Args:
+            thread_id: Identifier of the worker that owns the state.
+            operation: Callable applied to the worker-owned state.
+
+        Raises:
+            KeyError: No worker is registered under ``thread_id``.
+        """
+        self._ensure_thread_registry()
+        try:
+            thread = self._threads[thread_id]
+        except KeyError as error:
+            raise KeyError(f"No thread is registered with ID {thread_id}.") from error
+        thread.invoke_async(operation)
 
     @abstractmethod
     def init(self) -> None:
@@ -55,40 +120,16 @@ class ISession(ABC):
         """
         ...
 
-    def step_ui(self, events: UserInputEvents) -> None:
-        """React to input at the UI rate, faster than :meth:`step`.
-
-        This exists so UI work is not held up by generation. ``run_session``
-        calls it on its I/O thread every tick, while :meth:`step` may still be
-        running, so a session implementing both must guard what they share. The
-        same events reach :meth:`step` in its next batch, so a session can
-        respond here and generate from them later.
-
-        It cannot produce output yet, so today it can only update state. The
-        default does nothing, and a session with nothing to do at this rate
-        leaves it alone.
-
-        Args:
-            events: User input events collected since the previous tick.
-        """
-        return
-
     def is_finished(self) -> bool:
         """Report whether this session has generated everything it has to.
 
-        ``run_session`` asks before every step and ends the run when the answer
-        is yes. A session that knows its own length says so here, rather than
-        the caller counting steps on its behalf: a fixed rollout knows how many
-        blocks it has, where a caller only knows what it was told.
-
-        The default never finishes, which is what an interactive session wants:
-        a run like that ends when its client goes away.
-
-        A reset is applied before this is asked, so a session starting over is
-        asked about the run it is starting, not the one it just finished.
+        The main-generation worker asks before every step. A finite session,
+        including a text-to-video benchmark run writing an MP4, overrides this
+        instead of relying on a client close event. Interactive sessions keep
+        the default and run until their client closes.
 
         Returns:
-            Whether the run should end rather than take another step.
+            Whether the run should end before taking another generation step.
         """
         return False
 

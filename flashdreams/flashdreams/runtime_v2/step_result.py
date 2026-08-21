@@ -24,3 +24,8 @@ class StepResult:
     """Layout of ``output``."""
     metrics: dict[str, float | int] = field(default_factory=dict)
     """Measurements for this step, such as timings, keyed by name."""
+    disabled: bool = False
+    """
+    Whether the compositor should ignore the frame in compositing.
+    Prefer disabling the StepResult if the thread is a PhysicsThread.
+    """
