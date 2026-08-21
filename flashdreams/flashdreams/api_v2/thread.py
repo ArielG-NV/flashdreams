@@ -75,10 +75,9 @@ class IThread(InternalThread[StateT]):
         """Produce one result from the events received since the previous step."""
         ...
 
-    @abstractmethod
     def reset(self) -> None:
         """Reset state before the first step of a new generation."""
-        ...
+        pass
 
 
 class UIThread(IThread[StateT], ABC):

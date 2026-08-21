@@ -4,6 +4,7 @@
 """Application session abstract interface."""
 
 from abc import abstractmethod
+from collections.abc import Callable
 from typing import Any, final
 
 from flashdreams.api_v2.thread import IThread
@@ -28,18 +29,38 @@ class ISession(InternalSession):
     """
 
     @final
-    def register_thread(self, thread: IThread[Any], thread_id: int) -> None:
-        """Register one auxiliary worker.
+    def register_thread(
+        self,
+        thread_id: int,
+        thread_type: type[IThread[Any]],
+        *,
+        state: Any,
+        frequency: int,
+        **thread_kwargs: Any,
+    ) -> None:
+        """Construct and register one auxiliary worker.
 
         Args:
-            thread: Constructed worker to run with this session.
             thread_id: Positive session-unique identifier. Zero is reserved.
+            thread_type: :class:`IThread` subclass to construct.
+            state: Mutable state owned by the worker.
+            frequency: Maximum steps per second. Zero runs without pacing.
+            **thread_kwargs: Additional constructor arguments, such as
+                ``output_layout``, ``width``, and ``height`` for an ImGui worker.
 
         Raises:
-            RuntimeError: The session has started or ``thread`` has a parent.
-            TypeError: ``thread`` or ``thread_id`` has an invalid type.
+            RuntimeError: The session has started.
+            TypeError: ``thread_type`` is not an :class:`IThread` subclass, or
+                ``thread_id`` has an invalid type.
             ValueError: ``thread_id`` is reserved, negative, or already registered.
         """
+        if not isinstance(thread_type, type) or not issubclass(thread_type, IThread):
+            raise TypeError("thread_type must be an IThread subclass.")
+        thread = thread_type(
+            state=state,
+            frequency=frequency,
+            **thread_kwargs,
+        )
         self._ensure_thread_manager()._register_thread(thread, thread_id)
 
     @abstractmethod

@@ -162,20 +162,24 @@ user-visible-threads for UI, game logic, or other stateful work.
 
   - All other user-visible threads:
 
-    - Register with `ISession.register_thread(thread, thread_id)` during
-      `ISession.init`. Registering elsewhere raises an exception.
+    - Register with
+      `ISession.register_thread(thread_id, thread_type, state=..., frequency=..., ...)`
+      during `ISession.init`. Registering elsewhere raises an exception.
+      Arguments depend on the type of thread being registered; all arguments
+      from `state` onward are forwarded to the `IThread` implementation's
+      `__init__` method.
     - Tick at `IThread.frequency`.
     - Implement `IThread` or a subclass such as `UIThread` or `ImGUIThread`.
   
   - All user-visible threads:
-    - Communicate through
-      `IThread.invoke_async(thread_id, lambda state: ...)`, where `state` is the
-      target thread's `IThread.state` (typed by `IThread.StateT`). The method
-      adds a message to that thread's `message_queue`. The thread snapshots and
-      processes the queue before its next `step`.
+    - Communicate through `IThread.invoke_async` from a user-visible-thread to another user-visible-thread:
+      `invoke_async(thread_id, lambda state: ...)`, where `state` is the target thread's
+      `IThread.state` (typed by `IThread.StateT`). This method adds a message to
+      a threads `message_queue`.
+    - Message queue processes via: 1. Snapshot the queue, 2. Processing the snapshot, 3. Clearing the processed messages.
     - Fetch a thread's last-presented frame through
-      `IThread.get_last_presented_frame`, for example for
-      `ImGUIThread.draw_frame`.
+      `IThread.get_last_presented_frame`. This can be used with `ImGUIThread.draw_frame` to paint the last-presented frame of
+      another user-visible-thread (like the model-generation-thread) onto ImGUI UI elements.
 
 ### Lifecycle
 
@@ -205,7 +209,7 @@ Each user-visible thread:
 1. Snapshot `message_queue` and process the snapshot.
 2. Read new user events from `event_buffer`.
 3. End the thread if it receives a close event.
-4. If `ISession` triggered a reset, call `IThread.reset`.
+4. If detected that a reset was triggered, call `IThread.reset`.
 5. Wait as needed to maintain `IThread.frequency`.
 6. End the thread if a close event was set while waiting.
 7. Run `IThread.step`.
@@ -236,9 +240,6 @@ class GameState:
         self.score += 1
 
 class GameThread(IThread[GameState]):
-    def __init__(self) -> None:
-        super().__init__(state=GameState(), frequency=60)
-
     def step(self, step_index, events):
         ...
 
@@ -248,27 +249,50 @@ class GameThread(IThread[GameState]):
 
 class MySession(ISession):
     def init(self) -> None:
-        self.register_thread(GameThread(...), GAME_THREAD_ID)
+        self.register_thread(
+            GAME_THREAD_ID,
+            GameThread,
+            state=GameState(),
+            frequency=60,
+        )
         ...
 
     def step(self, step_index, events) -> StepResult:
         # Send message from model-generation-thread to game-thread via invoke_async.
-        self.game_thread.invoke_async(
+        self.invoke_async(
             GAME_THREAD_ID,
             lambda state: state.increment_score(),
         )
         ...
 ```
 
+`register_thread` constructs the requested `IThread` subclass, and registers it.
+All arguments from `state` and beyond are forwarded unchanged to the constructor
+of the used `IThread` subclass.
+For example, an `ImGUIThread` registration also has in its constructor `output_layout`, `width`, and `height`:
+
+```python
+self.register_thread(
+    UI_THREAD_ID,
+    MyImGUIThread,
+    state=UIState(),
+    frequency=self.session_desc.frames_per_second_for_ui,
+    output_layout=self.session_desc.output_layout,
+    width=self.session_desc.video_width,
+    height=self.session_desc.video_height,
+)
+```
+
 `frequency` is a required non-negative integer giving the maximum number of step
 starts per second. Zero means unbounded. Each user-visible-thread has its own `step_index`,
 which returns to zero after reset. `SessionDesc.frames_per_second_for_step`
 supplies this value only for the model-generation-thread; every user-visible-thread
-supplies its own value when constructed.
+supplies its own value when registered.
 
-`IThread.invoke_async` puts a fire-and-forget `Message` in the target user-visible-thread's
-thread-safe queue. The operation receives the user-visible-thread's state, must return
-`None`, and runs before the next `step`/`step_ui` of that user-visible-thread.
+`IThread.invoke_async` puts a fire-and-forget `Message`
+in the target user-visible-thread's `message_queue`, snapshotting and processing the queue 
+before the next `step`/`step_ui` of that user-visible-thread.
+
 
 An operation that raises or returns a value other than `None` fails the user-visible-thread
 and triggers shutdown of the entire session. Message queue operations that have not started

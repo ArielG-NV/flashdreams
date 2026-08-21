@@ -99,13 +99,6 @@ class MessageSession(ISession):
             (1, 3, session_desc.video_height, session_desc.video_width),
             dtype=torch.float32,
         )
-        self._ui_thread = MessageImGUIThread(
-            state=MessageState(),
-            frequency=session_desc.frames_per_second_for_ui,
-            output_layout=session_desc.output_layout,
-            width=session_desc.video_width,
-            height=session_desc.video_height,
-        )
 
     @property
     def session_desc(self) -> SessionDesc:
@@ -113,16 +106,24 @@ class MessageSession(ISession):
         return self._session_desc
 
     def init(self) -> None:
-        """Register the message-receiving UI worker."""
-        self.register_thread(self._ui_thread, _IMGUI_THREAD_ID)
+        """Construct and register the message-receiving UI worker."""
+        self.register_thread(
+            _IMGUI_THREAD_ID,
+            MessageImGUIThread,
+            state=MessageState(),
+            frequency=self._session_desc.frames_per_second_for_ui,
+            output_layout=self._session_desc.output_layout,
+            width=self._session_desc.video_width,
+            height=self._session_desc.video_height,
+        )
 
     def step(self, step_index: int, events: UserInputEvents) -> StepResult:
         """Send a UI update when this iteration receives a W state change."""
         state = _last_w_key_state(events)
         if state is KeyboardInputState.Pressed:
-            self._ui_thread.invoke_async(_IMGUI_THREAD_ID, _mark_w_pressed)
+            self.invoke_async(_IMGUI_THREAD_ID, _mark_w_pressed)
         elif state is KeyboardInputState.Released:
-            self._ui_thread.invoke_async(_IMGUI_THREAD_ID, _mark_w_released)
+            self.invoke_async(_IMGUI_THREAD_ID, _mark_w_released)
         return StepResult(
             step_index=step_index,
             output=self._output,

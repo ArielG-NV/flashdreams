@@ -19,7 +19,7 @@ import pytest
 import torch
 from imgui_demo.app import DemoImGUIThread, ImGUIDemoSession, ImGUIDemoState
 from imgui_demo.frame_sharing_app import FrameSharingSession
-from imgui_demo.message_app import MessageSession
+from imgui_demo.message_app import MessageImGUIThread, MessageSession
 from imgui_demo.runner import _parse_args, _session_desc
 from numpy import uint64
 
@@ -95,6 +95,8 @@ def test_frame_sharing_hides_model_frame_and_rotates_colors() -> None:
 def test_message_demo_disables_model_presentation_and_updates_ui_by_message() -> None:
     session = MessageSession(_session().session_desc)
     session.init()
+    ui_thread = session._ensure_thread_manager()._get_thread(1)
+    assert isinstance(ui_thread, MessageImGUIThread)
     events = UserInputEvents(
         [
             UserInputEvent(
@@ -107,10 +109,10 @@ def test_message_demo_disables_model_presentation_and_updates_ui_by_message() ->
     )
 
     result = session.step(0, events)
-    session._ui_thread._run_message_batch()
+    ui_thread._run_message_batch()
 
     assert result.presentation_mode is PresentationMode.disablePresentation
-    assert session._ui_thread.state.status == "W is Pressed"
+    assert ui_thread.state.status == "W is Pressed"
 
     release_events = UserInputEvents(
         [
@@ -123,9 +125,9 @@ def test_message_demo_disables_model_presentation_and_updates_ui_by_message() ->
         ]
     )
     session.step(1, release_events)
-    session._ui_thread._run_message_batch()
+    ui_thread._run_message_batch()
 
-    assert session._ui_thread.state.status == "W is not Pressed"
+    assert ui_thread.state.status == "W is not Pressed"
 
 
 def test_init_registers_imgui_as_auxiliary_thread() -> None:

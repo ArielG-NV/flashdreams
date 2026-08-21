@@ -103,13 +103,6 @@ class FrameSharingSession(ISession):
         self._frames = tuple(
             _solid_frame(rgb, session_desc, device=device) for rgb in _RGB_COLORS
         )
-        self._ui_thread = FrameSharingImGUIThread(
-            state=FrameSharingState(image_size=_image_size(session_desc)),
-            frequency=session_desc.frames_per_second_for_ui,
-            output_layout=session_desc.output_layout,
-            width=session_desc.video_width,
-            height=session_desc.video_height,
-        )
 
     @property
     def session_desc(self) -> SessionDesc:
@@ -117,8 +110,16 @@ class FrameSharingSession(ISession):
         return self._session_desc
 
     def init(self) -> None:
-        """Register the frame-sharing UI worker."""
-        self.register_thread(self._ui_thread, _IMGUI_THREAD_ID)
+        """Construct and register the frame-sharing UI worker."""
+        self.register_thread(
+            _IMGUI_THREAD_ID,
+            FrameSharingImGUIThread,
+            state=FrameSharingState(image_size=_image_size(self._session_desc)),
+            frequency=self._session_desc.frames_per_second_for_ui,
+            output_layout=self._session_desc.output_layout,
+            width=self._session_desc.video_width,
+            height=self._session_desc.video_height,
+        )
 
     def step(self, step_index: int, events: UserInputEvents) -> StepResult:
         """Return the color selected for this model iteration."""

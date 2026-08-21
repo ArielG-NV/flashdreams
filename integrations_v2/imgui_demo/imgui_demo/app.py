@@ -99,14 +99,15 @@ class ImGUIDemoSession(ISession):
 
     def init(self) -> None:
         """Register the ImGui worker before the runtime freezes registration."""
-        ui_thread = DemoImGUIThread(
+        self.register_thread(
+            _IMGUI_THREAD_ID,
+            DemoImGUIThread,
             state=ImGUIDemoState(),
             frequency=self.session_desc.frames_per_second_for_ui,
             output_layout=self._session_desc.output_layout,
             width=self._session_desc.video_width,
             height=self._session_desc.video_height,
         )
-        self.register_thread(ui_thread, _IMGUI_THREAD_ID)
 
     def step(self, step_index: int, events: UserInputEvents) -> StepResult:
         """Return a result that skips model-frame presentation work."""
