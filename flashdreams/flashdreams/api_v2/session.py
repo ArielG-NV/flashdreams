@@ -4,14 +4,10 @@
 """Application session abstract interface."""
 
 from abc import abstractmethod
-from collections.abc import Callable
 from typing import Any, final
 
 from flashdreams.api_v2.thread import IThread
-from flashdreams.runtime_v2.internal_session import (
-    _MAIN_GENERATION_THREAD_ID,
-    InternalSession,
-)
+from flashdreams.runtime_v2.internal_session import InternalSession
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -32,62 +28,19 @@ class ISession(InternalSession):
     """
 
     @final
-    def register_thread(self, thread_type: IThread[Any], thread_id: int) -> None:
-        """Register one auxiliary worker under ``id``.
+    def register_thread(self, thread: IThread[Any], thread_id: int) -> None:
+        """Register one auxiliary worker.
 
         Args:
-            thread_type: Constructed worker to run with this session.
+            thread: Constructed worker to run with this session.
             thread_id: Positive session-unique identifier. Zero is reserved.
 
         Raises:
-            RuntimeError: The session has started running.
-            TypeError: ``thread_id`` is not an integer or ``thread_type`` is invalid.
+            RuntimeError: The session has started or ``thread`` has a parent.
+            TypeError: ``thread`` or ``thread_id`` has an invalid type.
             ValueError: ``thread_id`` is reserved, negative, or already registered.
         """
-        self._ensure_thread_registry()
-        if self._thread_registry_frozen:
-            raise RuntimeError("Cannot register a thread after the session starts.")
-        if not isinstance(thread_type, IThread):
-            raise TypeError("thread_type must be an IThread instance.")
-        if isinstance(thread_id, bool) or not isinstance(thread_id, int):
-            raise TypeError("thread_id must be an integer.")
-        if thread_id == _MAIN_GENERATION_THREAD_ID:
-            raise ValueError("Thread ID 0 is reserved for main generation.")
-        if thread_id < 0:
-            raise ValueError("Thread IDs must be >= 0.")
-        if thread_id in self._threads:
-            raise ValueError(f"Thread ID {thread_id} is already registered.")
-        self._threads[thread_id] = thread_type
-
-    @staticmethod
-    @final
-    def get_main_generation_thread_id() -> int:
-        """Return the reserved main-generation thread identifier."""
-        return _MAIN_GENERATION_THREAD_ID
-
-    @final
-    def invoke_async(
-        self,
-        thread_id: int,
-        operation: Callable[[Any], None],
-    ) -> None:
-        """Schedule a state operation on one registered worker.
-
-        Runs before the next `step`/`step_ui` of the target thread.
-
-        Args:
-            thread_id: Identifier of the worker that owns the state.
-            operation: Callable applied to the worker-owned state.
-
-        Raises:
-            KeyError: No worker is registered under ``thread_id``.
-        """
-        self._ensure_thread_registry()
-        try:
-            thread = self._threads[thread_id]
-        except KeyError as error:
-            raise KeyError(f"No thread is registered with ID {thread_id}.") from error
-        thread.invoke_async(operation)
+        self._ensure_thread_manager()._register_thread(thread, thread_id)
 
     @abstractmethod
     def init(self) -> None:

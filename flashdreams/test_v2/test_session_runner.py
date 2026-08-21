@@ -13,6 +13,7 @@ from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.thread import IThread
 from flashdreams.api_v2.user_input_event_data import UserInputEventData
 from flashdreams.runtime_v2 import session_runner as session_runner_module
+from flashdreams.runtime_v2 import thread_manager as thread_manager_module
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.session_runner import (
     WhenFull,
@@ -177,6 +178,39 @@ def test_main_generation_runs_on_reserved_worker_and_presents_latest() -> None:
     assert log.threads_for("session.step") == {"flashdreams-session-0"}
     assert window.results
     assert torch.all(window.results[-1].output == 2.0)
+    manager = session._ensure_thread_manager()
+    main_thread = manager._freeze()[0]
+    presented = main_thread.get_last_presented_frame(
+        main_thread.get_model_generation_thread_id()
+    )
+    assert presented is not None
+    assert presented.shape == (3, 2, 2)
+    assert torch.all(presented == 2.0)
+
+
+def test_last_presented_frame_is_none_before_compositing() -> None:
+    session = FakeSession(_session_desc(), CallLog())
+    session._register_main_generation_thread()
+    main_thread = session._ensure_thread_manager()._freeze()[0]
+
+    assert main_thread.get_last_presented_frame(0) is None
+    with pytest.raises(KeyError, match="No thread"):
+        main_thread.get_last_presented_frame(99)
+
+
+def test_last_presented_frame_does_not_cross_generations() -> None:
+    session = FakeSession(_session_desc(), CallLog())
+    session._register_main_generation_thread()
+    manager = session._ensure_thread_manager()
+    main_thread = manager._freeze()[0]
+    frame = torch.zeros((3, 2, 2))
+    main_thread._set_last_presented_frame(0, frame)
+
+    assert main_thread.get_last_presented_frame(0) is frame
+
+    manager._set_generation(1)
+
+    assert main_thread.get_last_presented_frame(0) is None
 
 
 def test_window_calls_stay_on_the_io_thread() -> None:
@@ -245,7 +279,7 @@ def test_reset_discards_in_flight_output_and_restarts_step_index() -> None:
     assert all(result.step_index >= 0 for result in window.results)
 
 
-def test_auxiliary_thread_receives_async_state_operations() -> None:
+def test_auxiliary_thread_receives_async_state_operation() -> None:
     log = CallLog()
     operation_thread: list[str] = []
     operation_done = threading.Event()
@@ -269,7 +303,7 @@ def test_auxiliary_thread_receives_async_state_operations() -> None:
                 state["value"] = 7
                 operation_done.set()
 
-            self.invoke_async(1, update)
+            auxiliary.invoke_async(1, update)
 
         def step(self, step_index: int, events: UserInputEvents) -> StepResult:
             assert operation_done.wait(timeout=2)
@@ -281,7 +315,7 @@ def test_auxiliary_thread_receives_async_state_operations() -> None:
     assert operation_thread == ["flashdreams-session-1"]
 
 
-def test_session_registry_reserves_zero_and_rejects_duplicate_ids() -> None:
+def test_session_registration_reserves_zero_and_rejects_duplicate_ids() -> None:
     log = CallLog()
 
     class Auxiliary(IThread[None]):
@@ -296,17 +330,24 @@ def test_session_registry_reserves_zero_and_rejects_duplicate_ids() -> None:
     worker = Auxiliary(state=None, frequency=0)
     session.register_thread(worker, 1)
 
-    assert session.get_main_generation_thread_id() == 0
+    assert worker.get_model_generation_thread_id() == 0
+    with pytest.raises(TypeError, match="InternalThread"):
+        session.register_thread(object(), 2)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="thread_id"):
+        session.register_thread(Auxiliary(state=None, frequency=0), True)
     with pytest.raises(ValueError, match="reserved"):
         session.register_thread(Auxiliary(state=None, frequency=0), 0)
     with pytest.raises(ValueError, match="already registered"):
         session.register_thread(Auxiliary(state=None, frequency=0), 1)
 
 
-def test_session_declares_worker_management_as_public_api() -> None:
+def test_thread_management_is_exposed_only_through_public_interfaces() -> None:
     assert "register_thread" in ISession.__dict__
-    assert "get_main_generation_thread_id" in ISession.__dict__
-    assert "invoke_async" in ISession.__dict__
+    assert "thread_manager" not in ISession.__dict__
+    assert "invoke_async" in IThread.__dict__
+    assert "get_model_generation_thread_id" in IThread.__dict__
+    assert "get_last_presented_frame" in IThread.__dict__
+    assert not hasattr(thread_manager_module, "ThreadManager")
 
 
 def test_message_operation_cannot_return_a_value() -> None:
@@ -324,14 +365,15 @@ def test_message_operation_cannot_return_a_value() -> None:
     class Session(FakeSession):
         def init(self) -> None:
             super().init()
-            self.register_thread(Auxiliary(state=None, frequency=0), 1)
+            auxiliary = Auxiliary(state=None, frequency=0)
+            self.register_thread(auxiliary, 1)
 
             def invalid_operation(state: None) -> Any:
                 del state
                 operation_called.set()
                 return 1
 
-            self.invoke_async(1, invalid_operation)
+            auxiliary.invoke_async(1, invalid_operation)
 
         def step(self, step_index: int, events: UserInputEvents) -> StepResult:
             operation_called.wait(timeout=2)
@@ -390,16 +432,19 @@ def test_disabled_auxiliary_frame_leaves_main_frame_visible() -> None:
     class Session(FakeSession):
         def init(self) -> None:
             super().init()
-            self.register_thread(Disabled(state=None, frequency=0), 1)
+            self.disabled = Disabled(state=None, frequency=0)
+            self.register_thread(self.disabled, 1)
 
         def step(self, step_index: int, events: UserInputEvents) -> StepResult:
             auxiliary_ready.wait(timeout=2)
             return _result(step_index, 3.0)
 
     window = RecordingWindow(log)
-    run_session(Session(_session_desc(), log), window, steps=1)
+    session = Session(_session_desc(), log)
+    run_session(session, window, steps=1)
 
     assert torch.all(window.results[-1].output == 3.0)
+    assert session.disabled.get_last_presented_frame(1) is None
 
 
 def test_auxiliary_frame_is_presented_while_main_generation_is_blocked() -> None:
@@ -566,7 +611,7 @@ def test_partly_initialized_session_is_closed_without_opening_window() -> None:
             super().init()
             self.worker = NeverStarted(state=None, frequency=0)
             self.register_thread(self.worker, 1)
-            self.invoke_async(1, lambda state: None)
+            self.worker.invoke_async(1, lambda state: None)
             raise RuntimeError("init failed")
 
     session = FailingSession(_session_desc(), log)
@@ -576,7 +621,7 @@ def test_partly_initialized_session_is_closed_without_opening_window() -> None:
     assert log.calls == ["session.init", "session.close"]
     assert session.worker._message_queue.empty()
     with pytest.raises(RuntimeError, match="shutting down"):
-        session.invoke_async(1, lambda state: None)
+        session.worker.invoke_async(1, lambda state: None)
 
 
 @pytest.mark.parametrize("fail_at", ["open", "close"])

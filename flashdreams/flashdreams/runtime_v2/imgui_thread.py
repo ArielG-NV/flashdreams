@@ -95,6 +95,16 @@ class ImGUIThread(UIThread[StateT], ABC):
         """Return the CUDA frame after the renderer signals completion."""
         return self._renderer.wait_for_cuda_frame(frame)
 
+    @final
+    def draw_frame(
+        self,
+        imgui: Any,
+        frame: Tensor,
+        size: tuple[float, float],
+    ) -> None:
+        """Draw a normalized video frame as a Dear ImGui image."""
+        self._renderer.draw_frame(imgui, frame, size)
+
     def reset(self) -> None:
         """Reset renderer input state for a new session generation."""
         self._renderer.reset()
@@ -141,6 +151,8 @@ class SlangPyImGUIRenderer:
         self._rgba_tensor: Tensor | None = None
         self._rgba_buffer_size = 0
         self._rgba_row_pitch = 0
+        self._image_texture: Any | None = None
+        self._image_texture_ref: Any | None = None
         self._has_rendered = False
 
     def render(
@@ -215,6 +227,45 @@ class SlangPyImGUIRenderer:
         alpha = rgba[3:4].mul_(1.0 / 255.0)
         return torch.cat((color, alpha), dim=0).unsqueeze(0)
 
+    def draw_frame(
+        self,
+        imgui: Any,
+        frame: Tensor,
+        size: tuple[float, float],
+    ) -> None:
+        """Draw a video frame as a Dear ImGui image.
+
+        Args:
+            imgui: Dear ImGui module used by the active render callback.
+            frame: Read-only ``[C, H, W]`` frame with color in ``[-1, 1]``.
+            size: Display width and height in pixels.
+
+        Raises:
+            RuntimeError: Called outside an active renderer callback.
+            ValueError: ``frame`` is not a supported image shape.
+        """
+        if self._device is None or self._imgui_backend is None:
+            raise RuntimeError("draw_frame() must be called from draw_ui().")
+        rgba = _frame_to_rgba8(frame)
+        height, width = rgba.shape[:2]
+        texture = self._image_texture
+        if texture is None or (texture.width, texture.height) != (width, height):
+            self._release_image_texture()
+            assert self._slangpy is not None
+            texture = self._device.create_texture(
+                format=self._slangpy.Format.rgba8_unorm,
+                width=width,
+                height=height,
+                usage=self._slangpy.TextureUsage.shader_resource,
+                data=rgba.numpy(),
+                label="flashdreams_imgui_image",
+            )
+            self._image_texture = texture
+            self._image_texture_ref = self._imgui_backend.texture_ref(texture)
+        else:
+            texture.copy_from_numpy(rgba.numpy())
+        imgui.image(self._image_texture_ref, size)
+
     def reset(self) -> None:
         """Release held input state before the next generation."""
         if self._imgui is None or self._imgui_context is None:
@@ -231,6 +282,7 @@ class SlangPyImGUIRenderer:
             self._device.wait_for_idle()
         if self._imgui is not None and self._imgui_context is not None:
             self._imgui.destroy_context(self._imgui_context)
+        self._release_image_texture()
         self._imgui_context = None
         self._rgba_tensor = None
         self._rgba_buffer = None
@@ -239,6 +291,12 @@ class SlangPyImGUIRenderer:
         self._target = None
         self._ui_context = None
         self._device = None
+
+    def _release_image_texture(self) -> None:
+        if self._image_texture_ref is not None and self._imgui_backend is not None:
+            self._imgui_backend._release_texture(self._image_texture_ref.get_tex_id())
+        self._image_texture_ref = None
+        self._image_texture = None
 
     def _ensure_initialized(self) -> None:
         if self._device is not None:
@@ -351,6 +409,27 @@ def _route_input_events(
                 io.add_mouse_button_event(data.button, data.pressed)
             elif data.action == "wheel":
                 io.add_mouse_wheel_event(data.wheel_x, data.wheel_y)
+
+
+def _frame_to_rgba8(frame: Tensor) -> Tensor:
+    """Convert one normalized video frame to CPU ``[H, W, 4]`` bytes."""
+    if frame.ndim != 3 or frame.shape[0] not in (1, 3, 4):
+        raise ValueError("An ImGui image must have shape [C, H, W] for C in {1, 3, 4}.")
+    color = frame[:3]
+    if color.shape[0] == 1:
+        color = color.repeat(3, 1, 1)
+    color = color.to(torch.float32).clamp(-1.0, 1.0).add(1.0).mul(127.5)
+    if frame.shape[0] == 4:
+        alpha = frame[3:4].to(torch.float32).clamp(0.0, 1.0).mul(255.0)
+    else:
+        alpha = torch.full_like(color[:1], 255.0)
+    return (
+        torch.cat((color, alpha), dim=0)
+        .permute(1, 2, 0)
+        .round_()
+        .to(device="cpu", dtype=torch.uint8)
+        .contiguous()
+    )
 
 
 def _resolve_imgui_key(imgui: Any, key: str) -> Any | None:

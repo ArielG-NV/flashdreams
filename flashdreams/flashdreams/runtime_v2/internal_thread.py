@@ -11,12 +11,17 @@ import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Generic, TypeVar, final
+from typing import TYPE_CHECKING, Generic, TypeVar, final
+
+from torch import Tensor
 
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import CloseUserInputEventData
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
+
+if TYPE_CHECKING:
+    from flashdreams.runtime_v2.thread_manager import _ThreadManager
 
 StateT = TypeVar("StateT")
 
@@ -35,6 +40,14 @@ class _LatestStep:
 
     generation: int
     result: StepResult
+
+
+@dataclass(frozen=True, slots=True)
+class _PresentedFrame:
+    """Presented frame plus the session generation that selected it."""
+
+    generation: int
+    frame: Tensor
 
 
 class InternalThread(ABC, Generic[StateT]):
@@ -61,10 +74,23 @@ class InternalThread(ABC, Generic[StateT]):
         self.latest_step: StepResult | None = None
         self._message_queue: queue.Queue[Message[StateT]] = queue.Queue()
         self._latest: _LatestStep | None = None
+        self._last_presented_frame: _PresentedFrame | None = None
         self._latest_lock = threading.Lock()
         self._lifecycle_lock = threading.Lock()
         self._accepting_messages = True
         self._native_thread: threading.Thread | None = None
+        self._thread_manager: _ThreadManager | None = None
+
+    @final
+    def _get_thread_manager(self) -> _ThreadManager:
+        """Return the runtime manager that owns this thread.
+
+        Raises:
+            RuntimeError: The thread has not been registered.
+        """
+        if self._thread_manager is None:
+            raise RuntimeError("Thread has not been registered with a manager.")
+        return self._thread_manager
 
     @abstractmethod
     def step(self, step_index: int, events: UserInputEvents) -> StepResult:
@@ -77,8 +103,8 @@ class InternalThread(ABC, Generic[StateT]):
         ...
 
     @final
-    def invoke_async(self, operation: Callable[[StateT], None]) -> None:
-        """Schedule an operation to run on this worker before its next `step`/`step_ui`.
+    def _enqueue_message(self, operation: Callable[[StateT], None]) -> None:
+        """Queue an operation to run before the next ``step`` or ``step_ui``.
 
         Args:
             operation: Callable that receives the worker-owned state.
@@ -144,6 +170,7 @@ class InternalThread(ABC, Generic[StateT]):
                     break
                 if read_generation != generation:
                     self.reset()
+                    self._clear_last_presented_frame()
                     step_index = 0
                     generation = read_generation
                 if self._is_finished():
@@ -199,6 +226,31 @@ class InternalThread(ABC, Generic[StateT]):
         """Return the latest completed step and its generation."""
         with self._latest_lock:
             return self._latest
+
+    @final
+    def _bind_thread_manager(self, thread_manager: _ThreadManager) -> None:
+        """Bind this thread to its parent manager."""
+        if self._thread_manager is not None:
+            raise RuntimeError("Thread is already registered with a manager.")
+        self._thread_manager = thread_manager
+
+    @final
+    def _set_last_presented_frame(self, generation: int, frame: Tensor) -> None:
+        """Record the frame most recently selected by the compositor."""
+        with self._latest_lock:
+            self._last_presented_frame = _PresentedFrame(generation, frame)
+
+    @final
+    def _snapshot_last_presented_frame(self) -> _PresentedFrame | None:
+        """Return the frame most recently selected by the compositor."""
+        with self._latest_lock:
+            return self._last_presented_frame
+
+    @final
+    def _clear_last_presented_frame(self) -> None:
+        """Discard the frame retained from the previous generation."""
+        with self._latest_lock:
+            self._last_presented_frame = None
 
     @final
     def _join(self) -> None:

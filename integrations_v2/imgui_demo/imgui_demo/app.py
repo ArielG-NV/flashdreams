@@ -23,7 +23,6 @@ from dataclasses import dataclass
 from typing import Any
 
 import torch
-from imgui_bundle import imgui
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
@@ -42,16 +41,12 @@ _IMGUI_THREAD_ID = 1
 
 @dataclass(slots=True)
 class ImGUIDemoState:
-    """Values edited by the demo widgets on the UI worker."""
+    """Button state owned by the UI worker."""
 
-    enabled: bool = True
-    """Whether the demo option is enabled."""
-    gain: float = 0.5
-    """Value controlled by the mouse-driven slider."""
-    text: str = "Type here"
-    """Value controlled by keyboard input while the text box is active."""
     clicks: int = 0
     """Number of times the button has been activated."""
+    text: str = ""
+    """Text input."""
 
 
 class DemoImGUIThread(ImGUIThread[ImGUIDemoState]):
@@ -63,38 +58,23 @@ class DemoImGUIThread(ImGUIThread[ImGUIDemoState]):
         step_index: int,
         events: UserInputEvents,
     ) -> None:
-        """Draw widgets that exercise mouse, wheel, keyboard, and text input."""
+        """Draw one button and its click count."""
         del step_index, events
-        ui = imgui
-        ui.set_next_window_pos((24, 24), ui.Cond_.once)
-        ui.set_next_window_size((460, 330), ui.Cond_.once)
-        ui.begin("FlashDreams ImGui input demo")
-        ui.text("Thread 0 is disabled; this window is rendered by thread 1.")
-        ui.separator()
-        changed, enabled = ui.checkbox("Enabled", self.state.enabled)
-        if changed:
-            self.state.enabled = enabled
-        changed, gain = ui.slider_float("Gain", self.state.gain, 0.0, 1.0)
-        if changed:
-            self.state.gain = gain
-        changed, text = ui.input_text("Text", self.state.text)
+        imgui.set_next_window_pos((16, 16), imgui.Cond_.once)
+        imgui.set_next_window_size((180, 80), imgui.Cond_.once)
+        imgui.begin("ImGui demo")
+        if imgui.button("Click"):
+            self.state.clicks += 1
+
+        imgui.same_line()
+        imgui.text(f"{self.state.clicks}")
+        changed, text = imgui.input_text("Text input", self.state.text)
         if changed:
             self.state.text = text
-        if ui.button("Count click"):
-            self.state.clicks += 1
-        ui.same_line()
-        ui.text(f"Clicks: {self.state.clicks}")
-        ui.text_wrapped(
-            "Try pointer movement, every mouse button, the wheel, keyboard "
-            "navigation, and text entry. The browser forwards each input to ImGui."
-        )
-        ui.end()
+        imgui.end()
 
     def reset(self) -> None:
         """Restore widget values for a new generation."""
-        self.state.enabled = True
-        self.state.gain = 0.5
-        self.state.text = "Type here"
         self.state.clicks = 0
         super().reset()
 
@@ -129,14 +109,14 @@ class ImGUIDemoSession(ISession):
 
     def init(self) -> None:
         """Register the ImGui worker before the runtime freezes registration."""
-        _ui_thread = DemoImGUIThread(
+        ui_thread = DemoImGUIThread(
             state=ImGUIDemoState(),
             frequency=self.session_desc.frames_per_second_for_ui,
             output_layout=self._session_desc.output_layout,
             width=self._session_desc.video_width,
             height=self._session_desc.video_height,
         )
-        self.register_thread(_ui_thread, _IMGUI_THREAD_ID)
+        self.register_thread(ui_thread, _IMGUI_THREAD_ID)
 
     def step(self, step_index: int, events: UserInputEvents) -> StepResult:
         """Return an explicitly disabled main-generation result."""
@@ -159,11 +139,8 @@ class ImGUIDemoApplication(IApplication):
 
     def init(self, commandline_args: Sequence[str]) -> None:
         """Reject application-specific arguments."""
-        parser = argparse.ArgumentParser(
-            prog="imgui-demo",
-            description="Draw an interactive Dear ImGui input window.",
-        )
-        parser.parse_args(list(commandline_args))
+        if commandline_args:
+            raise ValueError("The ImGui demo takes no application arguments.")
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
         """Create one uninitialized ImGui demo session."""

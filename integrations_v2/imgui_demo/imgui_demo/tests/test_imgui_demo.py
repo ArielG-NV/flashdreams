@@ -49,7 +49,7 @@ def test_init_registers_imgui_as_auxiliary_thread() -> None:
     session = _session()
 
     session.init()
-    threads = session._freeze_thread_registry()
+    threads = session._ensure_thread_manager()._freeze()
 
     assert list(threads) == [1]
     assert threads[1].frequency == session.session_desc.frames_per_second_for_ui

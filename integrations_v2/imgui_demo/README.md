@@ -3,16 +3,15 @@ SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All 
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# ImGui Demo
+# ImGui Demos
 
-Minimal v2 integration with no model output. Main-generation thread `0` returns
-an explicitly disabled `StepResult`; auxiliary thread `1` draws a Dear ImGui
-window and supplies the only visible layer.
+Two small v2 UI examples:
 
-The browser forwards normalized pointer movement, mouse buttons, wheel input,
-keyboard edges, and focus changes. Printable key presses feed the active text
-widget selected by a mouse click. The window includes a
-checkbox, slider, text field, and button so each input path can be exercised.
+- `imgui-demo-webrtc` renders one button from auxiliary thread `1` while thread
+  `0` is disabled.
+- `imgui-frame-sharing-webrtc` shows thread `0`'s last-presented frame inside an
+  ImGui window. The UI worker reads the frame and sends a color-change message
+  back to the model-generation worker through the `IThread` API.
 
 ## Usage
 

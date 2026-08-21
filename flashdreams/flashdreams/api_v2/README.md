@@ -6,8 +6,8 @@ SPDX-License-Identifier: Apache-2.0
 # FlashDreams v2 API
 
 `IApplication` creates one `ISession` for each run. The session implements the
-main generation `step` and may register independent `IThread` workers for UI,
-game logic, or other stateful work.
+main generation `step` and may register independent `IThread` workers such as
+UI, game logic, or other stateful work.
 
 ## Ownership
 
@@ -16,10 +16,11 @@ game logic, or other stateful work.
   reserved worker ID `0`.
 - `ISession` defines no constructor, so application sessions keep complete
   control of their own construction. Its worker registry initializes lazily.
-- An auxiliary worker owns its typed `state`. Other threads mutate that state by
-  calling `ISession.invoke_async(thread_id, operation)`.
+- `ISession.register_thread` registers auxiliary workers during `init`.
+- An auxiliary worker owns its typed `state`. A registered worker can mutate
+  another worker's state by calling `IThread.invoke_async(thread_id, operation)`.
 - The runtime owns native threads, event fan-out, frame compositing, and the
-  `IClientWindow`.
+  `IClientWindow`, including the internal worker registry and communication.
 - Only the I/O thread opens, reads, writes, or closes the client window.
 
 ## Session workers
@@ -54,17 +55,22 @@ which returns to zero after reset. `SessionDesc.frames_per_second_for_step`
 supplies this value only for the main-generation worker; every auxiliary worker
 supplies its own value when constructed.
 
-`invoke_async` puts a fire-and-forget `Message` in the worker's thread-safe
-queue. The operation receives the worker-owned state, must return `None`, and
-runs before the next `step`/`step_ui` of that thread:
+`IThread.invoke_async` puts a fire-and-forget `Message` in the target worker's
+thread-safe queue. The operation receives the worker-owned state, must return
+`None`, and runs before the next `step`/`step_ui` of that worker:
 
 ```python
-session.invoke_async(game_thread_id, lambda state: state.reset_score())
+self.invoke_async(game_thread_id, lambda state: state.reset_score())
 ```
 
 An operation that raises, or returns a value other than `None`, fails the worker
 and shuts down the session. Queued operations that have not started when the
 session stops are discarded.
+
+`IThread.get_model_generation_thread_id` returns the reserved model-generation
+worker ID. `IThread.get_last_presented_frame` returns a shared, read-only
+`[C, H, W]` tensor, or `None` until the target worker has contributed an enabled
+frame to the current generation. Unknown worker IDs raise `KeyError`.
 
 ## Input events
 
@@ -86,7 +92,8 @@ required rendering synchronization.
 `SlangPyImGUIRenderer`, so an application subclass only supplies the render
 dimensions and implements `draw_ui` and any application-state reset.
 The renderer owns the ImGui context, external-memory buffer, and synchronization
-details on the UI worker.
+details on the UI worker. `ImGUIThread.draw_frame` places a normalized
+`[C, H, W]` video frame inside the active ImGui layout.
 
 Each worker publishes its `latest_step` independently. At every I/O tick, the
 runtime snapshots the latest current-generation result from each worker, selects
@@ -108,7 +115,8 @@ synchronous consumer and needs no capacity API.
 `run_session` performs this sequence:
 
 1. Register the main generation adapter as thread `0`.
-2. Call `ISession.init`, where auxiliary workers may be registered.
+2. Call `ISession.init`, where auxiliary workers may be registered with
+   `ISession.register_thread`.
 3. Freeze registration, open the window, and collect initial input.
 4. Start every worker and run the I/O loop.
 5. On close, main-step completion, or failure, request shutdown.

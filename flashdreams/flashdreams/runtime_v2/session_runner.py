@@ -118,10 +118,11 @@ def run_session(
         raise ValueError(f"max_pending must be > 0, got {max_pending}.")
 
     session._register_main_generation_thread()
+    thread_manager = session._ensure_thread_manager()
     try:
         session.init()
     except Exception:
-        session._stop_threads()
+        thread_manager._stop()
         session.close()
         raise
 
@@ -131,7 +132,7 @@ def run_session(
     opened = threading.Event()
     workers_started = threading.Event()
     main_finished = threading.Event()
-    failures: queue.Queue[Exception] = queue.Queue()
+    failures: queue.Queue[BaseException] = queue.Queue()
     io_failures: queue.Queue[Exception] = queue.Queue()
     tick_seconds = 1.0 / session.session_desc.frames_per_second_for_ui
     presentation_buffer = _PresentationBuffer(max_pending, when_full)
@@ -140,6 +141,7 @@ def run_session(
     def read_input() -> None:
         events = window.get_user_input_events()
         event_buffer.append(events)
+        thread_manager._set_generation(event_buffer.generation)
         if _contains(events, CloseUserInputEventData):
             stop.set()
 
@@ -158,9 +160,10 @@ def run_session(
                 event_buffer.collect_garbage()
                 main_was_finished = main_finished.is_set()
 
-                composite = session._composite_next(
+                composite = thread_manager._composite_next(
                     event_buffer.generation,
                     presentation_index,
+                    session.session_desc.output_layout,
                 )
                 if composite is not None:
                     dropped_frames += presentation_buffer.push(
@@ -190,7 +193,7 @@ def run_session(
         # Before we start threads working on the window we should wait for the window to be opened.
         opened.wait()
         if io_failures.empty() and not stop.is_set():
-            session._start_threads(
+            thread_manager._start(
                 event_buffer=event_buffer,
                 stop=stop,
                 failure=failures,
@@ -208,7 +211,7 @@ def run_session(
     finally:
         stop.set()
         io_thread.join()
-        session._stop_threads()
+        thread_manager._stop()
         event_buffer.clear()
 
         try:
