@@ -95,9 +95,9 @@ def run_session(
     max_pending: int = 2,
     when_full: WhenFull = WhenFull.BLOCK,
 ) -> None:
-    """Run one session and its workers against one client window.
+    """Run one session and its user_visible_threads against one client window.
 
-    Thread zero delegates to :meth:`ISession.step`. Auxiliary workers registered
+    Thread zero delegates to :meth:`ISession.step`. Auxiliary user_visible_threads registered
     by :meth:`ISession.init` run independently at their own frequencies. The I/O
     thread owns the window, fans each input event out to every worker, and
     composites their latest enabled frames in ascending thread-ID order.
@@ -117,7 +117,7 @@ def run_session(
     if max_pending <= 0:
         raise ValueError(f"max_pending must be > 0, got {max_pending}.")
 
-    session._register_main_generation_thread()
+    session._register_model_generation_thread()
     thread_manager = session._ensure_thread_manager()
     try:
         session.init()
@@ -130,7 +130,7 @@ def run_session(
 
     stop = threading.Event()
     opened = threading.Event()
-    workers_started = threading.Event()
+    user_visible_threads_started = threading.Event()
     main_finished = threading.Event()
     failures: queue.Queue[BaseException] = queue.Queue()
     io_failures: queue.Queue[Exception] = queue.Queue()
@@ -138,14 +138,14 @@ def run_session(
     presentation_buffer = _PresentationBuffer(max_pending, when_full)
     dropped_frames = 0
 
-    def read_input() -> None:
-        events = window.get_user_input_events()
-        event_buffer.append(events)
-        thread_manager._set_generation(event_buffer.generation)
-        if _contains(events, CloseUserInputEventData):
-            stop.set()
-
     def run_io() -> None:
+        def read_input() -> None:
+            events = window.get_user_input_events()
+            event_buffer.append(events)
+            thread_manager._set_generation(event_buffer.generation)
+            if _contains(events, CloseUserInputEventData):
+                stop.set()
+
         nonlocal dropped_frames
         presentation_index = 0
         try:
@@ -153,8 +153,8 @@ def run_session(
             read_input()
             opened.set()
 
-            # Before we start trying to read input and composite frames we should wait for the workers to be started.
-            workers_started.wait()
+            # Before we start trying to read input and composite frames we should wait for the user_visible_threads to be started.
+            user_visible_threads_started.wait()
             while not stop.wait(tick_seconds):
                 read_input()
                 event_buffer.collect_garbage()
@@ -180,7 +180,7 @@ def run_session(
             stop.set()
         finally:
             opened.set()
-            workers_started.set()
+            user_visible_threads_started.set()
             try:
                 window.close()
             except Exception as error:
@@ -204,7 +204,7 @@ def run_session(
         failures.put(error)
         stop.set()
     finally:
-        workers_started.set()
+        user_visible_threads_started.set()
 
     try:
         _join_interruptibly(io_thread)

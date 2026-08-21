@@ -48,7 +48,7 @@ class InternalSession(ABC):
         return self._thread_manager
 
     @final
-    def _register_main_generation_thread(self) -> None:
+    def _register_model_generation_thread(self) -> None:
         """Register the adapter that runs :meth:`step` as the main thread."""
         manager = self._ensure_thread_manager()
         manager._register_main_thread(

@@ -191,7 +191,7 @@ def test_main_generation_runs_on_reserved_worker_and_presents_latest() -> None:
 
 def test_last_presented_frame_is_none_before_compositing() -> None:
     session = FakeSession(_session_desc(), CallLog())
-    session._register_main_generation_thread()
+    session._register_model_generation_thread()
     main_thread = session._ensure_thread_manager()._freeze()[0]
 
     assert main_thread.get_last_presented_frame(0) is None
@@ -201,7 +201,7 @@ def test_last_presented_frame_is_none_before_compositing() -> None:
 
 def test_last_presented_frame_does_not_cross_generations() -> None:
     session = FakeSession(_session_desc(), CallLog())
-    session._register_main_generation_thread()
+    session._register_model_generation_thread()
     manager = session._ensure_thread_manager()
     main_thread = manager._freeze()[0]
     frame = torch.zeros((3, 2, 2))
