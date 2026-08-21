@@ -38,7 +38,7 @@ UI, game logic, or other stateful work.
     - Register thread to launch with `ISession::register_thread(thread, thread_id)` inside `ISession::init` via `register_thread`. Trying to register in a different portion of `ISession` will trigger an exception.
     - Tick rate of thread is set by `IThread::frequency`.
     - Thread is implemented via providing a `IThread` or derivative like `UIThread`/ImGUIThread.
-    - Threads communicate via `IThread::invoke_async(thread_id, lambda state: ...)`, where `state` is filled with a reference to `IThread::state` (typed via `IThread::StateT`) of the specified `thread_id`. `IThread::invoke_async` adds a message to the `message_queue` of the thread named `thread_id`. `message_queue` for a thread drains before its next `step` method starts (unless already processing a `message_queue`).
+    - Threads communicate via `IThread::invoke_async(thread_id, lambda state: ...)`, where `state` is filled with a reference to `IThread::state` (typed via `IThread::StateT`) of the specified `thread_id`. `IThread::invoke_async` adds a message to the `message_queue` of the thread named `thread_id`. `message_queue` for a thread is snapshotted and then processes the snapshot before its next `step` method starts.
     - Fetch a threads last-presented-frame via `IThread::get_last_presented_frame`. Useful for drawing the thread's latest frame in a UI thread (`ImGUIThread::draw_frame`).
 
 ## Step-By-Step Of Our Threading Model Lifecycle
@@ -66,7 +66,7 @@ Drain/present from presentation_buffer
 
 **In any user-visible-thread**
 [On loop]
-Drain message_queue
+Snapshot message_queue & process the snapshot
 Read from event_buffer new user events
 End thread if we see a `program-close` user event
 If ISesion triggered a `reset`, call `IThread::reset`.
