@@ -64,7 +64,7 @@ def run_session(
         raise ValueError(f"max_pending must be > 0, got {max_pending}.")
 
     thread_manager = session._ensure_thread_manager()
-    presentation_cordinator = session._ensure_presentation_cordinator(
+    presentation_cordinator = session.get_presentation_cordinator(
         max_pending=max_pending,
         when_full=when_full,
     )
@@ -119,12 +119,12 @@ def run_session(
                     layer_order,
                 )
                 for result in presentable:
-                    dropped_frames += presentation_cordinator.push(
+                    dropped_frames += presentation_cordinator._push(
                         result,
                         window.write,
                     )
                     presentation_index += 1
-                presentation_cordinator.drain(window.write)
+                presentation_cordinator._drain(window.write)
 
                 if model_generation_was_finished:
                     stop.set()

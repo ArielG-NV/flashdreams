@@ -68,5 +68,12 @@ class InternalSession(ABC):
             **thread_kwargs,
         )
 
+    @staticmethod
+    def _reject_thread_id_argument(thread_kwargs: dict[str, Any]) -> None:
+        if "thread_id" in thread_kwargs:
+            raise TypeError(
+                "thread_id cannot be specified; registration assigns it automatically."
+            )
+
 
 __all__ = ["InternalSession"]

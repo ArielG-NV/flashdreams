@@ -46,12 +46,11 @@ class SessionDesc:
                 "SessionDesc.frames_per_second_for_ui must be > 0 when set."
             )
         if (
-            isinstance(self.frames_per_second_for_step, bool)
-            or not isinstance(self.frames_per_second_for_step, int)
-            or self.frames_per_second_for_step < 0
+            not math.isfinite(self.frames_per_second_for_step)
+            or self.frames_per_second_for_step <= 0
         ):
             raise ValueError(
-                "SessionDesc.frames_per_second_for_step must be an integer >= 0."
+                "SessionDesc.frames_per_second_for_step must be > 0 when set."
             )
         if self.video_width <= 0:
             raise ValueError("SessionDesc.video_width must be > 0 when set.")

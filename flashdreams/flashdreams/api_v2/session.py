@@ -136,13 +136,6 @@ class ISession(InternalSession):
         """
         self._ensure_thread_manager()._set_layer_order_via_thread_id(thread_id_list)
 
-    @staticmethod
-    def _reject_thread_id_argument(thread_kwargs: dict[str, Any]) -> None:
-        if "thread_id" in thread_kwargs:
-            raise TypeError(
-                "thread_id cannot be specified; registration assigns it automatically."
-            )
-
     @abstractmethod
     def init(self) -> None:
         """Load the model and anything else this run needs.

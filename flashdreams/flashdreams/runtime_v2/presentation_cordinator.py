@@ -74,6 +74,24 @@ class PresentedFrame:
 class PresentationCordinator:
     """Coordinate presentation for the lifetime of one session."""
 
+    def get_last_presented_frame(self, thread_id: int) -> PresentedFrame:
+        """Return the read-only last-presented-frame handle for ``thread_id``.
+
+        Args:
+            thread_id: Identifier of the registered user-visible-thread.
+
+        Returns:
+            Stable handle whose :meth:`PresentedFrame.get` method
+            reads the current underlying frame.
+
+        Raises:
+            KeyError: No user-visible-thread is registered under ``thread_id``.
+        """
+        try:
+            return self._containers[thread_id][0]
+        except KeyError as error:
+            raise KeyError(f"No thread is registered with ID {thread_id}.") from error
+
     def __init__(
         self,
         max_pending: int = 2,
@@ -93,25 +111,7 @@ class PresentationCordinator:
         self._generation = 0
         self._configure(max_pending, when_full)
 
-    def get_last_presented_frame(self, thread_id: int) -> PresentedFrame:
-        """Return the read-only last-presented-frame handle for ``thread_id``.
-
-        Args:
-            thread_id: Identifier of the registered user-visible-thread.
-
-        Returns:
-            Stable handle whose :meth:`PresentedFrame.get` method
-            reads the current underlying frame.
-
-        Raises:
-            KeyError: No user-visible-thread is registered under ``thread_id``.
-        """
-        try:
-            return self._containers[thread_id][0]
-        except KeyError as error:
-            raise KeyError(f"No thread is registered with ID {thread_id}.") from error
-
-    def push(
+    def _push(
         self,
         frame: StepResult,
         write: Callable[[StepResult], None],
@@ -137,7 +137,7 @@ class PresentationCordinator:
         self._frames.append(frame)
         return dropped
 
-    def drain(self, write: Callable[[StepResult], None]) -> None:
+    def _drain(self, write: Callable[[StepResult], None]) -> None:
         """Write every queued composite in presentation order."""
         while self._frames:
             write(self._frames.popleft())
