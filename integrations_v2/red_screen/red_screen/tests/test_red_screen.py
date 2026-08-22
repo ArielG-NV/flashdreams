@@ -139,7 +139,9 @@ def _new_session() -> RedScreenThread:
     app.init([])
     session = app.create_session(_session_desc())
     session.init()
-    model_generation_thread = session._ensure_thread_manager()._get_thread(0)
+    model_generation_thread = session._ensure_thread_manager()._get_thread(
+        session.main_generation_thread_id
+    )
     assert isinstance(model_generation_thread, RedScreenThread)
     return model_generation_thread
 
@@ -293,7 +295,9 @@ def test_reset_releases_the_held_key() -> None:
     app.init([])
     session = app.create_session(_session_desc())
     session.init()
-    model_generation_thread = session._ensure_thread_manager()._get_thread(0)
+    model_generation_thread = session._ensure_thread_manager()._get_thread(
+        session.main_generation_thread_id
+    )
     assert isinstance(model_generation_thread, RedScreenThread)
     assert _is_red(model_generation_thread.step(0, _key_event(pressed=True)))
 

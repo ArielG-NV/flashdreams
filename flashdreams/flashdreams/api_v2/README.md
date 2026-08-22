@@ -123,11 +123,11 @@ user-visible-threads for UI, game logic, or other stateful work.
 ### Thread model
 
 - `IApplication` lasts for the process and holds state shared by sessions.
-- `ISession` owns the session lifecycle, thread registry, and one
+- `ISession` owns the session lifecycle, its user-visible-threads, and one
   `PresentationCordinator` for the run. Call
   `ISession.get_presentation_cordinator` to access it.
-- The registered model-generation-thread executes on reserved
-  user-visible-thread ID `0`.
+- The registered model-generation-thread executes under its automatically
+  reserved, process-unique thread ID.
 - `ISession` defines `init` to register threads and `close` to clean-up any auxillary resources initialized in `init`.
 
 Program Threads:
@@ -145,7 +145,9 @@ Program Threads:
       subject to back-pressure.
       - The `run_session` `when_full` argument controls what happens when a
         frame is generated while the coordinator is full.
-    - When compositing a frame to present, Thread ID `0` is the bottom layer, followed by ID `1`, and so on.
+    - `ISession.init` must call
+      `set_layer_order_via_thread_id(thread_id_list)` after registration. Index
+      zero is the bottom layer and the final index is the top layer.
     - When compositing, queue up frames for lossless presentation if only model-generation-thread is present. This is primarily for testing purposes where visual consistency is important.
 
 - `user-visible-threads`:
@@ -153,17 +155,18 @@ Program Threads:
   - `model-generation-thread`:
 
     - Is an `IThread` explicitly registered by `ISession.init` through
-      `ISession.register_model_generation_thread`.
-    - Reserves thread ID `0` for itself, returned by
-      `IThread.get_model_generation_thread_id`.
+      `ISession.register_main_generation_thread`.
+    - Has its automatically assigned ID available as
+      `ISession.main_generation_thread_id` and as the registration return value.
     - Ticks `step` at rate of
       `SessionDesc.frames_per_second_for_step`.
 
   - All user-visible-threads except for the model-generation-thread:
 
     - Register with
-      `ISession.register_thread(thread_id, thread_type, state=..., frequency=..., ...)`
+      `ISession.register_thread(thread_type, state=..., frequency=..., ...)`
       during `ISession.init`. Registering elsewhere raises an exception.
+      Registration automatically reserves and returns a process-unique thread ID.
       Arguments depend on the type of thread being registered; all arguments
       from `state` onward are forwarded to the `IThread` implementation's
       `__init__` method.
@@ -171,17 +174,19 @@ Program Threads:
     - Register via implementing `IThread` or a subclass such as `UIThread` or `ImGUIThread`. Refer to `integrations_v2\imgui_demo\imgui_demo\app.py` for an example.
 
   - All user-visible-threads:
-    - Communicate through `IThread.invoke_async` from a user-visible-thread to another user-visible-thread:
-      `invoke_async(thread_id, lambda state: ...)`, where `state` is the target thread's
+    - Communicate only through
+      `flashdreams.invoke_async(thread_id, lambda state: ...)`, where `state` is the target thread's
       `IThread.state` (typed by `IThread.StateT`). This method adds a message to
-      a threads `message_queue`.
+      a thread's `message_queue`. The process-wide lookup holds a weak reference;
+      the owning `ISession` controls the target thread's lifetime.
     - Message queue processes via: 1. Snapshot the queue, 2. Processing the snapshot, 3. Clearing the processed messages.
     - After the source thread is registered, obtain its stable, read-only
       `PresentedFrame` handle during `ISession.init` through
       `ISession.get_presentation_cordinator().get_last_presented_frame(thread_id)`.
       Pass the handle to another user-visible-thread and call `get` to paint the
       source thread's frame with `ImGUIThread.draw_frame`.
-    - ISession can `invoke_async` to queue up 'start-up' messages in `init` for user-visible-threads to execute before their first `step` call.
+    - `flashdreams.invoke_async` can queue startup messages in `ISession.init`
+      for user-visible-threads to execute before their first `step` call.
 
 ### Lifecycle
 
@@ -238,12 +243,10 @@ Implement `IThread` and register it from `ISession.init`:
 ```python
 from dataclasses import dataclass
 
+from flashdreams import invoke_async
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.thread import IThread
 from flashdreams.runtime_v2.step_result import StepResult
-
-# This is the ID of the game thread.
-GAME_THREAD_ID = 1
 
 # GameState is the state of the game thread.
 @dataclass
@@ -261,11 +264,16 @@ class GameThread(IThread[GameState]):
         self.state.score = 0
 
 
-class ModelThread(IThread[None]):
+@dataclass(frozen=True)
+class ModelState:
+    game_thread_id: int
+
+
+class ModelThread(IThread[ModelState]):
     def step(self, step_index, events) -> StepResult:
         # Send a message from the model-generation-thread to the game-thread.
-        self.invoke_async(
-            GAME_THREAD_ID,
+        invoke_async(
+            self.state.game_thread_id,
             lambda state: state.increment_score(),
         )
         ...
@@ -273,33 +281,46 @@ class ModelThread(IThread[None]):
 
 class MySession(ISession):
     def init(self) -> None:
-        self.register_model_generation_thread(ModelThread, state=self)
-        self.register_thread(
-            GAME_THREAD_ID,
+        game_thread_id = self.register_thread(
             GameThread,
             state=GameState(),
             frequency=60,
         )
+        main_generation_thread_id = self.register_main_generation_thread(
+            ModelThread,
+            state=ModelState(game_thread_id=game_thread_id),
+        )
+        self.set_layer_order_via_thread_id(
+            [main_generation_thread_id, game_thread_id]
+        )
         ...
 ```
 
-Both registration methods construct the requested `IThread` subclass and
-register it. `register_model_generation_thread` derives its frequency from
+Both registration methods construct the requested `IThread` subclass, reserve
+an ID with `flashdreams.reserve_thread_id()`, register it, and return that ID.
+Callers cannot supply a thread ID to either registration method.
+`register_main_generation_thread` derives its frequency from
 `SessionDesc.frames_per_second_for_step`; `register_thread` accepts an explicit
 frequency.
+After registering every thread, `ISession.init` must call
+`set_layer_order_via_thread_id` with every returned ID exactly once. The list is
+the explicit bottom-to-top compositing order and is unrelated to numeric ID
+order.
 All arguments from `state` and beyond are forwarded unchanged to the constructor
 of the used `IThread` subclass.
 For example, an `ImGUIThread` registration also has in its constructor `output_layout`, `width`, and `height`:
 
 ```python
-self.register_thread(
-    UI_THREAD_ID,
+ui_thread_id = self.register_thread(
     MyImGUIThread,
     state=UIState(),
     frequency=self.session_desc.frames_per_second_for_ui,
     output_layout=self.session_desc.output_layout,
     width=self.session_desc.video_width,
     height=self.session_desc.video_height,
+)
+self.set_layer_order_via_thread_id(
+    [self.main_generation_thread_id, ui_thread_id]
 )
 ```
 
@@ -309,7 +330,7 @@ which returns to zero after reset. `SessionDesc.frames_per_second_for_step`
 supplies this value only for the model-generation-thread; every user-visible-thread
 supplies its own value when registered.
 
-`IThread.invoke_async` puts a fire-and-forget `Message`
+`flashdreams.invoke_async` puts a fire-and-forget `Message`
 in the target user-visible-thread's `message_queue`, snapshotting and processing the queue
 before the next `step`/`step_ui` of that user-visible-thread.
 
@@ -318,7 +339,7 @@ An operation that raises or returns a value other than `None` fails the user-vis
 and triggers shutdown of the entire session. Message queue operations that have not started
 when the session stops are discarded.
 
-`IThread.get_model_generation_thread_id` returns the reserved
+`ISession.main_generation_thread_id` exposes the automatically assigned
 model-generation-thread ID. Thread registration also registers that thread with
 the session's presentation coordinator. After registration,
 `ISession.get_presentation_cordinator().get_last_presented_frame(thread_id)`
@@ -331,19 +352,23 @@ For example, a session can pass the model-generation-thread's handle into an
 ImGui-thread's state while registering that thread:
 
 ```python
-model_frame = (
-    self.get_presentation_cordinator().get_last_presented_frame(
-        self.get_model_generation_thread_id()
-    )
+main_generation_thread_id = self.register_main_generation_thread(
+    ModelThread,
+    state=model_state,
 )
-self.register_thread(
-    UI_THREAD_ID,
+model_frame = self.get_presentation_cordinator().get_last_presented_frame(
+    main_generation_thread_id
+)
+ui_thread_id = self.register_thread(
     MyImGUIThread,
     state=UIState(model_frame=model_frame),
     frequency=self.session_desc.frames_per_second_for_ui,
     output_layout=self.session_desc.output_layout,
     width=self.session_desc.video_width,
     height=self.session_desc.video_height,
+)
+self.set_layer_order_via_thread_id(
+    [main_generation_thread_id, ui_thread_id]
 )
 ```
 
@@ -379,10 +404,12 @@ its latest frame, and applies its `PresentationMode`:
 - `DISABLE_PRESENTATION` skips frame extraction, `PresentedFrame` updates, and
   final frame composition for presentation.
 
-Visible frames composite by ascending thread ID: ID `0` is the bottom layer,
-then ID `1`, and so on. RGB layers are opaque; RGBA layers use their alpha
-channel. Compositing follows `frames_per_second_for_ui` even while the
-model-generation-thread has no new frame.
+Visible frames composite in the exact order supplied to
+`ISession.set_layer_order_via_thread_id`: index zero is the bottom layer and the
+final index is the top layer. Numeric thread-ID order has no effect. RGB layers
+are opaque; RGBA layers use their alpha channel. Compositing follows
+`frames_per_second_for_ui` even while the model-generation-thread has no new
+frame.
 
 For sessions with additional user-visible-threads, the compositor eagerly emits
 one frame in the session's declared layout. For sessions with only a

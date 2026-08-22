@@ -59,7 +59,10 @@ class FakeSession(ISession):
         self.observed_events: list[UserInputEvents] = []
 
     def init(self) -> None:
-        self.register_model_generation_thread(FakeModelThread, state=self)
+        main_generation_thread_id = self.register_main_generation_thread(
+            FakeModelThread, state=self
+        )
+        self.set_layer_order_via_thread_id([main_generation_thread_id])
 
     @property
     def session_desc(self) -> SessionDesc:

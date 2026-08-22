@@ -12,6 +12,7 @@ import pytest
 import torch
 from numpy import uint64
 
+from flashdreams import invoke_async, reserve_thread_id
 from flashdreams.api_v2.thread import IThread
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.step_result import StepResult
@@ -63,7 +64,9 @@ def _event(
 
 def _manager_for(thread: RecordingThread) -> _ThreadManager:
     manager = _ThreadManager()
-    manager._register_model_generation_thread(thread)
+    thread_id = reserve_thread_id()
+    manager._register_main_generation_thread(thread, thread_id)
+    manager._set_layer_order_via_thread_id([thread_id])
     return manager
 
 
@@ -91,8 +94,9 @@ def test_invoke_async_runs_a_message_before_the_next_step() -> None:
     thread = RecordingThread(0)
     manager = _manager_for(thread)
 
+    thread_id = manager._get_main_generation_thread_id()
     assert (
-        thread.invoke_async(0, lambda thread_state: thread_state.append("message"))
+        invoke_async(thread_id, lambda thread_state: thread_state.append("message"))
         is None
     )
     failures = _run(manager)
@@ -110,7 +114,7 @@ def test_message_cannot_return_a_value() -> None:
     def invalid_message(_thread_state: list[str]) -> None:
         return cast(None, "not allowed")
 
-    thread.invoke_async(0, invalid_message)
+    invoke_async(manager._get_main_generation_thread_id(), invalid_message)
     failures = _run(manager)
 
     error = failures.get_nowait()

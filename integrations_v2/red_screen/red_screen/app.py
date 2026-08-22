@@ -138,13 +138,14 @@ class RedScreenSession(ISession):
 
     def init(self) -> None:
         """Register a model-generation-thread starting on a black frame."""
-        self.register_model_generation_thread(
+        main_generation_thread_id = self.register_main_generation_thread(
             RedScreenThread,
             state=RedScreenState(
                 config=self._config,
                 session_desc=self._session_desc,
             ),
         )
+        self.set_layer_order_via_thread_id([main_generation_thread_id])
 
     @property
     def session_desc(self) -> SessionDesc:

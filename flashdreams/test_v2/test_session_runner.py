@@ -3,13 +3,17 @@
 
 """CPU tests for the v2 threaded session runner."""
 
+import gc
+import inspect
 import threading
+import weakref
 from typing import Any
 
 import pytest
 import torch
 from numpy import uint64
 
+from flashdreams import invoke_async, reserve_thread_id
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.thread import IThread
@@ -92,7 +96,10 @@ class FakeSession(ISession):
 
     def init(self) -> None:
         self._log.record("session.init")
-        self.register_model_generation_thread(SessionModelThread, state=self)
+        main_generation_thread_id = self.register_main_generation_thread(
+            SessionModelThread, state=self
+        )
+        self.set_layer_order_via_thread_id([main_generation_thread_id])
 
     def step(self, step_index: int, events: UserInputEvents) -> StepResult:
         self._log.record(f"session.step({step_index})")
@@ -200,7 +207,7 @@ def test_model_generation_runs_on_reserved_thread_and_presents_latest() -> None:
     assert torch.all(window.results[-1].output == 2.0)
     presented = (
         session.get_presentation_cordinator()
-        .get_last_presented_frame(session.get_model_generation_thread_id())
+        .get_last_presented_frame(session.main_generation_thread_id)
         .get()
     )
     assert presented is not None
@@ -212,10 +219,17 @@ def test_last_presented_frame_is_none_before_compositing() -> None:
     session = FakeSession(_session_desc(), CallLog())
     session.init()
     presentation_cordinator = session.get_presentation_cordinator()
-    container = presentation_cordinator.get_last_presented_frame(0)
+    container = presentation_cordinator.get_last_presented_frame(
+        session.main_generation_thread_id
+    )
 
     assert container.get() is None
-    assert presentation_cordinator.get_last_presented_frame(0) is container
+    assert (
+        presentation_cordinator.get_last_presented_frame(
+            session.main_generation_thread_id
+        )
+        is container
+    )
     assert {name for name in dir(container) if not name.startswith("_")} == {"get"}
     with pytest.raises(KeyError, match="No thread"):
         presentation_cordinator.get_last_presented_frame(99)
@@ -225,9 +239,13 @@ def test_last_presented_frame_does_not_cross_generations() -> None:
     session = FakeSession(_session_desc(), CallLog())
     session.init()
     presentation_cordinator = session.get_presentation_cordinator()
-    container = presentation_cordinator.get_last_presented_frame(0)
+    container = presentation_cordinator.get_last_presented_frame(
+        session.main_generation_thread_id
+    )
     frame = torch.zeros((3, 2, 2))
-    presentation_cordinator._record_last_presented_frame(0, frame)
+    presentation_cordinator._record_last_presented_frame(
+        session.main_generation_thread_id, frame
+    )
 
     assert container.get() is frame
 
@@ -267,9 +285,10 @@ def test_delayed_user_visible_thread_keeps_input_collected_during_startup(
     observed_event_data: list[UserInputEventData] = []
     original_run = InternalThread._run
     original_collect_garbage = EventBuffer.collect_garbage
+    additional_thread_id: int | None = None
 
     def delayed_run(user_visible_thread: InternalThread[Any], **kwargs: Any) -> None:
-        if kwargs["thread_id"] == 1:
+        if kwargs["thread_id"] == additional_thread_id:
             assert allow_additional_thread_to_run.wait(timeout=2)
         original_run(user_visible_thread, **kwargs)
 
@@ -299,8 +318,14 @@ def test_delayed_user_visible_thread_keeps_input_collected_during_startup(
 
     class Session(FakeSession):
         def init(self) -> None:
+            nonlocal additional_thread_id
             super().init()
-            self.register_thread(1, AdditionalThread, state=None, frequency=0)
+            additional_thread_id = self.register_thread(
+                AdditionalThread, state=None, frequency=0
+            )
+            self.set_layer_order_via_thread_id(
+                [self.main_generation_thread_id, additional_thread_id]
+            )
 
         def step(self, step_index: int, events: UserInputEvents) -> StepResult:
             assert additional_thread_observed_input.wait(timeout=2)
@@ -383,11 +408,13 @@ def test_additional_user_visible_thread_receives_async_state_operation() -> None
     class Session(FakeSession):
         def init(self) -> None:
             super().init()
-            self.register_thread(
-                1,
+            additional_thread_id = self.register_thread(
                 AdditionalThread,
                 state={"value": 0},
                 frequency=0,
+            )
+            self.set_layer_order_via_thread_id(
+                [self.main_generation_thread_id, additional_thread_id]
             )
 
             def update(state: dict[str, int]) -> None:
@@ -395,7 +422,7 @@ def test_additional_user_visible_thread_receives_async_state_operation() -> None
                 state["value"] = 7
                 operation_done.set()
 
-            self.invoke_async(1, update)
+            invoke_async(additional_thread_id, update)
 
         def step(self, step_index: int, events: UserInputEvents) -> StepResult:
             assert operation_done.wait(timeout=2)
@@ -404,10 +431,16 @@ def test_additional_user_visible_thread_receives_async_state_operation() -> None
     session = Session(_session_desc(), log)
     run_session(session, RecordingWindow(log), steps=1)
 
-    assert operation_thread == ["flashdreams-user-visible-thread-1"]
+    additional_thread_ids = set(session._ensure_thread_manager()._freeze()) - {
+        session.main_generation_thread_id
+    }
+    assert len(additional_thread_ids) == 1
+    assert operation_thread == [
+        f"flashdreams-user-visible-thread-{additional_thread_ids.pop()}"
+    ]
 
 
-def test_session_registration_reserves_zero_and_rejects_duplicate_ids() -> None:
+def test_session_registration_allocates_and_returns_thread_id() -> None:
     log = CallLog()
 
     class AdditionalThread(IThread[None]):
@@ -419,30 +452,61 @@ def test_session_registration_reserves_zero_and_rejects_duplicate_ids() -> None:
             return
 
     session = FakeSession(_session_desc(), log)
-    result = session.register_thread(1, AdditionalThread, state=None, frequency=0)
-    additional_thread = session._ensure_thread_manager()._get_thread(1)
+    thread_id = session.register_thread(AdditionalThread, state=None, frequency=0)
+    additional_thread = session._ensure_thread_manager()._get_thread(thread_id)
 
-    assert result is None
+    assert isinstance(thread_id, int)
     assert isinstance(additional_thread, AdditionalThread)
-    assert additional_thread.get_model_generation_thread_id() == 0
     invalid_thread_type: Any = object
     with pytest.raises(TypeError, match="IThread subclass"):
-        session.register_thread(2, invalid_thread_type, state=None, frequency=0)
-    with pytest.raises(TypeError, match="thread_id"):
-        session.register_thread(True, AdditionalThread, state=None, frequency=0)
-    with pytest.raises(ValueError, match="reserved"):
-        session.register_thread(0, AdditionalThread, state=None, frequency=0)
-    with pytest.raises(ValueError, match="already registered"):
-        session.register_thread(1, AdditionalThread, state=None, frequency=0)
+        session.register_thread(invalid_thread_type, state=None, frequency=0)
+    with pytest.raises(TypeError, match="thread_id cannot be specified"):
+        session.register_thread(
+            AdditionalThread,
+            state=None,
+            frequency=0,
+            thread_id=reserve_thread_id(),
+        )
+    with pytest.raises(TypeError, match="thread_id cannot be specified"):
+        session.register_main_generation_thread(
+            SessionModelThread,
+            state=session,
+            thread_id=reserve_thread_id(),
+        )
 
 
-def test_model_generation_registration_uses_zero_and_session_frequency() -> None:
+def test_global_async_registry_does_not_own_registered_thread() -> None:
+    class AdditionalThread(IThread[None]):
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            del events
+            return _result(step_index, 0.0)
+
+        def reset(self) -> None:
+            return
+
+    session = FakeSession(_session_desc(), CallLog())
+    thread_id = session.register_thread(AdditionalThread, state=None, frequency=0)
+    thread_reference = weakref.ref(
+        session._ensure_thread_manager()._get_thread(thread_id)
+    )
+
+    del session
+    gc.collect()
+
+    assert thread_reference() is None
+    with pytest.raises(KeyError, match="No thread"):
+        invoke_async(thread_id, lambda state: None)
+
+
+def test_main_generation_registration_tracks_id_and_session_frequency() -> None:
     session = FakeSession(_session_desc(), CallLog())
 
-    result = session.register_model_generation_thread(SessionModelThread, state=session)
-    model_generation_thread = session._ensure_thread_manager()._get_thread(0)
+    thread_id = session.register_main_generation_thread(
+        SessionModelThread, state=session
+    )
+    model_generation_thread = session._ensure_thread_manager()._get_thread(thread_id)
 
-    assert result is None
+    assert session.main_generation_thread_id == thread_id
     assert isinstance(model_generation_thread, SessionModelThread)
     assert model_generation_thread.state is session
     assert (
@@ -450,7 +514,7 @@ def test_model_generation_registration_uses_zero_and_session_frequency() -> None
         == session.session_desc.frames_per_second_for_step
     )
     with pytest.raises(ValueError, match="already registered"):
-        session.register_model_generation_thread(SessionModelThread, state=session)
+        session.register_main_generation_thread(SessionModelThread, state=session)
 
 
 def test_model_generation_registration_rejects_invalid_thread_type() -> None:
@@ -458,10 +522,10 @@ def test_model_generation_registration_rejects_invalid_thread_type() -> None:
     invalid_thread_type: Any = object
 
     with pytest.raises(TypeError, match="IThread subclass"):
-        session.register_model_generation_thread(invalid_thread_type, state=session)
+        session.register_main_generation_thread(invalid_thread_type, state=session)
 
 
-def test_session_must_register_model_generation_thread_during_init() -> None:
+def test_session_must_register_main_generation_thread_during_init() -> None:
     log = CallLog()
 
     class MissingModelSession(FakeSession):
@@ -474,6 +538,65 @@ def test_session_must_register_model_generation_thread_during_init() -> None:
         run_session(session, RecordingWindow(log), steps=1)
 
     assert log.calls == ["session.init", "session.close"]
+
+
+def test_session_must_set_layer_order_during_init() -> None:
+    log = CallLog()
+
+    class MissingLayerOrderSession(FakeSession):
+        def init(self) -> None:
+            self._log.record("session.init")
+            self.register_main_generation_thread(SessionModelThread, state=self)
+
+    session = MissingLayerOrderSession(_session_desc(), log)
+
+    with pytest.raises(RuntimeError, match="set_layer_order_via_thread_id"):
+        run_session(session, RecordingWindow(log), steps=1)
+
+    assert log.calls == ["session.init", "session.close"]
+
+
+def test_layer_order_requires_every_registered_thread_exactly_once() -> None:
+    class AdditionalThread(IThread[None]):
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            del events
+            return _result(step_index, 0.0)
+
+        def reset(self) -> None:
+            return
+
+    session = FakeSession(_session_desc(), CallLog())
+    main_generation_thread_id = session.register_main_generation_thread(
+        SessionModelThread, state=session
+    )
+    additional_thread_id = session.register_thread(
+        AdditionalThread, state=None, frequency=0
+    )
+
+    invalid_thread_id_list: Any = (
+        main_generation_thread_id,
+        additional_thread_id,
+    )
+    with pytest.raises(TypeError, match="list of integers"):
+        session.set_layer_order_via_thread_id(invalid_thread_id_list)
+    with pytest.raises(ValueError, match="duplicate"):
+        session.set_layer_order_via_thread_id(
+            [main_generation_thread_id, main_generation_thread_id]
+        )
+    with pytest.raises(ValueError, match="missing"):
+        session.set_layer_order_via_thread_id([main_generation_thread_id])
+    with pytest.raises(ValueError, match="unknown"):
+        session.set_layer_order_via_thread_id(
+            [main_generation_thread_id, additional_thread_id, reserve_thread_id()]
+        )
+
+    session.set_layer_order_via_thread_id(
+        [additional_thread_id, main_generation_thread_id]
+    )
+    assert session._ensure_thread_manager()._get_layer_order() == (
+        additional_thread_id,
+        main_generation_thread_id,
+    )
 
 
 def test_session_registration_forwards_constructor_arguments() -> None:
@@ -504,8 +627,7 @@ def test_session_registration_forwards_constructor_arguments() -> None:
     session = FakeSession(_session_desc(), CallLog())
     state = {"value": 7}
 
-    result = session.register_thread(
-        1,
+    thread_id = session.register_thread(
         ConfiguredThread,
         state=state,
         frequency=30,
@@ -514,27 +636,32 @@ def test_session_registration_forwards_constructor_arguments() -> None:
         height=720,
         label="overlay",
     )
-    configured_thread = session._ensure_thread_manager()._get_thread(1)
+    configured_thread = session._ensure_thread_manager()._get_thread(thread_id)
 
-    assert result is None
     assert isinstance(configured_thread, ConfiguredThread)
     assert configured_thread.state is state
     assert configured_thread.frequency == 30
     assert configured_thread.output_layout is VideoTensorLayout.tchw
     assert (configured_thread.width, configured_thread.height) == (1280, 720)
     assert configured_thread.label == "overlay"
-    assert session._ensure_thread_manager()._freeze()[1] is configured_thread
+    assert session._ensure_thread_manager()._freeze()[thread_id] is configured_thread
 
 
 def test_thread_management_is_exposed_only_through_public_interfaces() -> None:
-    assert "register_model_generation_thread" in ISession.__dict__
-    assert "get_model_generation_thread_id" in ISession.__dict__
+    assert (
+        "thread_id"
+        not in inspect.signature(ISession.register_main_generation_thread).parameters
+    )
+    assert "thread_id" not in inspect.signature(ISession.register_thread).parameters
+    assert "register_main_generation_thread" in ISession.__dict__
+    assert "main_generation_thread_id" in ISession.__dict__
     assert "register_thread" in ISession.__dict__
-    assert "invoke_async" in ISession.__dict__
+    assert "set_layer_order_via_thread_id" in ISession.__dict__
+    assert "invoke_async" not in ISession.__dict__
     assert "get_presentation_cordinator" in ISession.__dict__
     assert "thread_manager" not in ISession.__dict__
-    assert "invoke_async" in IThread.__dict__
-    assert "get_model_generation_thread_id" in IThread.__dict__
+    assert "invoke_async" not in IThread.__dict__
+    assert "get_model_generation_thread_id" not in IThread.__dict__
     assert "get_last_presented_frame" not in IThread.__dict__
     assert not hasattr(thread_manager_module, "ThreadManager")
 
@@ -554,11 +681,13 @@ def test_message_operation_cannot_return_a_value() -> None:
     class Session(FakeSession):
         def init(self) -> None:
             super().init()
-            self.register_thread(
-                1,
+            message_target_thread_id = self.register_thread(
                 MessageTargetThread,
                 state=None,
                 frequency=0,
+            )
+            self.set_layer_order_via_thread_id(
+                [self.main_generation_thread_id, message_target_thread_id]
             )
 
             def invalid_operation(state: None) -> Any:
@@ -566,7 +695,7 @@ def test_message_operation_cannot_return_a_value() -> None:
                 operation_called.set()
                 return 1
 
-            self.invoke_async(1, invalid_operation)
+            invoke_async(message_target_thread_id, invalid_operation)
 
         def step(self, step_index: int, events: UserInputEvents) -> StepResult:
             operation_called.wait(timeout=2)
@@ -576,7 +705,7 @@ def test_message_operation_cannot_return_a_value() -> None:
         run_session(Session(_session_desc(), log), RecordingWindow(log), steps=1)
 
 
-def test_higher_thread_ids_alpha_composite_over_lower_ids() -> None:
+def test_explicit_layer_order_overrides_thread_id_order() -> None:
     log = CallLog()
     overlay_ready = threading.Event()
 
@@ -594,8 +723,15 @@ def test_higher_thread_ids_alpha_composite_over_lower_ids() -> None:
 
     class Session(FakeSession):
         def init(self) -> None:
-            super().init()
-            self.register_thread(1, Overlay, state=None, frequency=0)
+            self._log.record("session.init")
+            overlay_thread_id = self.register_thread(Overlay, state=None, frequency=0)
+            main_generation_thread_id = self.register_main_generation_thread(
+                SessionModelThread, state=self
+            )
+            assert overlay_thread_id < main_generation_thread_id
+            self.set_layer_order_via_thread_id(
+                [main_generation_thread_id, overlay_thread_id]
+            )
 
         def step(self, step_index: int, events: UserInputEvents) -> StepResult:
             overlay_ready.wait(timeout=2)
@@ -629,11 +765,16 @@ def test_disabled_presentation_skips_backbuffer_and_last_frame_update() -> None:
     class Session(FakeSession):
         def init(self) -> None:
             super().init()
-            self.register_thread(
-                1,
+            self.disabled_presentation_thread_id = self.register_thread(
                 DisabledPresentation,
                 state=None,
                 frequency=0,
+            )
+            self.set_layer_order_via_thread_id(
+                [
+                    self.main_generation_thread_id,
+                    self.disabled_presentation_thread_id,
+                ]
             )
 
         def step(self, step_index: int, events: UserInputEvents) -> StepResult:
@@ -646,7 +787,10 @@ def test_disabled_presentation_skips_backbuffer_and_last_frame_update() -> None:
 
     assert torch.all(window.results[-1].output == 3.0)
     assert (
-        session.get_presentation_cordinator().get_last_presented_frame(1).get() is None
+        session.get_presentation_cordinator()
+        .get_last_presented_frame(session.disabled_presentation_thread_id)
+        .get()
+        is None
     )
 
 
@@ -671,11 +815,16 @@ def test_hidden_presentation_updates_last_frame_without_affecting_backbuffer() -
     class Session(FakeSession):
         def init(self) -> None:
             super().init()
-            self.register_thread(
-                1,
+            self.hidden_presentation_thread_id = self.register_thread(
                 HiddenPresentation,
                 state=None,
                 frequency=0,
+            )
+            self.set_layer_order_via_thread_id(
+                [
+                    self.main_generation_thread_id,
+                    self.hidden_presentation_thread_id,
+                ]
             )
 
         def step(self, step_index: int, events: UserInputEvents) -> StepResult:
@@ -687,7 +836,11 @@ def test_hidden_presentation_updates_last_frame_without_affecting_backbuffer() -
     run_session(session, window, steps=1)
 
     assert torch.all(window.results[-1].output == 3.0)
-    hidden = session.get_presentation_cordinator().get_last_presented_frame(1).get()
+    hidden = (
+        session.get_presentation_cordinator()
+        .get_last_presented_frame(session.hidden_presentation_thread_id)
+        .get()
+    )
     assert hidden is not None
     assert torch.all(hidden == 9.0)
 
@@ -707,7 +860,12 @@ def test_additional_frame_is_presented_while_model_generation_is_blocked() -> No
     class Session(FakeSession):
         def init(self) -> None:
             super().init()
-            self.register_thread(1, AdditionalFrameThread, state=None, frequency=0)
+            additional_frame_thread_id = self.register_thread(
+                AdditionalFrameThread, state=None, frequency=0
+            )
+            self.set_layer_order_via_thread_id(
+                [self.main_generation_thread_id, additional_frame_thread_id]
+            )
 
         def step(self, step_index: int, events: UserInputEvents) -> StepResult:
             assert additional_frame_presented.wait(timeout=2)
@@ -847,14 +1005,15 @@ def test_user_visible_thread_shutdown_has_one_bounded_timeout() -> None:
         native_thread
     )
     manager = thread_manager_module._ThreadManager()
-    manager._register_thread(never_stopping_thread, 1)
+    thread_id = reserve_thread_id()
+    manager._register_thread(never_stopping_thread, thread_id)
 
-    with pytest.raises(TimeoutError, match=r"user-visible-threads.*\[1\]"):
+    with pytest.raises(TimeoutError, match=rf"user-visible-threads.*\[{thread_id}\]"):
         manager._stop(timeout_seconds=0)
 
     assert native_thread.timeout == 0
     with pytest.raises(RuntimeError, match="shutting down"):
-        never_stopping_thread.invoke_async(1, lambda state: None)
+        invoke_async(thread_id, lambda state: None)
 
 
 def test_partly_initialized_session_is_closed_without_opening_window() -> None:
@@ -871,25 +1030,26 @@ def test_partly_initialized_session_is_closed_without_opening_window() -> None:
     class FailingSession(FakeSession):
         def init(self) -> None:
             super().init()
-            self.register_thread(
-                1,
+            self.never_started_thread_id = self.register_thread(
                 NeverStarted,
                 state=None,
                 frequency=0,
             )
-            self.invoke_async(1, lambda state: None)
+            invoke_async(self.never_started_thread_id, lambda state: None)
             raise RuntimeError("init failed")
 
     session = FailingSession(_session_desc(), log)
     with pytest.raises(RuntimeError, match="init failed"):
         run_session(session, RecordingWindow(log), steps=1)
 
-    never_started_thread = session._ensure_thread_manager()._get_thread(1)
+    never_started_thread = session._ensure_thread_manager()._get_thread(
+        session.never_started_thread_id
+    )
     assert isinstance(never_started_thread, NeverStarted)
     assert log.calls == ["session.init", "session.close"]
     assert never_started_thread._message_queue.empty()
     with pytest.raises(RuntimeError, match="shutting down"):
-        never_started_thread.invoke_async(1, lambda state: None)
+        invoke_async(session.never_started_thread_id, lambda state: None)
 
 
 @pytest.mark.parametrize("fail_at", ["open", "close"])

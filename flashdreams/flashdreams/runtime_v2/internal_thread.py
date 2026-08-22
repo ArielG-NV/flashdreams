@@ -12,15 +12,12 @@ from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Generic, TypeVar, final
+from typing import Generic, TypeVar, final
 
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import CloseUserInputEventData
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
-
-if TYPE_CHECKING:
-    from flashdreams.runtime_v2.thread_manager import _ThreadManager
 
 StateT = TypeVar("StateT")
 
@@ -70,18 +67,6 @@ class InternalThread(ABC, Generic[StateT]):
         self._lifecycle_lock = threading.Lock()
         self._accepting_messages = True
         self._native_thread: threading.Thread | None = None
-        self._thread_manager: _ThreadManager | None = None
-
-    @final
-    def _get_thread_manager(self) -> _ThreadManager:
-        """Return the runtime manager that owns this thread.
-
-        Raises:
-            RuntimeError: The thread has not been registered.
-        """
-        if self._thread_manager is None:
-            raise RuntimeError("Thread has not been registered with a manager.")
-        return self._thread_manager
 
     @abstractmethod
     def step(self, step_index: int, events: UserInputEvents) -> StepResult:
@@ -239,13 +224,6 @@ class InternalThread(ABC, Generic[StateT]):
             pending = list(self._pending_steps)
             self._pending_steps.clear()
             return pending
-
-    @final
-    def _bind_thread_manager(self, thread_manager: _ThreadManager) -> None:
-        """Bind this thread to its parent manager."""
-        if self._thread_manager is not None:
-            raise RuntimeError("Thread is already registered with a manager.")
-        self._thread_manager = thread_manager
 
     @final
     def _clear_pending_steps(self) -> None:

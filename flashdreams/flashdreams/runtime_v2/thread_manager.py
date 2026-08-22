@@ -20,14 +20,11 @@ from __future__ import annotations
 import queue
 import threading
 import time
-from collections.abc import Callable
 from typing import Any, final
 
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.internal_thread import InternalThread
-
-_MODEL_GENERATION_THREAD_ID = 0
-"""Reserved identifier for the session's model-generation-thread."""
+from flashdreams.runtime_v2.thread_registry import _register_thread
 
 _THREAD_STOP_TIMEOUT_SECONDS = 30.0
 """Maximum total wait for all user-visible-threads to stop."""
@@ -38,12 +35,16 @@ class _ThreadManager:
 
     def __init__(self) -> None:
         self._threads: dict[int, InternalThread[Any]] = {}
+        self._main_generation_thread_id: int | None = None
+        self._layer_order: tuple[int, ...] | None = None
         self._registry_frozen = False
 
     @final
-    def _get_model_generation_thread_id(self) -> int:
-        """Return the reserved model-generation-thread identifier."""
-        return _MODEL_GENERATION_THREAD_ID
+    def _get_main_generation_thread_id(self) -> int:
+        """Return the registered model-generation-thread identifier."""
+        if self._main_generation_thread_id is None:
+            raise RuntimeError("No model-generation-thread has been registered.")
+        return self._main_generation_thread_id
 
     @final
     def _register_thread(
@@ -51,53 +52,79 @@ class _ThreadManager:
         thread: InternalThread[Any],
         thread_id: int,
     ) -> None:
-        """Register an additional user-visible-thread.
+        """Register one user-visible-thread under a reserved identifier.
 
         Args:
             thread: Constructed user-visible-thread owned by this manager.
-            thread_id: Positive manager-unique identifier.
+            thread_id: Process-unique identifier returned by
+                :func:`flashdreams.reserve_thread_id`.
 
         Raises:
-            RuntimeError: Registration is frozen or ``thread`` already has a parent.
+            RuntimeError: Registration is frozen.
             TypeError: ``thread_id`` or ``thread`` has an invalid type.
-            ValueError: ``thread_id`` is reserved, negative, or already registered.
+            ValueError: ``thread_id`` was not reserved or is already registered.
         """
-        if isinstance(thread_id, bool) or not isinstance(thread_id, int):
-            raise TypeError("thread_id must be an integer.")
-        if thread_id == _MODEL_GENERATION_THREAD_ID:
-            raise ValueError("Thread ID 0 is reserved for the model-generation-thread.")
         self._register(thread, thread_id)
 
     @final
-    def _invoke_async(
+    def _register_main_generation_thread(
         self,
+        thread: InternalThread[Any],
         thread_id: int,
-        operation: Callable[[Any], None],
     ) -> None:
-        """Send a state operation to a registered thread.
-
-        Args:
-            thread_id: Identifier of the thread that owns the state.
-            operation: Callable applied before the target thread's next step.
-
-        Raises:
-            KeyError: No thread is registered under ``thread_id``.
-            RuntimeError: The target thread is shutting down.
-        """
-        self._get_thread(thread_id)._enqueue_message(operation)
-
-    @final
-    def _register_model_generation_thread(self, thread: InternalThread[Any]) -> None:
         """Register the session's unique model-generation-thread."""
-        self._register(thread, _MODEL_GENERATION_THREAD_ID)
+        if self._main_generation_thread_id is not None:
+            raise ValueError("A model-generation-thread is already registered.")
+        self._register(thread, thread_id)
+        self._main_generation_thread_id = thread_id
 
     @final
     def _require_model_generation_thread(self) -> None:
         """Validate that session initialization registered its required thread."""
-        if _MODEL_GENERATION_THREAD_ID not in self._threads:
+        if self._main_generation_thread_id is None:
             raise RuntimeError(
                 "ISession.init() must register exactly one model-generation-thread."
             )
+
+    @final
+    def _set_layer_order_via_thread_id(self, thread_id_list: list[int]) -> None:
+        """Set the bottom-to-top output layer order for registered threads."""
+        if self._registry_frozen:
+            raise RuntimeError("Cannot set layer order after the session starts.")
+        if not isinstance(thread_id_list, list):
+            raise TypeError("thread_id_list must be a list of integers.")
+        if any(
+            isinstance(thread_id, bool) or not isinstance(thread_id, int)
+            for thread_id in thread_id_list
+        ):
+            raise TypeError("thread_id_list must be a list of integers.")
+        if len(set(thread_id_list)) != len(thread_id_list):
+            raise ValueError("thread_id_list must not contain duplicate thread IDs.")
+        registered_thread_ids = set(self._threads)
+        layer_thread_ids = set(thread_id_list)
+        if layer_thread_ids != registered_thread_ids:
+            missing = sorted(registered_thread_ids - layer_thread_ids)
+            unknown = sorted(layer_thread_ids - registered_thread_ids)
+            raise ValueError(
+                "thread_id_list must contain every registered thread ID exactly "
+                f"once; missing={missing}, unknown={unknown}."
+            )
+        self._layer_order = tuple(thread_id_list)
+
+    @final
+    def _get_layer_order(self) -> tuple[int, ...]:
+        """Return the required bottom-to-top output layer order."""
+        if self._layer_order is None:
+            raise RuntimeError(
+                "ISession.init() must call set_layer_order_via_thread_id()."
+            )
+        registered_thread_ids = set(self._threads)
+        if set(self._layer_order) != registered_thread_ids:
+            raise RuntimeError(
+                "set_layer_order_via_thread_id() must include every registered "
+                "thread ID exactly once."
+            )
+        return self._layer_order
 
     def _register(self, thread: InternalThread[Any], thread_id: int) -> None:
         if self._registry_frozen:
@@ -106,11 +133,9 @@ class _ThreadManager:
             raise TypeError("thread must be an InternalThread instance.")
         if isinstance(thread_id, bool) or not isinstance(thread_id, int):
             raise TypeError("thread_id must be an integer.")
-        if thread_id < 0:
-            raise ValueError("Thread IDs must be >= 0.")
         if thread_id in self._threads:
             raise ValueError(f"Thread ID {thread_id} is already registered.")
-        thread._bind_thread_manager(self)
+        _register_thread(thread_id, thread)
         self._threads[thread_id] = thread
 
     def _get_thread(self, thread_id: int) -> InternalThread[Any]:
@@ -136,8 +161,10 @@ class _ThreadManager:
         max_steps: int | None,
     ) -> None:
         """Start all registered user-visible-threads."""
+        self._get_layer_order()
+        main_generation_thread_id = self._get_main_generation_thread_id()
         for thread_id, user_visible_thread in self._freeze().items():
-            is_model_generation = thread_id == _MODEL_GENERATION_THREAD_ID
+            is_model_generation = thread_id == main_generation_thread_id
             thread_name = (
                 "flashdreams-model-generation-thread"
                 if is_model_generation

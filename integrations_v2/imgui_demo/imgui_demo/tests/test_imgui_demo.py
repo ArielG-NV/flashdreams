@@ -64,7 +64,9 @@ def _session() -> ImGUIDemoSession:
 def test_main_generation_disables_presentation() -> None:
     session = _session()
     session.init()
-    model_generation_thread = session._ensure_thread_manager()._get_thread(0)
+    model_generation_thread = session._ensure_thread_manager()._get_thread(
+        session.main_generation_thread_id
+    )
     assert isinstance(model_generation_thread, DemoModelThread)
 
     result = model_generation_thread.step(3, UserInputEvents([]))
@@ -97,7 +99,9 @@ def test_all_imgui_applications_are_registered() -> None:
 def test_frame_sharing_hides_model_frame_and_rotates_colors() -> None:
     session = FrameSharingSession(_session().session_desc, device="cpu")
     session.init()
-    model_generation_thread = session._ensure_thread_manager()._get_thread(0)
+    model_generation_thread = session._ensure_thread_manager()._get_thread(
+        session.main_generation_thread_id
+    )
     assert isinstance(model_generation_thread, FrameSharingModelThread)
 
     results = [
@@ -126,8 +130,11 @@ def test_frame_sharing_hides_model_frame_and_rotates_colors() -> None:
 def test_message_demo_disables_model_presentation_and_updates_ui_by_message() -> None:
     session = MessageSession(_session().session_desc)
     session.init()
-    ui_thread = session._ensure_thread_manager()._get_thread(1)
-    model_thread = session._ensure_thread_manager()._get_thread(0)
+    threads = session._ensure_thread_manager()._freeze()
+    model_thread = threads[session.main_generation_thread_id]
+    ui_thread = next(
+        thread for thread in threads.values() if isinstance(thread, MessageImGUIThread)
+    )
     assert isinstance(ui_thread, MessageImGUIThread)
     assert isinstance(model_thread, MessageModelThread)
     events = UserInputEvents(
@@ -168,10 +175,20 @@ def test_init_registers_imgui_as_user_visible_thread() -> None:
 
     session.init()
     threads = session._ensure_thread_manager()._freeze()
+    main_generation_thread_id = session.main_generation_thread_id
+    imgui_thread_id = next(
+        thread_id for thread_id in threads if thread_id != main_generation_thread_id
+    )
 
-    assert list(threads) == [0, 1]
-    assert threads[0].frequency == session.session_desc.frames_per_second_for_step
-    assert threads[1].frequency == session.session_desc.frames_per_second_for_ui
+    assert len(threads) == 2
+    assert (
+        threads[main_generation_thread_id].frequency
+        == session.session_desc.frames_per_second_for_step
+    )
+    assert (
+        threads[imgui_thread_id].frequency
+        == session.session_desc.frames_per_second_for_ui
+    )
 
 
 def test_demo_builds_a_real_imgui_window_without_gpu_rendering() -> None:

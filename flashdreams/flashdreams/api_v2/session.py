@@ -4,13 +4,13 @@
 """Application session abstract interface."""
 
 from abc import abstractmethod
-from collections.abc import Callable
 from typing import Any, final
 
 from flashdreams.api_v2.thread import IThread
 from flashdreams.runtime_v2.internal_session import InternalSession
 from flashdreams.runtime_v2.presentation_cordinator import PresentationCordinator
 from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.thread_registry import reserve_thread_id
 
 
 class ISession(InternalSession):
@@ -33,18 +33,17 @@ class ISession(InternalSession):
         return self._ensure_presentation_cordinator()
 
     @final
-    def register_model_generation_thread(
+    def register_main_generation_thread(
         self,
         thread_type: type[IThread[Any]],
         *,
         state: Any,
         **thread_kwargs: Any,
-    ) -> None:
+    ) -> int:
         """Construct and register the session's model-generation-thread.
 
         Exactly one model-generation-thread must be registered during
-        :meth:`init`. It receives the reserved thread ID zero and uses the
-        :class:`SessionDesc` configured model-step frequency.
+        :meth:`init`. Its frequency comes from :class:`SessionDesc`.
 
         Args:
             thread_type: :class:`IThread` subclass to construct.
@@ -52,82 +51,97 @@ class ISession(InternalSession):
             **thread_kwargs: Additional constructor arguments passed to
                 ``thread_type``.
 
+        Returns:
+            Process-unique identifier assigned to the model-generation-thread.
+
         Raises:
             RuntimeError: The session has started.
-            TypeError: ``thread_type`` is not an :class:`IThread` subclass.
+            TypeError: ``thread_type`` is not an :class:`IThread` subclass, or
+                the caller supplies ``thread_id``.
             ValueError: A model-generation-thread is already registered.
         """
+        self._reject_thread_id_argument(thread_kwargs)
         thread = self._construct_thread(
             thread_type,
             state=state,
             frequency=self.session_desc.frames_per_second_for_step,
             **thread_kwargs,
         )
-        self._ensure_thread_manager()._register_model_generation_thread(thread)
-        self.get_presentation_cordinator()._register_thread(
-            self.get_model_generation_thread_id()
+        registered_thread_id = reserve_thread_id()
+        self._ensure_thread_manager()._register_main_generation_thread(
+            thread, registered_thread_id
         )
+        self.get_presentation_cordinator()._register_thread(registered_thread_id)
+        self._main_generation_thread_id = registered_thread_id
+        return registered_thread_id
 
+    @property
     @final
-    def get_model_generation_thread_id(self) -> int:
-        """Return the ID of the model-generation-thread."""
-        return self._ensure_thread_manager()._get_model_generation_thread_id()
+    def main_generation_thread_id(self) -> int:
+        """Return the ID assigned to this session's model-generation-thread."""
+        if not hasattr(self, "_main_generation_thread_id"):
+            raise RuntimeError("No model-generation-thread has been registered.")
+        return self._main_generation_thread_id
 
     @final
     def register_thread(
         self,
-        thread_id: int,
         thread_type: type[IThread[Any]],
         *,
         state: Any,
         frequency: int,
         **thread_kwargs: Any,
-    ) -> None:
+    ) -> int:
         """Construct and register one additional user-visible-thread.
 
         Args:
-            thread_id: Positive session-unique identifier. Zero is reserved.
             thread_type: :class:`IThread` subclass to construct.
             state: Mutable state owned by the user-visible-thread.
             frequency: Maximum steps per second. Zero runs without pacing.
             **thread_kwargs: Additional constructor arguments, such as
                 ``output_layout``, ``width``, and ``height`` for an ImGUIThread.
 
+        Returns:
+            Process-unique identifier assigned to the user-visible-thread.
+
         Raises:
             RuntimeError: The session has started.
             TypeError: ``thread_type`` is not an :class:`IThread` subclass, or
-                ``thread_id`` has an invalid type.
-            ValueError: ``thread_id`` is reserved, negative, or already registered.
+                the caller supplies ``thread_id``.
         """
+        self._reject_thread_id_argument(thread_kwargs)
         thread = self._construct_thread(
             thread_type,
             state=state,
             frequency=frequency,
             **thread_kwargs,
         )
-        self._ensure_thread_manager()._register_thread(thread, thread_id)
-        self.get_presentation_cordinator()._register_thread(thread_id)
+        registered_thread_id = reserve_thread_id()
+        self._ensure_thread_manager()._register_thread(thread, registered_thread_id)
+        self.get_presentation_cordinator()._register_thread(registered_thread_id)
+        return registered_thread_id
 
     @final
-    def invoke_async(
-        self,
-        thread_id: int,
-        operation: Callable[[Any], None],
-    ) -> None:
-        """Schedule a state operation on one registered user-visible-thread.
-
-        This may be used during :meth:`init`; the operation runs on the target
-        user-visible-thread before its first step.
+    def set_layer_order_via_thread_id(self, thread_id_list: list[int]) -> None:
+        """Set the mandatory bottom-to-top output layer order.
 
         Args:
-            thread_id: Identifier of the user-visible-thread that owns the state.
-            operation: Callable applied to the user-visible-thread-owned state.
+            thread_id_list: Every registered thread ID exactly once. Index zero
+                is the bottom layer and the final index is the top layer.
 
         Raises:
-            KeyError: No thread is registered under ``thread_id``.
-            RuntimeError: The target user-visible-thread is shutting down.
+            RuntimeError: The session has started.
+            TypeError: ``thread_id_list`` is not a list of integers.
+            ValueError: IDs are duplicated, missing, or not registered.
         """
-        self._ensure_thread_manager()._invoke_async(thread_id, operation)
+        self._ensure_thread_manager()._set_layer_order_via_thread_id(thread_id_list)
+
+    @staticmethod
+    def _reject_thread_id_argument(thread_kwargs: dict[str, Any]) -> None:
+        if "thread_id" in thread_kwargs:
+            raise TypeError(
+                "thread_id cannot be specified; registration assigns it automatically."
+            )
 
     @abstractmethod
     def init(self) -> None:
@@ -135,10 +149,11 @@ class ISession(InternalSession):
 
         Must not do client I/O, since this can run before a client connects.
         Must register exactly one model-generation-thread and every additional
-        user-visible-thread needed by the run.
+        user-visible-thread needed by the run, then call
+        :meth:`set_layer_order_via_thread_id` with every registered ID.
 
-        Messages queued through :meth:`invoke_async` here run before the target
-        user-visible-thread's first call to :meth:`IThread.step`.
+        Messages queued through :func:`flashdreams.invoke_async` here run before
+        the target user-visible-thread's first call to :meth:`IThread.step`.
         """
         ...
 

@@ -101,7 +101,9 @@ def _session(app: T2VApplication) -> T2VSession:
 
 
 def _model_thread(session: T2VSession) -> T2VModelThread:
-    model_generation_thread = session._ensure_thread_manager()._get_thread(0)
+    model_generation_thread = session._ensure_thread_manager()._get_thread(
+        session.main_generation_thread_id
+    )
     assert isinstance(model_generation_thread, T2VModelThread)
     return model_generation_thread
 

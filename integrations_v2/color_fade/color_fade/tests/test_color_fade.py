@@ -113,7 +113,9 @@ def _step_colours(session: ISession, steps: int) -> list[tuple[float, float, flo
 
 
 def _model_thread(session: ISession) -> ColorFadeThread:
-    model_generation_thread = session._ensure_thread_manager()._get_thread(0)
+    model_generation_thread = session._ensure_thread_manager()._get_thread(
+        session.main_generation_thread_id
+    )
     assert isinstance(model_generation_thread, ColorFadeThread)
     return model_generation_thread
 

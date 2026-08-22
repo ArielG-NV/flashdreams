@@ -66,7 +66,10 @@ class T2VSession(ISession):
         Where the text encoder runs, so it is slower than a step.
         """
         self._cache = self._new_cache()
-        self.register_model_generation_thread(T2VModelThread, state=self)
+        main_generation_thread_id = self.register_main_generation_thread(
+            T2VModelThread, state=self
+        )
+        self.set_layer_order_via_thread_id([main_generation_thread_id])
 
     @property
     def session_desc(self) -> SessionDesc:

@@ -35,9 +35,6 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 from .app import DEFAULT_SESSION_DESC
 
-_IMGUI_THREAD_ID = 1
-"""User-visible-thread identifier for the ImGui layer."""
-
 _STEPS_PER_COLOR = 10
 """Model iterations that present each color before rotating."""
 
@@ -143,7 +140,7 @@ class FrameSharingSession(ISession):
 
     def init(self) -> None:
         """Register the model-generation-thread and frame-sharing ImGui-thread."""
-        self.register_model_generation_thread(
+        main_generation_thread_id = self.register_main_generation_thread(
             FrameSharingModelThread,
             state=FrameSharingModelState(
                 frames=tuple(
@@ -157,13 +154,12 @@ class FrameSharingSession(ISession):
                 output_layout=self._session_desc.output_layout,
             ),
         )
-        self.register_thread(
-            _IMGUI_THREAD_ID,
+        imgui_thread_id = self.register_thread(
             FrameSharingImGUIThread,
             state=FrameSharingState(
                 image_size=_image_size(self._session_desc),
                 model_generation_thread_frame=self.get_presentation_cordinator().get_last_presented_frame(
-                    self.get_model_generation_thread_id()
+                    main_generation_thread_id
                 ),
             ),
             frequency=self._session_desc.frames_per_second_for_ui,
@@ -171,6 +167,7 @@ class FrameSharingSession(ISession):
             width=self._session_desc.video_width,
             height=self._session_desc.video_height,
         )
+        self.set_layer_order_via_thread_id([main_generation_thread_id, imgui_thread_id])
 
 
 class FrameSharingApplication(IApplication):

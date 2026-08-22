@@ -7,14 +7,15 @@ SPDX-License-Identifier: Apache-2.0
 
 Three small v2 UI examples:
 
-- `imgui-demo` renders one button from the ImGui-thread at ID `1` while
-  the model-generation-thread at ID `0` uses `DISABLE_PRESENTATION`.
+- `imgui-demo` renders one button from the ImGui-thread while the
+  model-generation-thread uses `DISABLE_PRESENTATION`.
 - `imgui-frame-sharing` rotates red, green, and blue model frames every
-  ten model iterations. Thread `0` uses `HIDE_PRESENTATION`, so ImGui can draw
-  its latest frame without blitting that frame directly to the client backbuffer.
+  ten model iterations. The model-generation-thread uses `HIDE_PRESENTATION`,
+  so ImGui can draw its latest frame without blitting that frame directly to the
+  client backbuffer.
 - `imgui-message` prompts for the W key. The model-generation-thread
-  receives the key event and uses `IThread.invoke_async` to change UI-owned text
-  from `W is not Pressed` to `W is Pressed`.
+  receives the key event and uses `flashdreams.invoke_async` to change UI-owned
+  text from `W is not Pressed` to `W is Pressed`.
 
 ## Usage
 

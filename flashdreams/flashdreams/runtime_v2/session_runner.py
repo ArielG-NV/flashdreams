@@ -43,8 +43,9 @@ def run_session(
     The model-generation-thread and additional user-visible-threads registered
     by :meth:`ISession.init` run independently at their own frequencies. The
     main-program-thread owns the window, fans each input event out to every
-    user-visible-thread, and composites their latest enabled frames in ascending
-    thread-ID order.
+    user-visible-thread, and composites their latest enabled frames in the
+    explicit order configured by
+    :meth:`ISession.set_layer_order_via_thread_id`.
 
     Args:
         session: Uninitialized session to run.
@@ -70,6 +71,7 @@ def run_session(
     try:
         session.init()
         thread_manager._require_model_generation_thread()
+        layer_order = thread_manager._get_layer_order()
     except Exception:
         thread_manager._stop()
         session.close()
@@ -113,6 +115,8 @@ def run_session(
                     event_buffer.generation,
                     presentation_index,
                     session.session_desc.output_layout,
+                    session.main_generation_thread_id,
+                    layer_order,
                 )
                 for result in presentable:
                     dropped_frames += presentation_cordinator.push(

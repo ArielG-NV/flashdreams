@@ -21,6 +21,7 @@ from typing import Any
 
 import torch
 
+from flashdreams import invoke_async
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.thread import IThread
@@ -35,9 +36,6 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 from .app import DEFAULT_SESSION_DESC
-
-_IMGUI_THREAD_ID = 1
-"""User-visible-thread identifier for the ImGui layer."""
 
 _W_NOT_PRESSED = "W is not Pressed"
 """UI status shown before model generation receives a W key-down event."""
@@ -60,6 +58,7 @@ class MessageModelState:
 
     output: torch.Tensor
     output_layout: VideoTensorLayout
+    imgui_thread_id: int
 
 
 class MessageImGUIThread(ImGUIThread[MessageState]):
@@ -92,9 +91,9 @@ class MessageModelThread(IThread[MessageModelState]):
     def step(self, step_index: int, events: UserInputEvents) -> StepResult:
         state = _last_w_key_state(events)
         if state is KeyboardInputState.PRESSED:
-            self.invoke_async(_IMGUI_THREAD_ID, _mark_w_pressed)
+            invoke_async(self.state.imgui_thread_id, _mark_w_pressed)
         elif state is KeyboardInputState.RELEASED:
-            self.invoke_async(_IMGUI_THREAD_ID, _mark_w_released)
+            invoke_async(self.state.imgui_thread_id, _mark_w_released)
         return StepResult(
             step_index=step_index,
             output=self.state.output,
@@ -133,7 +132,15 @@ class MessageSession(ISession):
 
     def init(self) -> None:
         """Register the model-generation-thread and message-receiving ImGui-thread."""
-        self.register_model_generation_thread(
+        imgui_thread_id = self.register_thread(
+            MessageImGUIThread,
+            state=MessageState(),
+            frequency=self._session_desc.frames_per_second_for_ui,
+            output_layout=self._session_desc.output_layout,
+            width=self._session_desc.video_width,
+            height=self._session_desc.video_height,
+        )
+        main_generation_thread_id = self.register_main_generation_thread(
             MessageModelThread,
             state=MessageModelState(
                 output=torch.empty(
@@ -146,17 +153,10 @@ class MessageSession(ISession):
                     dtype=torch.float32,
                 ),
                 output_layout=self._session_desc.output_layout,
+                imgui_thread_id=imgui_thread_id,
             ),
         )
-        self.register_thread(
-            _IMGUI_THREAD_ID,
-            MessageImGUIThread,
-            state=MessageState(),
-            frequency=self._session_desc.frames_per_second_for_ui,
-            output_layout=self._session_desc.output_layout,
-            width=self._session_desc.video_width,
-            height=self._session_desc.video_height,
-        )
+        self.set_layer_order_via_thread_id([main_generation_thread_id, imgui_thread_id])
 
 
 class MessageApplication(IApplication):

@@ -28,7 +28,6 @@ from torch import Tensor
 
 from flashdreams.runtime_v2.internal_thread import InternalThread
 from flashdreams.runtime_v2.step_result import PresentationMode, StepResult
-from flashdreams.runtime_v2.thread_manager import _MODEL_GENERATION_THREAD_ID
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 
@@ -174,14 +173,17 @@ class PresentationCordinator:
         generation: int,
         presentation_index: int,
         output_layout: VideoTensorLayout,
+        main_generation_thread_id: int,
+        layer_order: tuple[int, ...],
     ) -> list[StepResult]:
         """Take original model results or one newly composited UI frame."""
         self._set_generation(generation)
 
         # Preserve every model result when there are no additional
         # user-visible-threads to composite.
-        if set(threads) == {_MODEL_GENERATION_THREAD_ID}:
-            model_generation_thread = threads[_MODEL_GENERATION_THREAD_ID]
+        if len(threads) == 1:
+            thread_id = layer_order[0]
+            model_generation_thread = threads[thread_id]
             results: list[StepResult] = []
             for latest in model_generation_thread._take_pending_steps():
                 if latest.generation != generation:
@@ -190,10 +192,7 @@ class PresentationCordinator:
                 if result.presentation_mode is PresentationMode.DISABLE_PRESENTATION:
                     continue
                 frame = _latest_frame(result)
-                self._record_last_presented_frame(
-                    _MODEL_GENERATION_THREAD_ID,
-                    frame,
-                )
+                self._record_last_presented_frame(thread_id, frame)
                 if result.presentation_mode is PresentationMode.SHOW_PRESENTATION:
                     results.append(result)
             return results
@@ -201,7 +200,7 @@ class PresentationCordinator:
         composed: Tensor | None = None
         recorded: list[tuple[int, Tensor]] = []
         has_new_visible_result = False
-        for thread_id in sorted(threads):
+        for thread_id in layer_order:
             pending = threads[thread_id]._take_pending_steps()
             has_new_visible_result = has_new_visible_result or any(
                 latest.generation == generation
@@ -229,7 +228,7 @@ class PresentationCordinator:
                 output=_frame_to_layout(composed, output_layout),
                 frame_count=1,
                 output_layout=output_layout,
-                metrics=_model_metrics(threads, generation),
+                metrics=_model_metrics(threads, main_generation_thread_id, generation),
             )
         ]
 
@@ -261,10 +260,12 @@ def _latest_frame(result: StepResult) -> Tensor:
 
 
 def _model_metrics(
-    threads: dict[int, InternalThread[object]], generation: int
+    threads: dict[int, InternalThread[object]],
+    main_generation_thread_id: int,
+    generation: int,
 ) -> dict[str, float | int]:
     """Return current model metrics for a composited presentation frame."""
-    model = threads.get(_MODEL_GENERATION_THREAD_ID)
+    model = threads.get(main_generation_thread_id)
     latest = model._snapshot_latest() if model is not None else None
     if latest is None or latest.generation != generation:
         return {}

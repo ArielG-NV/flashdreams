@@ -58,7 +58,10 @@ class _Session(ISession):
 
     def init(self) -> None:
         self._calls.append("session.init")
-        self.register_model_generation_thread(_ModelThread, state=self)
+        main_generation_thread_id = self.register_main_generation_thread(
+            _ModelThread, state=self
+        )
+        self.set_layer_order_via_thread_id([main_generation_thread_id])
 
     @property
     def session_desc(self) -> SessionDesc:

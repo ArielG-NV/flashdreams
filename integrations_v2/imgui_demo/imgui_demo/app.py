@@ -33,9 +33,6 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 DEFAULT_SESSION_DESC = SessionDesc(video_width=640, video_height=480)
 """Session defaults shared by the three ImGui applications."""
 
-_IMGUI_THREAD_ID = 1
-"""User-visible-thread identifier for the ImGui layer."""
-
 
 @dataclass(slots=True)
 class ImGUIDemoState:
@@ -122,7 +119,7 @@ class ImGUIDemoSession(ISession):
 
     def init(self) -> None:
         """Register the model-generation-thread and ImGui-thread."""
-        self.register_model_generation_thread(
+        main_generation_thread_id = self.register_main_generation_thread(
             DemoModelThread,
             state=DemoModelState(
                 output=torch.empty(
@@ -137,8 +134,7 @@ class ImGUIDemoSession(ISession):
                 output_layout=self._session_desc.output_layout,
             ),
         )
-        self.register_thread(
-            _IMGUI_THREAD_ID,
+        imgui_thread_id = self.register_thread(
             DemoImGUIThread,
             state=ImGUIDemoState(),
             frequency=self.session_desc.frames_per_second_for_ui,
@@ -146,6 +142,7 @@ class ImGUIDemoSession(ISession):
             width=self._session_desc.video_width,
             height=self._session_desc.video_height,
         )
+        self.set_layer_order_via_thread_id([main_generation_thread_id, imgui_thread_id])
 
 
 class ImGUIDemoApplication(IApplication):

@@ -16,5 +16,6 @@
 """Streaming inference integrations for video diffusion models."""
 
 from flashdreams._version import __version__
+from flashdreams.runtime_v2.thread_registry import invoke_async, reserve_thread_id
 
-__all__ = ["__version__"]
+__all__ = ["__version__", "invoke_async", "reserve_thread_id"]

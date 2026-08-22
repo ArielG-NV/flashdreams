@@ -158,7 +158,7 @@ class ColorFadeSession(ISession):
         frames = 1 + math.floor(
             self._config.seconds * self._session_desc.frames_per_second_for_step
         )
-        self.register_model_generation_thread(
+        main_generation_thread_id = self.register_main_generation_thread(
             ColorFadeThread,
             state=ColorFadeState(
                 config=self._config,
@@ -166,6 +166,7 @@ class ColorFadeSession(ISession):
                 total_steps=math.ceil(frames / self._config.frames_per_step),
             ),
         )
+        self.set_layer_order_via_thread_id([main_generation_thread_id])
 
     @property
     def session_desc(self) -> SessionDesc:
