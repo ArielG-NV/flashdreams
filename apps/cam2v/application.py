@@ -25,7 +25,7 @@ from .session import Cam2VSession, Cam2VSessionConfig
 class Cam2VApplication(IApplication):
     """Reusable interactive camera-to-video application.
 
-    The shared class owns command-line parsing, pipeline lifetime, session
+    The shared class owns command-line parsing, pipeline configuration, session
     validation, and model-generation-loop construction. A concrete model
     integration contributes a runner config and an input resolver through
     :class:`Cam2VApplicationDefaults`.
@@ -40,7 +40,6 @@ class Cam2VApplication(IApplication):
         self._warmup_blocks = defaults.warmup_blocks
         self._use_ui = True
         self._input_values: dict[str, Any] | None = None
-        self._pipeline: Any | None = None
 
     @property
     def pipeline_config(self) -> Any:
@@ -171,7 +170,7 @@ class Cam2VApplication(IApplication):
         )
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
-        """Create an isolated rollout after lazily loading the shared pipeline."""
+        """Create an isolated rollout with a spawn-safe pipeline config."""
         input_values = self._input_values
         if input_values is None:
             raise RuntimeError(
@@ -190,13 +189,8 @@ class Cam2VApplication(IApplication):
                 "Cam2VApplicationDefaults.input_resolver must return Cam2VConditioning."
             )
 
-        pipeline = self._pipeline
-        if pipeline is None:
-            pipeline = self._pipeline_config.setup().to(self._device).eval()
-            self._pipeline = pipeline
-        self._validate_frame_size(session_desc, pipeline)
         return Cam2VSession(
-            pipeline=pipeline,
+            pipeline=self._pipeline_config,
             session_desc=session_desc,
             config=Cam2VSessionConfig(
                 conditioning=conditioning,
@@ -212,13 +206,8 @@ class Cam2VApplication(IApplication):
         )
 
     def close(self) -> None:
-        """Release the application-owned pipeline after all sessions stop."""
-        pipeline = self._pipeline
-        self._pipeline = None
+        """Release original-process application inputs."""
         self._input_values = None
-        close = getattr(pipeline, "close", None)
-        if callable(close):
-            close()
 
     def _configure_argument_parser(self, parser: argparse.ArgumentParser) -> None:
         """Add integration-specific application arguments to ``parser``."""
@@ -247,21 +236,6 @@ class Cam2VApplication(IApplication):
             )
         if self._use_ui and session_desc.output_layout is not VideoTensorLayout.tchw:
             raise ValueError("The Cam2V SlangPy UI overlay requires tchw output.")
-
-    def _validate_frame_size(self, session_desc: SessionDesc, pipeline: Any) -> None:
-        """Reject frame dimensions that cannot map to integral latents."""
-        decoder = getattr(pipeline, "decoder", None)
-        ratio = getattr(decoder, "spatial_compression_ratio", None)
-        if not isinstance(ratio, int) or ratio <= 0:
-            raise TypeError(
-                "Cam2V requires a decoder with a positive integer "
-                "spatial_compression_ratio."
-            )
-        if session_desc.video_width % ratio or session_desc.video_height % ratio:
-            raise ValueError(
-                f"Frame dimensions must be multiples of {ratio}, got "
-                f"{session_desc.video_width}x{session_desc.video_height}."
-            )
 
 
 __all__ = ["Cam2VApplication"]

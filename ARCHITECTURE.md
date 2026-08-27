@@ -45,8 +45,8 @@ flowchart TB
   subgraph runtime [flashdreams.runtime_v2, everything that runs one]
     Entry["cli, application_registry, find the application"]
     Runner["ApplicationRunner, owns the lifecycle"]
-    RunSession["run_session, owns the two threads"]
-    Meet["EventBuffer, PresentationManager, where the threads meet"]
+    RunSession["run_session, owns the process boundary"]
+    Meet["IPC connection, EventBuffer, PresentationManager"]
     Default["BlitModelOutputToScreenLoop, the UI loop nothing has to write"]
     Types["SessionDesc, StepResult, UserInputEvents, VideoTensorLayout"]
   end
@@ -84,7 +84,7 @@ registers the loops that do the work: a model loop that generates, and
 optionally a UI loop that turns what was generated into what is shown.
 
 **The runtime** owns everything else. It finds the application, decides which
-session to ask for, creates the window, starts the threads, moves frames between
+session to ask for, creates the window, starts the worker, moves frames between
 them, and closes it all down in the right order when the run ends.
 
 **A client window** is where the run goes and where input comes from — an MP4
@@ -100,7 +100,7 @@ input events going the other.
 ## A run, end to end
 
 The same pieces again, but as calls rather than as layers: what happens in what
-order, and on which thread.
+order, and in which process.
 
 ```mermaid
 flowchart TB
@@ -121,7 +121,7 @@ flowchart TB
     UILoop["IUILoop.step"]
   end
 
-  subgraph modelThread [flashdreams-model-generation-thread]
+  subgraph modelProcess [flashdreams-model-generation-process]
     ModelLoop["IModelLoop.step"]
   end
 
@@ -149,10 +149,10 @@ over the top. An application that describes nothing gets the arguments alone.
 After that the description is fixed, and both the session and the window are
 configured from the same copy of it.
 
-## Two threads
+## Two processes
 
-Generation and presentation run at different rates and cannot wait for each
-other, so they get a thread each.
+Generation and presentation run at different rates and need isolated Python and
+CUDA ownership, so the model loop runs in a spawned process.
 
 The **main thread**, whichever one called `run_session`, reads input from the
 window, advances the presentation buffer, runs the UI loop, and writes the result
@@ -160,30 +160,29 @@ back to the window. It ticks at the session's UI rate, and it paces itself by
 waiting on the shutdown event rather than sleeping, so a client closing is
 noticed immediately rather than up to a tick later.
 
-The **model thread** runs the model loop and publishes each result. It paces
-itself to the session's step rate. Nothing else runs there, and it is the only
-thread that touches model state.
+The **model process** constructs and runs the model loop and publishes each
+result. It paces itself to the session's step rate. Nothing else owns the CUDA
+context or touches model state.
 
 This is the reason for most of the runtime's design. A window is only ever
 touched from the main thread, so window implementations need no locking except
 where their own backend delivers input from elsewhere. Model state is only ever
-touched from the model thread, so a model needs none either. The two places the
-threads do meet — input going one way, frames going the other — are the two
-buffers below, and they are the only synchronised objects in the system.
+touched from the model process, so a model needs no cross-process locking.
+Input and operations cross a control pipe; results cross the reverse direction
+using CPU shared-memory or CUDA IPC tensor handles.
 
 Loops that genuinely need to reach across send a message instead of sharing
 memory: `invoke_async` queues an operation against the other loop's state, and
-that loop runs it on its own thread before its next step.
+that loop runs it in its owning process before its next step.
 
-## Where the threads meet
+## Where the processes meet
 
-**Input** is collected once, on the main thread, but both loops need it and they
-read at different rates. `EventBuffer` holds a flat list of events plus a cursor
-per reader, hands each reader only what it has not seen, and drops what they have
-all passed.
+**Input** is collected once in the original process. `EventBuffer` retains the
+UI loop's unread edges, while each non-empty batch and its reset generation are
+also sent over the control pipe for the model loop's next step.
 
 **Frames** go the other way through `PresentationManager`, a bounded queue of
-generated chunks. The UI thread takes one frame per tick, walking through the
+generated chunks. The UI loop takes one frame per tick, walking through the
 frames within a chunk before taking another, so a step that generated twelve
 frames is presented over twelve ticks rather than eleven being thrown away.
 
@@ -206,11 +205,12 @@ generated before the reset are discarded rather than shown. One counter is the
 whole mechanism — none of those components has to know about the others.
 
 A **failure** ends the run, and a loop's failure is the one reported: a loop
-raised on either thread outranks one the main thread raised itself, whichever
-happened first. A model-thread exception is handed to the session and sets the
-shutdown event; the main thread then joins the thread, shuts the loops down,
-closes every sink it opened, closes the session, closes the application, and only
-then raises. Failures that happen during that cleanup are logged rather than
+raised in either process outranks one the main thread raised itself, whichever
+happened first. A model-process exception is handed to the session and sets the
+shutdown event. The worker then remains alive while the original process clears
+all IPC-backed results; only after consumers close is it allowed to exit.
+The original process closes every sink, the session, and the application, and
+only then raises. Failures that happen during that cleanup are logged rather than
 raised over the top of the failure that caused them, so a run always reports the
 thing that actually went wrong.
 

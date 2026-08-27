@@ -83,10 +83,7 @@ class Cam2VSessionConfig:
 
 @dataclass(slots=True)
 class Cam2VModelState:
-    """Mutable rollout state owned exclusively by the model-generation-thread."""
-
-    pipeline: Any
-    """Application-owned, loaded model pipeline."""
+    """Mutable rollout state owned exclusively by the model process."""
 
     session_desc: SessionDesc
     """Output shape, layout, and rates accepted for this session."""
@@ -96,6 +93,12 @@ class Cam2VModelState:
 
     keyboard_resampler: KeyboardResampler
     """Timestamped camera-control state sampled on the model frame clock."""
+
+    pipeline_source: Any = None
+    """Serializable pipeline config materialized in the model process."""
+
+    pipeline: Any | None = None
+    """Loaded model pipeline, owned exclusively by the model process."""
 
     cache: Any | None = None
     """Session-local autoregressive model cache."""
@@ -125,6 +128,9 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         """Apply new keyboard edges and generate one autoregressive block."""
         state = self.state
+        _ensure_pipeline(state)
+        pipeline = state.pipeline
+        assert pipeline is not None
         step_started_at = time.perf_counter()
         if state.blocks_generated == state.config.warmup_blocks:
             state.steady_started_at = step_started_at
@@ -140,13 +146,13 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
                 interpolation=state.config.first_frame_interpolation,
                 install_hint=state.config.install_hint,
             )
-            state.cache = state.pipeline.initialize_cache(
+            state.cache = pipeline.initialize_cache(
                 text=[conditioning.prompt],
                 image=first_frame,
             )
         assert state.cache is not None
 
-        frame_count = int(state.pipeline.get_num_output_frames(step_index))
+        frame_count = int(pipeline.get_num_output_frames(step_index))
         if frame_count <= 0:
             raise ValueError(
                 "Cam2V pipelines must generate at least one frame per step."
@@ -176,7 +182,7 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
         input_preparation_s = time.perf_counter() - step_started_at
 
         generate_started_at = time.perf_counter()
-        frames = state.pipeline.generate(
+        frames = pipeline.generate(
             autoregressive_index=step_index,
             cache=state.cache,
             input=camera_input,
@@ -185,7 +191,7 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
 
         finalize_started_at = time.perf_counter()
         metrics = _numeric_metrics(
-            state.pipeline.finalize(
+            pipeline.finalize(
                 autoregressive_index=step_index,
                 cache=state.cache,
             )
@@ -248,8 +254,13 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
         state.steady_frames_generated = 0
 
     def close(self) -> None:
-        """Release session-owned tensors while retaining the application model."""
+        """Release all model-process resources."""
         self.state.cache = None
+        pipeline = self.state.pipeline
+        self.state.pipeline = None
+        close = getattr(pipeline, "close", None)
+        if callable(close):
+            close()
 
 
 class Cam2VSession(ISession):
@@ -300,7 +311,7 @@ class Cam2VSession(ISession):
         self.register_model_loop(
             Cam2VModelLoop,
             state=Cam2VModelState(
-                pipeline=self._pipeline,
+                pipeline_source=self._pipeline,
                 session_desc=self._session_desc,
                 config=self._config,
                 keyboard_resampler=KeyboardResampler(
@@ -397,6 +408,39 @@ def _numeric_metrics(stats: object) -> dict[str, float | int]:
         for name, value in stats.items()
         if isinstance(value, int | float) and not isinstance(value, bool)
     }
+
+
+def _ensure_pipeline(state: Cam2VModelState) -> None:
+    """Build and validate the camera pipeline inside the model process."""
+    if state.pipeline is not None:
+        return
+    source = (
+        state.pipeline_source if state.pipeline_source is not None else state.pipeline
+    )
+    setup = getattr(source, "setup", None)
+    pipeline = setup() if callable(setup) else source
+    to = getattr(pipeline, "to", None)
+    if callable(to):
+        pipeline = to(state.config.device)
+    evaluate = getattr(pipeline, "eval", None)
+    if callable(evaluate):
+        pipeline = evaluate()
+    decoder = getattr(pipeline, "decoder", None)
+    ratio = getattr(decoder, "spatial_compression_ratio", None)
+    if not isinstance(ratio, int) or ratio <= 0:
+        raise TypeError(
+            "Cam2V requires a decoder with a positive integer "
+            "spatial_compression_ratio."
+        )
+    if (
+        state.session_desc.video_width % ratio
+        or state.session_desc.video_height % ratio
+    ):
+        raise ValueError(
+            f"Frame dimensions must be multiples of {ratio}, got "
+            f"{state.session_desc.video_width}x{state.session_desc.video_height}."
+        )
+    state.pipeline = pipeline
 
 
 def _log_step_timing(

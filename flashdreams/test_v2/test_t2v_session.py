@@ -115,6 +115,8 @@ def test_a_rollout_starts_from_the_prompt_at_the_requested_size() -> None:
 
     session.init()
 
+    assert pipeline.caches == []
+    _step(session, 0)
     assert pipeline.caches == [
         {
             "text": [_PROMPT],
@@ -199,7 +201,7 @@ def test_a_reset_rollout_has_its_whole_length_again() -> None:
     assert not _model_loop(session).is_finished()
 
 
-def test_closing_a_session_leaves_the_model_for_the_next_one() -> None:
+def test_closing_a_registered_loop_does_not_touch_the_parent_pipeline() -> None:
     app, pipeline = _application()
     session = app.create_session(_session_desc())
     session.init()
@@ -207,5 +209,3 @@ def test_closing_a_session_leaves_the_model_for_the_next_one() -> None:
     _model_loop(session).close()
 
     assert not pipeline.closed
-    with pytest.raises(RuntimeError, match="init.. must run before step"):
-        _model_loop(session).step(0, _NO_EVENTS)

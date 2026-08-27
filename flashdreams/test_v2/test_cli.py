@@ -323,7 +323,7 @@ def test_a_run_writes_what_the_application_generated(
     assert pipeline.generated == [0, 1]
 
 
-def test_the_model_is_released_when_a_run_fails(
+def test_the_parent_process_never_owns_the_model_when_a_run_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # A model holds most of a GPU, so a failed run still has to put it back.
@@ -333,7 +333,7 @@ def test_the_model_is_released_when_a_run_fails(
     with pytest.raises(RuntimeError, match="generate failed"):
         cli.entrypoint(["stub", "--mode", "webrtc", "--", "--prompt", _PROMPT])
 
-    assert pipeline.closed
+    assert not pipeline.closed
 
 
 @needs_ffmpeg

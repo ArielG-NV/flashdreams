@@ -4,7 +4,7 @@ SPDX-License-Identifier: Apache-2.0
 -->
 
 The machinery that runs a v2 application: it finds one, asks it for a session,
-runs that session's two loops on two threads, and delivers what they generate to
+runs the UI loop locally and the model loop in a spawned process, and delivers what they generate to
 a file or a browser.
 
 This is the implementation. For how the pieces fit together and why the seams are
@@ -28,10 +28,13 @@ Finding and starting an application:
 Running a session:
 
 - `session_runner.py` is `run_session`, which everything above ends up calling.
-  It is the only place that starts a generation thread; the WebRTC server and
+  It is the only place that starts the generation process; the WebRTC server and
   the video encoder run threads of their own, but neither touches a loop.
-- `event_buffer.py` holds client input until both loops have read it.
-- `presentation_manager.py` buffers generated frames between the two threads and
+- `model_process.py` owns the spawn-safe worker protocol, callable messages, and
+  zero-copy PyTorch tensor transport.
+- `event_buffer.py` holds client input until the UI loop has read it; non-empty
+  batches are also sent to the model process.
+- `presentation_manager.py` buffers generated frames received over IPC and
   decides which one the UI sees.
 - `session_desc.py` describes the session being run: frame size, rates, layout,
   and the two policy knobs below.
@@ -77,7 +80,7 @@ These override whatever session the application asked for:
 | `--pixel-width`, `--pixel-height` | Frame size to generate. |
 | `--fps` | `frames_per_second_for_step`, which is also the rate an MP4 plays back at. |
 | `--layout` | Tensor layout to generate results in. |
-| `--backpressure-mode` | What the model thread does when the presentation queue is full. |
+| `--backpressure-mode` | What generation does when the presentation queue is full. |
 | `--presentation-mode` | Whether the UI presents eagerly or only for new model frames. |
 
 Each defaults to asking for nothing, so a run that names none of them gets what
@@ -99,25 +102,23 @@ succeeded. It also closes the window itself when the run never started, because
 `run_session` is what otherwise owns the window, and a WebRTC window may already
 be serving a browser before the application has finished loading.
 
-`run_session` then opens the window and any metrics sink, collects one batch of
-input, presents one tick, and only then starts the model thread — so a client that
-closed during startup is never generated for. Its main loop services input and
-presents frames until the shutdown event is set, or until the model thread has
-finished and no frames are still pending.
+`run_session` opens the window and any metrics sink, collects one batch of input,
+then starts a fresh interpreter with the `spawn` method. The model loop is
+materialized there, so the original process never initializes CUDA or owns model
+weights. Its main loop services input and presents frames until shutdown, or
+until the model process has quiesced and no frames are still pending.
 
-On the way out it sets the shutdown event, joins the model thread, shuts both
-loops down, clears the presentation buffer, unregisters the readers, closes every
-sink it opened, and closes the session. Then it raises a loop's failure if one
-was queued, otherwise its own, otherwise the first cleanup failure, logging the
-rest.
+On the way out it first asks the model worker to quiesce. The worker releases
+model state but remains alive, as CUDA IPC requires. The original process then
+clears presentation state and closes every tensor consumer before permitting the
+worker to terminate. Finally it raises the primary failure and logs secondary
+cleanup failures.
 
 ## `EventBuffer`
 
 Input arrives once per tick on the main thread and is appended here. The buffer
-keeps a flat list plus a cursor per registered reader: `read` returns everything
-that reader has not seen and moves its cursor to the end, and
-`collect_garbage` deletes the prefix every reader has passed. The UI loop is
-reader 0 and the model loop is reader 1.
+keeps a flat list plus a cursor for the UI reader. Each non-empty batch is also
+sent over the model control pipe with the current reset generation.
 
 Appending also counts resets. Every `ResetUserInputEventData` in a batch bumps
 the generation number that loops and the presentation manager compare against
@@ -126,11 +127,11 @@ their own.
 A close event is handled twice over, deliberately: `run_session` sets the
 shutdown event when it sees one in a collected batch, and `ILoop._begin_run` sets
 it again when a loop reads one. Either path alone would end the run; both means
-neither thread waits on the other to notice.
+neither process waits on the other to notice.
 
 ## `PresentationManager`
 
-The model thread publishes a list of channels per step into a bounded queue
+The IPC receiver publishes a list of channels per step into a bounded queue
 (`max_pending`, two by default). The main thread calls `advance` once per tick,
 which walks the frames within the chunk it is already showing before taking
 another off the queue.
@@ -139,7 +140,7 @@ another off the queue.
 full:
 
 - `BLOCK` waits for room, in `put_timeout` slices so a shutdown is still
-  noticed. Every generated frame survives, and the model thread is held back to
+  noticed. Every generated frame survives, and the model process is held back to
   the rate the UI can consume.
 - `DROP_OLDEST` evicts queued work so the UI can catch up to the newest output,
   trading frames for latency.
@@ -157,6 +158,15 @@ For output that has to be compared frame by frame, use `BLOCK` with
 in order. Steps that could not be kept are counted in `dropped_for_space` and
 `discarded_at_reset`, and logged when the run ends. Both count model steps rather
 than frames, so one step of twelve frames counts once.
+
+## Tensor IPC
+
+Results are sent directly over a multiprocessing connection after
+`torch.multiprocessing` registers its storage reducers. Only descriptors cross
+the pipe: CPU tensor storage uses shared memory, while CUDA tensor storage uses
+CUDA IPC. No device-to-host copy or frame serialization is on the model/UI
+boundary. Control messages and `invoke_async` callables remain small cloudpickle
+payloads on the same full-duplex connection.
 
 ## Presenting and writing
 

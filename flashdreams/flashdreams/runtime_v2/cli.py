@@ -160,7 +160,7 @@ def _add_session_arguments(parser: argparse.ArgumentParser) -> None:
         choices=tuple(BackpressureMode),
         default=None,
         metavar="{" + ",".join(mode.value for mode in BackpressureMode) + "}",
-        help="How the model thread handles a full presentation queue.",
+        help="How the model process handles a full presentation queue.",
     )
     parser.add_argument(
         "--presentation-mode",

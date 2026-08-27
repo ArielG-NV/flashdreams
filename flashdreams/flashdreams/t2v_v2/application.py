@@ -41,8 +41,8 @@ class T2VApplication(IApplication):
     command line for all of them. An integration supplies
     :class:`T2VApplicationDefaults` and inherits the rest.
 
-    The model is loaded once, on the first session, and shared by every session
-    after it, since loading reads a checkpoint of several gigabytes.
+    The original process retains only the pipeline config. Each run materializes
+    the model inside its spawned model process so CUDA is never initialized here.
     """
 
     session_type: type[T2VSession] = T2VSession
@@ -57,7 +57,6 @@ class T2VApplication(IApplication):
         self.defaults = defaults
         self._pipeline_config = defaults.pipeline_config
         self._config: T2VSessionConfig | None = None
-        self._pipeline: Any = None
 
     @property
     def pipeline_config(self) -> Any:
@@ -152,7 +151,7 @@ class T2VApplication(IApplication):
         )
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
-        """Create one uninitialized session, loading the model if needed.
+        """Create one uninitialized session carrying a model config.
 
         Raises:
             RuntimeError: :meth:`init` has not run yet.
@@ -166,21 +165,18 @@ class T2VApplication(IApplication):
         # Before loading rather than after: a checkpoint of several gigabytes is
         # a long wait for a layout this was never going to accept.
         self._validate_layout(session_desc)
-        if self._pipeline is None:
-            self._pipeline = self._pipeline_config.setup().to(config.device).eval()
-        self._validate_frame_size(session_desc, self._pipeline)
-        return self.session_type(
-            self._pipeline, config.prompt, session_desc, config.total_blocks
+        session = self.session_type(
+            self._pipeline_config,
+            config.prompt,
+            session_desc,
+            config.total_blocks,
         )
+        session._device = config.device
+        return session
 
     def close(self) -> None:
-        """Release the model, and whatever memory it was holding."""
-        pipeline = self._pipeline
-        self._pipeline = None
+        """Release original-process application inputs."""
         self._config = None
-        close = getattr(pipeline, "close", None)
-        if close is not None:
-            close()
 
     ## Integration hooks
 
@@ -230,13 +226,4 @@ class T2VApplication(IApplication):
             raise ValueError(
                 f"This application only produces {layout.value} output, got "
                 f"{session_desc.output_layout.value}."
-            )
-
-    def _validate_frame_size(self, session_desc: SessionDesc, pipeline: Any) -> None:
-        """Reject a frame size that is not a whole number of latents across."""
-        ratio = pipeline.decoder.spatial_compression_ratio
-        if session_desc.video_width % ratio or session_desc.video_height % ratio:
-            raise ValueError(
-                f"Frame dimensions must be multiples of {ratio}, got "
-                f"{session_desc.video_width}x{session_desc.video_height}."
             )

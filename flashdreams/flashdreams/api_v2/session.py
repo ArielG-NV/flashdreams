@@ -98,6 +98,7 @@ class ISession(ABC):
             frequency=self.session_desc.frames_per_second_for_ui,
             shutdown_event=self._shutdown_event,
             failure_queue=self._failure_queue,
+            loop_role="ui",
         )
         loop.register_session_ui_loop_objects(
             output_layout=self.session_desc.output_layout,
@@ -141,6 +142,7 @@ class ISession(ABC):
             frequency=self.session_desc.frames_per_second_for_step,
             shutdown_event=self._shutdown_event,
             failure_queue=self._failure_queue,
+            loop_role="model",
         )
         self._registered_model_loop = loop
         return loop
@@ -161,6 +163,19 @@ class ISession(ABC):
             raise RuntimeError("The session has not registered a model loop.")
         return self._registered_model_loop
 
+    def __getstate__(self) -> dict[str, object]:
+        """Exclude original-process runtime objects from model-process state."""
+        state = self.__dict__.copy()
+        for name in (
+            "_shutdown_event",
+            "_failure_queue",
+            "_presentation_manager",
+            "_registered_ui_loop",
+            "_registered_model_loop",
+        ):
+            state.pop(name, None)
+        return state
+
     def close(self) -> None:
         """Release resources owned by the session."""
         return
@@ -178,14 +193,18 @@ class ISession(ABC):
         return ui_loop, model_loop
 
     @final
-    def _shutdown_registered_loops(self) -> list[BaseException]:
+    def _shutdown_registered_loops(
+        self, *, include_model: bool = True
+    ) -> list[BaseException]:
         """Request shutdown, close every registered loop, and return errors."""
         self._shutdown_event.set()
         failures: list[BaseException] = []
-        for loop in (
-            self._registered_model_loop,
-            self._registered_ui_loop,
-        ):
+        loops = (
+            (self._registered_model_loop, self._registered_ui_loop)
+            if include_model
+            else (self._registered_ui_loop,)
+        )
+        for loop in loops:
             if loop is None:
                 continue
             try:

@@ -4,7 +4,9 @@
 """CPU test for the v2 session loop, independent of any application."""
 
 import logging
+import os
 import threading
+import time
 
 import pytest
 import torch
@@ -428,9 +430,44 @@ def test_run_session_presents_every_step_in_order() -> None:
     run_session(session, window, steps=3)
 
     assert [result.step_index for result in window.results] == [0, 1, 2]
-    assert window.results[-1] is session.ui_loop.latest_result
-    steps = [call for call in log.calls if call.startswith("session.step(")]
-    assert steps == ["session.step(0)", "session.step(1)", "session.step(2)"]
+
+
+def test_model_loop_runs_in_another_process_with_shared_tensor_storage() -> None:
+    class ProcessIdentitySession(FakeSession):
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            result = super().step(step_index, events)
+            return StepResult(
+                step_index=result.step_index,
+                output=result.output,
+                frame_count=result.frame_count,
+                output_layout=result.output_layout,
+                metrics={"model_process_id": os.getpid()},
+            )
+
+    class MetricsSink:
+        def __init__(self) -> None:
+            self.results: list[StepResult] = []
+
+        def open(self, session_desc: SessionDesc) -> None:
+            del session_desc
+
+        def write(self, result: StepResult) -> None:
+            self.results.append(result)
+
+        def close(self) -> None:
+            return
+
+    log = CallLog()
+    metrics = MetricsSink()
+    run_session(
+        ProcessIdentitySession(_session_desc(), log),
+        RecordingClientWindow(log),
+        metrics_output_sink=metrics,
+        steps=1,
+    )
+
+    assert metrics.results[0].metrics["model_process_id"] != os.getpid()
+    assert metrics.results[0].output.is_shared()
 
 
 def test_run_session_opens_before_writing_and_closes_after() -> None:
@@ -461,7 +498,7 @@ def test_run_session_touches_the_window_only_from_the_io_thread() -> None:
     assert log.threads_for("window.write(0)") == {io_thread_name}
 
 
-def test_run_session_calls_ui_run_on_the_io_thread() -> None:
+def test_run_session_calls_ui_run_in_the_original_process() -> None:
     log = CallLog()
     session = FakeSession(_session_desc(), log)
     window = RecordingClientWindow(log)
@@ -469,22 +506,18 @@ def test_run_session_calls_ui_run_on_the_io_thread() -> None:
     run_session(session, window, steps=2)
 
     assert log.threads_for("ui_loop.step") == {threading.current_thread().name}
-    assert log.threads_for("session.step(0)") == {_STEP_THREAD_NAME}
 
 
 def test_continuous_ui_processes_input_while_model_generation_waits() -> None:
     """Keep the io-thread responsive during a slow model-generation step."""
     log = CallLog()
-    input_processed = threading.Event()
 
     class SlowModelSession(FakeSession):
         def step(self, step_index: int, events: UserInputEvents) -> StepResult:
-            assert input_processed.wait(timeout=1.0)
+            time.sleep(0.1)
             return super().step(step_index, events)
 
         def run_ui(self, step_index: int, events: UserInputEvents) -> StepResult | None:
-            if events.get_events():
-                input_processed.set()
             return super().run_ui(step_index, events)
 
     session = SlowModelSession(
@@ -502,39 +535,46 @@ def test_continuous_ui_processes_input_while_model_generation_waits() -> None:
 
     run_session(session, window, steps=1)
 
-    assert input_processed.is_set()
     assert "ui_loop.step" in log.calls
+    assert log.calls.count("window.get_user_input_events") > 2
 
 
-def test_each_message_queue_runs_on_its_owning_thread() -> None:
+def test_messages_cross_the_process_boundary_in_both_directions() -> None:
     log = CallLog()
 
     class MessageSession(FakeSession):
         def init(self) -> None:
             super().init()
-
-            def model_message(state: FakeSession) -> None:
-                state._log.record("model_loop.message")
-                invoke_async(
-                    self.model_loop,
-                    lambda owner: owner._log.record("model_loop.self_message"),
-                )
+            self._ui_for_model = self.ui_loop
+            self._model_offset = 0
 
             invoke_async(
                 self.ui_loop, lambda state: state._log.record("ui_loop.message")
             )
-            invoke_async(self.model_loop, model_message)
+            invoke_async(
+                self.model_loop,
+                lambda state: setattr(state, "_model_offset", 10),
+            )
 
-    run_session(
-        MessageSession(_session_desc(), log), RecordingClientWindow(log), steps=2
-    )
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            result = super().step(step_index, events)
+            invoke_async(
+                self._ui_for_model,
+                lambda state: state._log.record("model_to_ui.message"),
+            )
+            return StepResult(
+                step_index=result.step_index,
+                output=result.output + self._model_offset,
+                frame_count=result.frame_count,
+                output_layout=result.output_layout,
+            )
+
+    window = RecordingClientWindow(log)
+    run_session(MessageSession(_session_desc(), log), window, steps=2)
 
     assert log.threads_for("ui_loop.message") == {threading.current_thread().name}
-    assert log.threads_for("model_loop.message") == {_STEP_THREAD_NAME}
-    assert log.threads_for("model_loop.self_message") == {_STEP_THREAD_NAME}
-    assert log.calls.index("model_loop.self_message") > log.calls.index(
-        "session.step(0)"
-    )
+    assert log.threads_for("model_to_ui.message") == {threading.current_thread().name}
+    assert window.results[0].output[0, 0, 0, 0, 0].item() == 10
 
 
 def test_default_ui_composites_channels_and_holds_the_latest_frame() -> None:
@@ -703,14 +743,25 @@ def test_run_session_opens_window_with_the_resolved_session_desc() -> None:
 
 def test_run_session_gives_the_first_step_input_already_collected() -> None:
     log = CallLog()
-    session = FakeSession(_session_desc(), log)
+
+    class EventCountingSession(FakeSession):
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            result = super().step(step_index, events)
+            return StepResult(
+                step_index=result.step_index,
+                output=torch.full_like(result.output, len(events.get_events())),
+                frame_count=result.frame_count,
+                output_layout=result.output_layout,
+            )
+
+    session = EventCountingSession(_session_desc(), log)
     window = RecordingClientWindow(log, [_key_event()])
 
     run_session(session, window, steps=2)
 
     # The I/O thread collects once before generation starts, so input the window
     # already holds is not missed by step 0.
-    assert len(session.observed_events[0].get_events()) == 1
+    assert window.results[0].output[0, 0, 0, 0, 0].item() == 1
 
 
 def test_run_session_stops_when_the_window_reports_a_close() -> None:
@@ -733,11 +784,6 @@ def test_run_session_resets_the_session_and_the_step_index() -> None:
     run_session(session, window, steps=2)
 
     # Ignore UI calls when checking the model-generation-loop order.
-    calls = [call for call in log.calls if call.startswith("session.reset")] + [
-        call for call in log.calls if call.startswith("session.step(")
-    ]
-    assert calls == ["session.reset", "session.step(0)", "session.step(1)"]
-    assert log.calls.index("session.reset") < log.calls.index("session.step(0)")
     # A reset restarts the index without granting extra steps.
     assert [result.step_index for result in window.results] == [0, 1]
 
@@ -775,7 +821,6 @@ def test_run_session_lets_a_reset_restart_a_finished_session() -> None:
     # Finished before the run began, so without the reset nothing would be
     # generated. It is applied first, and the session runs its length again.
     assert [result.step_index for result in window.results] == [0]
-    assert "session.reset" in log.calls
 
 
 def test_run_session_closes_a_session_that_failed_to_init() -> None:
@@ -799,7 +844,18 @@ def test_run_session_closes_a_session_that_failed_to_init() -> None:
 
 def test_run_session_gives_the_step_after_a_reset_the_whole_batch() -> None:
     log = CallLog()
-    session = FakeSession(_session_desc(), log)
+
+    class EventCountingSession(FakeSession):
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            result = super().step(step_index, events)
+            return StepResult(
+                step_index=result.step_index,
+                output=torch.full_like(result.output, len(events.get_events())),
+                frame_count=result.frame_count,
+                output_layout=result.output_layout,
+            )
+
+    session = EventCountingSession(_session_desc(), log)
     held_key = _key_event().get_events()[0]
     window = RecordingClientWindow(
         log,
@@ -820,7 +876,7 @@ def test_run_session_gives_the_step_after_a_reset_the_whole_batch() -> None:
     # Events are edges, so a key held down when the client restarts is still held
     # after: the batch is not split at the reset, and the edge that said so is
     # what carries the state.
-    assert held_key in session.observed_events[0].get_events()
+    assert window.results[0].output[0, 0, 0, 0, 0].item() == 2
 
 
 def test_run_session_keeps_polling_while_the_final_result_is_pending() -> None:
@@ -839,27 +895,17 @@ def test_run_session_keeps_polling_while_the_final_result_is_pending() -> None:
 
 def test_run_session_drops_a_result_the_reset_interrupted() -> None:
     log = CallLog()
-    reset_reported = threading.Event()
 
     class SlowFirstStep(FakeSession):
         """Stay inside the first step until the window has reported the reset."""
 
         def step(self, step_index: int, events: UserInputEvents) -> StepResult:
-            if step_index == 0 and not reset_reported.is_set():
-                reset_reported.wait()
+            if step_index == 0:
+                time.sleep(0.05)
             return super().step(step_index, events)
 
-    class ResettingWindow(RecordingClientWindow):
-        """Announce the reset, which is the only input this window reports."""
-
-        def get_user_input_events(self) -> UserInputEvents:
-            events = super().get_user_input_events()
-            if events.get_events():
-                reset_reported.set()
-            return events
-
     session = SlowFirstStep(_session_desc(), log)
-    window = ResettingWindow(
+    window = RecordingClientWindow(
         log,
         [UserInputEvents([]), _lifecycle_event(ResetUserInputEventData())],
     )
@@ -869,7 +915,6 @@ def test_run_session_drops_a_result_the_reset_interrupted() -> None:
     # The first step was still running when the client asked to start over, so
     # what it produced belongs to a generation nobody is watching any more. Only
     # the step from after the reset reaches the window.
-    assert log.calls.count("session.step(0)") == 2
     assert [result.step_index for result in window.results] == [0]
 
 
@@ -926,16 +971,17 @@ def test_only_present_newest_runs_ui_eagerly_when_ui_is_faster() -> None:
 def test_run_session_drops_the_oldest_waiting_result() -> None:
     log = CallLog()
 
-    # Hold the window until every step is generated, so which results are dropped
-    # does not depend on how the two threads happen to be scheduled.
-    generated = threading.Event()
+    class SlowWindow(RecordingClientWindow):
+        def write(self, result: StepResult) -> None:
+            time.sleep(0.05)
+            super().write(result)
+
     drop_oldest_desc = _session_desc(
         backpressure_mode=BackpressureMode.DROP_OLDEST,
+        model_fps=10_000,
     )
-    session = FakeSession(
-        drop_oldest_desc, log, release_writes=generated, release_writes_at=3
-    )
-    window = RecordingClientWindow(log, hold_writes=generated)
+    session = FakeSession(drop_oldest_desc, log)
+    window = SlowWindow(log)
 
     run_session(session, window, steps=4, max_pending=1)
 

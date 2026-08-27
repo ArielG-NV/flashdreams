@@ -265,27 +265,27 @@ def test_no_session_is_created_before_the_application_is_told_what_to_do() -> No
 ## Loading the model
 
 
-def test_the_model_loads_once_and_every_session_shares_it() -> None:
+def test_sessions_share_a_config_without_loading_the_model_in_the_parent() -> None:
     app = _application()
     config = _pipeline_config(app)
 
     first = app.create_session(_session_desc())
     second = app.create_session(_session_desc())
 
-    assert config.setup_count == 1
-    assert config.pipeline.device == "cpu"
-    assert config.pipeline.eval_count == 1
+    assert config.setup_count == 0
+    assert config.pipeline.device is None
+    assert config.pipeline.eval_count == 0
     assert first is not second
 
 
-def test_closing_the_application_releases_the_model() -> None:
+def test_closing_the_application_does_not_touch_a_worker_owned_model() -> None:
     app = _application()
     config = _pipeline_config(app)
     app.create_session(_session_desc())
 
     app.close()
 
-    assert config.pipeline.closed
+    assert not config.pipeline.closed
 
 
 ## What a model will not generate
@@ -303,13 +303,15 @@ def test_a_layout_the_model_does_not_emit_is_refused_before_it_loads() -> None:
 
 
 @pytest.mark.parametrize("width,height", [(130, 64), (128, 60)])
-def test_frames_that_are_not_a_whole_number_of_latents_are_refused(
+def test_frame_validation_is_deferred_to_the_model_process(
     width: int, height: int
 ) -> None:
     app = _application()
 
-    with pytest.raises(ValueError, match=f"multiples of {_COMPRESSION_RATIO}"):
-        app.create_session(_session_desc(width=width, height=height))
+    session = app.create_session(_session_desc(width=width, height=height))
+
+    assert isinstance(session, RecordingRollout)
+    assert _pipeline_config(app).setup_count == 0
 
 
 ## What an integration can change

@@ -7,6 +7,10 @@ import logging
 import threading
 import time
 from collections import deque
+from typing import Any
+
+import cloudpickle
+import torch.multiprocessing as multiprocessing
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop
@@ -14,15 +18,21 @@ from flashdreams.api_v2.output_sink import OutputSink
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.user_input_event_data import UserInputEventData
 from flashdreams.runtime_v2.event_buffer import EventBuffer
+from flashdreams.runtime_v2.model_process import (
+    ModelProcessError,
+    deserialize_exception,
+    model_process_main,
+    serialize_model_loop,
+    serialize_operation,
+)
 from flashdreams.runtime_v2.session_desc import PresentationMode
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import CloseUserInputEventData
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 _LOGGER = logging.getLogger(__name__)
-_MODEL_THREAD_NAME = "flashdreams-model-generation-thread"
+_MODEL_PROCESS_NAME = "flashdreams-model-generation-process"
 _UI_READER_ID = 0
-_MODEL_READER_ID = 1
 _MODEL_FPS_WINDOW_SECONDS = 2.0
 """Wall-time window used to estimate generated-frame throughput."""
 
@@ -166,8 +176,8 @@ def run_session(
 ) -> None:
     """Run a session's UI and model loops.
 
-    The calling io-thread handles the window and UI. A model-generation-thread
-    runs the model loop. Returns when the client closes the window, when the
+    The calling process handles the window and UI. A spawned model process runs
+    the model loop. Returns when the client closes the window, when the
     model loop has finished and no generated frames are still waiting, or when
     either loop fails.
 
@@ -208,16 +218,35 @@ def run_session(
         stop=stop,
         put_timeout=tick_seconds,
     )
-    model_thread_handle: threading.Thread | None = None
+    model_process: Any = None
+    model_receiver: threading.Thread | None = None
+    parent_connection = None
+    send_lock = threading.Lock()
+    receiver_stopping = threading.Event()
+    worker_ready = threading.Event()
+    worker_quiesced = threading.Event()
     ui_loop: IUILoop[object] | None = None
     model_loop: IModelLoop[object] | None = None
     high_level_failures: BaseException | None = None
     cleanup_failures: list[BaseException] = []
     attempted_output_sinks: list[OutputSink] = []
 
-    def collect_input() -> UserInputEvents:
+    def send_model_command(message: tuple[object, ...]) -> None:
+        connection = parent_connection
+        if connection is None:
+            return
+        with send_lock:
+            try:
+                connection.send(message)
+            except (BrokenPipeError, EOFError, OSError):
+                if not receiver_stopping.is_set():
+                    stop.set()
+
+    def collect_input(*, send_to_model: bool = True) -> UserInputEvents:
         events = window.get_user_input_events()
         event_buffer.append(events)
+        if send_to_model and events.get_events():
+            send_model_command(("input", events, event_buffer.generation))
         if _contains(events, CloseUserInputEventData):
             stop.set()
         return events
@@ -250,6 +279,44 @@ def run_session(
             for result in results:
                 metrics_output_sink.write(result)
 
+    def receive_model_messages() -> None:
+        connection = parent_connection
+        assert connection is not None
+        try:
+            while True:
+                message = connection.recv()
+                kind = message[0]
+                if kind == "ready":
+                    worker_ready.set()
+                elif kind == "result":
+                    publish_model_results(message[1], message[2])
+                    send_model_command(("result_received",))
+                elif kind == "invoke_ui":
+                    assert ui_loop is not None
+                    ui_loop._invoke_local(cloudpickle.loads(message[1]))
+                elif kind == "failure":
+                    session._failure_queue.put(
+                        deserialize_exception(message[1], message[2])
+                    )
+                    stop.set()
+                elif kind == "quiesced":
+                    worker_quiesced.set()
+                else:
+                    raise RuntimeError(f"Unknown message from model process: {kind!r}.")
+        except (EOFError, OSError):
+            if not worker_quiesced.is_set() and not receiver_stopping.is_set():
+                session._failure_queue.put(
+                    ModelProcessError("The model process exited unexpectedly.")
+                )
+                stop.set()
+            worker_quiesced.set()
+            worker_ready.set()
+        except BaseException as error:
+            session._failure_queue.put(error)
+            stop.set()
+            worker_quiesced.set()
+            worker_ready.set()
+
     def tick_ui() -> None:
         assert ui_loop is not None
         generation = event_buffer.generation
@@ -274,28 +341,48 @@ def run_session(
         ui_loop = registered_ui
         model_loop = registered_model
         event_buffer.register(_UI_READER_ID)
-        event_buffer.register(_MODEL_READER_ID)
 
         attempted_output_sinks.append(window)
         window.open(session_desc)
         if metrics_output_sink is not None:
             attempted_output_sinks.append(metrics_output_sink)
             metrics_output_sink.open(session_desc)
-        collect_input()
-        tick_ui()
+        initial_events = collect_input(send_to_model=False)
 
         if not stop.is_set():
-            model_thread_handle = threading.Thread(
-                target=model_loop._run_model_loop,
-                kwargs={
-                    "event_buffer": event_buffer,
-                    "reader_id": _MODEL_READER_ID,
-                    "publish": publish_model_results,
-                    "max_steps": steps,
-                },
-                name=_MODEL_THREAD_NAME,
+            context = multiprocessing.get_context("spawn")
+            parent_connection, child_connection = context.Pipe(duplex=True)
+            initial_model_operations = model_loop._take_pending_operations()
+            model_process = context.Process(
+                target=model_process_main,
+                args=(
+                    child_connection,
+                    serialize_model_loop(model_loop),
+                    steps,
+                    1,
+                ),
+                name=_MODEL_PROCESS_NAME,
             )
-            model_thread_handle.start()
+            model_process.start()
+            child_connection.close()
+            model_loop._set_remote_sender(
+                lambda operation: send_model_command(
+                    ("invoke_model", serialize_operation(operation))
+                )
+            )
+            model_receiver = threading.Thread(
+                target=receive_model_messages,
+                name="flashdreams-model-ipc-receiver",
+                daemon=True,
+            )
+            model_receiver.start()
+            send_model_command(("input", initial_events, event_buffer.generation))
+            for operation in initial_model_operations:
+                send_model_command(("invoke_model", serialize_operation(operation)))
+            send_model_command(("start",))
+            while not worker_ready.wait(0.05) and not stop.is_set():
+                pass
+            tick_ui()
             next_tick_at = time.monotonic() + tick_seconds
 
             # Keep servicing input and presenting queued frames until shutdown,
@@ -303,7 +390,7 @@ def run_session(
             # A finished UI loop produces no further window output.
             while not stop.is_set():
                 if (
-                    not model_thread_handle.is_alive()
+                    worker_quiesced.is_set()
                     and not presentation_manager.has_pending_frames()
                 ):
                     break
@@ -323,16 +410,21 @@ def run_session(
         high_level_failures = error
     finally:
         stop.set()
-        if model_thread_handle is not None:
+        if model_loop is not None:
+            model_loop._set_remote_sender(None)
+        if model_process is not None:
+            send_model_command(("quiesce",))
             try:
-                model_thread_handle.join()
+                while model_process.is_alive() and not worker_quiesced.wait(0.05):
+                    pass
             except BaseException as error:
                 cleanup_failures.append(error)
 
-        cleanup_failures.extend(session._shutdown_registered_loops())
+        cleanup_failures.extend(
+            session._shutdown_registered_loops(include_model=model_process is None)
+        )
         presentation_manager.clear()
         event_buffer.unregister(_UI_READER_ID)
-        event_buffer.unregister(_MODEL_READER_ID)
         event_buffer.clear()
 
         for output_sink in attempted_output_sinks:
@@ -344,6 +436,26 @@ def run_session(
             session.close()
         except BaseException as error:
             cleanup_failures.append(error)
+
+        # Every consumer has now released its result tensors. Only now may the
+        # CUDA-IPC producer process release its allocator and CUDA context.
+        if model_process is not None:
+            receiver_stopping.set()
+            send_model_command(("terminate",))
+            try:
+                model_process.join()
+            except BaseException as error:
+                cleanup_failures.append(error)
+        if parent_connection is not None:
+            try:
+                parent_connection.close()
+            except BaseException as error:
+                cleanup_failures.append(error)
+        if model_receiver is not None:
+            try:
+                model_receiver.join()
+            except BaseException as error:
+                cleanup_failures.append(error)
 
     loop_failures = (
         None if session._failure_queue.empty() else session._failure_queue.get()

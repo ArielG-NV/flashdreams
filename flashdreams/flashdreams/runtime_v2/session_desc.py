@@ -12,7 +12,7 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 
 class BackpressureMode(Enum):
-    """What the model-generation-thread does when its output queue is full."""
+    """What the model process does when its output queue is full."""
 
     BLOCK = "block"
     """Wait when the presentation queue is full."""
@@ -44,7 +44,7 @@ class SessionDesc:
     """Declared tensor layout for generated video results."""
 
     backpressure_mode: BackpressureMode = BackpressureMode.BLOCK
-    """What the model-generation-thread does when its output queue is full."""
+    """What the model process does when its output queue is full."""
 
     presentation_mode: PresentationMode = PresentationMode.ONLY_PRESENT_NEWEST
     """What the UI loop does when no new model frame is ready."""

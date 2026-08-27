@@ -17,12 +17,14 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 class T2VModelState:
     """Mutable rollout state owned by the model loop."""
 
-    pipeline: Any
+    pipeline_source: Any
+    device: str
     prompt: str
     session_desc: SessionDesc
     total_blocks: int
     blocks_generated: int = 0
     cache: Any = None
+    pipeline: Any = None
 
 
 class T2VModelLoop(IModelLoop[T2VModelState]):
@@ -32,8 +34,9 @@ class T2VModelLoop(IModelLoop[T2VModelState]):
         """Generate and finalize one autoregressive block."""
         del events
         state = self.state
+        _ensure_pipeline(state)
         if state.cache is None:
-            raise RuntimeError(f"{type(self).__name__}.init() must run before step().")
+            state.cache = _new_cache(state)
         state.blocks_generated += 1
         frames = state.pipeline.generate(
             autoregressive_index=step_index, cache=state.cache
@@ -56,10 +59,16 @@ class T2VModelLoop(IModelLoop[T2VModelState]):
 
     def reset(self) -> None:
         self.state.blocks_generated = 0
+        _ensure_pipeline(self.state)
         self.state.cache = _new_cache(self.state)
 
     def close(self) -> None:
         self.state.cache = None
+        pipeline = self.state.pipeline
+        self.state.pipeline = None
+        close = getattr(pipeline, "close", None)
+        if callable(close):
+            close()
 
 
 class T2VSession(ISession):
@@ -72,7 +81,7 @@ class T2VSession(ISession):
     A rollout is ``total_blocks`` long and then reports itself finished, so
     nothing above it counts steps. What belongs to a run is the cache this
     initializes, holding the encoded prompt and the attention state; the
-    pipeline belongs to the application.
+    pipeline is constructed and owned by the model process.
     """
 
     def __init__(
@@ -81,32 +90,32 @@ class T2VSession(ISession):
         prompt: str,
         session_desc: SessionDesc,
         total_blocks: int,
+        *,
+        device: str = "cuda",
     ) -> None:
         """
         Args:
-            pipeline: Loaded pipeline, owned by the application.
+            pipeline: Serializable pipeline config, or a lightweight stand-in.
             prompt: Text to generate from.
             session_desc: Session the application accepted, already checked
                 against what the model can produce.
             total_blocks: Blocks this rollout generates before it is finished.
         """
         self._pipeline = pipeline
+        self._device = device
         self._prompt = prompt
         self._session_desc = session_desc
         self._total_blocks = total_blocks
 
     def init(self) -> None:
-        """Encode the prompt and prepare the rollout's cache.
-
-        Where the text encoder runs, so it is slower than a step.
-        """
+        """Register a CUDA-free model-loop specification for the worker."""
         state = T2VModelState(
-            pipeline=self._pipeline,
+            pipeline_source=self._pipeline,
+            device=self._device,
             prompt=self._prompt,
             session_desc=self._session_desc,
             total_blocks=self._total_blocks,
         )
-        state.cache = _new_cache(state)
         self.register_model_loop(T2VModelLoop, state=state)
 
     @property
@@ -123,3 +132,28 @@ def _new_cache(state: T2VModelState) -> Any:
         height=state.session_desc.video_height // ratio,
         width=state.session_desc.video_width // ratio,
     )
+
+
+def _ensure_pipeline(state: T2VModelState) -> None:
+    """Build and validate the pipeline inside the model process."""
+    if state.pipeline is not None:
+        return
+    source = state.pipeline_source
+    setup = getattr(source, "setup", None)
+    pipeline = setup() if callable(setup) else source
+    to = getattr(pipeline, "to", None)
+    if callable(to):
+        pipeline = to(state.device)
+    evaluate = getattr(pipeline, "eval", None)
+    if callable(evaluate):
+        pipeline = evaluate()
+    ratio = pipeline.decoder.spatial_compression_ratio
+    if (
+        state.session_desc.video_width % ratio
+        or state.session_desc.video_height % ratio
+    ):
+        raise ValueError(
+            f"Frame dimensions must be multiples of {ratio}, got "
+            f"{state.session_desc.video_width}x{state.session_desc.video_height}."
+        )
+    state.pipeline = pipeline

@@ -19,7 +19,7 @@ class IClientWindow(InputSource, OutputSink, ABC):
     A window does not describe the output shape. The session does, and the window
     is given that description in :meth:`OutputSink.open`.
 
-    One thread makes every call on a window, so an implementation needs no
+    One original-process thread makes every call on a window, so an implementation needs no
     locking except when its backend delivers input from another thread.
 
     Created by the runtime, never by an application.

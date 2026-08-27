@@ -8,7 +8,7 @@ that turns their asset format into `Cam2VConditioning`.
 The application owns the loaded pipeline. Each session owns its autoregressive
 cache, keyboard state, camera pose, and SlangPy UI overlay. The
 io-thread runs the UI loop over the current video frame; the
-model-generation-thread runs the model loop and is the only thread that mutates
+spawned model process runs the model loop and is the only process that mutates
 rollout state. Model status crosses to the UI loop through `invoke_async`
 messages.
 
@@ -24,7 +24,7 @@ uv run flashdreams-run-v2 cam2v-dummy --mode webrtc \
   --step-wait-seconds 0.9 --frames-per-chunk 12
 ```
 
-The model-generation-thread waits on a `threading.Event` for each synthetic
+The model process waits on a local `threading.Event` for each synthetic
 step while the io-thread continues collecting browser input and presenting
 generated frames.
 

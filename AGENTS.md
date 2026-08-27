@@ -90,6 +90,11 @@ Keep dependency direction strict: `core` -> `infra` -> recipes/integrations. `co
 
 #### Threading
 
-Only contains two threads during a program runtime:
-- model-thread: responsible for generating model output. Drives model loop.
-- ui-thread: responsible for compositing and presenting the model output to the user. Additionally manages the state of `run_session` which includes content such as user event collection, and client window management. Drives ui loop.
+Runtime v2 uses two processes:
+- model process: spawned with the `spawn` start method, owns CUDA, model state, and the model loop.
+- original process: owns `run_session`, user input, the UI loop, client windows, presentation, and output sinks.
+
+Tensor payloads cross through PyTorch multiprocessing reducers. CPU storage uses
+shared memory and CUDA storage uses CUDA IPC; do not materialize or copy model
+outputs merely to cross the process boundary. The model process must remain alive
+until every consumer has released its IPC-backed tensors.

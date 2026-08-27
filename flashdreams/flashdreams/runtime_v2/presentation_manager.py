@@ -15,10 +15,10 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 
 class PresentationManager:
-    """Buffer model output for a session's io-thread.
+    """Buffer model output for a session's original process.
 
-    The model-generation-thread publishes a chunk of channels per step into a
-    bounded queue; the io-thread calls :meth:`advance` once per tick to move to
+    The IPC receiver publishes a chunk of channels per step into a bounded
+    queue; the UI loop calls :meth:`advance` once per tick to move to
     the next frame. A chunk holding several frames is walked frame by frame
     before another is taken, so a step that generated twelve frames is
     presented over twelve ticks rather than eleven being skipped.
@@ -54,7 +54,7 @@ class PresentationManager:
     ) -> None:
         """Set the queue size and backpressure mode.
 
-        Called by ``run_session`` before either thread uses this.
+        Called by ``run_session`` before either process uses this.
 
         Args:
             max_pending: Model steps that may wait to be shown. Replaces the
@@ -81,7 +81,7 @@ class PresentationManager:
     ) -> None:
         """Add one completed model step to the presentation queue.
 
-        Called on the model-generation-thread. ``BLOCK`` waits here when the
+        Called on the IPC receiver thread. ``BLOCK`` waits here when the
         queue is full, until there is room or the session stops;
         ``DROP_OLDEST`` evicts instead and returns.
 

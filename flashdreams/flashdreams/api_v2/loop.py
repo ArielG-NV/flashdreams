@@ -11,7 +11,7 @@ import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Generic, TypeVar, final
+from typing import TYPE_CHECKING, Generic, TypeVar, cast, final
 
 from torch import Tensor
 
@@ -26,6 +26,8 @@ if TYPE_CHECKING:
 
 StateT = TypeVar("StateT")
 
+_REMOTE_OPERATION_SENDERS: dict[str, Callable[[Callable[[object], None]], None]] = {}
+
 
 @dataclass(slots=True)
 class _Message(Generic[StateT]):
@@ -37,7 +39,7 @@ class ILoop(ABC, Generic[StateT]):
     """Shared state, messaging, and lifecycle for a session loop.
 
     A session registers one of each kind: an :class:`IModelLoop` that generates
-    and an :class:`IUILoop` that presents. They run on separate threads and own
+    and an :class:`IUILoop` that presents. They run in separate processes and own
     their own ``state``, so the only supported way for one to change the other's
     is :func:`invoke_async`.
     """
@@ -50,6 +52,7 @@ class ILoop(ABC, Generic[StateT]):
         frequency: int,
         shutdown_event: threading.Event,
         failure_queue: queue.Queue[BaseException],
+        loop_role: str = "local",
     ) -> None:
         """Store objects supplied when this loop is registered with a session.
 
@@ -79,6 +82,53 @@ class ILoop(ABC, Generic[StateT]):
         self._lifecycle_lock = threading.Lock()
         self._shutdown_event = shutdown_event
         self._failure_queue = failure_queue
+        self._loop_role = loop_role
+        self._remote_sender: Callable[[Callable[[StateT], None]], None] | None = None
+
+    def __getstate__(self) -> dict[str, object]:
+        """Serialize loop-owned data without process-local synchronization."""
+        if self.__dict__.get("_loop_role") == "ui":
+            # A UI loop embedded in model state is only a remote-address token.
+            # Serializing renderer state, presentation queues, and locks would
+            # be both invalid and needlessly expensive.
+            return {"_loop_role": "ui", "_accepting_messages": True}
+        state = self.__dict__.copy()
+        for name in (
+            "_message_queue",
+            "_lifecycle_lock",
+            "_shutdown_event",
+            "_failure_queue",
+            "_remote_sender",
+            "_presentation_manager",
+        ):
+            state.pop(name, None)
+        return state
+
+    def __setstate__(self, state: dict[str, object]) -> None:
+        self.__dict__.update(state)
+        self._remote_sender = None
+
+    @final
+    def _bind_process_runtime(
+        self,
+        *,
+        shutdown_event: threading.Event,
+        failure_queue: queue.Queue[BaseException],
+    ) -> None:
+        """Attach synchronization primitives owned by the current process."""
+        self._message_queue = queue.Queue()
+        self._lifecycle_lock = threading.Lock()
+        self._shutdown_event = shutdown_event
+        self._failure_queue = failure_queue
+        self._accepting_messages = True
+        self._closed = False
+        self._remote_sender = None
+
+    @final
+    def _set_remote_sender(
+        self, sender: Callable[[Callable[[StateT], None]], None] | None
+    ) -> None:
+        self._remote_sender = sender
 
     @abstractmethod
     def step(
@@ -131,6 +181,20 @@ class ILoop(ABC, Generic[StateT]):
         Raises:
             RuntimeError: The loop is shutting down.
         """
+        sender = self._remote_sender
+        if sender is None:
+            sender = cast(
+                Callable[[Callable[[StateT], None]], None] | None,
+                _REMOTE_OPERATION_SENDERS.get(self._loop_role),
+            )
+        if sender is not None:
+            sender(operation)
+            return
+        self._invoke_local(operation)
+
+    @final
+    def _invoke_local(self, operation: Callable[[StateT], None]) -> None:
+        """Queue an operation in the process that owns this loop."""
         with self._lifecycle_lock:
             if not self._accepting_messages:
                 raise RuntimeError("Loop is shutting down.")
@@ -174,6 +238,9 @@ class ILoop(ABC, Generic[StateT]):
         try:
             self.close()
         finally:
+            # Runtime-owned results may reference CUDA IPC storage. Release
+            # them before the producer process is permitted to terminate.
+            self.latest_result = None
             self._empty_message_queue()
 
     def _run_message_batch(self) -> None:
@@ -188,6 +255,17 @@ class ILoop(ABC, Generic[StateT]):
             result = message.operation(self.state)
             if result is not None:
                 raise TypeError("Message operations must return None.")
+
+    @final
+    def _take_pending_operations(self) -> list[Callable[[StateT], None]]:
+        """Move queued operations out for delivery to a new owner process."""
+        operations: list[Callable[[StateT], None]] = []
+        with self._lifecycle_lock:
+            while True:
+                try:
+                    operations.append(self._message_queue.get_nowait().operation)
+                except queue.Empty:
+                    return operations
 
     def _pace(self, last_run_started: float | None) -> float:
         if self.frequency == 0 or last_run_started is None:
@@ -205,7 +283,7 @@ class ILoop(ABC, Generic[StateT]):
 
 
 class IModelLoop(ILoop[StateT], ABC):
-    """Loop that generates model results on the model thread.
+    """Loop that generates model results in the model process.
 
     :meth:`ILoop.step` must return ``list[StepResult]`` here, one entry per
     channel, with every channel reporting the same ``frame_count``. Returning a
@@ -328,7 +406,7 @@ def invoke_async(loop: ILoop[StateT], operation: Callable[[StateT], None]) -> No
     """Queue ``operation`` against ``loop`` state before its next step.
 
     Returns immediately. ``loop`` snapshots its queue before its next
-    :meth:`ILoop.step` and runs what was in it, on its own thread. Anything
+    :meth:`ILoop.step` and runs what was in it, in its owning process. Anything
     still queued at shutdown is dropped, so two loops cannot keep each other
     alive by messaging back and forth.
 
@@ -340,6 +418,17 @@ def invoke_async(loop: ILoop[StateT], operation: Callable[[StateT], None]) -> No
         RuntimeError: ``loop`` is shutting down.
     """
     loop._invoke_async(operation)
+
+
+def _install_remote_operation_sender(
+    loop_role: str,
+    sender: Callable[[Callable[[object], None]], None] | None,
+) -> None:
+    """Install a process-local route to a loop owned by another process."""
+    if sender is None:
+        _REMOTE_OPERATION_SENDERS.pop(loop_role, None)
+    else:
+        _REMOTE_OPERATION_SENDERS[loop_role] = sender
 
 
 __all__ = [

@@ -428,8 +428,8 @@ def test_cam2v_session_registers_the_shared_slangpy_ui_loop() -> None:
     assert session.session_desc.presentation_mode is PresentationMode.ONLY_PRESENT_NEW
 
 
-def test_application_owns_pipeline_and_resolves_inputs_per_session_desc() -> None:
-    """Keep the loaded model application-scoped and rollout inputs session-scoped."""
+def test_application_passes_pipeline_config_to_the_model_process() -> None:
+    """Keep the original process CUDA-free and rollout inputs session-scoped."""
     pipeline_config = _PipelineConfig()
     seen: list[Mapping[str, Any]] = []
 
@@ -462,11 +462,12 @@ def test_application_owns_pipeline_and_resolves_inputs_per_session_desc() -> Non
     assert seen[0]["pixel_width"] == 8
     assert seen[0]["pixel_height"] == 4
     assert seen[0]["fps"] == 16
-    assert pipeline_config.pipeline.device == "cpu"
+    assert pipeline_config.pipeline.device is None
+    assert model_loop.state.pipeline_source is pipeline_config
     assert model_loop.state.config.first_frame_dtype is torch.float64
     assert model_loop.state.config.first_frame_interpolation == "nearest"
     app.close()
-    assert pipeline_config.pipeline.closed
+    assert not pipeline_config.pipeline.closed
 
 
 def test_defaults_reject_invalid_timing_configuration() -> None:

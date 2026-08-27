@@ -52,19 +52,24 @@ Each loop is registered with the state it owns, and the call returns the loop:
 
 | Runs on | Calls | Owns | Frame rate |
 | --- | --- | --- | --- |
-| The io-thread | `IUILoop.step` | UI-loop state, `run_session` state | `frames_per_second_for_ui` |
-| The model-generation-thread | `IModelLoop.step` | Model-loop state and model logic | `frames_per_second_for_step` |
+| Original process | `IUILoop.step` | UI-loop state, `run_session` state | `frames_per_second_for_ui` |
+| Spawned model process | `IModelLoop.step` | Model-loop state, model logic, CUDA context | `frames_per_second_for_step` |
 
 ```python
 self.register_model_loop(ModelLoop, state=ModelState(self._desc))
 ```
 
+Registration data is serialized into a `spawn`ed interpreter. Keep model-loop
+state CUDA-free at registration time: store configs and lightweight inputs, then
+construct weights, caches, and the CUDA context lazily from the model process.
+This avoids duplicating GPU memory and is required for spawn-safe CUDA use.
+
 `state` is required for a model loop and optional for a UI loop. Each loop's rate
 comes from the session description: the model loop steps at
 `frames_per_second_for_step`, and the UI ticks at `frames_per_second_for_ui`.
 
-The io-thread initially selects frames from model chunks at
-`frames_per_second_for_step`, then uses the model-generation-thread's rolling
+The UI loop initially selects frames from model chunks at
+`frames_per_second_for_step`, then uses the model process's rolling
 two-second output rate. This paces chunked output evenly without tying input
 and UI redraws to model throughput.
 `PresentationMode.ONLY_PRESENT_NEWEST` lets an `IUILoop` redraw continuously;
@@ -73,8 +78,9 @@ changes.
 
 ## Loops
 
-The two loops run on different threads, so neither should reach into the other's
-state directly. `invoke_async` is the way across:
+The two loops run in different processes, so neither should reach into the
+other's state directly. `invoke_async` serializes a callable across the control
+pipe:
 
 ```python
 new_prompt = str(text_from_ui)
@@ -168,7 +174,7 @@ This loop runs forever. Override `is_finished` to make it stop.
 frames faster than the io-thread can consume them:
 
 - `BackpressureMode.BLOCK` waits when the presentation queue is full. This keeps
-  every generated frame and can slow the model-generation-thread to the
+  every generated frame and can slow the model process to the
   io-thread's pace.
 - `BackpressureMode.DROP_OLDEST` discards old buffered work so the UI can catch
   up to newer output. This favors low latency over preserving every frame.
