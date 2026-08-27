@@ -25,6 +25,9 @@ uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
 The command prints the browser URL. Use `W`/`S` to move, `A`/`D` to yaw,
 `Q`/`E` to strafe, and `I`/`K` to pitch the generated camera.
 
+The interactive application disables `torch.compile` by default to avoid cold
+compile stalls; pass `-- --compile` to opt in after the application arguments.
+
 The application logs warmup-excluded `steady_state_fps` and a per-block timing
 breakdown. `model_step_wall_s` includes input preparation, generation,
 finalization, and CUDA completion. The pipeline profiling log provides its GPU

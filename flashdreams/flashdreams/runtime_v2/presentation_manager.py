@@ -19,9 +19,9 @@ class PresentationManager:
 
     The IPC receiver publishes a chunk of channels per step into a bounded
     queue; the UI loop calls :meth:`advance` once per tick to move to
-    the next frame. A chunk holding several frames is walked frame by frame
-    before another is taken, so a step that generated twelve frames is
-    presented over twelve ticks rather than eleven being skipped.
+    the next frame. In ``BLOCK`` mode, a chunk holding several frames is walked
+    frame by frame before another is taken. In ``DROP_OLDEST`` mode, newer
+    output interrupts the remaining frames of the active chunk.
 
     :class:`BackpressureMode` decides what publishing does when the queue is
     full. Chunks that could not be kept are counted in
@@ -133,6 +133,19 @@ class PresentationManager:
             self._presented_chunk = None
             self._frame_index = -1
             self._presented_frame_count = 0
+
+        if self._backpressure_mode is BackpressureMode.DROP_OLDEST:
+            newest = self._take_buffered_chunk(generation, latest=True)
+            if newest is not None:
+                if (
+                    self._presented_chunk is not None
+                    and self._frame_index + 1 < self._presented_chunk[0].frame_count
+                ):
+                    self.dropped_for_space += 1
+                self._presented_chunk = newest
+                self._frame_index = 0
+                self._presented_frame_count += 1
+                return True, newest
 
         if (
             self._presented_chunk is not None

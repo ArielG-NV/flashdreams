@@ -18,7 +18,7 @@ class BackpressureMode(Enum):
     """Wait when the presentation queue is full."""
 
     DROP_OLDEST = "drop_oldest"
-    """Drop the oldest queued model step."""
+    """Drop queued and actively presented stale model steps."""
 
 
 class PresentationMode(Enum):
@@ -43,13 +43,13 @@ class SessionDesc:
     output_layout: VideoTensorLayout = VideoTensorLayout.tchw
     """Declared tensor layout for generated video results."""
 
-    backpressure_mode: BackpressureMode = BackpressureMode.BLOCK
+    backpressure_mode: BackpressureMode = BackpressureMode.DROP_OLDEST
     """What the model process does when its output queue is full."""
 
     presentation_mode: PresentationMode = PresentationMode.ONLY_PRESENT_NEWEST
     """What the UI loop does when no new model frame is ready."""
 
-    frames_per_second_for_ui: int = 60
+    frames_per_second_for_ui: int = 30
     """Rate to read input and run continuous UI redraws, in frames per second."""
 
     frames_per_second_for_step: int = 30

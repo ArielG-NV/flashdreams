@@ -186,14 +186,17 @@ class _VideoTrack(MediaStreamTrack):
             else queued_frame
         )
 
-        loop = asyncio.get_running_loop()
-        now = loop.time()
-        wait_seconds = self._pacer.delay_seconds(
-            now=now,
-            source_at=presented_frame.presented_at,
-        )
-        if wait_seconds > 0:
-            await asyncio.sleep(wait_seconds)
+        # Interactive UI output is already bounded by the io-thread tick. Sleeping
+        # after dequeue would make this frame stale but no longer replaceable.
+        if not self._drop_oldest:
+            loop = asyncio.get_running_loop()
+            now = loop.time()
+            wait_seconds = self._pacer.delay_seconds(
+                now=now,
+                source_at=presented_frame.presented_at,
+            )
+            if wait_seconds > 0:
+                await asyncio.sleep(wait_seconds)
 
         if self._presentation_started_at is None:
             self._presentation_started_at = presented_frame.presented_at

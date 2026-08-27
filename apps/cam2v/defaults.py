@@ -85,11 +85,11 @@ class Cam2VApplicationDefaults:
     output_layout: VideoTensorLayout = VideoTensorLayout.tchw
     """Tensor layout emitted by the model pipeline."""
 
-    backpressure_mode: BackpressureMode = BackpressureMode.BLOCK
-    """Preserve every generated model frame in presentation order."""
+    backpressure_mode: BackpressureMode = BackpressureMode.DROP_OLDEST
+    """Discard stale chunks so controls reach the next visible model output."""
 
-    presentation_mode: PresentationMode = PresentationMode.ONLY_PRESENT_NEW
-    """Render and transmit the overlay once for each selected model frame."""
+    presentation_mode: PresentationMode = PresentationMode.ONLY_PRESENT_NEWEST
+    """Redraw controls continuously while holding the newest model frame."""
 
     ui_fps: int = 60
     """Rate at which the io-thread reads inputs and runs the UI loop."""

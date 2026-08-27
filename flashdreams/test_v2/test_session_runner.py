@@ -684,7 +684,7 @@ def test_default_ui_does_not_redraw_an_unchanged_model_frame() -> None:
     assert [result.step_index for result in window.results] == [0, 1, 2]
 
 
-def test_drop_oldest_finishes_active_chunk_before_newest_waiting_chunk() -> None:
+def test_drop_oldest_interrupts_active_chunk_for_newest_waiting_chunk() -> None:
     manager = PresentationManager()
     manager.configure(
         max_pending=1,
@@ -708,25 +708,14 @@ def test_drop_oldest_finishes_active_chunk_before_newest_waiting_chunk() -> None
     assert manager.advance(0)[0]
     assert manager.presented_frame_count == 1
     manager.publish(0, [result(1, 1)])
-    manager.publish(0, [result(2, 1)])
 
-    assert manager.advance(0)[0]
-    second = manager.presented_frame(0)
-    assert second is not None
-    assert second[0, 0, 0] == 1
-    assert manager.presented_frame_count == 2
-
-    assert manager.advance(0)[0]
-    third = manager.presented_frame(0)
-    assert third is not None
-    assert third[0, 0, 0] == 2
-    assert manager.presented_frame_count == 3
-
-    assert manager.advance(0)[0]
+    changed, newest_chunk = manager.advance(0)
+    assert changed
+    assert newest_chunk is not None
     newest = manager.presented_frame(0)
     assert newest is not None
-    assert newest[0, 0, 0] == 20
-    assert manager.presented_frame_count == 4
+    assert newest[0, 0, 0] == 10
+    assert manager.presented_frame_count == 2
     assert manager.dropped_for_space == 1
 
 

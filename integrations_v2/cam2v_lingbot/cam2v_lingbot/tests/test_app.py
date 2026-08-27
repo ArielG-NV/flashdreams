@@ -41,13 +41,25 @@ def test_application_reuses_lingbot_runner_config() -> None:
     runner = RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3
 
     assert isinstance(application, Cam2VApplication)
-    assert application.pipeline_config is runner.pipeline
+    assert application.pipeline_config is not runner.pipeline
+    assert not (application.pipeline_config.diffusion_model.transformer.compile_network)
+    assert (
+        getattr(
+            runner.pipeline.diffusion_model.transformer,
+            "compile_network",
+            None,
+        )
+        is True
+    )
     assert application.defaults.total_blocks == runner.total_blocks
     assert application.session_desc().video_width == runner.pixel_width
     assert application.session_desc().video_height == runner.pixel_height
     assert application.session_desc().frames_per_second_for_step == runner.fps
     assert application.defaults.first_frame_dtype is torch.bfloat16
     assert application.defaults.first_frame_interpolation == "cubic"
+
+    application.init(["--compile"])
+    assert application.pipeline_config.diffusion_model.transformer.compile_network
     assert isinstance(create_app(), LingbotCam2VApplication)
 
 

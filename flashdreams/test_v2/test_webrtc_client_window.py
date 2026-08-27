@@ -324,3 +324,18 @@ async def test_drop_oldest_video_track_keeps_the_latest_ui_frame() -> None:
         assert abs(float(latest.to_ndarray(format="rgb24").mean()) - 30.0) <= 2.0
     finally:
         await track.close()
+
+
+@pytest.mark.asyncio
+async def test_drop_oldest_video_track_does_not_repace_ui_frames() -> None:
+    track = _VideoTrack(frames_per_second=60, drop_oldest=True)
+    frame = torch.zeros((16, 16, 3), dtype=torch.uint8).numpy()
+    track._pacer = Mock()
+    try:
+        await track.enqueue((frame,))
+
+        await track.recv()
+
+        track._pacer.delay_seconds.assert_not_called()
+    finally:
+        await track.close()

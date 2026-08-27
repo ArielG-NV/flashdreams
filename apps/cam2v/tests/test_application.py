@@ -528,8 +528,8 @@ def test_dummy_cam2v_application_exposes_slow_step_controls() -> None:
     )
 
     assert isinstance(app, Cam2VApplication)
-    assert app.session_desc().backpressure_mode is BackpressureMode.BLOCK
-    assert app.session_desc().presentation_mode is PresentationMode.ONLY_PRESENT_NEW
+    assert app.session_desc().backpressure_mode is BackpressureMode.DROP_OLDEST
+    assert app.session_desc().presentation_mode is PresentationMode.ONLY_PRESENT_NEWEST
     assert app.pipeline_config == DummyCam2VPipelineConfig(
         step_wait_seconds=0.25,
         frames_per_chunk=3,

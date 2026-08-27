@@ -73,6 +73,10 @@ declare arguments this command also has.
 | `mp4` (default) | `--output-path` | none | the session reports itself finished |
 | `webrtc` | `--host`, `--port` | keyboard, mouse, focus, reset, close | the browser disconnects, or the session finishes |
 
+Interactive WebRTC sessions using `ONLY_PRESENT_NEWEST` rely on the UI tick as
+their source clock and send the latest frame immediately. Ordered presentation
+retains sender-side pacing so recorded or equality-oriented output does not burst.
+
 These override whatever session the application asked for:
 
 | Argument | Sets |

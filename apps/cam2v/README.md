@@ -12,9 +12,12 @@ spawned model process runs the model loop and is the only process that mutates
 rollout state. Model status crosses to the UI loop through `invoke_async`
 messages.
 
-The overlay is enabled by default. Pass `-- --no-ui` after the application
-arguments to use the default model-output blitter for headless or benchmark
-runs.
+The overlay is enabled by default. Cam2V uses `DROP_OLDEST` backpressure and
+`ONLY_PRESENT_NEWEST` presentation so stale pre-input chunks are discarded and
+control feedback redraws at the UI rate. Override the runtime flags when an
+equality/recording run must retain every generated frame. Pass `-- --no-ui`
+after the application arguments to use the default model-output blitter for
+headless or benchmark runs.
 
 For UI testing without loading a real model, run the packaged dummy pipeline:
 
