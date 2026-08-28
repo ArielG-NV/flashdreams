@@ -186,8 +186,9 @@ def test_model_step_publishes_bev_channel_and_complete_elapsed_time(
 
     assert len(results) == 2
     assert results[1].frame_count == 2
-    assert tuple(results[1].output.shape) == (2, 3, 2, 3)
-    assert results[1].output[:, 0, 0, 0].tolist() == [17, 29]
+    output = results[1].read_output()
+    assert tuple(output.shape) == (2, 3, 2, 3)
+    assert output[:, 0, 0, 0].tolist() == [17, 29]
     assert elapsed == [pytest.approx(123.0)]
     assert trajectory_calls[0]["physics_world"] is physics_world
     assert trajectory_calls[0]["capture_physics_debug"] is True
@@ -406,11 +407,11 @@ def test_interactive_drive_owns_a_separate_session_and_ui_loop(
     session = app.create_session(
         replace(
             app.session_desc(),
-            presentation_mode=PresentationMode.ONLY_PRESENT_NEW,
+            presentation_mode=PresentationMode.ON_DEMAND,
         )
     )
     assert isinstance(session, InteractiveDriveSession)
-    assert session.session_desc.presentation_mode is PresentationMode.ONLY_PRESENT_NEW
+    assert session.session_desc.presentation_mode is PresentationMode.ON_DEMAND
     assert app._config is not None
     assert app._config.app.bev.enabled is True
     assert app._config.app.bev.show_ego_car is True

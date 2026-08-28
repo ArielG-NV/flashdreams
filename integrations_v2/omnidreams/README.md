@@ -299,7 +299,7 @@ Generate an MP4 using a local USDZ scene:
 uv run --package flashdreams-omnidreams flashdreams-run-v2 \
   interactive-drive-omnidreams --mode mp4 \
   --output-path outputs/omnidreams.mp4 \
-  --backpressure-mode block --presentation-mode only_present_new -- \
+  --backpressure-mode block --presentation-mode on_demand -- \
   --scene /path/to/scene.usdz --no-ui --total-blocks 10
 ```
 

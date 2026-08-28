@@ -67,7 +67,7 @@ For example, render every generated frame once, in order, with the HUD disabled 
 ```bash
 uv run flashdreams-run-v2 interactive-drive-omnidreams-perf \
     --mode mp4 --output-path artifacts/test/interactive-drive.mp4 \
-    --backpressure-mode block --presentation-mode only_present_new -- \
+    --backpressure-mode block --presentation-mode on_demand -- \
     --no-ui --total-blocks 60
 ```
 
@@ -77,7 +77,7 @@ is not mathematically lossless at the pixel/codec level.
 
 For example, render a native-window with game-mode collisions enabled:
 ```bash
-uv run flashdreams-run-v2 interactive-drive-omnidreams-perf --mode native -- \
+uv run flashdreams-run-v2 interactive-drive-omnidreams-perf --mode native-window -- \
     --game-mode
 ```
 
