@@ -49,7 +49,7 @@ class PresentationManager:
             ValueError: ``device`` is neither a CPU nor CUDA device.
         """
         self._buffer: queue.Queue[tuple[int, list[StepResult]]] = queue.Queue(maxsize=2)
-        self._backpressure_mode = BackpressureMode.DROP_OLDEST
+        self._backpressure_mode = BackpressureMode.BLOCK
         self._stop = threading.Event()
         self._put_timeout = 1.0 / 30.0
         self._counter_lock = threading.Lock()
