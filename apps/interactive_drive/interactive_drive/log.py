@@ -16,6 +16,6 @@ def configure_logging() -> None:
     logger.remove()
     logger.add(
         sys.stderr,
-        level=os.environ.get("LOGURU_LEVEL", "WARNING"),
+        level=os.environ.get("LOGURU_LEVEL", "INFO"),
         format=_LOG_FORMAT,
     )

@@ -28,6 +28,8 @@ uv run flashdreams-run-v2 interactive-drive-omnidreams --mode webrtc --port 8089
 Use `interactive-drive-omnidreams-perf` instead for the native-accelerated,
 performance-tuned configuration.
 
+Forward so that you may connect via localhost:8089 by adding `--host 0.0.0.0`
+
 The default scene downloads on first use from the gated
 `nvidia/omni-dreams-scenes` Hugging Face dataset. Application arguments are
 optional and follow the `--` separator:
