@@ -15,6 +15,7 @@
 
 """Primitive data types and packing functions for Ludus renderer."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import List, Optional, Tuple
@@ -439,7 +440,7 @@ def _pack_polygons(polygons: List[Polygon], vertex_offset: int, device):
 
 
 def _pack_cameras(
-    cameras: List[FThetaCamera | OrthographicCamera], device
+    cameras: Sequence[FThetaCamera | OrthographicCamera], device
 ) -> torch.Tensor:
     """Pack camera intrinsics into the native ``[P, 18]`` representation."""
     if not cameras:

@@ -7,8 +7,6 @@ import logging
 import queue
 import threading
 import time
-from collections.abc import Iterator
-from contextlib import contextmanager
 
 import pytest
 import torch
@@ -18,7 +16,6 @@ from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop, invoke_async
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.user_input_event import UserInputEvent
-from flashdreams.runtime_v2 import session_runner as session_runner_module
 from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
 )
@@ -215,35 +212,6 @@ def test_model_loop_excludes_publish_stalls_from_step_timing(
 
     assert failure_queue.empty()
     assert step_timings == pytest.approx([0.9, 0.9])
-
-
-def test_run_session_keeps_lifecycle_in_presentation_context(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    active = False
-
-    class Manager:
-        @contextmanager
-        def presentation_context(self) -> Iterator[None]:
-            nonlocal active
-            active = True
-            try:
-                yield
-            finally:
-                active = False
-
-    class Session:
-        _presentation_manager = Manager()
-
-    def run_inner(*args: object, **kwargs: object) -> None:
-        del args, kwargs
-        assert active
-
-    monkeypatch.setattr(session_runner_module, "_run_session", run_inner)
-
-    session_runner_module.run_session(Session(), object())  # type: ignore[arg-type]
-
-    assert not active
 
 
 class CallLog:

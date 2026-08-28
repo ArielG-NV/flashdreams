@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 from omnidreams.impl import hf_org
 
@@ -47,7 +49,7 @@ def test_hf_repo_explicit_org() -> None:
 
 def test_hf_repo_invalid_kind() -> None:
     with pytest.raises(ValueError, match="unknown omni-dreams repo kind"):
-        hf_org.hf_repo(kind="bogus")  # type: ignore[arg-type]
+        hf_org.hf_repo(kind=cast(hf_org.RepoKind, "bogus"))
 
 
 def test_apply_cli_to_env_writes_env(monkeypatch: pytest.MonkeyPatch) -> None:

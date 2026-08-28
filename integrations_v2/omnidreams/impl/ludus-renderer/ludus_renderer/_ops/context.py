@@ -92,9 +92,11 @@ class LudusCudaTimestampedContext:
         return 2048
 
     # ------------------------------------------------------------------
-    def upload_cameras(self, cameras: List[FThetaCamera | OrthographicCamera]) -> None:
+    def upload_cameras(
+        self, cameras: Sequence[FThetaCamera | OrthographicCamera]
+    ) -> None:
         device = torch.device(f"cuda:{self.cuda_device_idx}")
-        self._cameras = cameras
+        self._cameras = list(cameras)
         self._camera_intrinsics = _pack_cameras(cameras, device)
         self._uniform_intrinsics_cache.clear()
 

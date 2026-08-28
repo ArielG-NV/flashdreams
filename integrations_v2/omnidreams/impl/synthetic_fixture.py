@@ -176,7 +176,7 @@ def _suppressed_checkpoint_load() -> Iterator[None]:
 
     with _LOAD_CHECKPOINT_SWAP_LOCK:
         original = wan_vae_module.load_checkpoint
-        wan_vae_module.load_checkpoint = lambda *args, **kwargs: {}
+        setattr(wan_vae_module, "load_checkpoint", lambda *args, **kwargs: {})
         try:
             yield
         finally:

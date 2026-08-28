@@ -28,12 +28,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 import torch
+from omnidreams.apps.interactive_drive.adapter import (
+    OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS,
+)
 from omnidreams.impl.transformer import CosmosTransformer, CosmosTransformerConfig
 from omnidreams.impl.transformer.network import (
     CosmosDiTNetwork,
     CosmosDiTNetworkConfig,
 )
-from omnidreams.runner import DEFAULT_VIDEO_HEIGHT, DEFAULT_VIDEO_WIDTH
 
 if TYPE_CHECKING:
     from pytest_benchmark.fixture import BenchmarkFixture
@@ -59,8 +61,8 @@ _GPU_REASON = "Omnidreams DiT network benchmark requires CUDA"
 # window retains three chunks. HDMap conditioning uses 16 latent channels.
 _BATCH_SIZE = 1
 _NUM_VIEWS = 1
-_PIXEL_HEIGHT = DEFAULT_VIDEO_HEIGHT
-_PIXEL_WIDTH = DEFAULT_VIDEO_WIDTH
+_PIXEL_HEIGHT = OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS.height
+_PIXEL_WIDTH = OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS.width
 _LATENT_HEIGHT = 88
 _LATENT_WIDTH = 160
 _CHUNK_SIZE_T = 2

@@ -957,7 +957,7 @@ def _bool_tuple(value: object, *, label: str) -> tuple[bool, ...]:
         isinstance(item, bool) for item in value
     ):
         raise ValueError(f"{label} must be a boolean array.")
-    return tuple(value)
+    return cast(tuple[bool, ...], tuple(value))
 
 
 def _fixed_number_tuple(

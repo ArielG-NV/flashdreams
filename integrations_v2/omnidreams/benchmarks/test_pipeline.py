@@ -28,11 +28,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 import torch
+from omnidreams.apps.interactive_drive.adapter import (
+    OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS,
+)
 from omnidreams.config import OMNIDREAMS_PIPELINE_CONFIG
 from omnidreams.impl.pipeline import OmnidreamsPipeline
 from omnidreams.impl.transformer import CosmosTransformer, CosmosTransformerConfig
 from omnidreams.impl.vae_native import OmnidreamsWanVAEEncoderConfig
-from omnidreams.runner import DEFAULT_VIDEO_HEIGHT, DEFAULT_VIDEO_WIDTH
 
 if TYPE_CHECKING:
     from pytest_benchmark.fixture import BenchmarkFixture
@@ -52,8 +54,8 @@ _GPU_REASON = "OmniDreams full-pipeline benchmark requires CUDA"
 
 _BATCH_SIZE = 1
 _NUM_VIEWS = 1
-_PIXEL_HEIGHT = DEFAULT_VIDEO_HEIGHT
-_PIXEL_WIDTH = DEFAULT_VIDEO_WIDTH
+_PIXEL_HEIGHT = OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS.height
+_PIXEL_WIDTH = OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS.width
 _TEXT_TOKENS = 512
 _WARMUP_ROUNDS = 5
 _BENCHMARK_ROUNDS = 50
