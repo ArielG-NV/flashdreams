@@ -209,14 +209,14 @@ def run_session(
         if ui_loop is None:
             return
         events, generation = event_buffer.read(_UI_READER_ID)
-        with presentation_manager.presentation_context():
-            step_index = ui_loop._begin_run(events, generation)
-            if step_index is None or stop.is_set():
-                return
-            result = ui_loop.step(step_index, events)
-            if result is not None and not isinstance(result, StepResult):
-                raise TypeError("A UI loop must return StepResult or None.")
-            ui_loop._finish_run(result)
+    
+        step_index = ui_loop._begin_run(events, generation)
+        if step_index is None or stop.is_set():
+            return
+        result = ui_loop.step(step_index, events)
+        if result is not None and not isinstance(result, StepResult):
+            raise TypeError("A UI loop must return StepResult or None.")
+        ui_loop._finish_run(result)
         if result is not None:
             window.write(result)
 
@@ -238,19 +238,21 @@ def run_session(
                 metrics_output_sink.write(result)
 
     def tick_ui() -> None:
-        assert ui_loop is not None
-        generation = event_buffer.generation
-        model_advanced = False
-        now = time.monotonic()
-        if presentation_clock.is_due(now, generation):
-            model_advanced, _ = presentation_manager.advance(generation)
-        if model_advanced:
-            presentation_clock.mark_advanced(now)
+        # ensure that the HIGH PRIORITY presentation context is default for UI loop
+        with session._presentation_manager.presentation_context():
+            assert ui_loop is not None
+            generation = event_buffer.generation
+            model_advanced = False
+            now = time.monotonic()
+            if presentation_clock.is_due(now, generation):
+                model_advanced, _ = presentation_manager.advance(generation)
+            if model_advanced:
+                presentation_clock.mark_advanced(now)
+                run_ui_once()
+                return
+            if session_desc.presentation_mode is PresentationMode.ON_DEMAND:
+                return
             run_ui_once()
-            return
-        if session_desc.presentation_mode is PresentationMode.ON_DEMAND:
-            return
-        run_ui_once()
 
     try:
         session.init()

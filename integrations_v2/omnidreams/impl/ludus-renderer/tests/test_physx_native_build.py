@@ -16,6 +16,7 @@
 """CPU-only contracts for the first-use PhysX CMake build."""
 
 import os
+import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -180,6 +181,10 @@ def test_configure_and_build_delegates_freshness_to_cmake(
     assert len(commands) == 2
     assert commands[0][:2] == ["cmake", "-S"]
     assert "-B" in commands[0]
+    python_cache_tag = sys.implementation.cache_tag or "python"
+    assert str(commands[0][commands[0].index("-B") + 1]).endswith(python_cache_tag)
+    module_output = (tmp_path / "module" / python_cache_tag).as_posix()
+    assert f"-DLUDUS_MODULE_OUTPUT_DIR={module_output}" in commands[0]
     assert commands[1][:2] == ["cmake", "--build"]
     assert "--target" in commands[1]
     assert _physx_native._MODULE_NAME in commands[1]

@@ -26,6 +26,8 @@ from interactive_drive import (
     InteractiveDriveUILoop,
     download_default_scene,
 )
+from interactive_drive.input.keyboard import command_from_snapshot
+from interactive_drive.types import ControlSnapshot
 
 from flashdreams.runtime_v2.user_input_event import (
     GamepadUserInputEvent,
@@ -45,6 +47,7 @@ class _FakeUI:
         self.text_lines: list[str] = []
         self.images: list[str] = []
         self.progress: list[float] = []
+        self.checkbox_labels: list[str] = []
 
     @staticmethod
     def ImVec2(x: float, y: float) -> tuple[float, float]:
@@ -70,7 +73,7 @@ class _FakeUI:
         return False, index
 
     def checkbox(self, label: str, value: bool) -> tuple[bool, bool]:
-        del label
+        self.checkbox_labels.append(label)
         return False, value
 
     def button(self, label: str) -> bool:
@@ -110,6 +113,42 @@ def test_gamepad_left_stick_only_steers() -> None:
     assert command.steer == 0.5
     assert command.throttle == 0.0
     assert command.brake == 0.0
+
+
+def test_s_reverses_and_space_matches_controller_brake_input() -> None:
+    reverse = command_from_snapshot(ControlSnapshot(pressed={"s"}))
+    brake = command_from_snapshot(ControlSnapshot(pressed={" "}))
+    drive_input = core_module.DriveInputState()
+    drive_input.apply(
+        UserInputEvents(
+            [
+                KeyboardUserInputEvent(
+                    timestamp=np.uint64(0),
+                    key=" ",
+                    state=KeyboardInputState.PRESSED,
+                )
+            ]
+        )
+    )
+    runtime_brake = drive_input.command()
+    left_trigger = core_module._gamepad_command(
+        GamepadUserInputEvent(
+            timestamp=np.uint64(0),
+            axes=(0.0, 0.0),
+            buttons=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0),
+        )
+    )
+
+    assert reverse.throttle == 1.0
+    assert reverse.brake == 0.0
+    assert reverse.reverse
+    assert left_trigger is not None
+    assert brake.throttle == left_trigger.throttle
+    assert brake.brake == left_trigger.brake
+    assert brake.manual_control == left_trigger.manual_control
+    assert runtime_brake.brake == left_trigger.brake
+    assert not brake.stop
+    assert not brake.reverse
 
 
 def test_control_sprites_load_at_hud_resolution() -> None:
@@ -328,6 +367,10 @@ def test_world_model_accepts_postprocess_preset(
     assert app._config is not None
     assert isinstance(app._config, InteractiveDriveConfig)
     assert app._config.app.postprocess.preset == "example-preset"
+    session = app.create_session(app.session_desc())
+    session.init()
+    assert isinstance(session.ui_loop, InteractiveDriveUILoop)
+    assert session.ui_loop.state.show_postprocess_toggle
 
 
 def test_default_scene_uses_original_hugging_face_location(tmp_path: Path) -> None:
@@ -476,6 +519,7 @@ def test_interactive_drive_hud_draws_imgui_controls_and_images(
         "bev-minimap",
     ]
     assert ui.progress == [0.0, 0.0]
+    assert ui.checkbox_labels == []
     # Positive steering means left, so the HUD wheel rotates counterclockwise.
     assert loop.state.wheel_cache_angle == 36
     assert model_loop.state.drive_input.command().throttle == 0.0

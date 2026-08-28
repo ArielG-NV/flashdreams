@@ -125,6 +125,9 @@ transfer stream. Constructing a `StepResult` for CUDA output automatically
 records readiness on the current stream, so construct the result while the
 actual producer stream is current. The presentation manager and runtime sinks
 call `StepResult.read_output()` while their consumer stream is current.
+When CUDA is available, `run_session` uses one highest-priority CUDA stream by
+default for the complete UI-thread lifecycle. An explicit CPU presentation
+manager opts out.
 
 ## A minimal application
 

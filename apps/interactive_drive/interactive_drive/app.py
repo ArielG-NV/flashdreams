@@ -63,7 +63,10 @@ class InteractiveDriveUIState:
     viewport_width: int = 1280
     viewport_height: int = 704
     postprocess_enabled: bool = False
-    status: str = "W/S accelerate, A/D steer; gamepads and wheels are supported."
+    show_postprocess_toggle: bool = False
+    status: str = (
+        "W/S drive, Space brakes, A/D steer; gamepads and wheels are supported."
+    )
     telemetry: DriveTelemetry | None = None
     drive_input: DriveInputState = field(default_factory=DriveInputState)
     """Driving input updated on the UI thread."""
@@ -155,20 +158,21 @@ class InteractiveDriveUILoop(ImGuiUILoop[InteractiveDriveUIState]):
                 size=(64.0, 138.0),
             )
             imgui.separator()
-            postprocess = (
-                telemetry.postprocess_enabled
-                if telemetry is not None
-                else state.postprocess_enabled
-            )
-            changed, postprocess = imgui.checkbox("Post-processing", postprocess)
-            if changed:
-                state.postprocess_enabled = bool(postprocess)
-                invoke_async(
-                    state.model_loop,
-                    lambda model_state, enabled=bool(postprocess): (
-                        model_state.set_postprocess_enabled(enabled)
-                    ),
+            if state.show_postprocess_toggle:
+                postprocess = (
+                    telemetry.postprocess_enabled
+                    if telemetry is not None
+                    else state.postprocess_enabled
                 )
+                changed, postprocess = imgui.checkbox("Post-processing", postprocess)
+                if changed:
+                    state.postprocess_enabled = bool(postprocess)
+                    invoke_async(
+                        state.model_loop,
+                        lambda model_state, enabled=bool(postprocess): (
+                            model_state.set_postprocess_enabled(enabled)
+                        ),
+                    )
             if imgui.button("Restart rollout"):
                 self._restart()
             imgui.same_line()
@@ -358,6 +362,7 @@ class InteractiveDriveSession(ISession):
                 viewport_width=self._desc.video_width,
                 viewport_height=self._desc.video_height,
                 postprocess_enabled=self._config.app.postprocess.is_enabled(),
+                show_postprocess_toggle=bool(self._config.app.postprocess.preset),
             ),
             width=self._desc.video_width,
             height=self._desc.video_height,

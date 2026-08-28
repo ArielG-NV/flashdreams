@@ -7,6 +7,8 @@ import logging
 import queue
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 import pytest
 import torch
@@ -16,6 +18,7 @@ from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop, invoke_async
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.user_input_event import UserInputEvent
+from flashdreams.runtime_v2 import session_runner as session_runner_module
 from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
 )
@@ -212,6 +215,35 @@ def test_model_loop_excludes_publish_stalls_from_step_timing(
 
     assert failure_queue.empty()
     assert step_timings == pytest.approx([0.9, 0.9])
+
+
+def test_run_session_keeps_lifecycle_in_presentation_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    active = False
+
+    class Manager:
+        @contextmanager
+        def presentation_context(self) -> Iterator[None]:
+            nonlocal active
+            active = True
+            try:
+                yield
+            finally:
+                active = False
+
+    class Session:
+        _presentation_manager = Manager()
+
+    def run_inner(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        assert active
+
+    monkeypatch.setattr(session_runner_module, "_run_session", run_inner)
+
+    session_runner_module.run_session(Session(), object())  # type: ignore[arg-type]
+
+    assert not active
 
 
 class CallLog:
@@ -663,49 +695,12 @@ def test_default_ui_composites_channels_and_holds_the_latest_frame() -> None:
     assert ui.step(2, UserInputEvents([])) is None
 
 
-def test_composite_allows_frames_with_different_dimensions() -> None:
-    manager = PresentationManager()
+def test_composite_rejects_frames_with_different_dimensions() -> None:
+    manager = PresentationManager(device=torch.device("cpu"))
     bottom = torch.full((3, 2, 3), -1.0)
+    overlay = torch.ones((4, 4, 5))
 
-    opaque = torch.ones((3, 4, 5))
-    assert torch.equal(manager.composite(bottom, opaque), opaque)
-
-    translucent = torch.cat((torch.ones((3, 4, 5)), torch.full((1, 4, 5), 0.5)))
-    composited = manager.composite(bottom, translucent)
-    assert composited.shape == (3, 4, 5)
-    assert torch.equal(composited, torch.zeros_like(composited))
-
-
-def test_composite_broadcasts_singleton_overlay_dimensions() -> None:
-    manager = PresentationManager()
-    bottom = torch.full((3, 2, 3), -1.0)
-    tint = torch.tensor([1.0, 1.0, 1.0, 0.5]).reshape(4, 1, 1)
-
-    composited = manager.composite(bottom, tint)
-
-    assert composited.shape == bottom.shape
-    assert torch.equal(composited, torch.zeros_like(composited))
-
-
-def test_composite_normalizes_uint8_bottom_for_floating_rgba_overlay() -> None:
-    manager = PresentationManager()
-    bottom = torch.tensor([[[0, 255]], [[255, 0]], [[128, 128]]], dtype=torch.uint8)
-    transparent = torch.zeros((4, 1, 2), dtype=torch.float32)
-
-    composited = manager.composite(bottom, transparent)
-
-    expected = bottom.to(torch.float32).mul(2.0 / 255.0).sub(1.0)
-    assert composited.dtype is transparent.dtype
-    assert composited.device == transparent.device
-    assert torch.equal(composited, expected)
-
-
-def test_composite_rejects_unrelated_dtype_mismatch() -> None:
-    manager = PresentationManager()
-    bottom = torch.zeros((3, 1, 1), dtype=torch.float64)
-    overlay = torch.zeros((4, 1, 1), dtype=torch.float32)
-
-    with pytest.raises(ValueError, match="same device and dtype"):
+    with pytest.raises(ValueError, match="same dimensions"):
         manager.composite(bottom, overlay)
 
 

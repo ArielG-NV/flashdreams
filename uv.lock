@@ -28,6 +28,7 @@ members = [
     "flashdreams-fastvideo-causal-wan22",
     "flashdreams-flashvsr",
     "flashdreams-hy-worldplay",
+    "flashdreams-imgui-ui-demo",
     "flashdreams-interactive-drive-v2",
     "flashdreams-lingbot",
     "flashdreams-null-model",
@@ -1313,6 +1314,17 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.11" },
 ]
 provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-imgui-ui-demo"
+version = "0.1.0"
+source = { editable = "integrations_v2/imgui_ui_demo" }
+dependencies = [
+    { name = "flashdreams", extra = ["local-window", "serving"] },
+]
+
+[package.metadata]
+requires-dist = [{ name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" }]
 
 [[package]]
 name = "flashdreams-interactive-drive-v2"

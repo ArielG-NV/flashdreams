@@ -213,8 +213,11 @@ def _configure_and_build(cache_root: Path, physx_root: Path) -> Path:
         raise RuntimeError(
             "ludus-renderer requires the CMake Python package to build native PhysX"
         )
-    output_dir = cache_root / "module"
-    build_dir = cache_root / f"build-{platform.system().lower()}-{platform.machine()}"
+    python_cache_tag = sys.implementation.cache_tag or "python"
+    output_dir = cache_root / "module" / python_cache_tag
+    build_dir = cache_root / (
+        f"build-{platform.system().lower()}-{platform.machine()}-{python_cache_tag}"
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     source_dir = _native_source_dir()
     _discard_relocated_cmake_build(build_dir, source_dir)

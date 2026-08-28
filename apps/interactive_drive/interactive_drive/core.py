@@ -51,6 +51,7 @@ from flashdreams.infra.config import derive_config
 from flashdreams.infra.pipeline import StreamInferencePipelineConfig
 from flashdreams.infra.postprocess import VideoPostprocessChainConfig
 from flashdreams.plugins.registry import discover_postprocess_presets
+from flashdreams.runtime.keyboard import normalize_key
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -612,14 +613,7 @@ def _build_backend(
 
 
 def _normalize_drive_key(key: str) -> str | None:
-    key = key.strip().lower()
-    aliases = {
-        "arrowup": "w",
-        "arrowdown": "s",
-        "arrowleft": "a",
-        "arrowright": "d",
-    }
-    key = aliases.get(key, key)
+    key = normalize_key(key)
     return key if key in {"w", "a", "s", "d", "space"} else None
 
 

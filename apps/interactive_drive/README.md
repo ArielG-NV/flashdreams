@@ -82,8 +82,12 @@ uv run flashdreams-run-v2 interactive-drive-omnidreams-perf --mode native-window
 
 The HUD view has a button which when clicked cycles through **RGB → HDMAP → PHYSX**. The number keys on a keyboard selects those views directly: press `1` for RGB, `2` for the HD map, or `3` for PhysX.
 
-The preset starts enabled and the HUD's **Post-processing** checkbox can toggle
-it between generated chunks. Run
+For keyboard driving, `W` accelerates forward, `S` accelerates in reverse,
+Space brakes like the controller's left trigger, and `A` and `D` steer.
+
+When `--postprocess-preset` is set, the preset starts enabled and the HUD's
+**Post-processing** checkbox can toggle it between generated chunks. Without a
+preset, the checkbox is hidden. Run
 `uv run flashdreams-run-v2 interactive-drive-omnidreams -- --help` to see the presets
 registered in the current environment. The built-in `rtx-*` presets require
 the optional NVIDIA VFX dependency, installable with
