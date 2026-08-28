@@ -40,18 +40,18 @@ OMNIDREAMS_PIPELINE_CONFIG = OmnidreamsPipelineConfig(
     text_encoder=CosmosReason1TextEncoderConfig(),
     image_encoder=WanVAEEncoderConfig(
         checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["lightvae"],
-        use_compile=True,
+        use_compile=False,
         use_cuda_graph=True,
     ),
     enable_sync_and_profile=True,
     encoder=WanVAEEncoderConfig(
         checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["lightvae"],
-        use_compile=True,
+        use_compile=False,
         use_cuda_graph=True,
     ),
     decoder=TeahvVAEDecoderConfig(
         checkpoint_path=AVAILABLE_TAEHV_CHECKPOINT_PATHS["lighttae"],
-        use_compile=True,
+        use_compile=False,
         use_cuda_graph=True,
     ),
     diffusion_model=DiffusionModelConfig(

@@ -473,7 +473,7 @@ class _InteractiveDriveApplicationBase(IApplication):
         self._config: InteractiveDriveConfig | None = None
         self._desc = SessionDesc(
             output_layout=VideoTensorLayout.tchw,
-            frames_per_second_for_ui=60,
+            frames_per_second_for_ui=30,
             frames_per_second_for_step=defaults.fps,
             video_width=defaults.width,
             video_height=defaults.height,

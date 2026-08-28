@@ -49,7 +49,7 @@ class SessionDesc:
     presentation_mode: PresentationMode = PresentationMode.CONTINUOUS
     """What the UI loop does when no new model frame is ready."""
 
-    frames_per_second_for_ui: int = 60
+    frames_per_second_for_ui: int = 30
     """Rate to poll input and tick the UI, in frames per second."""
 
     frames_per_second_for_step: int = 30
