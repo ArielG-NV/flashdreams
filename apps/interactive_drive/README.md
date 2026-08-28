@@ -21,14 +21,13 @@ Install the application, then start it with no application arguments:
 
 ```bash
 uv sync --package flashdreams-omnidreams --extra interactive-drive
-uv run --package flashdreams-omnidreams python integrations_v2/omnidreams/impl/omnidreams_singleview/tools/sync_thirdparty.py sync
 uv run flashdreams-run-v2 interactive-drive-omnidreams --mode webrtc --port 8089
 ```
 
 Use `interactive-drive-omnidreams-perf` instead for the native-accelerated,
 performance-tuned configuration.
 
-Forward so that you may connect via localhost:8089 by adding `--host 0.0.0.0`
+Forward so that you may connect via `<ip>:8089` by adding `--host 0.0.0.0`
 
 The default scene downloads on first use from the gated
 `nvidia/omni-dreams-scenes` Hugging Face dataset. Application arguments are
@@ -102,4 +101,4 @@ uv run --no-sync pytest apps/interactive_drive -m ci_cpu -v
 
 ## Logging
 
-set `LOGURU_LEVEL` to `INFO` to see more logging. Default is `WARNING`.
+set `LOGURU_LEVEL` to `DEBUG` to see more logging. Default is `INFO`.
