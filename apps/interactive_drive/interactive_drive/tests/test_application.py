@@ -29,12 +29,12 @@ from interactive_drive import (
 from interactive_drive.input.keyboard import command_from_snapshot
 from interactive_drive.types import ControlSnapshot
 
+from flashdreams.runtime_v2.session_desc import PresentationMode
 from flashdreams.runtime_v2.user_input_event import (
     GamepadUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
 )
-from flashdreams.runtime_v2.session_desc import PresentationMode
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 pytestmark = pytest.mark.ci_cpu

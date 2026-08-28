@@ -29,10 +29,10 @@ from typing import Any
 import numpy as np
 import torch
 from ludus_renderer import CubePool
+from omnidreams.config import OMNIDREAMS_CONFIGS
 from omnidreams.impl.conditioning.renderer import LudusRenderer
 from omnidreams.impl.conditioning.world_scenario.data_types import SceneData
 from omnidreams.impl.conditioning.world_scenario.ftheta import FThetaCamera
-from omnidreams.config import OMNIDREAMS_CONFIGS
 from omnidreams.impl.grpc.profiling_server import get_profiler, get_profiling_context
 from omnidreams.impl.pipeline import (
     OmnidreamsPipeline,

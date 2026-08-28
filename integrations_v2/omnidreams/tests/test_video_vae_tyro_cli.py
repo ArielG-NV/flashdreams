@@ -19,6 +19,7 @@ from omnidreams.impl.encoder.pixel_shuffle import (
     PixelShuffleVAEEncoder,
     PixelShuffleVAEEncoderConfig,
 )
+
 from flashdreams.infra.config import InstantiateConfig
 from flashdreams.recipes.taehv import (
     TeahvVAEDecoder,

@@ -32,6 +32,9 @@ from ludus_renderer import (
 from ludus_renderer.clipgt import ClipgtGpuScene
 from ludus_renderer.render_utils import SceneAdapter, create_bev_camera
 from ludus_renderer.torch.ops import CAMERA_TYPE_BEV, CAMERA_TYPE_REGULAR
+from torch import Tensor
+
+from flashdreams.infra.acceleration.frame_prefetch import LazyCudaFrame
 from interactive_drive.config import BevConfig, RasterConfig
 from interactive_drive.cuda_env import DISABLE_CUDA_INTEROP_ENV, env_truthy
 from interactive_drive.physx_debug import LudusPhysxDebugSceneBuffer
@@ -42,9 +45,6 @@ from interactive_drive.types import (
     RasterChunk,
     SceneBundle,
 )
-from torch import Tensor
-
-from flashdreams.infra.acceleration.frame_prefetch import LazyCudaFrame
 
 _BEV_CAMERA_NAME = "interactive_drive_bev"
 

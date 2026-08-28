@@ -17,6 +17,7 @@ from dataclasses import replace
 
 import numpy as np
 import numpy.typing as npt
+
 from interactive_drive.config import VehicleConfig
 from interactive_drive.types import VehicleState
 

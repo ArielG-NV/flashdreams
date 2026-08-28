@@ -31,6 +31,7 @@ from ludus_renderer import (
     RigidBodyModel,
     SceneObject,
 )
+
 from interactive_drive.config import VehicleConfig
 from interactive_drive.simulation.components import (
     BoxColliderComponent,

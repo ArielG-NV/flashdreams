@@ -28,12 +28,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 import torch
-from omnidreams.runner import DEFAULT_VIDEO_HEIGHT, DEFAULT_VIDEO_WIDTH
 from omnidreams.impl.transformer import CosmosTransformer, CosmosTransformerConfig
 from omnidreams.impl.transformer.network import (
     CosmosDiTNetwork,
     CosmosDiTNetworkConfig,
 )
+from omnidreams.runner import DEFAULT_VIDEO_HEIGHT, DEFAULT_VIDEO_WIDTH
 
 if TYPE_CHECKING:
     from pytest_benchmark.fixture import BenchmarkFixture

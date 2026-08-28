@@ -77,9 +77,8 @@ def test_recent_frame_rate_reset_discards_previous_rollout() -> None:
 def test_recent_frame_rate_accepts_steps_below_clock_resolution() -> None:
     tracker = RecentFrameRateTracker(window_seconds=2.0)
 
-    assert (
-        tracker.observe(completed_at=1.0, frame_count=1, elapsed_s=0.0)
-        == float("inf")
+    assert tracker.observe(completed_at=1.0, frame_count=1, elapsed_s=0.0) == float(
+        "inf"
     )
     assert tracker.observe(
         completed_at=2.0,

@@ -30,9 +30,9 @@ import pytest
 import torch
 from omnidreams.config import OMNIDREAMS_PIPELINE_CONFIG
 from omnidreams.impl.pipeline import OmnidreamsPipeline
-from omnidreams.runner import DEFAULT_VIDEO_HEIGHT, DEFAULT_VIDEO_WIDTH
 from omnidreams.impl.transformer import CosmosTransformer, CosmosTransformerConfig
 from omnidreams.impl.vae_native import OmnidreamsWanVAEEncoderConfig
+from omnidreams.runner import DEFAULT_VIDEO_HEIGHT, DEFAULT_VIDEO_WIDTH
 
 if TYPE_CHECKING:
     from pytest_benchmark.fixture import BenchmarkFixture

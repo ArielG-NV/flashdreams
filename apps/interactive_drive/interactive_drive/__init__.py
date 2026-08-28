@@ -2,6 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """Native v2 interactive-driving application."""
 
+from .app import (
+    InteractiveDriveApplication,
+    InteractiveDriveSceneOption,
+    InteractiveDriveSession,
+    InteractiveDriveUILoop,
+)
 from .core import (
     DriveInputState,
     DriveTelemetry,
@@ -15,13 +21,6 @@ from .scene_download import (
     DEFAULT_SCENE_REPO_ID,
     DEFAULT_SCENE_UUID,
     download_default_scene,
-)
-
-from .app import (
-    InteractiveDriveApplication,
-    InteractiveDriveSceneOption,
-    InteractiveDriveSession,
-    InteractiveDriveUILoop,
 )
 
 __all__ = [

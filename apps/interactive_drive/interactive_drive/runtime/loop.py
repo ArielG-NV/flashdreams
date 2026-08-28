@@ -10,6 +10,18 @@ from dataclasses import dataclass, replace
 from typing import Protocol
 
 from loguru import logger
+
+from flashdreams.infra.acceleration.prewarm import is_warmup_index
+from flashdreams.serving.realtime.timing import (
+    ChunkHistory,
+    ChunkPrediction,
+    ChunkTimes,
+    InputToPresentProfileWindow,
+    TraceComponentValue,
+    TraceContext,
+    event_dependencies,
+    trace_time_ns,
+)
 from interactive_drive.input.backend import InputBackend
 from interactive_drive.runtime.runtime_controls import RuntimeControls
 from interactive_drive.simulation.backend import SimulationBackend
@@ -24,18 +36,6 @@ from interactive_drive.video_model.chunk_pipeline import (
     QueuedFrame,
 )
 from interactive_drive.visual_flare import VisualFlareEventQueue
-
-from flashdreams.infra.acceleration.prewarm import is_warmup_index
-from flashdreams.serving.realtime.timing import (
-    ChunkHistory,
-    ChunkPrediction,
-    ChunkTimes,
-    InputToPresentProfileWindow,
-    TraceComponentValue,
-    TraceContext,
-    event_dependencies,
-    trace_time_ns,
-)
 
 _PROFILE_INPUT_TO_PRESENT_ENV = "INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT"
 _PROFILE_INPUT_TO_PRESENT_INTERVAL_S_ENV = (

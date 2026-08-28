@@ -17,12 +17,11 @@
 
 import pytest
 import torch
-from ludus_renderer import PRIM_EGO_OBSTACLE
-
 from interactive_drive.rasterizer import (
     _build_bev_ego_car_pool,
     _level_rig_poses_for_bev,
 )
+from ludus_renderer import PRIM_EGO_OBSTACLE
 
 pytestmark = pytest.mark.ci_cpu
 

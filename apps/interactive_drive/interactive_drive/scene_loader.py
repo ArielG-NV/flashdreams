@@ -15,6 +15,8 @@ import numpy as np
 import pyarrow.parquet as pq
 import yaml
 from loguru import logger
+from PIL import Image
+
 from interactive_drive.colors import (
     BBOX_V3_COLORS,
     HDMAP_V3_COLORS,
@@ -46,7 +48,6 @@ from interactive_drive.types import (
     WorldTriangleList,
     WorldVehicleBBoxTrack,
 )
-from PIL import Image
 
 _GROUND_MESH_NAME = "mesh_ground.ply"
 SCENE_FRAMES_DIRNAME: Final[str] = "frames"

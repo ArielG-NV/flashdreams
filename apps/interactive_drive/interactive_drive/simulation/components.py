@@ -24,6 +24,7 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 from ludus_renderer import RigidBodyModel, VehicleModel
+
 from interactive_drive.config import VehicleConfig
 from interactive_drive.types import VehicleState
 

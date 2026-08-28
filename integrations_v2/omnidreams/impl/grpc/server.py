@@ -47,6 +47,7 @@ import torch
 import torch.distributed as dist
 from loguru import logger
 from ludus_renderer import nvjpeg
+from omnidreams.config import OMNIDREAMS_CONFIGS
 from omnidreams.impl.conditioning.conditioning_wrapper import (
     AV_POSITIVE_PROMPT,
     OmnidreamsConditioningState,
@@ -56,7 +57,6 @@ from omnidreams.impl.conditioning.conditioning_wrapper import (
 from omnidreams.impl.conditioning.renderer import LudusRenderer
 from omnidreams.impl.conditioning.world_scenario.data_types import SceneData
 from omnidreams.impl.conditioning.world_scenario.ftheta import FThetaCamera
-from omnidreams.config import OMNIDREAMS_CONFIGS
 from omnidreams.impl.grpc.profiling_server import (
     get_profiler,
     init_profiler,

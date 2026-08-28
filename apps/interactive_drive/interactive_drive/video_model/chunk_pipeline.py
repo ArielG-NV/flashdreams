@@ -9,12 +9,6 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from loguru import logger
-from interactive_drive.types import (
-    FrameChunk,
-    PresentedFrame,
-    SceneBundle,
-    TrajectoryChunk,
-)
 
 from flashdreams.infra.acceleration.prewarm import run_timed_prewarm
 from flashdreams.serving.realtime.timing import (
@@ -23,6 +17,12 @@ from flashdreams.serving.realtime.timing import (
     emit_video_model_timing_ranges,
     event_dependencies,
     trace_time_ns,
+)
+from interactive_drive.types import (
+    FrameChunk,
+    PresentedFrame,
+    SceneBundle,
+    TrajectoryChunk,
 )
 
 

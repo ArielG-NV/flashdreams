@@ -19,8 +19,9 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
-from interactive_drive.scene_fixture import build_synthetic_scene_usdz
 from PIL import Image
+
+from interactive_drive.scene_fixture import build_synthetic_scene_usdz
 
 # Internal frame-rate of the underlying scene_fixture trajectory and the
 # nominal driving speed it bakes in. ``length_km`` is converted to

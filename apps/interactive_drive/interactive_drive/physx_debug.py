@@ -11,6 +11,7 @@ from typing import Protocol
 import numpy as np
 import torch
 from ludus_renderer import CUBE_FLAG_WIREFRAME, CubePool, TimestampedScene
+
 from interactive_drive.types import PhysicsDebugFrame, PresentedFrame
 
 _ACTOR_FRONT_RGB = (1.0, 190.0 / 255.0, 58.0 / 255.0)

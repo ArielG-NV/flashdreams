@@ -209,7 +209,7 @@ def run_session(
         if ui_loop is None:
             return
         events, generation = event_buffer.read(_UI_READER_ID)
-    
+
         step_index = ui_loop._begin_run(events, generation)
         if step_index is None or stop.is_set():
             return

@@ -9,11 +9,11 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from imgui_ui_demo.text_input_app import TextInputImGuiUILoop, TextInputState
 
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
-from imgui_ui_demo.text_input_app import TextInputImGuiUILoop, TextInputState
 
 pytestmark = pytest.mark.ci_cpu
 

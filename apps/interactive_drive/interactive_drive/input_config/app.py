@@ -22,6 +22,7 @@ from pathlib import Path
 
 import yaml
 from loguru import logger
+
 from interactive_drive.input.wheel_profiles import (
     AutocenterFFB,
     Binding,
