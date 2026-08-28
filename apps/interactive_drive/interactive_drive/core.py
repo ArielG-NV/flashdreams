@@ -69,6 +69,8 @@ ViewMode = Literal["rgb", "hdmap", "physx"]
 
 _VIEW_MODES: tuple[ViewMode, ...] = ("rgb", "hdmap", "physx")
 _VIEW_MODE_KEYS: dict[str, ViewMode] = dict(zip(("1", "2", "3"), _VIEW_MODES))
+_GAMEPAD_REVERSE_BUTTON = 5
+_GAMEPAD_RESET_BUTTON = 9
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,6 +186,7 @@ class InteractiveDriveModelState:
     postprocess_enabled: bool = True
     pending_prompt: str | None = None
     reset_pending: bool = False
+    controller_reset_pressed: bool = False
     ui_loop: IUILoop[Any] | None = None
     backend: RenderBackend | None = None
     physics_world: GamePhysicsWorld | None = None
@@ -443,6 +446,14 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
                 if view_mode is not None:
                     if event.state is KeyboardInputState.PRESSED:
                         state.set_view_mode(view_mode)
+            elif isinstance(event, GamepadUserInputEvent):
+                reset_pressed = event.action == "state" and _gamepad_button_pressed(
+                    event, _GAMEPAD_RESET_BUTTON
+                )
+                if reset_pressed and not state.controller_reset_pressed:
+                    state.reset_pending = True
+                    state._notify("Restart queued.")
+                state.controller_reset_pressed = reset_pressed
         state.drive_input.apply(events)
 
     def _command(self) -> DriverCommand:
@@ -629,9 +640,16 @@ def _gamepad_command(event: GamepadUserInputEvent) -> DriverCommand | None:
         throttle=throttle,
         brake=brake,
         steer=steer,
+        reverse=_gamepad_button_pressed(event, _GAMEPAD_REVERSE_BUTTON),
         steer_is_direct=True,
         manual_control=True,
     )
+
+
+def _gamepad_button_pressed(event: GamepadUserInputEvent, index: int) -> bool:
+    if len(event.pressed) > index:
+        return event.pressed[index]
+    return len(event.buttons) > index and event.buttons[index] > 0.5
 
 
 def _frame_chunk_tensor(chunk: FrameChunk, view_mode: ViewMode) -> Tensor:

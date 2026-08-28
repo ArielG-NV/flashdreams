@@ -5,6 +5,37 @@ SPDX-License-Identifier: Apache-2.0
 
 # Interactive Drive
 
+## Controls
+
+### Keyboard
+
+| Key | Action |
+| --- | --- |
+| `W` or Up arrow | Accelerate forward. |
+| `S` or Down arrow | Accelerate in reverse. |
+| `A` or Left arrow | Steer left. |
+| `D` or Right arrow | Steer right. |
+| Space | Brake; while held, throttle is suppressed. |
+| `1` | Show the RGB view. |
+| `2` | Show the HD-map conditioning view. |
+| `3` | Show the PhysX collider view. |
+
+### Controller
+
+Standard-mapped gamepads use these controls:
+
+| Control | Action |
+| --- | --- |
+| Left stick, push forward+tilt | Steer. |
+| Right trigger | Accelerate in the selected gear. |
+| Left trigger | Brake. |
+| `R` (hold) | Select reverse gear; releasing returns to Drive. |
+| `Start` / `+` (Plus) | Restart the current rollout. |
+
+View selection does not currently have controller bindings. No other gamepad
+sticks, axes, or buttons are used. A connected steering wheel uses its steering,
+throttle, and brake inputs directly.
+
 A long-running native-v2 driving demo. Its `InteractiveDriveUILoop` HUD contains
 scene and variant selection,
 driving telemetry, steering-wheel and pedal sprites, post-processing controls,
@@ -80,10 +111,7 @@ uv run flashdreams-run-v2 interactive-drive-omnidreams-perf --mode native-window
     --game-mode
 ```
 
-The HUD view has a button which when clicked cycles through **RGB → HDMAP → PHYSX**. The number keys on a keyboard selects those views directly: press `1` for RGB, `2` for the HD map, or `3` for PhysX.
-
-For keyboard driving, `W` accelerates forward, `S` accelerates in reverse,
-Space brakes like the controller's left trigger, and `A` and `D` steer.
+The HUD's view button cycles through **RGB → HDMAP → PHYSX**.
 
 When `--postprocess-preset` is set, the preset starts enabled and the HUD's
 **Post-processing** checkbox can toggle it between generated chunks. Without a
