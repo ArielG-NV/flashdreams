@@ -50,9 +50,8 @@ Run the perf application only on hosts that can build and load the native extens
 .. code-block:: bash
 
    uv run --package flashdreams-omnidreams omnidreams-prepare --perf
-   uv run --package flashdreams-omnidreams flashdreams-run \
-       omnidreams-perf local-window \
-       --manifest configs/launch_manifest/omnidreams_local_window.yaml
+   uv run --package flashdreams-omnidreams flashdreams-run-v2 \
+       interactive-drive-omnidreams-perf --mode native-window
 
 The perf config's ``native_dit_acceleration="required"`` is intentional. If the
 native extension is not available, startup fails instead of silently falling

@@ -36,6 +36,7 @@ from omnidreams.impl.native import omnidreams_singleview as native
 from omnidreams.impl.native.acceleration import (
     NativeAccelerationConfig,
     NativeAccelerationUnavailable,
+    NativeSourcesUnavailable,
     require_extension_symbols,
     select_native_extension,
 )
@@ -669,6 +670,21 @@ def test_native_acceleration_auto_reports_missing_extension() -> None:
     assert selection.error is error
     assert "vae_decoder" in selection.reason
     assert "compile failed" in selection.reason
+    assert "sync_thirdparty.py sync" not in selection.reason
+
+
+@pytest.mark.ci_cpu
+def test_native_acceleration_reports_how_to_sync_missing_sources() -> None:
+    error = NativeSourcesUnavailable("third-party sources are missing")
+
+    selection = select_native_extension(
+        NativeAccelerationConfig(mode="auto"),
+        component="vae_decoder",
+        extension_loader=lambda **_: None,
+        extension_error=lambda: error,
+    )
+
+    assert selection.error is error
     assert "sync_thirdparty.py sync" in selection.reason
 
 

@@ -190,9 +190,9 @@ Run the WebRTC demo:
 
 .. code-block:: bash
 
-   uv run --package flashdreams-omnidreams flashdreams-run \
-       omnidreams webrtc \
-       --manifest configs/launch_manifest/omnidreams_webrtc.yaml
+   uv run --package flashdreams-omnidreams flashdreams-run-v2 \
+       interactive-drive-omnidreams --mode webrtc \
+       --host 0.0.0.0 --port 8089
 
 Then open ``http://<server-ip>:8089/request_session`` in any browser on the
 same network.
@@ -222,33 +222,12 @@ physics without the full-screen collision effect.
    longest on the perf configuration. Subsequent launches are much faster because
    the compiled kernels and CUDA graphs are cached and reused.
 
-.. note::
-
-   For local-window, set ``output.offload_text_encoder: true`` in a copy of
-   ``configs/launch_manifest/omnidreams_local_window.yaml`` to reduce peak VRAM
-   usage by ~15 GB, then launch it with the central command:
-
-   .. code-block:: bash
-
-      uv run --package flashdreams-omnidreams flashdreams-run \
-          omnidreams-perf local-window \
-          --manifest path/to/local-window.yaml
-
-   The text and first-frame encoders are run once per scene and freed before the
-   diffusion pipeline is built, and the resulting embeddings are cached and
-   reused across world-model resets.
-
-   Trade-off: the world model is rebuilt on each scene load instead of staying
-   resident, so the first load and scene/variant switches are slower. Prefer it
-   when VRAM-constrained; otherwise leave it off for faster switching.
-
 On a GPU with a graphics stack, launch the Vulkan window:
 
 .. code-block:: bash
 
-   uv run --package flashdreams-omnidreams flashdreams-run \
-       omnidreams-perf local-window \
-       --manifest configs/launch_manifest/omnidreams_local_window.yaml
+   uv run --package flashdreams-omnidreams flashdreams-run-v2 \
+       interactive-drive-omnidreams-perf --mode native-window
 
 The local window's HUD adds a weather-variant selector (clear, rain, snow)
 next to the scene picker, so the same scene can be switched between
@@ -336,7 +315,7 @@ launch the perf application:
 .. code-block:: bash
 
    uv run --package flashdreams-omnidreams flashdreams-run-v2 \
-       interactive-drive-omnidreams-perf --mode local-window
+       interactive-drive-omnidreams-perf --mode native-window
 
 ``native_dit_acceleration="required"`` makes the perf config fail loudly if the
 extension can't build or load, rather than silently falling back to PyTorch.
@@ -352,15 +331,15 @@ on top of the same OmniDreams pipeline.
 .. code-block:: bash
 
    # from the repo root
-   uv run --package flashdreams-omnidreams flashdreams-run \
-       omnidreams webrtc \
-       --manifest configs/launch_manifest/omnidreams_webrtc.yaml
+   uv run --package flashdreams-omnidreams flashdreams-run-v2 \
+       interactive-drive-omnidreams --mode webrtc \
+       --host 0.0.0.0 --port 8089
 
 Sample scene UUIDs for the interactive server are available in the
 `nvidia/omni-dreams-scenes Hugging Face dataset <https://huggingface.co/datasets/nvidia/omni-dreams-scenes/tree/main/scenes>`_.
-Each scene ships clear, rain, and snow weather variants as sibling
-archives; set ``scenario.scene_variant`` to ``rain`` or ``snow`` in the launch
-manifest to serve a specific one (the default is clear weather).
+Each scene ships clear, rain, and snow weather variants as sibling archives.
+Pass ``-- --variant rain`` or ``-- --variant snow`` to select one (the default
+is clear weather).
 
 The server may take a few minutes to warm up. Once ready, it prints
 ``Connect via http://<server-ip>:8089/request_session``.

@@ -618,6 +618,7 @@ def test_cam2v_session_registers_the_shared_slangpy_ui_loop() -> None:
         pipeline=_Pipeline(),
         session_desc=SessionDesc(
             output_layout=VideoTensorLayout.tchw,
+            backpressure_mode=BackpressureMode.BLOCK,
             presentation_mode=PresentationMode.CONTINUOUS,
             frames_per_second_for_step=16,
             video_width=8,

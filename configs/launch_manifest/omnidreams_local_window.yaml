@@ -1,7 +1,0 @@
-schema_version: 1
-runner: omnidreams-perf
-mode: local-window
-
-scenario:
-  auto_start: false
-  preload_scenes: false

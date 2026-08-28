@@ -94,8 +94,5 @@ Examples
    uv run flashdreams-run lingbot-world-fast mp4 \
        --manifest configs/launch_manifest/lingbot_mp4.yaml
 
-   # Resolve an OmniDreams launch without loading the model
-   uv run flashdreams-run \
-       omnidreams webrtc \
-       --manifest configs/launch_manifest/omnidreams_webrtc.yaml \
-       --no-instantiate
+OmniDreams is a v2 application and uses ``flashdreams-run-v2`` application
+arguments instead of launch manifests. See :doc:`/models/omnidreams`.

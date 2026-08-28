@@ -12,7 +12,11 @@ from red_screen import create_app
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
-from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
+from flashdreams.runtime_v2.session_desc import (
+    BackpressureMode,
+    PresentationMode,
+    SessionDesc,
+)
 from flashdreams.runtime_v2.session_runner import run_session
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -80,6 +84,7 @@ def _session_desc(
 ) -> SessionDesc:
     return SessionDesc(
         output_layout=layout,
+        backpressure_mode=BackpressureMode.BLOCK,
         presentation_mode=PresentationMode.ON_DEMAND,
         frames_per_second_for_ui=frames_per_second_for_ui,
         frames_per_second_for_step=1,
