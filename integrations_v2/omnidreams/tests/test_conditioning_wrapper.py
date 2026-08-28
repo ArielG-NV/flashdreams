@@ -57,7 +57,7 @@ class _FakePipeline:
         )
 
     def generate(
-        self, *, autoregressive_index: int, hdmap: torch.Tensor, cache: object
+        self, *, autoregressive_index: int, input: torch.Tensor, cache: object
     ) -> torch.Tensor:
         # Mirror StreamInferencePipeline behavior: generate() records the latest AR
         # index on the cache so callers can derive the next step.
@@ -66,10 +66,10 @@ class _FakePipeline:
         return torch.linspace(
             -1.0,
             1.0,
-            steps=hdmap.numel(),
+            steps=input.numel(),
             dtype=torch.float32,
-            device=hdmap.device,
-        ).reshape(hdmap.shape)
+            device=input.device,
+        ).reshape(input.shape)
 
     def finalize(self, *, autoregressive_index: int, cache: object) -> None:
         self.finalize_calls.append((autoregressive_index, cache))

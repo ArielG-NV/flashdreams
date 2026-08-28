@@ -242,7 +242,7 @@ def _run_full_pipeline_benchmark(
         output = pipeline.generate(
             autoregressive_index=autoregressive_index,
             cache=cache,
-            hdmap=hdmap,
+            input=hdmap,
         )
         pipeline.finalize(autoregressive_index=autoregressive_index, cache=cache)
         return output
@@ -282,7 +282,7 @@ def _run_full_pipeline_benchmark(
         latest_output = pipeline.generate(
             autoregressive_index=next_chunk_index,
             cache=cache,
-            hdmap=hdmap_steady,
+            input=hdmap_steady,
         )
         torch.cuda.synchronize()
         return latest_output
