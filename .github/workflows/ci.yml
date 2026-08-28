@@ -131,6 +131,7 @@ jobs:
             ffmpeg \
             gcc g++ ninja-build \
             libgl1-mesa-dev \
+            libx11-dev libxcursor-dev libxext-dev libxi-dev libxinerama-dev libxrandr-dev \
             libnccl-dev \
             curl git ca-certificates unzip
           rm -rf /var/lib/apt/lists/*
