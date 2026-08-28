@@ -22,7 +22,7 @@ Install the application, then start it with no application arguments:
 ```bash
 uv sync --package flashdreams-omnidreams --extra interactive-drive
 uv run --package flashdreams-omnidreams python integrations_v2/omnidreams/impl/omnidreams_singleview/tools/sync_thirdparty.py sync
-uv run flashdreams-run-v2 interactive-drive-omnidreams --mode webrtc --host 0.0.0.0 --port 8089
+uv run flashdreams-run-v2 interactive-drive-omnidreams --mode webrtc --port 8089
 ```
 
 Use `interactive-drive-omnidreams-perf` instead for the native-accelerated,
