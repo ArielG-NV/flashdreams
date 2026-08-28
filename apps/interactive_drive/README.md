@@ -5,15 +5,15 @@ SPDX-License-Identifier: Apache-2.0
 
 # Interactive Drive
 
-A separate long-running native-v2 driving demo with its own
-`InteractiveDriveUILoop`. The HUD contains scene and variant selection,
+A long-running native-v2 driving demo. Its `InteractiveDriveUILoop` HUD contains
+scene and variant selection,
 driving telemetry, steering-wheel and pedal sprites, post-processing controls,
 and a BEV minimap. Dear ImGui builds the immediate-mode HUD and SlangPy renders
 it with GPU textures; the application does not use CSS.
 
-ClipGT2V supplies reusable scene simulation and rendering components, while the
-Interactive Drive application owns its session and HUD behavior. Its world-model
-binding is supplied by an integration adapter.
+The package also owns its model-neutral scene loading, simulation, rendering,
+input handling, and wheel-configuration support. Its world-model binding is
+supplied by an integration adapter.
 
 ## Usage
 
@@ -60,11 +60,18 @@ uv run flashdreams-run-v2 interactive-drive-omnidreams --mode webrtc -- \
     --game-mode --postprocess-preset rtx-super-resolution
 ```
 
-For example, render a video with the HUD disabled:
+For example, render every generated frame once, in order, with the HUD disabled (for quality evaluation):
+
 ```bash
-uv run flashdreams-run-v2 interactive-drive-omnidreams-perf --mode mp4 --output-path artifacts/test/interactive-drive.mp4 -- \
-    --no-ui
+uv run flashdreams-run-v2 interactive-drive-omnidreams-perf \
+    --mode mp4 --output-path artifacts/test/interactive-drive.mp4 \
+    --backpressure-mode block --presentation-mode only_present_new -- \
+    --no-ui --total-blocks 60
 ```
+
+This is frame-lossless presentation: the runtime neither drops nor repeats
+generated frames. The MP4 itself is currently encoded as H.264 at CRF 18, so it
+is not mathematically lossless at the pixel/codec level.
 
 For example, render a native-window with game-mode collisions enabled:
 ```bash
@@ -90,3 +97,7 @@ The downloaded default scene is
 ```bash
 uv run --no-sync pytest apps/interactive_drive -m ci_cpu -v
 ```
+
+## Logging
+
+set `LOGURU_LEVEL` to `INFO` to see more logging. Default is `WARNING`.

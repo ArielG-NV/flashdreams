@@ -26,9 +26,8 @@ readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [
     # Core inference / serving deps consumed by ``omnidreams.impl.grpc`` and
-    # the model adapters for the reusable ClipGT2V applications.
+    # the model adapters for the reusable Interactive Drive application.
     "flashdreams[serving]",
-    "flashdreams-clipgt2v-v2",
     "flashdreams-interactive-drive-v2",
     "mediapy>=1.1",
     "ludus-renderer",
@@ -39,8 +38,8 @@ dependencies = [
     "nvidia-cudnn-cu13==9.23.2.1; sys_platform == 'win32'",
     "opencv-python-headless>=4.5",
     "shapely>=2.0",
-    # Runtime deps for the ``clipgt2v.interactive_drive`` desktop demo
-    # subpackage. Most are already transitive via ``flashdreams[serving]``
+    # Runtime deps for the ``interactive_drive`` desktop demo package. Most
+    # are already transitive via ``flashdreams[serving]``
     # but listed here explicitly so the subpackage's dep surface is
     # self-describing.
     "numpy>=1.26",
@@ -69,7 +68,6 @@ dependencies = [
 
 [tool.uv.sources]
 flashdreams = { workspace = true }
-flashdreams-clipgt2v-v2 = { workspace = true }
 flashdreams-interactive-drive-v2 = { workspace = true }
 ludus-renderer = { workspace = true }
 
@@ -88,7 +86,7 @@ rtx-postprocess = [
 dev = [
     "pytest>=8.0",
     "pytest-manual-marker>=2.0",
-    # ``clipgt2v.interactive_drive`` test-only deps.
+    # ``interactive_drive`` test-only deps.
     "pyvirtualdisplay>=3.0",
     "flip-evaluator>=1.7",
 ]
@@ -100,8 +98,6 @@ omnidreams-eval = "omnidreams.impl.eval.cli:main"
 omnidreams-prepare = "omnidreams.impl.tools.prepare:main"
 
 [project.entry-points."flashdreams.applications_v2"]
-"clipgt2v-omnidreams" = "omnidreams.apps.clipgt2v.adapter:create_app"
-"clipgt2v-omnidreams-perf" = "omnidreams.apps.clipgt2v.adapter:create_perf_app"
 "interactive-drive-omnidreams" = "omnidreams.apps.interactive_drive.adapter:create_app"
 "interactive-drive-omnidreams-perf" = "omnidreams.apps.interactive_drive.adapter:create_perf_app"
 
@@ -109,7 +105,6 @@ omnidreams-prepare = "omnidreams.impl.tools.prepare:main"
 packages = [
     "omnidreams",
     "omnidreams.apps",
-    "omnidreams.apps.clipgt2v",
     "omnidreams.apps.interactive_drive",
     "omnidreams.impl",
     "omnidreams.impl.conditioning",

@@ -8,14 +8,7 @@ from pathlib import Path
 
 import pytest
 import tomli as tomllib
-from clipgt2v import ClipGT2VApplication, ClipGT2VConfig
-from interactive_drive import InteractiveDriveConfig
-from omnidreams.apps.clipgt2v.adapter import (
-    OMNIDREAMS_APPLICATION_DEFAULTS,
-    OMNIDREAMS_PERF_APPLICATION_DEFAULTS,
-    create_app,
-    create_perf_app,
-)
+from interactive_drive import InteractiveDriveApplication, InteractiveDriveConfig
 from omnidreams.apps.interactive_drive.adapter import (
     OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS,
     OMNIDREAMS_INTERACTIVE_DRIVE_PERF_DEFAULTS,
@@ -47,17 +40,11 @@ def test_pipeline_configs_are_keyed_by_name() -> None:
 
 def test_application_defaults_are_owned_by_each_adapter() -> None:
     """Keep demo-specific configuration beside each application factory."""
-    assert OMNIDREAMS_APPLICATION_DEFAULTS.slug == "clipgt2v"
-    assert OMNIDREAMS_PERF_APPLICATION_DEFAULTS.slug == "clipgt2v-perf"
-    assert OMNIDREAMS_APPLICATION_DEFAULTS.width == 1280
-    assert OMNIDREAMS_PERF_APPLICATION_DEFAULTS.width == 1168
     assert OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS.slug == "interactive-drive"
     assert OMNIDREAMS_INTERACTIVE_DRIVE_PERF_DEFAULTS.slug == "interactive-drive-perf"
     assert OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS.width == 1280
     assert OMNIDREAMS_INTERACTIVE_DRIVE_PERF_DEFAULTS.width == 1168
     for defaults, pipeline_config in (
-        (OMNIDREAMS_APPLICATION_DEFAULTS, OMNIDREAMS_PIPELINE_CONFIG),
-        (OMNIDREAMS_PERF_APPLICATION_DEFAULTS, OMNIDREAMS_PERF_PIPELINE_CONFIG),
         (OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS, OMNIDREAMS_PIPELINE_CONFIG),
         (
             OMNIDREAMS_INTERACTIVE_DRIVE_PERF_DEFAULTS,
@@ -70,8 +57,6 @@ def test_application_defaults_are_owned_by_each_adapter() -> None:
 @pytest.mark.parametrize(
     ("factory", "resolution_wh"),
     [
-        (create_app, (1280, 704)),
-        (create_perf_app, (1168, 640)),
         (create_interactive_drive_app, (1280, 704)),
         (create_interactive_drive_perf_app, (1168, 640)),
     ],
@@ -87,19 +72,10 @@ def test_each_application_owns_its_parsed_config(
 
     app.init(["--scene", str(scene)])
 
-    assert isinstance(app, ClipGT2VApplication)
+    assert isinstance(app, InteractiveDriveApplication)
     assert app._config is not None
     assert app._config.app.raster.resolution_wh == resolution_wh
-    expected_type = (
-        InteractiveDriveConfig
-        if factory
-        in {
-            create_interactive_drive_app,
-            create_interactive_drive_perf_app,
-        }
-        else ClipGT2VConfig
-    )
-    assert type(app._config) is expected_type
+    assert type(app._config) is InteractiveDriveConfig
 
 
 def test_pyproject_registers_model_owned_app_adapters() -> None:
@@ -115,9 +91,5 @@ def test_pyproject_registers_model_owned_app_adapters() -> None:
         ),
         "interactive-drive-omnidreams-perf": (
             "omnidreams.apps.interactive_drive.adapter:create_perf_app"
-        ),
-        "clipgt2v-omnidreams": "omnidreams.apps.clipgt2v.adapter:create_app",
-        "clipgt2v-omnidreams-perf": (
-            "omnidreams.apps.clipgt2v.adapter:create_perf_app"
         ),
     }

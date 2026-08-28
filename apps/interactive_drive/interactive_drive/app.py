@@ -13,30 +13,29 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from clipgt2v.app import (
-    BackendFactory,
-    ClipGT2VApplication,
-    ClipGT2VApplicationDefaults,
-    ClipGT2VConfig,
-    ClipGT2VModelLoop,
-    ClipGT2VModelState,
-    DriveInputState,
-    DriveTelemetry,
-    SceneLoader,
-    ViewMode,
-)
-from clipgt2v.interactive_drive.scene_loader import load_scene_bundle
 from PIL import Image
 from torch import Tensor
 
 from flashdreams.api_v2.loop import IModelLoop, invoke_async
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.imgui_ui_loop import ImGuiUILoop
-from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
+from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
-from .config import InteractiveDriveConfig
+from .core import (
+    BackendFactory,
+    DriveInputState,
+    DriveTelemetry,
+    InteractiveDriveApplicationDefaults,
+    InteractiveDriveConfig,
+    InteractiveDriveModelLoop,
+    InteractiveDriveModelState,
+    SceneLoader,
+    ViewMode,
+    _InteractiveDriveApplicationBase,
+)
+from .scene_loader import load_scene_bundle
 
 _SCENE_STEM = re.compile(r"^clipgt-(?P<uuid>[0-9a-fA-F-]{36})(?:-(?P<variant>.+))?$")
 
@@ -54,7 +53,7 @@ class InteractiveDriveSceneOption:
 class InteractiveDriveUIState:
     """UI-thread state for the Interactive Drive HUD."""
 
-    model_loop: IModelLoop[ClipGT2VModelState]
+    model_loop: IModelLoop[InteractiveDriveModelState]
     title: str
     prompt: str
     scene_options: tuple[InteractiveDriveSceneOption, ...]
@@ -298,7 +297,7 @@ class InteractiveDriveSession(ISession):
         self,
         *,
         backend_factory: BackendFactory,
-        config: ClipGT2VConfig,
+        config: InteractiveDriveConfig,
         desc: SessionDesc,
         scene_loader: SceneLoader,
         title: str,
@@ -316,7 +315,7 @@ class InteractiveDriveSession(ISession):
         return self._desc
 
     def init(self) -> None:
-        model_state = ClipGT2VModelState(
+        model_state = InteractiveDriveModelState(
             backend_factory=self._backend_factory,
             config=self._config,
             desc=self._desc,
@@ -324,7 +323,9 @@ class InteractiveDriveSession(ISession):
             view_mode=self._config.view_mode,
             postprocess_enabled=self._config.app.postprocess.is_enabled(),
         )
-        model_loop = self.register_model_loop(ClipGT2VModelLoop, state=model_state)
+        model_loop = self.register_model_loop(
+            InteractiveDriveModelLoop, state=model_state
+        )
         if self._config.no_ui:
             return
         current_scene_index = next(
@@ -364,7 +365,7 @@ class InteractiveDriveSession(ISession):
         model_state.ui_loop = ui_loop
 
 
-class InteractiveDriveApplication(ClipGT2VApplication):
+class InteractiveDriveApplication(_InteractiveDriveApplicationBase):
     """Create the distinct long-running Interactive Drive demo."""
 
     def __init__(
@@ -372,11 +373,11 @@ class InteractiveDriveApplication(ClipGT2VApplication):
         *,
         scene_loader: SceneLoader = load_scene_bundle,
         scene_options: Sequence[InteractiveDriveSceneOption] = (),
-        defaults: ClipGT2VApplicationDefaults | None = None,
+        defaults: InteractiveDriveApplicationDefaults | None = None,
     ) -> None:
         super().__init__(
             defaults=defaults
-            or ClipGT2VApplicationDefaults(
+            or InteractiveDriveApplicationDefaults(
                 title="Interactive Drive",
                 slug="interactive-drive",
                 total_blocks=0,
@@ -462,10 +463,7 @@ class InteractiveDriveApplication(ClipGT2VApplication):
         return InteractiveDriveSession(
             backend_factory=self._backend_factory,
             config=self._config,
-            desc=replace(
-                session_desc,
-                presentation_mode=PresentationMode.ONLY_PRESENT_NEWEST,
-            ),
+            desc=session_desc,
             scene_loader=self._scene_loader,
             title=self._title,
             scene_options=options,
@@ -477,7 +475,7 @@ def _load_control_sprite(
 ) -> np.ndarray[Any, np.dtype[np.uint8]]:
     """Load one bundled wheel/pedal sprite as RGBA pixels."""
     asset = (
-        resources.files("clipgt2v.interactive_drive")
+        resources.files("interactive_drive")
         .joinpath("assets")
         .joinpath("wheel_and_pedals")
         .joinpath(f"{name}.png")

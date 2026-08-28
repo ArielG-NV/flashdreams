@@ -125,7 +125,7 @@ Interpret the report as follows:
 
 The native-v2 `interactive-drive` application launches the single-process
 driving demo. Refer to the
-[interactive guide](../../apps/clipgt2v/clipgt2v/interactive_drive/README.md) for
+[interactive guide](../../apps/interactive_drive/README.md) for
 controls and runtime requirements. The model-neutral application code lives in
 `apps/`; this integration supplies its OmniDreams model adapter.
 
@@ -282,7 +282,7 @@ test tools. The benchmarks manage their warmup and measured rounds internally;
 when publishing results, also record the commit, GPU and software stack, model
 configuration, and any fallback warnings.
 
-## Run ClipGT2V directly
+## Run Interactive Drive directly
 
 From the repository root on a CUDA machine:
 
@@ -297,21 +297,22 @@ Generate an MP4 using a local USDZ scene:
 
 ```bash
 uv run --package flashdreams-omnidreams flashdreams-run-v2 \
-  clipgt2v --mode mp4 --output-path outputs/omnidreams.mp4 -- \
-  --scene /path/to/scene.usdz --total-blocks 10
+  interactive-drive-omnidreams --mode mp4 \
+  --output-path outputs/omnidreams.mp4 \
+  --backpressure-mode block --presentation-mode only_present_new -- \
+  --scene /path/to/scene.usdz --no-ui --total-blocks 10
 ```
 
 Serve the same application through WebRTC:
 
 ```bash
 uv run --package flashdreams-omnidreams flashdreams-run-v2 \
-  clipgt2v --mode webrtc --host 0.0.0.0 --port 8089 -- \
+  interactive-drive-omnidreams --mode webrtc --host 0.0.0.0 --port 8089 -- \
   --scene /path/to/scene.usdz
 ```
 
-Open the URL printed by `flashdreams-run-v2`. Omit `--scene` when using the
-`interactive-drive` slug; its OmniDreams adapter resolves the default scene and
-manifest. Application-specific arguments go after `--`.
+Open the URL printed by `flashdreams-run-v2`. Omit `--scene` to download the
+default scene. Application-specific arguments go after `--`.
 
 ## Run gRPC server
 

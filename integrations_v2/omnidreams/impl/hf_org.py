@@ -124,7 +124,7 @@ def hf_access_hint(repo_id: str, url: str | None = None) -> str:
             "    https://huggingface.co/datasets/nvidia/omni-dreams-scenes first.",
             "",
             "See integrations_v2/omnidreams/README.md and "
-            "apps/clipgt2v/clipgt2v/interactive_drive/README.md "
+            "apps/interactive_drive/README.md "
             "for the full setup flow.",
         ]
     )

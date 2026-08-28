@@ -8,23 +8,20 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
-import clipgt2v.app as clipgt_app_module
 import interactive_drive.app as app_module
+import interactive_drive.core as core_module
 import numpy as np
 import pytest
 import torch
-from clipgt2v.app import (
-    ClipGT2VApplication,
-    ClipGT2VApplicationDefaults,
-    ClipGT2VModelLoop,
-    ClipGT2VModelState,
-    DriveTelemetry,
-)
 from interactive_drive import (
     DEFAULT_SCENE_FILENAME,
     DEFAULT_SCENE_REPO_ID,
+    DriveTelemetry,
     InteractiveDriveApplication,
+    InteractiveDriveApplicationDefaults,
     InteractiveDriveConfig,
+    InteractiveDriveModelLoop,
+    InteractiveDriveModelState,
     InteractiveDriveSession,
     InteractiveDriveUILoop,
     download_default_scene,
@@ -107,7 +104,7 @@ def test_gamepad_left_stick_only_steers() -> None:
         axes=(-0.5, -1.0),
     )
 
-    command = clipgt_app_module._gamepad_command(event)
+    command = core_module._gamepad_command(event)
 
     assert command is not None
     assert command.steer == 0.5
@@ -150,7 +147,7 @@ def test_model_step_publishes_bev_channel_and_complete_elapsed_time(
         ),
     )
     physics_world: Any = object()
-    state = ClipGT2VModelState(
+    state = InteractiveDriveModelState(
         backend_factory=lambda _: backend,
         config=config,
         desc=SimpleNamespace(output_layout="tchw"),
@@ -164,25 +161,25 @@ def test_model_step_publishes_bev_channel_and_complete_elapsed_time(
     elapsed: list[float] = []
     trajectory_calls: list[dict[str, Any]] = []
     clock = iter((10.0, 10.123))
-    monkeypatch.setattr(clipgt_app_module.time, "perf_counter", lambda: next(clock))
+    monkeypatch.setattr(core_module.time, "perf_counter", lambda: next(clock))
 
     def sample_trajectory(**kwargs: Any) -> Any:
         trajectory_calls.append(kwargs)
         return trajectory
 
-    monkeypatch.setattr(clipgt_app_module, "sample_chunk_trajectory", sample_trajectory)
+    monkeypatch.setattr(core_module, "sample_chunk_trajectory", sample_trajectory)
     monkeypatch.setattr(
-        clipgt_app_module,
+        core_module,
         "_frame_chunk_tensor",
         lambda frame_chunk, view_mode: torch.zeros((2, 3, 1, 1)),
     )
-    monkeypatch.setattr(clipgt_app_module, "_telemetry_status", lambda *args: "ready")
+    monkeypatch.setattr(core_module, "_telemetry_status", lambda *args: "ready")
     monkeypatch.setattr(
-        ClipGT2VModelState,
+        InteractiveDriveModelState,
         "_publish_drive_telemetry",
         lambda self, chunk, model_loop_ms: elapsed.append(model_loop_ms),
     )
-    loop = ClipGT2VModelLoop()
+    loop = InteractiveDriveModelLoop()
     loop.state = state
 
     results = loop.step(0, UserInputEvents([]))
@@ -203,11 +200,11 @@ def test_drive_telemetry_publishes_frame_chunk_size(
     published: list[DriveTelemetry] = []
     ui_state = SimpleNamespace(set_drive_telemetry=published.append)
     monkeypatch.setattr(
-        clipgt_app_module,
+        core_module,
         "invoke_async",
         lambda _loop, callback: callback(ui_state),
     )
-    state = ClipGT2VModelState(
+    state = InteractiveDriveModelState(
         backend_factory=lambda _: None,
         config=SimpleNamespace(
             app=SimpleNamespace(scene_path=tmp_path / "scene.usdz", variant="default")
@@ -237,24 +234,11 @@ def test_interactive_drive_uses_regular_application_contract() -> None:
     assert app.session_desc().video_height == 704
 
 
-def test_clipgt2v_no_ui_registers_only_the_model_loop(tmp_path: Path) -> None:
-    scene = tmp_path / "local.usdz"
-    scene.touch()
-    app = ClipGT2VApplication()
-    app.init(["--scene", str(scene), "--no-ui"])
-
-    session = app.create_session(app.session_desc())
-    session.init()
-
-    assert isinstance(session.model_loop, ClipGT2VModelLoop)
-    assert session._registered_ui_loop is None
-
-
 def test_interactive_drive_no_ui_skips_ui_and_bev(tmp_path: Path) -> None:
     scene = tmp_path / "local.usdz"
     scene.touch()
     app = InteractiveDriveApplication(
-        defaults=ClipGT2VApplicationDefaults(width=1168, height=640)
+        defaults=InteractiveDriveApplicationDefaults(width=1168, height=640)
     )
 
     desc = app.session_desc()
@@ -271,7 +255,7 @@ def test_interactive_drive_no_ui_skips_ui_and_bev(tmp_path: Path) -> None:
     session = app.create_session(desc)
     session.init()
 
-    assert isinstance(session.model_loop, ClipGT2VModelLoop)
+    assert isinstance(session.model_loop, InteractiveDriveModelLoop)
     assert session._registered_ui_loop is None
 
 
@@ -288,7 +272,7 @@ def test_interactive_drive_resolves_default_scene_when_omitted(
         return scene
 
     monkeypatch.setattr(
-        clipgt_app_module,
+        core_module,
         "download_default_scene",
         resolve_default_scene,
     )
@@ -321,12 +305,12 @@ def test_world_model_accepts_postprocess_preset(
     scene = tmp_path / "default.usdz"
     scene.touch()
     monkeypatch.setattr(
-        clipgt_app_module,
+        core_module,
         "discover_postprocess_presets",
         lambda: {"example-preset": object()},
     )
     app = InteractiveDriveApplication(
-        defaults=ClipGT2VApplicationDefaults(
+        defaults=InteractiveDriveApplicationDefaults(
             pipeline_config=cast(Any, object()),
         ),
     )
@@ -376,7 +360,7 @@ def test_standalone_application_downloads_default_scene(
         return scene
 
     monkeypatch.setattr(
-        clipgt_app_module,
+        core_module,
         "download_default_scene",
         fake_default_scene,
     )
@@ -400,7 +384,7 @@ def test_interactive_drive_prefers_explicit_scene(
         raise AssertionError("default scene should not be resolved")
 
     monkeypatch.setattr(
-        clipgt_app_module,
+        core_module,
         "download_default_scene",
         unexpected_default_scene,
     )
@@ -426,10 +410,7 @@ def test_interactive_drive_owns_a_separate_session_and_ui_loop(
         )
     )
     assert isinstance(session, InteractiveDriveSession)
-    assert (
-        session.session_desc.presentation_mode
-        is PresentationMode.ONLY_PRESENT_NEWEST
-    )
+    assert session.session_desc.presentation_mode is PresentationMode.ONLY_PRESENT_NEW
     assert app._config is not None
     assert app._config.app.bev.enabled is True
     assert app._config.app.bev.show_ego_car is True
@@ -450,7 +431,7 @@ def test_interactive_drive_hud_draws_imgui_controls_and_images(
     loop = session.ui_loop
     assert isinstance(loop, InteractiveDriveUILoop)
     model_loop = session.model_loop
-    assert isinstance(model_loop, ClipGT2VModelLoop)
+    assert isinstance(model_loop, InteractiveDriveModelLoop)
     assert loop.state.drive_input is not model_loop.state.drive_input
     pixel = np.zeros((4, 4, 4), dtype=np.uint8)
     loop.state.sprites = {
@@ -531,13 +512,13 @@ def test_interactive_drive_view_button_cycles_all_three_views(
 
 
 def test_number_keys_select_rgb_hdmap_and_physx_views() -> None:
-    state = ClipGT2VModelState(
+    state = InteractiveDriveModelState(
         backend_factory=cast(Any, lambda _: None),
         config=cast(Any, SimpleNamespace()),
         desc=cast(Any, SimpleNamespace()),
         scene_loader=cast(Any, lambda *args: object()),
     )
-    loop = ClipGT2VModelLoop()
+    loop = InteractiveDriveModelLoop()
     loop.state = state
 
     for key, expected in (("1", "rgb"), ("2", "hdmap"), ("3", "physx")):
@@ -571,9 +552,9 @@ def test_frame_view_selects_rgb_hdmap_and_physx_streams() -> None:
         ]
     )
 
-    assert clipgt_app_module._frame_chunk_tensor(chunk, "rgb")[0, 0, 0, 0] == 22
-    assert clipgt_app_module._frame_chunk_tensor(chunk, "hdmap")[0, 0, 0, 0] == 11
-    physx_view = clipgt_app_module._frame_chunk_tensor(chunk, "physx")
+    assert core_module._frame_chunk_tensor(chunk, "rgb")[0, 0, 0, 0] == 22
+    assert core_module._frame_chunk_tensor(chunk, "hdmap")[0, 0, 0, 0] == 11
+    physx_view = core_module._frame_chunk_tensor(chunk, "physx")
     assert physx_view[0, 0, 0, 0] == 33
     assert physx_view[0, 0, 0, 1] == 11
 

@@ -63,8 +63,8 @@ NVIDIA OmniDreams
 -----------------
 
 OmniDreams ships under ``integrations_v2/omnidreams``. Its model code lives
-under ``impl/`` and its application adapters bind the reusable ``clipgt2v``
-and ``interactive-drive`` packages under ``apps/`` through the
+under ``impl/`` and its application adapter binds the reusable
+``interactive-drive`` package under ``apps/`` through the
 ``flashdreams.applications_v2`` entry-point group. See
 ``integrations_v2/omnidreams/README.md`` for launch details.
 

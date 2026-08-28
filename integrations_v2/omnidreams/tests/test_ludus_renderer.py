@@ -140,10 +140,10 @@ def test_ludus_physx_debug_scene_renders_cuda_frame() -> None:
     from ludus_renderer.render_utils import create_camera
     from ludus_renderer.torch import LudusCudaTimestampedContext
     from ludus_renderer.torch.ops import CAMERA_TYPE_REGULAR
-    from clipgt2v.interactive_drive.physx_debug import (
+    from interactive_drive.physx_debug import (
         build_physx_debug_cube_pool,
     )
-    from clipgt2v.interactive_drive.types import PhysicsDebugFrame
+    from interactive_drive.types import PhysicsDebugFrame
 
     device = torch.device("cuda")
     width, height = 640, 360

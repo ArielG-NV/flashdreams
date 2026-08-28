@@ -1,6 +1,14 @@
 """Native v2 interactive-driving application."""
 
-from clipgt2v.interactive_drive.scene_download import (
+from .core import (
+    DriveInputState,
+    DriveTelemetry,
+    InteractiveDriveApplicationDefaults,
+    InteractiveDriveConfig,
+    InteractiveDriveModelLoop,
+    InteractiveDriveModelState,
+)
+from .scene_download import (
     DEFAULT_SCENE_FILENAME,
     DEFAULT_SCENE_REPO_ID,
     DEFAULT_SCENE_UUID,
@@ -13,14 +21,18 @@ from .app import (
     InteractiveDriveSession,
     InteractiveDriveUILoop,
 )
-from .config import InteractiveDriveConfig
 
 __all__ = [
     "DEFAULT_SCENE_FILENAME",
     "DEFAULT_SCENE_REPO_ID",
     "DEFAULT_SCENE_UUID",
+    "DriveInputState",
+    "DriveTelemetry",
     "InteractiveDriveApplication",
+    "InteractiveDriveApplicationDefaults",
     "InteractiveDriveConfig",
+    "InteractiveDriveModelLoop",
+    "InteractiveDriveModelState",
     "InteractiveDriveSceneOption",
     "InteractiveDriveSession",
     "InteractiveDriveUILoop",

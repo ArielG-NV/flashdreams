@@ -5,8 +5,10 @@
 
 from __future__ import annotations
 
-from clipgt2v import ClipGT2VApplicationDefaults
-from interactive_drive import InteractiveDriveApplication
+from interactive_drive import (
+    InteractiveDriveApplication,
+    InteractiveDriveApplicationDefaults,
+)
 from omnidreams.config import (
     OMNIDREAMS_PERF_PIPELINE_CONFIG,
     OMNIDREAMS_PIPELINE_CONFIG,
@@ -14,7 +16,7 @@ from omnidreams.config import (
 
 from flashdreams.api_v2.application import IApplication
 
-OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS = ClipGT2VApplicationDefaults(
+OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS = InteractiveDriveApplicationDefaults(
     title="Interactive Drive",
     slug="interactive-drive",
     total_blocks=0,
@@ -23,7 +25,7 @@ OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS = ClipGT2VApplicationDefaults(
     height=704,
     pipeline_config=OMNIDREAMS_PIPELINE_CONFIG,
 )
-OMNIDREAMS_INTERACTIVE_DRIVE_PERF_DEFAULTS = ClipGT2VApplicationDefaults(
+OMNIDREAMS_INTERACTIVE_DRIVE_PERF_DEFAULTS = InteractiveDriveApplicationDefaults(
     title="Interactive Drive (Perf)",
     slug="interactive-drive-perf",
     total_blocks=0,

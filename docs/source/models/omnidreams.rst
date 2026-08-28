@@ -314,7 +314,7 @@ write access to ``/dev/input/*`` (add your user to the ``input`` group):
 Native acceleration (perf configuration)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The registered ``clipgt2v-omnidreams-perf`` configuration runs the DiT and
+The registered ``interactive-drive-omnidreams-perf`` configuration runs the DiT and
 LightVAE through the OmniDreams single-view CUDA extension
 (``native_dit_acceleration: required``), which is faster than the default
 PyTorch path. The extension builds against pinned checkouts of CUTLASS,
@@ -336,7 +336,7 @@ launch the perf application:
 .. code-block:: bash
 
    uv run --package flashdreams-omnidreams flashdreams-run-v2 \
-       clipgt2v-omnidreams-perf --mode local-window
+       interactive-drive-omnidreams-perf --mode local-window
 
 ``native_dit_acceleration="required"`` makes the perf config fail loudly if the
 extension can't build or load, rather than silently falling back to PyTorch.

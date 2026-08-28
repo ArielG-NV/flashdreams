@@ -43,7 +43,7 @@ class SessionDesc:
     output_layout: VideoTensorLayout = VideoTensorLayout.tchw
     """Declared tensor layout for generated video results."""
 
-    backpressure_mode: BackpressureMode = BackpressureMode.BLOCK
+    backpressure_mode: BackpressureMode = BackpressureMode.DROP_OLDEST
     """What the model thread does when its output queue is full."""
 
     presentation_mode: PresentationMode = PresentationMode.CONTINUOUS

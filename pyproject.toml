@@ -50,7 +50,6 @@ ignore = ["flashdreams/flashdreams/accelerated/multi_head_attention/triton/**", 
 extraPaths = [
     "flashdreams",
     "apps",
-    "apps/clipgt2v",
     "apps/interactive_drive",
     "integrations_v2",
     "integrations_v2/omnidreams/impl/ludus-renderer",
@@ -89,7 +88,6 @@ python-version = "3.10"
 extra-paths = [
     "flashdreams",
     "apps",
-    "apps/clipgt2v",
     "apps/interactive_drive",
     "integrations_v2",
     "integrations_v2/omnidreams/impl/ludus-renderer",
@@ -120,13 +118,12 @@ extra-paths = [
 [tool.ty.src]
 # Auto-generated protobuf stubs trigger `conflicting-metaclass` errors due to
 # protobuf's EnumTypeWrapper pattern (known ty limitation).
-# The ``clipgt2v.interactive_drive`` subpackage's flashdreams / slangpy /
-# numpy interop surface has known-untyped areas; exclude both the
-# subpackage source and its tests so workspace ``ty`` stays clean.
+# Interactive Drive's imported scene/simulation support has known-untyped
+# flashdreams / slangpy / numpy interop areas; keep it out of workspace ``ty``.
 # (The pre-fold sample's pyright config had a similar exclude list.)
 exclude = [
     "**/protos/*pb2*",
-    "apps/clipgt2v/clipgt2v/interactive_drive/**",
+    "apps/interactive_drive/interactive_drive/**",
     # Bench / parity-debugging scaffolding for the hy_worldplay integration;
     # not shipped product, mirrors the interactive_drive precedent above.
     "integrations/hy_worldplay/tests/parity_check/**",

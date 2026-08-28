@@ -36,12 +36,12 @@ Use the OmniDreams world-model backend for latency work. The raster backend is
 useful for scene, control, and presenter debugging, but it does not exercise the
 model path and should not be used as a model-latency reference.
 
-The registered ClipGT2V application configs are the supported starting points:
+The registered Interactive Drive application configs are the supported starting points:
 
-- ``clipgt2v-omnidreams`` is the default single-view configuration at
+- ``interactive-drive-omnidreams`` is the default single-view configuration at
   ``1280 x 704`` (width x height), 30 FPS, 8 generated frames per steady-state
   block, LightVAE enabled, and native DiT acceleration disabled.
-- ``clipgt2v-omnidreams-perf`` is the perf-tuned configuration. It lowers the
+- ``interactive-drive-omnidreams-perf`` is the perf-tuned configuration. It lowers the
   default resolution to ``1168 x 640``, keeps 30 FPS and 8-frame steady-state
   blocks, enables the performance recipe, and requires the native DiT path.
 

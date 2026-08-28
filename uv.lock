@@ -27,7 +27,6 @@ members = [
     "flashdreams-cosmos-predict2",
     "flashdreams-fastvideo-causal-wan22",
     "flashdreams-flashvsr",
-    "flashdreams-clipgt2v-v2",
     "flashdreams-hy-worldplay",
     "flashdreams-interactive-drive-v2",
     "flashdreams-lingbot",
@@ -1280,21 +1279,6 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
-name = "flashdreams-clipgt2v-v2"
-version = "0.1.0"
-source = { editable = "apps/clipgt2v" }
-dependencies = [
-    { name = "flashdreams", extra = ["local-window", "serving"] },
-    { name = "ludus-renderer" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" },
-    { name = "ludus-renderer", editable = "integrations_v2/omnidreams/impl/ludus-renderer" },
-]
-
-[[package]]
 name = "flashdreams-hy-worldplay"
 version = "0.1.0"
 source = { editable = "integrations/hy_worldplay" }
@@ -1336,16 +1320,16 @@ version = "0.1.0"
 source = { editable = "apps/interactive_drive" }
 dependencies = [
     { name = "flashdreams", extra = ["local-window", "serving"] },
-    { name = "flashdreams-clipgt2v-v2" },
     { name = "huggingface-hub" },
+    { name = "ludus-renderer" },
     { name = "pillow" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" },
-    { name = "flashdreams-clipgt2v-v2", editable = "apps/clipgt2v" },
     { name = "huggingface-hub", specifier = ">=0.33" },
+    { name = "ludus-renderer", editable = "integrations_v2/omnidreams/impl/ludus-renderer" },
     { name = "pillow", specifier = ">=10.0" },
 ]
 
@@ -1403,7 +1387,6 @@ source = { editable = "integrations_v2/omnidreams" }
 dependencies = [
     { name = "einops" },
     { name = "flashdreams", extra = ["serving"] },
-    { name = "flashdreams-clipgt2v-v2" },
     { name = "flashdreams-interactive-drive-v2" },
     { name = "grpcio" },
     { name = "grpcio-tools" },
@@ -1451,7 +1434,6 @@ requires-dist = [
     { name = "einops", specifier = ">=0.8" },
     { name = "flashdreams", extras = ["rtx-postprocess"], marker = "extra == 'rtx-postprocess'", editable = "flashdreams" },
     { name = "flashdreams", extras = ["serving"], editable = "flashdreams" },
-    { name = "flashdreams-clipgt2v-v2", editable = "apps/clipgt2v" },
     { name = "flashdreams-interactive-drive-v2", editable = "apps/interactive_drive" },
     { name = "flip-evaluator", marker = "extra == 'dev'", specifier = ">=1.7" },
     { name = "grpcio", specifier = ">=1.50" },
