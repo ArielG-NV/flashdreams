@@ -20,7 +20,6 @@ from omnidreams.impl.eval.manifest import StagedCase
 class GenerationResult:
     uuid: str
     output_dir: Path
-    stacked_video_path: Path
     generated_video_path: Path
     log_path: Path
     command: tuple[str, ...]
@@ -37,7 +36,7 @@ def generate_cases(
     dry_run: bool = False,
     stream_logs: bool = False,
 ) -> list[GenerationResult]:
-    """Run FlashDreams for each staged case and extract generated-only MP4s."""
+    """Run Interactive Drive for each staged case."""
 
     results: list[GenerationResult] = []
     for case in cases:
@@ -58,7 +57,6 @@ def generate_cases(
             continue
         result.output_dir.mkdir(parents=True, exist_ok=True)
         _run_generation_command(result, stream_logs=stream_logs)
-        extract_generated_video(result.stacked_video_path, result.generated_video_path)
         _write_generation_metadata(result)
     return results
 
@@ -72,29 +70,34 @@ def generation_result_for_case(
     flashdreams_run: str,
 ) -> GenerationResult:
     output_dir = run_root / "generated" / case.case.uuid / "runner"
-    stacked_video_path = output_dir / f"{recipe}.mp4"
     generated_video_path = run_root / "generated" / case.case.uuid / "generated.mp4"
     log_path = run_root / "generated" / case.case.uuid / "flashdreams-run.log"
+    stats_path = output_dir / f"stats_{recipe}.json"
     command = (
         flashdreams_run,
         recipe,
+        "--mode",
+        "mp4",
+        "--output-path",
+        str(generated_video_path),
+        "--stats-path",
+        str(stats_path),
+        "--backpressure-mode",
+        "block",
+        "--presentation-mode",
+        "on_demand",
+        "--",
         "--prompt",
         case.prompt_text,
-        "--hdmap-video-paths",
-        str(case.hdmap_video_path),
-        "--first-frame-paths",
-        str(case.first_frame_path),
-        "--camera-names",
+        "--camera",
         case.case.camera,
         "--total-blocks",
         str(total_blocks),
-        "--output-dir",
-        str(output_dir),
+        "--no-ui",
     )
     return GenerationResult(
         uuid=case.case.uuid,
         output_dir=output_dir,
-        stacked_video_path=stacked_video_path,
         generated_video_path=generated_video_path,
         log_path=log_path,
         command=command,
@@ -144,26 +147,6 @@ def _print_log_tail(path: Path, *, line_count: int = 80) -> None:
     print(f"=== end tail of {path} ===")
 
 
-def extract_generated_video(stacked_video_path: Path, output_path: Path) -> None:
-    """Extract bottom-half generated RGB from the OmniDreams runner MP4."""
-
-    try:
-        import mediapy as media  # noqa: PLC0415
-
-        from flashdreams.quality.clip_compare import (  # noqa: PLC0415
-            bottom_half,
-            read_video_rgb,
-        )
-    except ImportError as exc:  # pragma: no cover
-        raise ImportError(
-            "extracting generated video requires mediapy and flashdreams"
-        ) from exc
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    generated = bottom_half(read_video_rgb(stacked_video_path))
-    media.write_video(str(output_path), generated, fps=30)
-
-
 def _write_generation_metadata(result: GenerationResult) -> None:
     metadata_path = result.generated_video_path.parent / "generation.json"
     metadata_path.write_text(
@@ -171,7 +154,6 @@ def _write_generation_metadata(result: GenerationResult) -> None:
             {
                 "uuid": result.uuid,
                 "output_dir": str(result.output_dir),
-                "stacked_video_path": str(result.stacked_video_path),
                 "generated_video_path": str(result.generated_video_path),
                 "log_path": str(result.log_path),
                 "command": list(result.command),

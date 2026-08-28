@@ -210,7 +210,7 @@ def test_parse_byte_size() -> None:
         parse_byte_size("1ib")
 
 
-def test_generation_command_uses_staged_inputs(tmp_path: Path) -> None:
+def test_generation_command_uses_interactive_drive_mp4_output(tmp_path: Path) -> None:
     staged = StagedCase(
         case=_case("uuid-a", 10),
         reference_video_path=tmp_path / "ref.mp4",
@@ -223,18 +223,27 @@ def test_generation_command_uses_staged_inputs(tmp_path: Path) -> None:
     result = generation_result_for_case(
         staged,
         run_root=tmp_path / "run",
-        recipe="recipe",
+        recipe="interactive-drive-omnidreams",
         total_blocks=7,
-        flashdreams_run="flashdreams-run",
+        flashdreams_run="flashdreams-run-v2",
     )
 
     command = list(result.command)
-    assert command[:2] == ["flashdreams-run", "recipe"]
-    assert command[command.index("--prompt") + 1] == "a prompt"
-    assert command[command.index("--hdmap-video-paths") + 1] == str(
-        tmp_path / "hdmap.mp4"
+    assert command[:2] == ["flashdreams-run-v2", "interactive-drive-omnidreams"]
+    assert command[command.index("--mode") + 1] == "mp4"
+    assert command[command.index("--output-path") + 1] == str(
+        tmp_path / "run/generated/uuid-a/generated.mp4"
     )
+    assert command[command.index("--backpressure-mode") + 1] == "block"
+    assert command[command.index("--presentation-mode") + 1] == "on_demand"
+    separator = command.index("--")
+    assert command.index("--prompt") > separator
+    assert command[command.index("--prompt") + 1] == "a prompt"
+    assert command[command.index("--camera") + 1] == "cam"
     assert command[command.index("--total-blocks") + 1] == "7"
+    assert "--no-ui" in command
+    assert "--hdmap-video-paths" not in command
+    assert "--first-frame-paths" not in command
     assert (
         result.generated_video_path == tmp_path / "run/generated/uuid-a/generated.mp4"
     )
@@ -255,7 +264,9 @@ def test_generate_cli_defaults_to_stable_non_perf_recipe(tmp_path: Path) -> None
     )
 
     assert args.recipe == DEFAULT_GENERATION_RECIPE
+    assert args.recipe == "interactive-drive-omnidreams"
     assert not args.recipe.endswith("-perf")
+    assert args.flashdreams_run == "flashdreams-run-v2"
     assert args.stream_logs is False
 
 
@@ -1156,6 +1167,43 @@ def test_validate_generated_run_checks_runner_schedule(tmp_path: Path) -> None:
     assert result.expected_frames_from_steps == 13
     assert result.runner_written_frames == 13
     assert result.hdmap_frames == 594
+    assert result.stats_steps == 2
+
+
+def test_validate_generated_run_accepts_v2_step_stats(tmp_path: Path) -> None:
+    case_dir = tmp_path / "run/generated/uuid-a"
+    runner_dir = case_dir / "runner"
+    runner_dir.mkdir(parents=True)
+    (case_dir / "generated.mp4").write_bytes(b"video")
+    (case_dir / "generation.json").write_text(
+        json.dumps(
+            {
+                "command": [
+                    "flashdreams-run-v2",
+                    "interactive-drive-omnidreams",
+                    "--mode",
+                    "mp4",
+                    "--",
+                    "--total-blocks",
+                    "2",
+                ],
+                "uuid": "uuid-a",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (case_dir / "flashdreams-run.log").write_text("", encoding="utf-8")
+    (runner_dir / "stats_interactive-drive-omnidreams.json").write_text(
+        json.dumps({"steps": [{"step_index": 0}, {"step_index": 1}]}) + "\n",
+        encoding="utf-8",
+    )
+
+    result = validate_generated_run(tmp_path / "run")[0]
+
+    assert result.ok
+    assert result.total_blocks == 2
+    assert result.ar_steps == 0
     assert result.stats_steps == 2
 
 

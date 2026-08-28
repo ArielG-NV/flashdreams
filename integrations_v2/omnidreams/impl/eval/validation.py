@@ -101,10 +101,10 @@ def validate_generated_case(case_dir: Path) -> GenerationValidation:
 
     if total_blocks is None:
         issues.append("could not determine --total-blocks from generation metadata")
-    elif len(ar_steps) != total_blocks:
-        issues.append(f"expected {total_blocks} AR steps, found {len(ar_steps)}")
 
     if ar_steps:
+        if total_blocks is not None and len(ar_steps) != total_blocks:
+            issues.append(f"expected {total_blocks} AR steps, found {len(ar_steps)}")
         for expected_index, step in enumerate(ar_steps):
             if step.index != expected_index:
                 issues.append(
@@ -241,7 +241,8 @@ def _read_stats_steps(path: Path, issues: list[str]) -> int | None:
     except json.JSONDecodeError as exc:
         issues.append(f"invalid stats JSON {path}: {exc}")
         return None
-    if not isinstance(value, list):
-        issues.append(f"stats JSON is not a list: {path}")
+    steps = value.get("steps") if isinstance(value, dict) else value
+    if not isinstance(steps, list):
+        issues.append(f"stats JSON has no step list: {path}")
         return None
-    return len(value)
+    return len(steps)

@@ -70,9 +70,8 @@ from omnidreams.impl.eval.worldlens import (
     write_worldlens_consistency_config,
 )
 
-# Use the registered runner slug so flashdreams-run can build a parser for the
-# selected runner instead of the full installed-runner union.
-DEFAULT_GENERATION_RECIPE = "omnidreams"
+# Use the regular Interactive Drive application for stable unattended evaluation.
+DEFAULT_GENERATION_RECIPE = "interactive-drive-omnidreams"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -587,19 +586,18 @@ def _build_parser() -> argparse.ArgumentParser:
         "--recipe",
         default=DEFAULT_GENERATION_RECIPE,
         help=(
-            "FlashDreams runner recipe. Defaults to the non-perf recipe for "
-            "stable unattended evaluation; pass a perf recipe explicitly when "
-            "benchmarking optimized runtime paths."
+            "FlashDreams v2 application. Defaults to the non-perf Interactive "
+            "Drive application; pass its perf variant explicitly when benchmarking."
         ),
     )
     generate.add_argument("--total-blocks", type=int, default=20)
-    generate.add_argument("--flashdreams-run", default="flashdreams-run")
+    generate.add_argument("--flashdreams-run", default="flashdreams-run-v2")
     generate.add_argument("--force", action="store_true")
     generate.add_argument("--dry-run", action="store_true")
     generate.add_argument(
         "--stream-logs",
         action="store_true",
-        help="stream flashdreams-run output to the terminal instead of per-case log files",
+        help="stream generation output to the terminal instead of per-case log files",
     )
     generate.set_defaults(func=_cmd_generate)
 
