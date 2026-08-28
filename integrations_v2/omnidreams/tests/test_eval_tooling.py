@@ -1195,7 +1195,15 @@ def test_validate_generated_run_accepts_v2_step_stats(tmp_path: Path) -> None:
     )
     (case_dir / "flashdreams-run.log").write_text("", encoding="utf-8")
     (runner_dir / "stats_interactive-drive-omnidreams.json").write_text(
-        json.dumps({"steps": [{"step_index": 0}, {"step_index": 1}]}) + "\n",
+        json.dumps(
+            {
+                "steps": [
+                    {"step_index": 0, "frame_count": 5},
+                    {"step_index": 1, "frame_count": 8},
+                ]
+            }
+        )
+        + "\n",
         encoding="utf-8",
     )
 
@@ -1204,6 +1212,8 @@ def test_validate_generated_run_accepts_v2_step_stats(tmp_path: Path) -> None:
     assert result.ok
     assert result.total_blocks == 2
     assert result.ar_steps == 0
+    assert result.expected_frames_from_steps == 13
+    assert result.runner_written_frames == 13
     assert result.stats_steps == 2
 
 

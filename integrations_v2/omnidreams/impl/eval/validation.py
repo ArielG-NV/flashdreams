@@ -91,13 +91,18 @@ def validate_generated_case(case_dir: Path) -> GenerationValidation:
         log_text = log_path.read_text(encoding="utf-8", errors="replace")
 
     ar_steps = _parse_ar_steps(log_text)
-    expected_frames = ar_steps[-1].end if ar_steps else None
     written_shape = _parse_last_written_shape(log_text)
-    runner_written_frames = (
-        written_shape[2] if written_shape and len(written_shape) >= 3 else None
-    )
     hdmap_shape = _parse_loaded_hdmap_shape(log_text)
     hdmap_frames = hdmap_shape[2] if hdmap_shape and len(hdmap_shape) >= 3 else None
+
+    stats_path = _find_stats_path(case_dir)
+    stats_steps, stats_frames = (
+        _read_stats(stats_path, issues) if stats_path is not None else (None, None)
+    )
+    expected_frames = ar_steps[-1].end if ar_steps else stats_frames
+    runner_written_frames = (
+        written_shape[2] if written_shape and len(written_shape) >= 3 else stats_frames
+    )
 
     if total_blocks is None:
         issues.append("could not determine --total-blocks from generation metadata")
@@ -131,10 +136,6 @@ def validate_generated_case(case_dir: Path) -> GenerationValidation:
     else:
         stacked_size = None
 
-    stats_path = _find_stats_path(case_dir)
-    stats_steps = (
-        _read_stats_steps(stats_path, issues) if stats_path is not None else None
-    )
     if stats_path is None:
         issues.append(f"missing runner stats JSON under: {case_dir / 'runner'}")
     elif total_blocks is not None and stats_steps != total_blocks:
@@ -235,14 +236,20 @@ def _find_stats_path(case_dir: Path) -> Path | None:
     return paths[0] if paths else None
 
 
-def _read_stats_steps(path: Path, issues: list[str]) -> int | None:
+def _read_stats(path: Path, issues: list[str]) -> tuple[int | None, int | None]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         issues.append(f"invalid stats JSON {path}: {exc}")
-        return None
+        return None, None
     steps = value.get("steps") if isinstance(value, dict) else value
     if not isinstance(steps, list):
         issues.append(f"stats JSON has no step list: {path}")
-        return None
-    return len(steps)
+        return None, None
+    frame_counts: list[int] = []
+    for step in steps:
+        count = step.get("frame_count") if isinstance(step, dict) else None
+        if isinstance(count, bool) or not isinstance(count, int):
+            return len(steps), None
+        frame_counts.append(count)
+    return len(steps), sum(frame_counts) if frame_counts else None
