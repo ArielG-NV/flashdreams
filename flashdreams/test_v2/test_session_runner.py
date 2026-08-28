@@ -59,7 +59,7 @@ def test_session_modes_are_independent() -> None:
     for legacy_value in ("only_present_new", "only_present_newest"):
         with pytest.raises(ValueError):
             PresentationMode(legacy_value)
-    assert SessionDesc().backpressure_mode is BackpressureMode.DROP_OLDEST
+    assert SessionDesc().backpressure_mode is BackpressureMode.BLOCK
     assert SessionDesc().presentation_mode is PresentationMode.CONTINUOUS
 
 
