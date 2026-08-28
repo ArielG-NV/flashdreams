@@ -21,6 +21,7 @@ from omnidreams.apps.interactive_drive.adapter import (
 )
 from omnidreams.config import (
     OMNIDREAMS_CONFIGS,
+    OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
     OMNIDREAMS_PERF_PIPELINE_CONFIG,
     OMNIDREAMS_PIPELINE_CONFIG,
 )
@@ -31,11 +32,26 @@ pytestmark = pytest.mark.ci_cpu
 
 
 def test_pipeline_configs_are_keyed_by_name() -> None:
-    """Expose exactly the two model-owned OmniDreams pipeline configs."""
+    """Expose every model-owned OmniDreams pipeline config."""
     assert OMNIDREAMS_CONFIGS == {
         "omnidreams": OMNIDREAMS_PIPELINE_CONFIG,
         "omnidreams-perf": OMNIDREAMS_PERF_PIPELINE_CONFIG,
+        "omnidreams-fast-perf": OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
     }
+
+
+def test_fast_perf_uses_native_vae_when_available() -> None:
+    config = OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
+
+    assert config.image_encoder.native_vae_acceleration == "required"
+    assert config.image_encoder.native_vae_backend == "fp8"
+    assert config.image_encoder.native_vae_fp8_state_path is None
+    assert config.image_encoder.native_vae_fp8_auto_export is True
+    assert config.encoder.native_vae_acceleration == "required"
+    assert config.encoder.native_vae_backend == "fp8"
+    assert config.encoder.native_vae_fp8_state_path is None
+    assert config.encoder.native_vae_fp8_auto_export is True
+    assert config.diffusion_model.transformer.native_dit_acceleration == "required"
 
 
 def test_application_defaults_are_owned_by_each_adapter() -> None:
@@ -91,5 +107,14 @@ def test_pyproject_registers_model_owned_app_adapters() -> None:
         ),
         "interactive-drive-omnidreams-perf": (
             "omnidreams.apps.interactive_drive.adapter:create_perf_app"
+        ),
+        "crazy-robotaxi-omnidreams": (
+            "omnidreams.apps.crazy_robotaxi.adapter:create_app"
+        ),
+        "crazy-robotaxi-omnidreams-perf": (
+            "omnidreams.apps.crazy_robotaxi.adapter:create_perf_app"
+        ),
+        "crazy-robotaxi-omnidreams-fast-perf": (
+            "omnidreams.apps.crazy_robotaxi.adapter:create_fast_perf_app"
         ),
     }
