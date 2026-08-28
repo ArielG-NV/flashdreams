@@ -22,7 +22,9 @@ jobs:
     env:
       UV_PROJECT_ENVIRONMENT: /tmp/flashdreams-venv
       UV_LINK_MODE: copy
-      UV_PYTHON: "3.10"
+      # imgui-bundle has Linux ARM64 wheels for Python 3.11+, but not 3.10.
+      UV_PYTHON: "3.11"
+      UV_NO_BUILD_PACKAGE: imgui-bundle
       # Limit parallel CUDA compilation jobs to avoid OOM (each nvcc job uses
       # ~9GB peak memory).
       MAX_JOBS: 8

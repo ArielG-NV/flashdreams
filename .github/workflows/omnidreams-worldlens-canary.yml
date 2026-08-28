@@ -37,7 +37,9 @@ jobs:
     env:
       UV_PROJECT_ENVIRONMENT: /tmp/flashdreams-venv
       UV_LINK_MODE: copy
-      UV_PYTHON: "3.10"
+      # imgui-bundle has Linux ARM64 wheels for Python 3.11+, but not 3.10.
+      UV_PYTHON: "3.11"
+      UV_NO_BUILD_PACKAGE: imgui-bundle
       MAX_JOBS: 8
       RUN_ROOT: artifacts/omnidreams_worldlens_canary/run
       SCRATCH_ROOT: /tmp/omnidreams-worldlens-scratch
