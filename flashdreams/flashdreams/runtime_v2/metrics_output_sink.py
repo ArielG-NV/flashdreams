@@ -59,7 +59,7 @@ class MetricsOutputSink(OutputSink):
         Visual update cadence follows the largest channel in the step, so FPS
         is that frame count divided by elapsed seconds.
         """
-        assert(step_results and len(step_results) > 0)
+        assert step_results and len(step_results) > 0
 
         # Ensure all results are ready before we measure the chunk size.
         # Since we are measuring "elapsed ms average", the cost of presenting
