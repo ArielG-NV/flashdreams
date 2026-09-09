@@ -3,6 +3,7 @@
 
 """CPU test for the v2 session loop, independent of any application."""
 
+import json
 import logging
 import queue
 import threading
@@ -10,6 +11,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 import torch
@@ -29,6 +31,7 @@ from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
 )
 from flashdreams.runtime_v2.event_buffer import EventBuffer
+from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.presentation_manager import (
     _PRESENTATION_DRAIN_MARGIN,
     PresentationManager,
@@ -352,6 +355,7 @@ class FakeSession(ISession):
             output=torch.full((1, 3, 1, 1, 1), step_index, dtype=torch.float32),
             frame_count=1,
             output_layout=self._session_desc.output_layout,
+            metrics={"total_ms": 10.0},
         )
 
     def run_ui(self, step_index: int, events: UserInputEvents) -> StepResult | None:
@@ -365,7 +369,6 @@ class FakeSession(ISession):
             output=frame.unsqueeze(0).unsqueeze(2),
             frame_count=1,
             output_layout=self.session_desc.output_layout,
-            metrics={"ui_ms": 0.25},
         )
 
     def is_finished(self) -> bool:
@@ -573,6 +576,37 @@ def test_run_session_presents_every_step_in_order() -> None:
     assert window.results[-1] is session.ui_loop.latest_result
     steps = [call for call in log.calls if call.startswith("session.step(")]
     assert steps == ["session.step(0)", "session.step(1)", "session.step(2)"]
+
+
+def test_run_session_records_model_metrics_separately_from_the_window(
+    tmp_path: Path,
+) -> None:
+    log = CallLog()
+    session = FakeSession(_session_desc(), log)
+    window = RecordingClientWindow(log)
+    stats_path = tmp_path / "stats.json"
+
+    run_session(
+        session,
+        window,
+        metrics_output_sink=MetricsOutputSink(stats_path),
+        steps=3,
+    )
+
+    assert [
+        result.read_output()[0, 0, 0, 0, 0].item() for result in window.results
+    ] == [0, 1, 2]
+    payload = json.loads(stats_path.read_text(encoding="utf-8"))
+    assert [step["step_index"] for step in payload["steps"]] == [0, 1, 2]
+    assert [sample["name"] for sample in payload["samples"]] == [
+        "total_s",
+        "total_s",
+        "total_s",
+    ]
+    assert all(result.metrics == {} for result in window.results)
+    assert len(payload["model_step_info"]) == 3
+    assert all(chunk_size == 1 for _, chunk_size in payload["model_step_info"])
+    assert isinstance(payload["model_step_p90_fps"], float)
 
 
 def test_run_session_opens_before_writing_and_closes_after() -> None:
@@ -922,52 +956,6 @@ def test_composite_clamps_alpha_before_interpolation() -> None:
 
     assert torch.equal(composited[:, :, 0], bottom[:, :, 0])
     assert torch.equal(composited[:, :, 1], overlay[:3, :, 1])
-
-
-def test_default_ui_presents_each_frame_from_a_model_chunk() -> None:
-    log = CallLog()
-
-    class MultiFrameSession(FakeSession):
-        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
-            del events
-            self._log.record(f"session.step({step_index})")
-            return StepResult(
-                step_index=step_index,
-                output=torch.arange(36, dtype=torch.float32).reshape(1, 3, 12, 1, 1),
-                frame_count=12,
-                output_layout=self.session_desc.output_layout,
-                metrics={"total_ms": 1.5},
-            )
-
-    class RecordingMetricsSink:
-        def __init__(self) -> None:
-            self.results: list[StepResult] = []
-
-        def open(self, session_desc: SessionDesc) -> None:
-            del session_desc
-
-        def write(self, result: StepResult) -> None:
-            self.results.append(result)
-
-        def close(self) -> None:
-            return
-
-    window = RecordingClientWindow(log)
-    metrics = RecordingMetricsSink()
-    run_session(
-        MultiFrameSession(_session_desc(), log),
-        window,
-        metrics_output_sink=metrics,
-        steps=1,
-    )
-
-    assert [result.frame_count for result in window.results] == [1] * 12
-    assert [
-        result.read_output()[0, 0, 0, 0, 0].item() for result in window.results
-    ] == list(range(12))
-    assert [result.metrics for result in window.results] == [{"ui_ms": 0.25}] * 12
-    assert len(metrics.results) == 1
-    assert metrics.results[0].metrics == {"total_ms": 1.5}
 
 
 def test_default_ui_does_not_redraw_an_unchanged_model_frame() -> None:

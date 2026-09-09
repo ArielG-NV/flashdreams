@@ -3,9 +3,11 @@
 
 """CPU tests for the v2 application runner."""
 
+import json
 import logging
 from collections.abc import Sequence
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 import torch
@@ -16,6 +18,7 @@ from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.application_runner import ApplicationRunner
+from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import CloseUserInputEvent
@@ -89,6 +92,7 @@ class _Session(ISession):
             output=torch.full((1, 3, 1, 2, 2), step_index),
             frame_count=1,
             output_layout=VideoTensorLayout.bcthw,
+            metrics={"total_ms": 10.0},
         )
 
     def close(self) -> None:
@@ -203,25 +207,6 @@ class _SecondSessionClosingWindow(_Window):
         self._sessions_opened += 1
 
 
-class _MetricsSink:
-    """Record model results delivered independently of the client window."""
-
-    def __init__(self, calls: list[str]) -> None:
-        self._calls = calls
-        self.results: list[StepResult] = []
-
-    def open(self, session_desc: SessionDesc) -> None:
-        del session_desc
-        self._calls.append("metrics.open")
-
-    def write(self, result: StepResult) -> None:
-        self.results.append(result)
-        self._calls.append(f"metrics.write({result.step_index})")
-
-    def close(self) -> None:
-        self._calls.append("metrics.close")
-
-
 def _session_desc() -> SessionDesc:
     return SessionDesc(
         output_layout=VideoTensorLayout.bcthw,
@@ -303,37 +288,34 @@ def test_application_timeout_must_be_positive_and_finite(timeout: float) -> None
     assert calls == []
 
 
-def test_application_runner_keeps_metrics_output_separate_from_the_window() -> None:
+def test_application_runner_keeps_metrics_output_separate_from_the_window(
+    tmp_path: Path,
+) -> None:
     calls: list[str] = []
     window = _ClosingAfterWritesWindow(calls, 2)
-    metrics = _MetricsSink(calls)
+    stats_path = tmp_path / "stats.json"
 
     ApplicationRunner(
         _Application(calls, session_length=2),
         window,
-        metrics_output_sink=metrics,
+        metrics_output_sink=MetricsOutputSink(stats_path),
     ).run(_session_desc())
 
     assert [
         result.read_output()[0, 0, 0, 0, 0].item() for result in window.results
     ] == [0, 1]
-    assert [result.step_index for result in metrics.results] == [0, 1]
-    assert calls.index("metrics.open") < calls.index("metrics.write(0)")
-    assert calls.index("metrics.write(1)") < calls.index("metrics.close")
+    payload = json.loads(stats_path.read_text(encoding="utf-8"))
+    assert [step["step_index"] for step in payload["steps"]] == [0, 1]
+    assert [sample["name"] for sample in payload["samples"]] == ["total_s", "total_s"]
 
 
 def test_application_runner_replaces_a_session_before_closing_the_window() -> None:
     calls: list[str] = []
     application = _Application(calls, replace_first_session=True)
     window = _SecondSessionClosingWindow(calls)
-    metrics = _MetricsSink(calls)
     session_desc = _session_desc()
 
-    ApplicationRunner(
-        application,
-        window,
-        metrics_output_sink=metrics,
-    ).run(session_desc)
+    ApplicationRunner(application, window).run(session_desc)
 
     create_indexes = [
         index
@@ -348,8 +330,6 @@ def test_application_runner_replaces_a_session_before_closing_the_window() -> No
     assert close_indexes[0] < create_indexes[1]
     assert calls.count("window.open") == 2
     assert calls.count("window.close") == 1
-    assert calls.count("metrics.open") == 2
-    assert calls.count("metrics.close") == 2
     assert application.requested_session_descs == [session_desc, session_desc]
     assert application.requested_session_descs[1] is session_desc
     assert calls.count("application.init([])") == 1
@@ -378,27 +358,6 @@ def test_application_runner_closes_a_preserved_window_if_replacement_fails() -> 
     assert calls[-1] == "application.close"
 
 
-def test_replacement_stops_if_per_session_metrics_fail_to_close() -> None:
-    calls: list[str] = []
-
-    class FailingMetricsSink(_MetricsSink):
-        def close(self) -> None:
-            super().close()
-            raise RuntimeError("metrics close failed")
-
-    with pytest.raises(RuntimeError, match="metrics close failed"):
-        ApplicationRunner(
-            _Application(calls, replace_first_session=True),
-            _SecondSessionClosingWindow(calls),
-            metrics_output_sink=FailingMetricsSink(calls),
-        ).run(_session_desc())
-
-    assert calls.count("application.create_session") == 1
-    assert calls.count("session.close") == 1
-    assert calls.count("window.close") == 1
-    assert calls[-1] == "application.close"
-
-
 def test_setup_failure_closes_every_runner_owned_resource() -> None:
     calls: list[str] = []
     bad_trace_desc = replace(
@@ -407,16 +366,11 @@ def test_setup_failure_closes_every_runner_owned_resource() -> None:
     )
 
     with pytest.raises(TypeError, match="trace_chunk_lifecycle_path"):
-        ApplicationRunner(
-            _Application(calls),
-            _Window(calls),
-            metrics_output_sink=_MetricsSink(calls),
-        ).run(bad_trace_desc)
+        ApplicationRunner(_Application(calls), _Window(calls)).run(bad_trace_desc)
 
     assert calls == [
         "application.init([])",
         "application.create_session",
-        "metrics.close",
         "window.close",
         "session.close",
         "application.close",

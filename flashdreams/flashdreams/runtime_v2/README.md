@@ -107,7 +107,7 @@ loops to stop and performs their normal cleanup. An in-flight model step must
 return before the process can finish cleaning up. Synchronous application or
 session initialization likewise cannot be interrupted mid-call.
 
-`--stats-path` adds a `MetricsOutputSink`. It receives the **model** loop's
+`--stats-path <path>.json` adds a `MetricsOutputSink`. It receives the **model** loop's
 results as they are published, not the UI loop's output, so a benchmark measures
 what the model generated while the window still sees one composited frame per
 tick. See [`configs/v2_model_benchmarks.json`](../../../configs/v2_model_benchmarks.json)

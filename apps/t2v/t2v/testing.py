@@ -25,6 +25,7 @@ from flashdreams.api_v2.output_sink import OutputSink
 from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
 )
+from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
@@ -337,7 +338,7 @@ class _FakeDecoder:
         self.spatial_compression_ratio = spatial_compression_ratio
 
 
-class _FrameInspector(OutputSink):
+class _FrameInspector(MetricsOutputSink):
     """Measure what a run generates, and pass it on to a file when asked to."""
 
     def __init__(self, mp4: Mp4OutputSink | None) -> None:

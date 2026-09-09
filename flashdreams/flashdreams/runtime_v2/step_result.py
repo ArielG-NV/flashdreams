@@ -60,6 +60,10 @@ class StepResult:
         event.record(torch.cuda.current_stream(output.device))
         object.__setattr__(self, "_output_ready_event", event)
 
+    def wait_until_ready(self) -> None:
+        """Wait until the generated output is available to consumers."""
+        _ = self.read_output(sync_with_event=True)
+
     def read_output(self, *, sync_with_event: bool = True) -> Tensor:
         """Return the output, optionally ordered before the current CUDA stream.
 

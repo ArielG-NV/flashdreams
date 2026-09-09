@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.output_sink import OutputSink
+from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.session_runner import run_session
 
@@ -27,7 +28,7 @@ class ApplicationRunner:
         application: IApplication,
         client_window: IClientWindow,
         *,
-        metrics_output_sink: OutputSink | None = None,
+        metrics_output_sink: MetricsOutputSink | None = None,
     ) -> None:
         """
         Args:

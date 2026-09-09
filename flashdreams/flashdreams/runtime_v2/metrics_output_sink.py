@@ -8,6 +8,8 @@ import math
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from flashdreams.api_v2.output_sink import OutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -38,6 +40,7 @@ class MetricsOutputSink(OutputSink):
         self._session_desc: SessionDesc | None = None
         self._steps: list[dict[str, Any]] = []
         self._samples: list[dict[str, Any]] = []
+        self._model_step_info: list[tuple[float, int]] = []
         self._written = False
 
     def open(self, session_desc: SessionDesc) -> None:
@@ -45,7 +48,25 @@ class MetricsOutputSink(OutputSink):
         self._session_desc = session_desc
         self._steps = []
         self._samples = []
+        self._model_step_info = []
         self._written = False
+
+    def record_model_step_elapsed_s(
+        self, step_elapsed_s: float, step_results: list[StepResult]
+    ) -> None:
+        """Record wall time and the largest channel frame count for one step.
+
+        Visual update cadence follows the largest channel in the step, so FPS
+        is that frame count divided by elapsed seconds.
+        """
+        assert(step_results and len(step_results) > 0)
+
+        # Ensure all results are ready before we measure the chunk size.
+        # Since we are measuring "elapsed ms average", the cost of presenting
+        # all 8 at once is being measured via this wait.
+        for result in step_results:
+            result.wait_until_ready()
+        self._model_step_info.append((step_elapsed_s, step_results[0].frame_count))
 
     def write(self, result: StepResult) -> None:
         """Record one model result's frame count and metrics.
@@ -83,6 +104,10 @@ class MetricsOutputSink(OutputSink):
             },
             "steps": self._steps,
             "samples": self._samples,
+            "model_step_info": self._model_step_info,
+            # We provide a p90 FPS metric for all demos since we need to standardize measuring within a percentile of samples.
+            # Otherwise, reporting will include outliers from model start-up, etc...
+            "model_step_p90_fps": _model_step_p90_fps(self._model_step_info),
         }
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._path.write_text(
@@ -112,6 +137,18 @@ def _samples_from(result: StepResult) -> list[dict[str, Any]]:
             }
         )
     return samples
+
+
+def _model_step_p90_fps(step_info: list[tuple[float, int]]) -> float | None:
+    """Return p90 of largest-channel frames per elapsed second."""
+    fps_samples = [
+        chunk_size / elapsed_s
+        for elapsed_s, chunk_size in step_info
+        if elapsed_s > 0 and chunk_size > 0
+    ]
+    if not fps_samples:
+        return None
+    return float(np.percentile(fps_samples, 90))
 
 
 def _normalized_sample(

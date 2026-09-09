@@ -356,6 +356,12 @@ The nested `integrations_v2/omnidreams/impl/ludus-renderer` workspace package is
 named `ludus-renderer` and is installed as part of Omnidreams workflows
 that need it.
 
+## Benchmarking
+
+Trigger benchmarking via the demo argument (before `--`): `--stats-path <path>.json`.
+
+`MetricsOutputSink::close` is currently where the schema of our "standardized" benchmark artifact is defined.
+
 ## Licensing of contributions
 
 By submitting a pull request to this repository, you agree that your
