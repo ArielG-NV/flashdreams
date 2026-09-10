@@ -270,12 +270,11 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
             state.cache,
             camera_input,
         )
-        metrics = _numeric_metrics(
-            state.pipeline.finalize(
-                autoregressive_index=step_index,
-                cache=state.cache,
-            )
+        finalize_metrics = state.pipeline.finalize(
+            autoregressive_index=step_index,
+            cache=state.cache,
         )
+        metrics = _numeric_metrics(finalize_metrics)
         _synchronize_output(frames)
         model_completed_at = time.perf_counter()
         model_step_wall_s = model_completed_at - step_started_at
@@ -387,7 +386,7 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
                 output=output_frames,
                 frame_count=output_frame_count,
                 output_layout=state.session_desc.output_layout,
-                metrics=metrics,
+                metrics=finalize_metrics,
             )
         ]
 

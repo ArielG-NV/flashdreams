@@ -20,7 +20,6 @@ from flashdreams.api_v2.loop import (
     IModelLoop,
     IUILoop,
     ModelInferenceState,
-    UILoopRequests,
     invoke_async,
 )
 from flashdreams.api_v2.session import ISession
@@ -29,6 +28,7 @@ from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
 )
 from flashdreams.runtime_v2.event_buffer import EventBuffer
+from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.presentation_manager import (
     _PRESENTATION_DRAIN_MARGIN,
     PresentationManager,
@@ -418,7 +418,6 @@ class FakeSession(ISession):
             output=frame.unsqueeze(0).unsqueeze(2),
             frame_count=1,
             output_layout=self.session_desc.output_layout,
-            metrics={"ui_ms": 0.25},
         )
 
     def is_finished(self) -> bool:
@@ -989,10 +988,9 @@ def test_default_ui_presents_each_frame_from_a_model_chunk() -> None:
                 output=torch.arange(36, dtype=torch.float32).reshape(1, 3, 12, 1, 1),
                 frame_count=12,
                 output_layout=self.session_desc.output_layout,
-                metrics={"total_ms": 1.5},
             )
 
-    class RecordingMetricsSink:
+    class RecordingMetricsSink(MetricsOutputSink):
         def __init__(self) -> None:
             self.results: list[StepResult] = []
 
@@ -1018,9 +1016,9 @@ def test_default_ui_presents_each_frame_from_a_model_chunk() -> None:
     assert [
         result.read_output()[0, 0, 0, 0, 0].item() for result in window.results
     ] == list(range(12))
-    assert [result.metrics for result in window.results] == [{"ui_ms": 0.25}] * 12
+    assert [result.metrics for result in window.results] == [{}] * 12
     assert len(metrics.results) == 1
-    assert metrics.results[0].metrics == {"total_ms": 1.5}
+    assert metrics.results[0].metrics == {}
 
 
 def test_default_ui_does_not_redraw_an_unchanged_model_frame() -> None:

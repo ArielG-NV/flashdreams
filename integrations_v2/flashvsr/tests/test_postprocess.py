@@ -82,8 +82,12 @@ class _FakeFlashVSRPipeline:
         self.cache_ids.append(id(cache))
         return input.repeat_interleave(2, dim=-2).repeat_interleave(2, dim=-1)
 
-    def finalize(self, autoregressive_index: int, cache: SimpleNamespace) -> None:
+    def finalize(
+        self, autoregressive_index: int, cache: SimpleNamespace
+    ) -> dict[str, float]:
+        del cache
         self.finalized.append(autoregressive_index)
+        return {"total_ms": float(autoregressive_index + 1)}
 
 
 def _install_fake_builder(
@@ -229,6 +233,7 @@ def test_flashvsr_postprocess_does_not_finalize_when_generate_raises(
     pipeline = created[0]
     assert pipeline.finalized == []
     assert len(pipeline.inputs) == 1
+    assert session.pull_finalize_metrics() is None
 
 
 def test_flashvsr_postprocess_rejects_multi_view_inputs(
@@ -267,6 +272,7 @@ def test_flashvsr_prepare_warms_both_shapes_and_resets_state(
     session = config.setup().start(VideoSpec(height=4, width=4, fps=24))
 
     session.prepare()
+    assert session.pull_finalize_metrics() is None
     output = session.process(VideoChunk(tensor=torch.ones((5, 3, 4, 4)), layout="tchw"))
 
     assert len(created) == 1

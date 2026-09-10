@@ -117,6 +117,9 @@ presentation-queue depth/publish-wait measurements under the reserved
 `runtime_` metric prefix. UI and window timings are not folded into a later
 model record because they describe a different frame.
 
+`--stats-path` also sets `FLASHDREAMS_SYNC_AND_PROFILE=1` before constructing the
+application, enabling synchronized per-stage pipeline profiling for the run.
+
 ## Starting and stopping a run
 
 `ApplicationRunner.run` calls `init`, `create_session` and `run_session` in

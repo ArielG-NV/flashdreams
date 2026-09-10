@@ -66,7 +66,6 @@ Cam2V application arguments, after `--`:
 | `--warmup-blocks INT` | Set chunks excluded from steady-state FPS |
 | `--ui`, `--no-ui` | Enable or disable the controls/status overlay |
 | `--compile`, `--no-compile` | Enable or disable model compilation |
-| `--sync-and-profile`, `--no-sync-and-profile` | Enable or disable synchronized per-stage pipeline timings |
 | `--postprocess-comparison-ui`, `--no-postprocess-comparison-ui` | Show synchronized original and post-processed panes; requires a postprocessor and UI |
 | `--seed INT` | Override the diffusion seed |
 
@@ -110,9 +109,8 @@ default to unset. HY-WorldPlay falls back to its built-in prompt and computed
 intrinsics; Lingbot requires an image and intrinsics, and also a pose trace when
 `--world-scale` is not given. SANA-WM can download its official image and prompt
 with `--example-data`; intrinsics
-default to a 90-degree horizontal field of view. `--compile`,
-`--sync-and-profile`, and `--seed` default to the selected pipeline
-configuration values.
+default to a 90-degree horizontal field of view. `--compile` and `--seed`
+default to the selected pipeline configuration values.
 
 For UI development without loading a model:
 

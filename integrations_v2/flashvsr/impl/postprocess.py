@@ -87,9 +87,6 @@ class FlashVSRPostProcessorConfig(VideoPostProcessorConfig):
     color_corrector_implementation: ColorCorrectorImplementation = "cuda"
     """FlashVSR decoder color-correction backend."""
 
-    enable_sync_and_profile: bool = False
-    """Record FlashVSR CUDA-event timing. Adds synchronizations."""
-
     dtype: _DTypeName = "bfloat16"
     """FlashVSR compute dtype."""
 
@@ -150,6 +147,9 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
         self._buffer: Tensor | None = None
         self._metadata_spans: list[tuple[int, dict[str, Any]]] = []
         self._ar_idx = 0
+        # ponytail: This deprecated MVP slot retains only the newest finalize
+        # result; replace it with per-output metric plumbing in issue #603.
+        self._finalize_metrics: dict[str, float | int] | None = None
 
     @torch.no_grad()
     def prepare(self) -> None:
@@ -242,6 +242,12 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
         metadata = self._consume_metadata(tail_frames, source="flashvsr_tail")
         return [_bcthw_chunk(output, metadata=metadata)]
 
+    def pull_finalize_metrics(self) -> dict[str, float | int] | None:
+        """Return and clear the latest pipeline finalize metrics."""
+        metrics = self._finalize_metrics
+        self._finalize_metrics = None
+        return metrics
+
     def _chunk_to_bcthw(self, chunk: VideoChunk) -> Tensor:
         canonical = to_bvtchw(chunk.tensor, layout=chunk.layout)
         batch, views, _, channels, _, _ = canonical.shape
@@ -286,7 +292,6 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
             compile_network=self._config.compile_network,
             use_cuda_graph=self._config.use_cuda_graph,
             color_corrector_implementation=self._config.color_corrector_implementation,
-            enable_sync_and_profile=self._config.enable_sync_and_profile,
             dtype=dtype,
             attention_mode=self._config.attention_mode,
             name="flashvsr-postprocess-v1.1",
@@ -303,6 +308,7 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
         self._buffer = None
         self._metadata_spans.clear()
         self._ar_idx = 0
+        self._finalize_metrics = None
 
     def _append_to_buffer(self, bcthw: Tensor, *, metadata: dict[str, Any]) -> None:
         assert self._pipeline is not None
@@ -342,12 +348,15 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
     def _run_flashvsr_chunk(self, clip: Tensor) -> Tensor:
         assert self._pipeline is not None
         assert self._cache is not None
+        self._finalize_metrics = None
         output = self._pipeline.generate(
             autoregressive_index=self._ar_idx,
             cache=self._cache,
             input=clip,
         )
-        self._pipeline.finalize(autoregressive_index=self._ar_idx, cache=self._cache)
+        self._finalize_metrics = self._pipeline.finalize(
+            autoregressive_index=self._ar_idx, cache=self._cache
+        )
         self._ar_idx += 1
         return output
 

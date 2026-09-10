@@ -135,6 +135,16 @@ class VideoPostProcessorSession(ABC):
     def flush(self) -> list[VideoChunk]:
         """Return any buffered output at end-of-stream."""
 
+    def pull_finalize_metrics(self) -> dict[str, float | int] | None:
+        """Return and clear metrics from the latest finalized model chunk.
+
+        Deprecated:
+            This is an MVP escape hatch for post-processors that wrap model
+            pipelines. Replace it with per-output metrics plumbing in issue
+            #603.
+        """
+        return None
+
 
 class VideoPostProcessor(ABC, Generic[VideoPostProcessorConfigT]):
     """Factory for stateful video post-processing sessions."""
