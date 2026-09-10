@@ -28,6 +28,7 @@ from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
 )
 from flashdreams.runtime_v2.event_buffer import EventBuffer
+from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.presentation_manager import (
     _PRESENTATION_DRAIN_MARGIN,
     PresentationManager,
@@ -989,7 +990,7 @@ def test_default_ui_presents_each_frame_from_a_model_chunk() -> None:
                 output_layout=self.session_desc.output_layout,
             )
 
-    class RecordingMetricsSink:
+    class RecordingMetricsSink(MetricsOutputSink):
         def __init__(self) -> None:
             self.results: list[StepResult] = []
 

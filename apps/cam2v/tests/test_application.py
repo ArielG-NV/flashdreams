@@ -1017,8 +1017,6 @@ def test_application_owns_pipeline_and_resolves_inputs_per_session_desc() -> Non
     assert pipeline_config.pipeline.closed
 
 
-
-
 @dataclass(kw_only=True)
 class _ChunkedPostprocessorConfig(VideoPostProcessorConfig):
     chunk_size: int = 16

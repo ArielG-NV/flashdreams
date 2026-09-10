@@ -12,7 +12,6 @@ from pathlib import Path
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop, ModelInferenceState
-from flashdreams.api_v2.output_sink import OutputSink
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
@@ -48,7 +47,7 @@ def run_session(
     session: ISession,
     window: IClientWindow,
     *,
-    metrics_output_sink: OutputSink | None = None,
+    metrics_output_sink: MetricsOutputSink | None = None,
     steps: int | None = None,
     timeout_seconds: float | None = None,
 ) -> SessionDesc | None:
@@ -170,9 +169,9 @@ def run_session(
             )
             if metrics_output_sink is not None:
                 for index, result in enumerate(results):
-                    if isinstance(metrics_output_sink, MetricsOutputSink):
-                        metrics_output_sink.set_step_result_index(index)
+                    metrics_output_sink.set_step_result_index(index)
                     metrics_output_sink.write(result)
+
         def tick_ui() -> None:
             # ensure that the HIGH PRIORITY presentation context is default for UI loop
             with presentation_manager.presentation_context():

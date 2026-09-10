@@ -62,7 +62,7 @@ class WorldModelStep:
     video_bvtchw: Tensor
     engine: EngineStep
     metrics: Mapping[str, float | int]
-    finalize_metrics: Mapping[str, float | int] | None
+    finalize_metrics: dict[str, float | int] | None
     _trace: _WorldModelStepTrace | None = None
 
 
