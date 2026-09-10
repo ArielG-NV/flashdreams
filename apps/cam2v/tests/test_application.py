@@ -156,7 +156,7 @@ def _conditioning() -> Cam2VConditioning:
     )
 
 
-def test_model_loop_maps_wasd_to_shared_camera_input_and_metrics() -> None:
+def test_model_loop_maps_wasd_to_shared_camera_input_and_updates_status() -> None:
     """Keep keyboard-to-pose conversion outside concrete integrations."""
     pipeline = _Pipeline()
     ui_state = Cam2VUIState(total_blocks=1, target_fps=16, warmup_blocks=0)
@@ -214,19 +214,14 @@ def test_model_loop_maps_wasd_to_shared_camera_input_and_metrics() -> None:
     result = model_loop.step(0, events)[0]
 
     assert result.frame_count == 2
-    assert result.metrics["model_step_s"] == 1.0
-    assert result.metrics["steady_state_fps"] > 0
-    assert result.metrics["recent_model_fps"] == pytest.approx(
-        result.metrics["chunk_fps"]
-    )
-    assert result.metrics["model_step_wall_s"] > 0
+    assert result.metrics == {"model_step_s": 1.0}
     ui_loop._run_message_batch()
     assert ui_state.status is not None
     assert ui_state.status.completed_blocks == 1
     assert ui_state.status.frames_generated == 2
     assert ui_state.status.recent_model_rate_snapshot is not None
     assert ui_state.status.recent_model_fps() == pytest.approx(
-        result.metrics["recent_model_fps"]
+        ui_state.status.chunk_fps
     )
     assert pipeline.camera_input is not None
     assert pipeline.camera_input.poses.shape == (2, 4, 4)
@@ -367,9 +362,7 @@ def test_model_loop_waits_for_postprocessing_in_presentation_timing(
 
     assert len(synchronized) == 2
     assert torch.equal(synchronized[1], torch.ones((2, 3, 1, 1)))
-    assert result.metrics["model_step_wall_s"] == 1.0
-    assert result.metrics["postprocess_step_wall_s"] == 2.0
-    assert result.metrics["model_loop_wall_s"] == 3.0
+    assert result.metrics == {"model_step_s": 1.0}
 
 
 def test_model_loop_keeps_postprocessing_running_when_presentation_is_disabled() -> (
@@ -402,8 +395,6 @@ def test_model_loop_keeps_postprocessing_running_when_presentation_is_disabled()
     assert postprocess_stream.calls == 1
     assert torch.equal(result.read_output(), torch.zeros((2, 3, 2, 2)))
     assert result_to_rgb24_tensor(result, state.session_desc).shape == (2, 2, 2, 3)
-    assert result.metrics["postprocess_enabled"] == 0
-    assert result.metrics["postprocess_output_frames"] == 2
 
 
 @pytest.mark.parametrize(
@@ -463,7 +454,6 @@ def test_model_loop_flushes_postprocessing_even_when_presentation_is_disabled() 
 
     assert postprocess_stream.finish_calls == 1
     assert torch.equal(result.read_output(), torch.zeros((2, 3, 1, 1)))
-    assert result.metrics["postprocess_output_frames"] == 3
 
 
 def test_model_loop_pairs_original_and_postprocessed_frames_for_comparison() -> None:
@@ -1027,25 +1017,6 @@ def test_application_owns_pipeline_and_resolves_inputs_per_session_desc() -> Non
     assert pipeline_config.pipeline.closed
 
 
-def test_application_overrides_shared_pipeline_profiling() -> None:
-    """Expose shared streaming-pipeline profiling without changing defaults."""
-    pipeline_config = _PipelineConfig()
-    app = Cam2VApplication(
-        defaults=Cam2VApplicationDefaults(
-            pipeline_config=pipeline_config,
-            input_resolver=lambda values: _conditioning(),
-            total_blocks=1,
-            pixel_width=1,
-            pixel_height=1,
-            first_frame_dtype=torch.float32,
-            first_frame_interpolation="linear",
-        )
-    )
-
-    app.init(["--sync-and-profile"])
-
-    assert app.pipeline_config.enable_sync_and_profile is True
-    assert pipeline_config.enable_sync_and_profile is False
 
 
 @dataclass(kw_only=True)
