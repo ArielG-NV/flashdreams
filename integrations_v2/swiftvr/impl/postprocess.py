@@ -57,16 +57,22 @@ class SwiftVRStream:
             overlap=overlap,
         )
         self.autoregressive_index = 0
+        # ponytail: This deprecated MVP slot retains only the newest finalize
+        # result; replace it with per-output metric plumbing in issue #603.
+        self._finalize_metrics: dict[str, float | int] | None = None
 
     @torch.inference_mode()
     def step(self, frames_uint8: Tensor) -> Tensor | None:
         """Process ``[T,H,W,3]`` uint8 frames."""
+        self._finalize_metrics = None
         output = self.pipeline.generate(
             self.autoregressive_index,
             self.cache,
             frames_uint8,
         )
-        self.pipeline.finalize(self.autoregressive_index, self.cache)
+        self._finalize_metrics = self.pipeline.finalize(
+            self.autoregressive_index, self.cache
+        )
         self.autoregressive_index += 1
         return output
 
@@ -74,6 +80,12 @@ class SwiftVRStream:
     def flush(self) -> Tensor | None:
         """Flush the final encoder temporal group."""
         return self.pipeline.flush(self.cache)
+
+    def pull_finalize_metrics(self) -> dict[str, float | int] | None:
+        """Return and clear the latest pipeline finalize metrics."""
+        metrics = self._finalize_metrics
+        self._finalize_metrics = None
+        return metrics
 
 
 @dataclass(kw_only=True)
@@ -276,6 +288,12 @@ class _SwiftVRPostProcessorSession(VideoPostProcessorSession):
                 f"SwiftVR emitted {restored.shape[1]} tail frames; expected {remaining}."
             )
         return [self._output_chunk(restored[:, :remaining], source="swiftvr_tail")]
+
+    def pull_finalize_metrics(self) -> dict[str, float | int] | None:
+        """Return and clear the latest pipeline finalize metrics."""
+        if self._stream is None:
+            return None
+        return self._stream.pull_finalize_metrics()
 
     def _ensure_stream(self) -> SwiftVRStream:
         if self._stream is None:

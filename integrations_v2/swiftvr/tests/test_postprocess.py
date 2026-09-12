@@ -76,8 +76,11 @@ class _FakePipeline:
     ) -> torch.Tensor | None:
         return cache.step(frames)
 
-    def finalize(self, autoregressive_index: int, cache: _FakeStream) -> None:
-        pass
+    def finalize(
+        self, autoregressive_index: int, cache: _FakeStream
+    ) -> dict[str, float]:
+        del cache
+        return {"total_ms": float(autoregressive_index + 1)}
 
     def flush(self, cache: _FakeStream) -> torch.Tensor | None:
         return cache.flush()
@@ -168,6 +171,22 @@ def test_swiftvr_reuses_resident_pipeline_across_sessions(
     assert len(created) == 1
     # One prewarm stream plus one fresh state object for each session.
     assert len(created[0].starts) == 3
+
+
+def test_swiftvr_exposes_and_clears_latest_finalize_metrics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_pipeline(monkeypatch)
+    session = (
+        SwiftVRPostProcessorConfig(device="cpu", chunk_size=8, prewarm=False)
+        .setup()
+        .start(VideoSpec(height=4, width=4))
+    )
+
+    session.process(VideoChunk(tensor=torch.zeros((8, 3, 4, 4)), layout="tchw"))
+
+    assert session.pull_finalize_metrics() == {"total_ms": 1.0}
+    assert session.pull_finalize_metrics() is None
 
 
 def test_swiftvr_reports_exact_scaled_output_spec() -> None:

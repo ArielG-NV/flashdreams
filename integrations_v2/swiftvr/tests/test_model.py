@@ -64,6 +64,39 @@ def test_pipeline_config_follows_stream_inference_component_contracts(
     assert config.diffusion_model.transformer.latent_frames == 6
 
 
+def test_pipeline_finalize_returns_stage_metrics() -> None:
+    finalized: list[int] = []
+    recorded: list[str] = []
+    events = SimpleNamespace(
+        record=recorded.append,
+        sync_and_summarize=lambda: {
+            "encode": 1.0,
+            "diffuse": 2.0,
+            "decode": 3.0,
+            "finalize": 4.0,
+        },
+    )
+    cache = SimpleNamespace(
+        autoregressive_index=0,
+        transformer_cache=SimpleNamespace(finalize=finalized.append),
+        event_profiler=events,
+    )
+    pipeline = SimpleNamespace(config=SimpleNamespace(enable_sync_and_profile=True))
+
+    metrics = SwiftVRPipeline.finalize(cast(Any, pipeline), 0, cast(Any, cache))
+
+    assert finalized == [0]
+    assert recorded == ["finalize"]
+    assert metrics == {
+        "encode_ms": 1.0,
+        "diffuse_ms": 2.0,
+        "decode_ms": 3.0,
+        "finalize_ms": 4.0,
+        "total_ms": 10.0,
+        "total_ms_wo_finalize": 6.0,
+    }
+
+
 def test_pipeline_cache_uses_reae_latent_resolution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
