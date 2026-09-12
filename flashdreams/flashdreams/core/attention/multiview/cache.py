@@ -13,32 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Attention primitives and KV cache for streaming inference."""
+"""Compatibility imports for multi-view cache types now owned by core attention."""
 
-from flashdreams.core.attention.cp import ContextParallelAttention
 from flashdreams.core.attention.kvcache import (
-    BlockKVCache,
     FixedSlotKVCache,
     LayerKV,
     SlotRegion,
     TokenWindow,
 )
-from flashdreams.core.attention.native import NativeAttention
-from flashdreams.core.attention.rope import (
-    KVCacheRelativeRotaryPositionEmbedding3D,
-    RotaryPositionEmbedding3D,
-    apply_rope_freqs,
-)
 
-__all__ = [
-    "BlockKVCache",
-    "ContextParallelAttention",
-    "FixedSlotKVCache",
-    "KVCacheRelativeRotaryPositionEmbedding3D",
-    "LayerKV",
-    "NativeAttention",
-    "RotaryPositionEmbedding3D",
-    "SlotRegion",
-    "TokenWindow",
-    "apply_rope_freqs",
-]
+__all__ = ["FixedSlotKVCache", "LayerKV", "SlotRegion", "TokenWindow"]
