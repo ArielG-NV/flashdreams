@@ -26,6 +26,7 @@ from swiftvr.impl.transformer.network import (
 )
 
 from flashdreams.infra.pipeline import StreamInferencePipeline
+from flashdreams.infra.profiler import EventProfiler
 from flashdreams.recipes.taehv.checkpoint import legacy_to_blocks_keys
 from flashdreams.recipes.taehv.impl import TAEHV, MemBlock, TGrow, TPool
 from flashdreams.recipes.taehv.impl import Encoder as TAEHVEncoder
@@ -62,6 +63,51 @@ def test_pipeline_config_follows_stream_inference_component_contracts(
     assert isinstance(config.decoder, SwiftVRDecoderConfig)
     assert config.diffusion_model.transformer.network.attention_window == (8, 12)
     assert config.diffusion_model.transformer.latent_frames == 6
+
+
+def test_pipeline_finalize_returns_stage_metrics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    finalized: list[int] = []
+    recorded: list[str] = []
+    gib = 1024**3
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "current_device", lambda: 0)
+    monkeypatch.setattr(torch.cuda, "memory_allocated", lambda _device: gib)
+    monkeypatch.setattr(torch.cuda, "memory_reserved", lambda _device: 2 * gib)
+    monkeypatch.setattr(torch.cuda, "max_memory_allocated", lambda _device: 3 * gib)
+    events = SimpleNamespace(
+        record=recorded.append,
+        sync_and_summarize=lambda: {
+            "encode": 1.0,
+            "diffuse": 2.0,
+            "decode": 3.0,
+            "finalize": 4.0,
+        },
+        format_result_as_ms=EventProfiler.format_result_as_ms,
+    )
+    cache = SimpleNamespace(
+        autoregressive_index=0,
+        transformer_cache=SimpleNamespace(finalize=finalized.append),
+        event_profiler=events,
+    )
+    pipeline = SimpleNamespace(config=SimpleNamespace(enable_sync_and_profile=True))
+
+    metrics = SwiftVRPipeline.finalize(cast(Any, pipeline), 0, cast(Any, cache))
+
+    assert finalized == [0]
+    assert recorded == ["finalize"]
+    assert metrics == {
+        "encode_ms": 1.0,
+        "diffuse_ms": 2.0,
+        "decode_ms": 3.0,
+        "finalize_ms": 4.0,
+        "total_ms": 10.0,
+        "total_ms_wo_finalize": 6.0,
+        "mem_alloc_gib": 1.0,
+        "mem_reserved_gib": 2.0,
+        "mem_peak_gib": 3.0,
+    }
 
 
 def test_pipeline_cache_uses_reae_latent_resolution(
