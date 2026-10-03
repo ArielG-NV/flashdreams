@@ -22,11 +22,20 @@ from dataclasses import replace
 from typing import Any
 
 from flashdreams.api_v2.application import IApplication
+from flashdreams.core.distributed import (
+    get_global_rank_for_logging,
+)
+from flashdreams.core.distributed import (
+    shutdown as shutdown_distributed,
+)
 from flashdreams.runtime_v2.application_registry import (
     create_application,
     registered_application_slugs,
 )
-from flashdreams.runtime_v2.application_runner import ApplicationRunner
+from flashdreams.runtime_v2.application_runner import (
+    ApplicationFlags,
+    ApplicationRunner,
+)
 from flashdreams.runtime_v2.client_window_factory import (
     add_client_window_arguments,
     client_window_mode,
@@ -62,43 +71,69 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
         parser.error("--timeout must be a finite number greater than zero.")
     if parsed.stats_path is not None:
         os.environ["FLASHDREAMS_SYNC_AND_PROFILE"] = "1"
+    if parsed.preload_application and any(
+        argument == "--mode" or argument.startswith("--mode=") for argument in own_args
+    ):
+        parser.error("--mode cannot be used with --preload-application.")
+    if parsed.skip_preload_validation and not parsed.preload_application:
+        parser.error("--skip-preload-validation requires --preload-application.")
+    if parsed.preload_application:
+        parsed.mode = "null"
 
-    mode = client_window_mode(parsed.mode)
-    if parsed.mode == "mp4" and parsed.presentation_mode is None:
-        parsed.presentation_mode = PresentationMode.ON_DEMAND
     # Asking an application what it takes is answered by the application alone,
     # so a run that only wants its help neither checks the arguments for a
     # window nor opens one.
     wants_application_help = bool(_HELP_FLAGS.intersection(application_args))
-    if not wants_application_help:
-        try:
-            mode.check_arguments(parsed)
-        except ValueError as error:
-            parser.error(str(error))
-
     # Before the window, so a slug this cannot run costs nothing to find out.
     application = create_application(parsed.slug)
     if wants_application_help:
         # Parsing is init's first job, so this prints the help and exits.
         application.init(application_args)
         return
+    if parsed.mode is None:
+        preferred_mode = application.default_client_window_mode()
+        parsed.mode = "mp4" if preferred_mode is None else preferred_mode
+    try:
+        mode = client_window_mode(parsed.mode, modes=parsed._client_window_modes)
+        mode.check_arguments(parsed)
+    except ValueError as error:
+        parser.error(str(error))
+    if parsed.mode == "mp4" and parsed.presentation_mode is None:
+        parsed.presentation_mode = PresentationMode.ON_DEMAND
     session_desc = _session_desc(application, parsed)
-    window = mode.create(parsed)
-    _report(mode.starting(window))
+    worker = get_global_rank_for_logging() != 0
+    window = None if worker else mode.create(parsed)
+    if window is not None:
+        _report(mode.starting(window))
     # The session's UI and client input decide when the run ends.
     metrics_output_sink = (
-        None if parsed.stats_path is None else MetricsOutputSink(parsed.stats_path)
+        None
+        if worker or parsed.stats_path is None
+        else MetricsOutputSink(parsed.stats_path)
     )
-    ApplicationRunner(
-        application,
-        window,
-        metrics_output_sink=metrics_output_sink,
-    ).run(
-        session_desc,
-        application_args,
-        timeout_seconds=parsed.timeout,
-    )
-    _report(mode.finished(window))
+    completed = False
+    try:
+        ApplicationRunner(
+            application,
+            window,
+            metrics_output_sink=metrics_output_sink,
+            application_flags=ApplicationFlags(
+                preload=parsed.preload_application,
+                skip_preload_validation=parsed.skip_preload_validation,
+            ),
+        ).run(
+            session_desc,
+            application_args,
+            timeout_seconds=parsed.timeout,
+        )
+        if window is not None:
+            _report(mode.finished(window))
+        completed = True
+    finally:
+        shutdown_distributed(
+            synchronize=completed,
+            terminate_process=completed,
+        )
 
 
 def split_arguments(arguments: Sequence[str]) -> tuple[list[str], list[str]]:
@@ -132,6 +167,16 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("slug", help="Application to run.")
+    parser.add_argument(
+        "--preload-application",
+        action="store_true",
+        help="Initialize the application and validate one runtime step.",
+    )
+    parser.add_argument(
+        "--skip-preload-validation",
+        action="store_true",
+        help="Initialize a preloaded application without validating a runtime step.",
+    )
     parser.add_argument(
         "--timeout",
         type=float,
