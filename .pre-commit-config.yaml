@@ -46,6 +46,12 @@ repos:
       - id: ruff-format
   - repo: local
     hooks:
+      - id: docs-layout
+        name: enforce Zensical Markdown docs layout
+        entry: python tools/check_docs_layout.py
+        language: system
+        always_run: true
+        pass_filenames: false
       - id: uv-lock-check
         name: validate uv lockfile
         entry: uv lock --check

@@ -1,6 +1,6 @@
 ---
 name: python-docstring-style
-description: Write Python docstrings and inline comments matching the flashdreams house style — SPDX header, one-line module docstring, Google-style function docstrings (Args/Returns/Raises), PEP 257 attribute docstrings on dataclass/class fields *and on module-level constants*, double-backticks for code references, imperative first sentences, and signpost-style inline block comments (kept, not stripped, on a tightening pass). Use when authoring or editing any .py file under flashdreams/, when adding a new module/class/function/field/constant, when polishing comments, or when the user asks about docstring or comment style.
+description: Write Python docstrings and inline comments matching the flashdreams house style — SPDX header, one-line module docstring, Google-style function docstrings (Args/Returns/Raises), PEP 257 attribute docstrings on dataclass/class fields *and on module-level constants*, double-backticks for code references, imperative first sentences, and signpost-style inline block comments (kept, not stripped, on a tightening pass). Use when authoring or editing first-party Python in this repository, when adding a new module/class/function/field/constant, when polishing comments, or when the user asks about docstring or comment style.
 ---
 
 # Python docstring style (flashdreams)
@@ -9,7 +9,7 @@ House style distilled from `flashdreams/`. Match it when adding or editing Pytho
 
 ## File header
 
-Every `.py` file starts with the SPDX + Apache-2.0 block, then a blank line, then the module docstring, then a blank line, then imports.
+Every `.py` file starts with the SPDX + Apache-2.0 block, then a blank line, then the module docstring, then a blank line, then imports. Executable scripts may put a shebang on the first line, immediately before the SPDX block.
 
 ```python
 # SPDX-FileCopyrightText: Copyright (c) <YEAR> NVIDIA CORPORATION & AFFILIATES. All rights reserved.
@@ -300,14 +300,16 @@ Place on its own line, one blank line before and after, short title. Don't use `
 ## Formatting / voice
 
 - Line length: follow the file (most of the repo wraps around 88 chars; match what you see).
-- Backticks: double backticks `` ``x`` `` inside docstrings for code, not single or triple. Single backticks in docstrings try to resolve as cross-references and will emit warnings when they can't.
+- Backticks: double backticks `` ``x`` `` inside docstrings for literal code, not single or triple. Use an explicit rST role when you want a cross-reference.
 - Shapes: annotate with double-backtick literals when it helps — `` ``[B, V, T, 1, H, W]`` ``. Use this liberally for tensor args.
 - Voice: third person descriptive for docstring summaries of classes/attributes ("Long-lived AR cache…"); imperative for functions/methods ("Slice…", "Capture…").
 - No emojis in docstrings or comments.
 
-## Sphinx / Napoleon compatibility
+## Docstring compatibility
 
-Docs are built with `sphinx.ext.napoleon` (Google style) + `sphinx.ext.autodoc`, and `warningiserror = True` in `docs/source/conf.py` — **any malformed rST breaks CI**.
+The documentation site is built from Markdown with Zensical. Existing Python
+docstrings retain Google-style sections and reStructuredText literals for source
+readability; API pages under `docs/src/content/docs/api/` are maintained directly.
 
 Practical rules:
 
@@ -317,7 +319,7 @@ Practical rules:
   - Plain double backticks are still correct for *non-linked* literal code (argument names, shapes, small expressions).
 - **Section labels Napoleon recognises** (and converts into rST admonitions / field lists):
   `Args`, `Arguments`, `Attention`, `Attributes`, `Caution`, `Danger`, `Error`, `Example`, `Examples`, `Hint`, `Important`, `Keyword Args`, `Keyword Arguments`, `Methods`, `Note`, `Notes`, `Other Parameters`, `Parameters`, `Return`, `Returns`, `Raise`, `Raises`, `References`, `See Also`, `Tip`, `Todo`, `Warning`, `Warnings`, `Warn`, `Warns`, `Yield`, `Yields`.
-- **Custom section labels** like `Phases:`, `Per-step usage:`, `Typical usage example:` are **not** Napoleon-recognised. They render as plain paragraphs at best, and a stray blank-line can turn them into field-list warnings under `warningiserror`. Prefer `Note:` / `Example:` / `Examples:` (Napoleon-recognised) for anything callout-shaped. If a genuinely custom section is unavoidable, register it via `napoleon_custom_sections` in `conf.py` before using it in code.
+- **Registered custom section labels** are `Phases:`, `Per-step usage:`, `Multi-GPU contract:`, `Supports:`, and `Typical usage example:`; `napoleon_custom_sections` in `conf.py` defines how they render. Prefer a standard Napoleon label when it fits. Register any other custom section in `conf.py` before using it in code.
 - **`Attributes:` section is legal**, but we document fields with PEP 257 attribute docstrings (see above) and let autodoc discover them — don't duplicate.
 
 ## Developer voice — don't write a commit-log
@@ -400,7 +402,7 @@ When asked to tighten an existing file:
 - reStructuredText `:param x:` / `:returns:` field lists — we use Google style. Napoleon tolerates mixing, but the rendered output is inconsistent.
 - NumPy-style docstrings with `Parameters` / `----------` underlines — disabled via `napoleon_numpy_docstring = False`, renders wrong.
 - Markdown inside docstrings (headings, fenced code blocks, hyperlink syntax) — not rST, will not render and may warn.
-- Single backticks in docstrings for non-references — Sphinx treats them as unresolved cross-references under the default role and warns.
+- Single backticks in docstrings for non-references — use double backticks for unambiguous literal code and explicit rST roles for links.
 - Type info duplicated in `Args:` (`x (Tensor): …`) — the signature already has the type, and autodoc renders it.
 - Boilerplate "This function does X" opener — start with the verb directly.
 - Commit-log voice: `"Now uses…"`, `"Migrated from…"`, `"Originally…"`, `"Deliberately chosen so…"`. Describe the current contract, not the history.

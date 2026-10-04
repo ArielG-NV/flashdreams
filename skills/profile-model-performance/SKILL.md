@@ -22,13 +22,19 @@ guess from code shape alone.
 1. **Scope the executed path.**
    - Find the user-facing entry point: runner, CLI, interactive server, batch
      script, notebook, or downstream adapter.
+   - Identify the API boundary before tracing it. Use
+     `docs/src/content/docs/api/index.md` and the `flashdreams-integrations` skill rather
+     than inferring ownership from similarly named runtime modules.
    - Trace one generation step through input preparation, encode/context setup,
      model or denoise loop, cache update/finalize, decode, transfer, encode, and
      presentation.
    - Read `flashdreams-integrations` before changing framework boundaries or
      config contracts. Keep this skill focused on measurement and diagnosis.
-   - Prefer no-GPU inspection first: config resolution, `--help`,
-     `--no-instantiate`, static runner wiring, and small CPU tests.
+   - Prefer no-GPU inspection first: config resolution, CLI help, static runner
+     wiring, and small CPU tests. For inference/demo runners use
+     `uv run flashdreams-run --no-instantiate <runner-name>`; v2 applications
+     use `uv run flashdreams-run-v2 <application-slug> -- --help` and have no
+     `--no-instantiate` flag.
 
 2. **Establish a reproducible baseline.**
    - Use fixed input, seed, prompt/control schedule, resolution, chunk/window

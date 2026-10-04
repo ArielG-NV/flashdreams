@@ -5,8 +5,9 @@ description: >
   baseline exists: bounded windows and fixed K/V caches, cache/decode overlap,
   `torch.compile`, CUDA graph capture, attention backend checks, decoder layout
   or replacement, transfer/materialization changes, and ordered presentation
-  tuning. Use when porting known optimizations into a runner, demo, serving
-  adapter, or downstream integration while preserving quality and reset
+  tuning. Use when porting known optimizations into the experimental inference
+  API (`flashdreams.runtime`), its demo API (`flashdreams.runtime.demo`), a
+  runner, or a downstream integration while preserving quality and reset
   behavior.
 ---
 
@@ -29,6 +30,11 @@ that it is safe for the target workflow.
 - Read `flashdreams-integrations` before moving code across `core`, `infra`,
   recipes, or integrations. Avoid model-specific branches in shared layers; add
   config slots or override hooks instead.
+
+Place each optimization on the API that owns it: model/cache behavior stays in
+the model-execution layer, while benchmark and presentation policy stay above
+it. Use `docs/src/content/docs/api/index.md` and the `flashdreams-integrations` skill to
+resolve the boundary instead of duplicating those contracts here.
 
 ## Model and denoise path
 

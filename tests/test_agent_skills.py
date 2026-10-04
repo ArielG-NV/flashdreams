@@ -25,6 +25,7 @@ import pytest
 pytestmark = pytest.mark.ci_cpu
 
 _ROOT = Path(__file__).resolve().parents[1]
+_SKILLS_ROOT = _ROOT / "skills"
 _IGNORED_SKILL_PARTS = frozenset({".agents", ".claude", ".codex", ".cursor"})
 _NAME_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 
@@ -35,7 +36,9 @@ def _is_repo_skill_file(path: Path) -> bool:
 
 
 def _repo_skill_files() -> list[Path]:
-    return sorted(path for path in _ROOT.rglob("SKILL.md") if _is_repo_skill_file(path))
+    return sorted(
+        path for path in _SKILLS_ROOT.rglob("SKILL.md") if _is_repo_skill_file(path)
+    )
 
 
 def _frontmatter_lines(path: Path) -> list[str]:

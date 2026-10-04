@@ -11,7 +11,6 @@ import tomli as tomllib
 pytestmark = pytest.mark.ci_cpu
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-
 _MODEL_APPLICATIONS = (
     (
         "causal_forcing",
@@ -71,12 +70,6 @@ def test_model_owns_v2_t2v_adapter(model: str, factories: dict[str, str]) -> Non
         assert "flashdreams.runtime_v2" not in source
         assert "flashdreams.serving" not in source
     assert not list(project.glob("apps/*/config.py"))
-    application_readme = (application_project / "README.md").read_text()
-    model_readme = (project / "README.md").read_text()
-    for slug in factories:
-        assert slug in application_readme
-        assert slug in model_readme
-    assert "../../../../apps/t2v/README.md" in application_readme
     assert not (application_project / "tests").exists()
     assert not (application_project / "impl").exists()
     assert (project / "tests").is_dir()
@@ -114,9 +107,6 @@ def test_shared_t2v_code_is_owned_by_app_package() -> None:
         "ui.py",
     }
     assert (project / "tests").is_dir()
-    readme = (project / "README.md").read_text()
-    for heading in ("## Controls", "## Usage", "## Tests"):
-        assert heading in readme
     assert manifest["tool"]["setuptools"]["packages"]["find"]["include"] == ["t2v*"]
     assert not (_REPO_ROOT / "flashdreams" / "flashdreams" / "t2v_v2").exists()
     for model, _factories in _MODEL_APPLICATIONS:

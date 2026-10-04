@@ -1,297 +1,289 @@
 ---
 name: integrate-a-model
-description: End-to-end workflow for porting an external video diffusion model into a flashdreams integration — scope the architecture, scaffold a workspace-member plugin, reuse an existing recipe, write the checkpoint key-remap, layer model-specific conditioners, wire the runner, and verify with checkpoint weight-equality + upstream parity + a GPU rollout. Use when integrating a new model (e.g. a HuggingFace/research release) into flashdreams or a downstream repo, porting upstream weights, or reproducing an existing integration. Pairs with the `flashdreams-integrations` skill (architecture map) — this skill is the ordered procedure; that one is the contract reference.
+description: End-to-end workflow for porting an external video or world model into FlashDreams: choose the experimental inference API, its higher-level demo API, or the separate v2 application protocol; reuse a pipeline recipe; map checkpoints; add model deltas; package the integration; and validate CPU structure, GPU execution, parity, and performance. Use when integrating a new model, porting upstream weights, or reproducing an existing integration.
 ---
 
-# Integrate a model into flashdreams
+# Integrate a model into FlashDreams
 
-The ordered procedure for binding an external video model to the flashdreams
-framework. Read the **`flashdreams-integrations`** skill first for the architecture
-(layers, contracts, the cache tree) — this skill is the *route*, that one is the *map*.
+Use this procedure to port an external model. Read
+`skills/flashdreams-integrations/SKILL.md` first for API ownership, package
+layout, registration, and test placement. Use `docs/src/content/docs/api/index.md` for
+the canonical API map, and read `python-docstring-style` before writing public
+Python documentation.
 
-**Worked example throughout:** `integrations_v2/hy_worldplay/` (HY-WorldPlay WAN-5B I2V),
-which reuses the `integrations_v2/wan22/` Wan 2.2 TI2V-5B recipe. It is the most complete
-reference integration; read it side-by-side. Match `python-docstring-style`.
+Current references serve different purposes:
 
-## The core bet: reuse, don't re-implement
+- `integrations_v2/hy_worldplay/` is a complete pipeline port with
+  model-specific conditioners and a v2 Cam2V application binding.
+- `integrations_v2/lingbot/impl/runtime.py` is the current inference-adapter
+  example.
+- `flashdreams/flashdreams/recipes/template/README.md` documents only the
+  lower-level streaming-pipeline contract.
 
-Most modern video models are DiT-family. Before writing anything, find the closest
-existing flashdreams recipe (`integrations_v2/wan22`, `wan21`, `self_forcing`, …) and
-**subclass it**. HY-WorldPlay is a Wan 2.2 TI2V-5B with three conditioner deltas — it
-adds ~3 small subclasses, not a from-scratch network. If your model maps onto an
-existing backbone, the job is *config + checkpoint remap + deltas + verify*, which is
-days–weeks. If it needs a novel network/attention/inference loop, it is much longer —
-say so up front.
+## Choose the public boundary first
 
----
+Choose the boundary with `skills/flashdreams-integrations/SKILL.md`; do not
+rederive it here. Record the selected public contract and execution surface in
+the integration plan before scaffolding files.
 
-## Phase 0 — Scope (½–2 days; do this before promising a timeline)
+## Phase 0 — Scope before estimating
 
-**First pick the integration lane** — the `integrations/` directory has several, and they
-differ a lot in effort. HY-WorldPlay is the *runner-plugin* lane, **not** the universal
-pattern:
+Record these facts from the upstream repository and model card:
 
-| Lane | What it is | Examples | Effort |
-|---|---|---|---|
-| **Config-only recipe** | just `config.py` literals over an existing backbone; no new runner | `wan22` | smallest |
-| **Runner plugin** | recipe + a `flashdreams-run` runner (+ model deltas) | `hy_worldplay` | small–medium |
-| **Serving adapter** | adds serving/runtime surfaces on top of a runner | `lingbot` | medium |
-| **Full native port / builder variants** | real builder helpers, dynamic-resolution variants, a network ported from scratch | `flashvsr` | largest |
+1. **Backbone family.** Find the closest existing recipe or integration. A
+   Wan/DiT derivative should usually reuse Wan components rather than port a
+   second network.
+2. **Checkpoint format.** Record repository IDs, gated-access requirements,
+   file format, shard index, envelope keys, dtype, and whether the published
+   weights are native or converted.
+3. **Inference behavior.** Record resolution, temporal shape, scheduler,
+   number of steps, guidance, one-shot versus autoregressive execution, and
+   cache policy.
+4. **Model deltas.** Identify extra conditioning, attention, memory, control,
+   or decoder behavior relative to the closest base.
+5. **Consumer boundary.** Decide whether the deliverable needs inference only,
+   a demo over that inference API, a v2 application, or more than one explicit
+   adapter.
+6. **Parity source.** Pin the upstream commit, environment, inputs, seed, and
+   expected comparison metric before changing implementation details.
 
-Then answer these from the upstream repo + model card, and write the answers down:
+If the architecture is novel, say so: checkpoint plumbing may still be small,
+but the network and inference-loop phases will not be.
 
-1. **Backbone family.** Is it a Wan/DiT variant? Diffusion-transformer? → which existing
-   recipe is the closest base. (Decisive for the estimate.)
-2. **Checkpoints.** What does upstream publish — native `.pth`/safetensors, a diffusers
-   port, sharded or single-file? Note the HF repo ids. (Drives the remap; see Phase 3.)
-3. **Inference shape.** Steps (distilled? e.g. HY = 4-step Euler), scheduler, guidance,
-   resolution, AR/streaming vs one-shot, KV cache.
-4. **Conditioners / deltas.** What does it add beyond the base backbone (camera, action,
-   memory, control)? Each is a subclass + (usually) extra checkpoint keys.
-5. **Reference for parity.** Can you run upstream to get a ground-truth output to diff
-   against? (You need this for Phase 6.)
+## Phase 1 — Scaffold the integration package
 
-Output: a one-paragraph scope note + the "closest base recipe" decision. If the answer to
-(1) is "novel architecture", flag it — the rest of this playbook still applies but Phase
-2/4 grow a lot.
+An in-tree integration is a workspace member under
+`integrations_v2/<model>/`; the root `pyproject.toml` includes
+`integrations_v2/*`. Follow the current layout:
 
-## Phase 1 — Scaffold the plugin (pick in-tree or out-of-tree)
-
-The package layout is the same either way; only *where it lives* and *how its version is
-managed* differ. The discovery seam for both is `flashdreams/plugins/registry.py`:
-runners are found via the `flashdreams.runner_configs` entry point (group
-`ENTRY_POINT_GROUP`), or the `FLASHDREAMS_RUNNER_CONFIGS` env var during dev. The package
-body is identical to either reference below.
-
-```
-<pkg>/
+```text
+integrations_v2/<model>/
 ├── __init__.py
-├── config.py      # static PIPELINE_<NAME> + RUNNER_<NAME> + <NAME>_CONFIGS literals
-├── runner.py      # RunnerConfig + Runner.run()
-└── _*.py          # model-specific subclasses (encoder/transformer/network)
-tests/
-├── test_smoke.py  # ci_cpu: import + static-config assertions
-└── parity_check/  # GPU parity harness (gitignored heavy deps)
+├── config.py                 # public pipeline-config literal(s)
+├── impl/                     # all model-specific implementation
+├── tests/                    # model and adapter tests
+├── apps/                     # only for v2 application bindings
+│   └── <app>/
+│       ├── adapter.py
+│       └── README.md
+├── README.md
+└── pyproject.toml
 ```
 
-**Lane A — in-tree (`integrations/<name>/`)**, for upstreaming into flashdreams (mirror
-`integrations_v2/hy_worldplay/`):
-- The repo-root `integrations/*` glob auto-adds it to the uv workspace.
-- `pyproject.toml` `version` must match `flashdreams._version.__version__`; the
-  `sync-version` pre-commit hook enforces it (CI fails otherwise).
-- `[project.entry-points."flashdreams.runner_configs"]` maps slug → config (see
-  `integrations_v2/hy_worldplay/pyproject.toml`):
+Keep implementation out of the integration root except for `config.py`. An
+out-of-tree integration may use the same package shape and depend on a released
+`flashdreams` instead of the workspace source.
+
+The version in an in-tree package is synchronized to
+`flashdreams/flashdreams/_version.py` by the `sync-version` pre-commit hook.
+Run the hook rather than hand-maintaining a divergent version.
+
+Registration depends on the selected boundary:
+
+- Experimental inference and demo adapters currently have no package
+  entry-point group in this repository. Export and compose the adapter where
+  its Python consumer needs it.
+- A v2 application registers a zero-argument factory under
+  `flashdreams.applications_v2`:
+
   ```toml
-  [project.entry-points."flashdreams.runner_configs"]
-  "hy-worldplay-wan-i2v-5b" = "hy_worldplay.config:RUNNER_HY_WORLDPLAY_WAN_I2V_5B"
+  [project.entry-points."flashdreams.applications_v2"]
+  "cam2v-my-model" = "my_model.apps.cam2v.adapter:create_app"
   ```
 
-**Lane B — out-of-tree (your own pip-installable repo)**, the supported path for external
-contributors who don't want to land in flashdreams. Same package body; standalone
-`pyproject.toml` that just depends on `flashdreams` and exposes the same entry point:
-```toml
-[project]
-name = "my-model-flashdreams"
-dependencies = ["flashdreams"]            # no version-sync constraint here
+  The factory returns an uninitialized `IApplication`; heavyweight setup
+  belongs in the application lifecycle, not import time.
+- Add `flashdreams.runner_configs` only when the requested deliverable is the
+  legacy `flashdreams-run` recipe-runner surface.
 
-[project.entry-points."flashdreams.runner_configs"]
-"my-model-slug" = "my_model.config:RUNNER_MY_MODEL"
-```
-`pip install -e .` and `flashdreams-run my-model-slug` discovers it via the entry point —
-no fork of flashdreams needed. During development before install, point at it without an
-entry point via `FLASHDREAMS_RUNNER_CONFIGS="my-model-slug=my_model.config:RUNNER_MY_MODEL"`.
+## Phase 2 — Reuse the closest pipeline recipe
 
-## Phase 2 — Recipe config (subclass the base, ship a static literal)
+In `config.py`, copy or derive the closest base pipeline and replace only the
+pieces that differ: encoder, transformer network, scheduler, decoder, or
+checkpoint transform. Export named module-level config literals. HY-WorldPlay,
+for example, derives `PIPELINE_HY_WORLDPLAY_WAN_I2V_5B` from
+`PIPELINE_WAN22_TI2V_5B` and keeps its implementation under `impl/`.
 
-In `config.py`, `copy.deepcopy` the closest base pipeline and swap the pieces that
-differ — encoder / transformer.network / scheduler — into model-specific subclasses.
-Ship **one module-level literal** `PIPELINE_<NAME>` (no `build_*` factories for the
-config-only / runner-plugin lanes; the full-native-port lane like `flashvsr` uses real
-builder helpers for dynamic-resolution variants — see Phase 0) + a
-`RUNNER_<NAME>` literal + a `<NAME>_CONFIGS` dict keyed by `name`. See
-`hy_worldplay/config.py::_build_hy_worldplay_pipeline`.
+When constructing a specialized dataclass config, copy base fields explicitly
+when omission should fail loudly. Preserve and verify model-defining fields
+such as temporal length, cache window, guidance, image-latent stamping,
+precision, compilation, and CUDA-graph settings. A distilled checkpoint may
+also require a different scheduler and exact published timesteps.
 
-- Subclass `Wan21TransformerConfig` / the network / encoder configs; copy field-by-field
-  so a future base-class field addition surfaces loudly instead of silently dropping.
-- Set the standard transformer knobs (`len_t`, `window_size_t`, `guidance_scale`,
-  `stamp_image_latent`, …) — see `flashdreams-integrations` §"Standard transformer knobs".
-- Distilled models: swap the scheduler (HY → 4-step `FlowMatchEulerDiscreteScheduler`).
+Do not create a builder abstraction just to avoid one config literal. Use a
+builder only when the model genuinely has dynamic variants; inspect
+`integrations_v2/flashvsr/` for that larger case.
 
-## Phase 3 — Checkpoint loading + key remap (the highest-leverage phase)
+## Phase 3 — Load and remap the checkpoint
 
-Upstream weights almost never match flashdreams key names. You write a
-`state_dict_transform` (regex rename) consumed by the transformer/VAE config.
+Prefer the checkpoint whose parameter structure is closest to the code being
+ported. Native, Diffusers, FSDP, and training envelopes often name identical
+tensors differently, so verify instead of assuming one format is better.
 
-**Prefer the native checkpoint over a diffusers port when both exist.** flashdreams'
-networks are typically ported from the *native* model, so native keys often match
-1:1 (HY-WorldPlay DiT: `Wan-AI/Wan2.2-TI2V-5B` native keys = `WanDiTNetwork` keys
-exactly → **zero** remap, the transform is `lambda sd: sd`; the diffusers port needs
-~25 rules). The native VAE needed only 4 rules vs the diffusers ~50. Note the native
-checkpoint can be **either** a single-file `.pth` **or** sharded safetensors + a
-`.safetensors.index.json` (the Wan native DiT is the latter, at the repo root; its VAE
-is a nested `.pth`) — `load_checkpoint` resolves both. Fast pre-check before any
-set-diff: do the key *counts* even match? (825 == 825 → you likely picked the right
-source.)
+Use the existing checkpoint loader and remap helpers under
+`flashdreams.core.checkpoint`; do not write a second downloader or shard
+loader. `load_checkpoint` supports ordinary PyTorch files and sharded
+safetensors indexes. A state-dict transform should unwrap known envelopes,
+remove known training prefixes, apply ordered renames, and leave tensors
+unchanged.
 
-**If you must remap (the diffusers port), the renames cluster into a few families.**
-From the Wan diffusers→native mapping, expect: `attn1.*`→`self_attn.*`,
-`attn2.*`→`cross_attn.*`, `to_q/to_k/to_v`→`q/k/v`, `to_out.0`→`o`,
-`condition_embedder.{text,time}_embedder.linear_{1,2}`→`{text,time}_embedding.{0,2}`,
-`condition_embedder.time_proj`→`time_projection.1`, `ffn.net.0.proj`/`ffn.net.2`→
-`ffn.0`/`ffn.2`, `norm2`→`norm3`, `scale_shift_table`→`modulation` (per-block) /
-`head.modulation` (top), `proj_out`→`head.head`. Write them as ordered regex rules and
-let unmatched keys fall through (they show up as `unexpected_keys`, which the bijection
-check below catches).
-
-**Verify the remap is a key/shape bijection on CPU — no GPU needed.** This is the
-single most valuable check. Build the model on `meta` and diff against the checkpoint;
-any model key the transform doesn't supply stays on `meta` and `.to(device)` later
-raises "Cannot copy out of meta tensor". Your `state_dict_transform` takes a
-`{name: tensor}` dict (it renames keys, tensors ride along), so feed it a **zero-memory
-stand-in**: real key names, `meta` tensors of the real shapes (read from the safetensors
-headers without loading weights). This runs the *actual* transform and costs no memory:
+Before loading a large checkpoint on a GPU, prove that transformed checkpoint
+keys and shapes match the model:
 
 ```python
-import json, torch
-from safetensors import safe_open
-from my_model.config import my_state_dict_transform   # the real transform you wrote
+model = {name: tuple(value.shape) for name, value in network.state_dict().items()}
+checkpoint = {
+    name: tuple(value.shape)
+    for name, value in state_dict_transform(raw_meta_state_dict).items()
+}
 
-with torch.device("meta"):
-    net = MyNetworkConfig().setup()
-model = {k: tuple(v.shape) for k, v in net.state_dict().items()}
-
-raw = {}                                              # {name: meta tensor}, no weights
-index = json.load(open(f"{ckpt_dir}/diffusion_pytorch_model.safetensors.index.json"))
-for shard in set(index["weight_map"].values()):
-    with safe_open(f"{ckpt_dir}/{shard}", framework="pt") as f:
-        for k in f.keys():
-            raw[k] = torch.empty(f.get_slice(k).get_shape(), device="meta")
-
-ckpt = {k: tuple(v.shape) for k, v in my_state_dict_transform(raw).items()}
-
-missing = set(model) - set(ckpt)        # would stay on meta — must be empty
-extra   = set(ckpt) - set(model)        # unexpected keys — must be empty
-shapemm = [k for k in model if k in ckpt and model[k] != ckpt[k]]
-assert not missing and not extra and not shapemm, (missing, extra, shapemm)
+missing = set(model) - set(checkpoint)
+extra = set(checkpoint) - set(model)
+shape_mismatches = {
+    name: (model[name], checkpoint[name])
+    for name in model.keys() & checkpoint.keys()
+    if model[name] != checkpoint[name]
+}
+assert not missing and not extra and not shape_mismatches
 ```
 
-(For a single-file `.pth`: `raw = torch.load(path, map_location="meta", weights_only=True)`
-gives the `{name: tensor}` dict directly; skip the safetensors loop.) Codify it as a
-`ci_cpu` test (`test_*_remap_is_full_bijection`) + spot-checks against real key strings
-(`test_*_remap_spot_checks_real_keys`).
+Construct the network and placeholder tensors on the `meta` device when the
+model supports it. For safetensors, read shapes from shard headers with
+`safe_open(...).get_slice(name).get_shape()`; for a PyTorch file, use
+`torch.load(..., map_location="meta", weights_only=True)` when the format
+supports meta loading. Run the integration's actual transform, not a duplicate
+test-only mapping.
 
-**Before flipping a default checkpoint source, prove weight-equality.** If you switch
-the production config to a different checkpoint (e.g. native `.pth` instead of diffusers),
-load *both*, apply each transform, and assert every tensor matches
-(`max |Δ| == 0`). Identical weights ⇒ identical output, no decode smoke needed. This is
-how the VAE/DiT defaults were flipped safely (`test_*_weights_identical`, marked
-`manual` since it downloads checkpoints).
+Add a `ci_cpu` test for deterministic transforms and representative real key
+strings. If checking every header requires a gated download, keep that check
+`manual` rather than silently downloading tens of gigabytes in CPU CI.
 
-**Pitfall — "missing params" is usually a naming mismatch, not absent weights.** If a
-load fails with missing keys, diff the *names* first; the weights are almost always
-present under a different convention.
+When changing the default checkpoint source, compare the two fully transformed
+state dicts tensor by tensor. Key/shape equality proves structural
+compatibility; tensor equality proves the source conversion itself. A missing
+parameter is usually a naming or envelope mismatch, so diff names before
+assuming the publisher omitted weights.
 
-## Phase 4 — Model-specific conditioners / deltas
+## Phase 4 — Add only model-specific deltas
 
-Each delta = a subclass + (usually) extra checkpoint keys. HY-WorldPlay adds action
-AdaLN (`action_embedding`), PRoPE dual-branch camera attention (`o_prope`), and
-reconstituted-context memory. Conventions that make these parity-safe:
+Each genuine delta should remain in `integrations_v2/<model>/impl/`. Reuse
+`flashdreams.core`, `flashdreams.infra`, and recipe hooks; never add
+model-specific branches to those shared layers.
 
-- **Zero-init new residual heads** so the conditioner is a strict identity until trained
-  weights load (`nn.init.zeros_(head.weight)`). The un-conditioned pipeline then matches
-  the base model exactly.
-- **Tolerate the extra zero-init keys when loading a base checkpoint** that lacks them.
-  Override `load_state_dict` on the network to allow *exactly* those keys missing (keep
-  it strict for everything else) — see
-  `HyWorldPlayWanDiTNetwork.load_state_dict`. Without this, a base/un-distilled load
-  raises `Missing key(s)`.
-- Keep model deltas in the integration — never branch `core/` or `infra/`; expose a
-  config slot or override hook instead.
+For residual conditioners, zero-initialize new residual heads when that is part
+of the upstream design so the unloaded delta is an identity. If a base
+checkpoint is intentionally supported, tolerate only the precisely enumerated
+new keys when loading it; keep all unrelated missing and unexpected keys
+strict. Verify cache, reset, and history ownership per session rather than on a
+global model object.
 
-## Phase 5 — Runner + CLI
+## Phases 5–7 — Implement the selected public boundary
 
-`runner.py` ships a `RunnerConfig` subclass (I/O fields: image/prompt/output, ckpt
-override, knobs) + a `Runner` whose `run()` drives `initialize_cache` → per-AR-step
-`generate`/`finalize` → decode → write mp4. Mirror `hy_worldplay/runner.py`. Thread an
-optional `--ckpt-path` through `derive_config` to swap the checkpoint + transform at
-construction time. Add example-data download helpers if useful for demos.
+Follow `skills/flashdreams-integrations/SKILL.md` and the corresponding page
+under `docs/src/content/docs/api/`. Keep the binding thin:
 
-## Phase 6 — Verify (CPU first, then GPU)
+- inference adapters own reusable model execution and isolated rollout state;
+- demo adapters add scenario and presentation policy above inference;
+- v2 bindings reuse a model-agnostic app under `apps/` and register a
+  zero-argument factory through `flashdreams.applications_v2`.
 
-In order of cost:
+Use `integrations_v2/lingbot/impl/runtime.py` as the current inference example
+and HY-WorldPlay's Cam2V adapter as the current v2 example. For v2, verify:
 
-1. **`ci_cpu` smoke** (`test_smoke.py`): imports, the static config is fully swapped,
-   runner slug == pipeline name, entry point registered, remap bijection tests.
-   Run: `uv run --extra dev pytest integrations/<name>/tests/test_smoke.py`.
-2. **Checkpoint weight-equality** (Phase 3) — proves the load is correct without a GPU.
-3. **GPU rollout smoke** — `flashdreams-run <slug> --ckpt-path <distilled> --num-chunk 1`
-   produces a valid mp4. (Use `--ckpt-path`; a base/un-distilled run gives identity-only
-   output. Keep `num_chunk` small to dodge OOM and short-rollout edge cases.)
-4. **Upstream parity** — run upstream on the same input/seed, diff decoded frames,
-   report **mean `|Δ|` / 255**. HY-WorldPlay's bar: `≤ 20/255` (landed at 15.65). The
-   residual is bf16 FP noise; don't chase bit-exactness across two kernel stacks.
+```bash
+uv run --no-sync flashdreams-run-v2 --help
+uv run --no-sync flashdreams-run-v2 <app-slug> -- --help
+```
 
-## Phase 7 — Perf + model card (the visible deliverable)
+Arguments before `--` belong to the runtime; arguments after it belong to the
+application.
 
-- Bench native vs upstream, **stack-matched** (both cuDNN SDPA + `torch.compile`), at the
-  largest `num_chunk` the GPU allows, discarding warmup chunks. Scope = **DiT + VAE
-  enc/dec**, per-stage medians post-warmup. Harnesses: `tests/parity_check/bench.sh`
-  (matched) / `bench_batch.sh` (native-only sample loop).
-- Author a model-card page mirroring `docs/source/models/lingbot_world.rst` (hero +
-  gallery videos, perf table, methodology); register it in `docs/source/models/index.rst`.
+## Phase 8 — Verify from cheapest to most expensive
 
-## Gotchas (hard-won)
+1. **CPU structure and unit tests.** Test package metadata, public config
+   literals, schema validation, checkpoint transforms, factory registration,
+   reset/close behavior, and a stand-in pipeline. Mark every pytest test
+   `ci_cpu`, `ci_gpu`, or `manual`.
+2. **No-instantiation inspection.** For a legacy recipe runner only, use
+   `uv run flashdreams-run --no-instantiate <slug>`. For v2, inspect help and
+   test the application with a stand-in model; the v2 command has no equivalent
+   model-config-only guarantee.
+3. **Checkpoint load.** On a suitable GPU, load the real weights and ensure no
+   parameters remain on `meta` and no unapproved keys are missing or extra.
+4. **Short rollout.** Run the selected inference, demo, or v2 surface with the
+   smallest valid temporal extent and verify shapes, lifecycle, and output.
+5. **Upstream parity.** Pin both environments and compare the same checkpoint,
+   input, seed, dtype, scheduler, attention backend, frame count, and decoder.
+   Report the metric and acceptance threshold; do not inherit a historical
+   threshold from another integration.
+6. **Performance.** Discard compile/autotune warmup, report per-stage and
+   end-to-end medians, and match software stacks before claiming a speedup.
+   Read `profile-model-performance` and `validate-performance-quality` before
+   adding a benchmark or publishing results.
 
-- **CI-pinned ruff is the source of truth** — `uvx ruff` defaults to a newer version that
-  sorts imports differently and touches unrelated files. Use the pinned version
-  (`uvx ruff@<pinned> …`; check `.pre-commit-config.yaml`).
-- **`ty` needs the real deps** — a torch-less env can't catch signature/None errors; CI's
-  `cpu` job (full deps) is the real type check. Fix diagnostics, don't `# ty: ignore` what
-  is fixable; remove `ty: ignore` once unneeded (CI flags unused ones).
-- **`uv sync`/`uv run` builds `block-sparse-attn`** (CUDA ext) → needs `CUDA_HOME`. On a
-  GPU box, use a synced venv; on CPU, run modules with `PYTHONPATH` against a venv that
-  already has torch.
-- **`expandable_segments:True` breaks CUDA graphs** — scope it to non-graph legs only.
-- **First AR chunk's `diffuse` time is cold `torch.compile` autotune**, not steady-state
-  — that's why bench discards warmup chunks.
-- **Diffusers single-file URLs may 404** if the repo is actually sharded — point at the
-  `.safetensors.index.json`; `load_checkpoint` resolves shards from it.
-- **Keep heavy/scratch out of git** — checkpoints, vendor trees, bench outputs,
-  handoff notes (gitignore them).
+For an in-tree FlashDreams change, finish with the repository-required checks:
+
+```bash
+uv run --group lint pre-commit run -a
+uv run --group test pytest -m ci_cpu
+```
+
+These are CPU checks. Do not start checkpoint downloads, GPU generation,
+WebRTC, or vendor parity runs on a CPU-only host.
+
+## Documentation deliverables
+
+Update the integration `README.md` with installation, credentials, hardware
+requirements, and the supported execution surface. If there is a v2 binding,
+keep launch-only details in `apps/<app>/README.md`. If there is an inference or
+demo adapter, name it explicitly and link the corresponding API guide; never
+present a low-level `pipeline.setup()` example as an inference session.
+
+For a user-visible model page, mirror the current pages under
+`docs/src/content/docs/models/` and register it in `docs/src/content/docs/models/index.md`. State
+which API family each command uses. Keep historical benchmark scripts and
+removed runner commands out of current quickstarts.
+
+## Common pitfalls
+
+- The root workspace glob is `integrations_v2/*`, not `integrations/*`.
+- Current v2 model bindings use `flashdreams.applications_v2` and
+  `flashdreams-run-v2`; HY-WorldPlay no longer registers its historical
+  `flashdreams-run hy-worldplay-wan-i2v-5b` runner.
+- Recheck `docs/src/content/docs/api/index.md` rather than inferring ownership from
+  similarly named runtime modules.
+- Diffusers repositories may be sharded. Point the loader at the index when
+  appropriate rather than inventing a single-file URL.
+- First-run timings include compile and autotune work. Never report them as
+  steady state.
+- Full `uv sync` or `uv run` may build CUDA extensions. Prefer the narrow
+  package command documented by the integration and CPU-safe tests first.
+- Keep checkpoints, upstream source trees, generated videos, and benchmark
+  outputs out of the package and Git history.
 
 ## Done criteria
 
-- [ ] `ci_cpu` smoke + remap-bijection tests pass.
-- [ ] Checkpoint weight-equality proven (or remap bijection + a GPU decode smoke).
-- [ ] GPU rollout produces a valid mp4.
-- [ ] Upstream parity `mean |Δ|` under the agreed bar.
-- [ ] Runner registered; `flashdreams-run <slug> --help` works.
-- [ ] Perf numbers + model-card page (if in scope).
-- [ ] lint/`ty` green under the CI-pinned tools.
+- [ ] The chosen inference, demo, v2, or legacy-runner boundary is explicit.
+- [ ] The integration reuses the closest recipe and keeps model code under
+      `integrations_v2/<model>/impl/`.
+- [ ] Checkpoint keys and shapes are a full, explained match.
+- [ ] CPU config/schema/registration/lifecycle tests pass.
+- [ ] A real-checkpoint load and short GPU rollout pass on suitable hardware.
+- [ ] Upstream parity is measured against a pinned, documented baseline.
+- [ ] Demo concerns live in `flashdreams.runtime.demo`, not in the inference
+      session.
+- [ ] A v2 application, if present, uses `flashdreams.applications_v2` and does
+      not masquerade as an inference/demo adapter.
+- [ ] User docs contain only commands supported by the current tree.
+- [ ] Repository lint and `ci_cpu` checks pass.
 
 ## Evaluating this skill
 
-To test the skill, point a fresh agent (no prior context) at the repo state **before**
-an integration landed — a branch that **removes the integration plugins but keeps this
-skill and the core network/recipe scaffolding** (e.g. `git rm -r integrations_v2/wan22
-integrations_v2/hy_worldplay` off a branch that already has this skill). Have it reproduce
-the integration following this skill; score against the merged result (the integration
-PR + its follow-ups) — key set / shapes, parity `|Δ|`, test coverage, and how many
-gotchas it hits unaided. Feed the gaps back into this file.
-
-Eval-harness must-haves (learned the hard way):
-- The eval branch / worktree must actually contain **both** this skill **and** the
-  target config (`WanDiTNetworkTI2V5BConfig` etc.). Confirm with `ls` before launching —
-  a stale worktree off the wrong base wastes the run.
-- Give the agent a **torch-capable interpreter path** + `PYTHONPATH` (CPU is enough for
-  the remap/bijection slice) and tell it not to read git history or the removed
-  reference integration (no peeking at the answer).
-- Scope the first run to the highest-signal, GPU-free slice — the **checkpoint remap +
-  bijection** (Phase 3) — before attempting the full conditioner/runner port.
-
-First run (Wan 2.2 DiT remap slice): a fresh agent correctly picked the native
-checkpoint, found the zero-remap identity, and verified the 825↔825 bijection in
-~20 min. Gaps it surfaced (now folded in above): the bijection snippet was pseudocode
-(made runnable w/ `safetensors`), the native-checkpoint framing over-assumed `.pth`
-(now notes sharded-safetensors), no diffusers-remap guidance (added the rename
-families), and stale `flashdreams-integrations` path references (now fixed).
+Test the procedure in an isolated branch or worktree that contains this skill
+and the intended base recipe but not the target integration. Confirm those
+preconditions before launching the evaluation. Start with the highest-signal
+GPU-free slice: select the base recipe, implement the checkpoint transform,
+and prove the key/shape match. Then score API-boundary choice, package layout,
+session lifecycle, parity, and test coverage before attempting GPU performance
+work. Do not let the evaluator read a removed reference integration or Git
+history containing the answer.

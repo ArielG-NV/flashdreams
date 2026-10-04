@@ -1,6 +1,6 @@
 ---
 name: validate-performance-quality
-description: Design benchmark, quality, and documentation validation for FlashDreams-style performance changes. Use when adding or updating sweep commands, profiler probes, decoder-quality comparisons, compile/cache probes, manual GPU validation, performance summaries, model cards, or README guidance after optimizing a model integration, demo, or serving path.
+description: Design benchmark, quality, and documentation validation for FlashDreams performance changes. Use when adding or updating sweep scenarios, profiler probes, decoder-quality comparisons, compile/cache probes, manual GPU validation, performance summaries, model cards, or README guidance after optimizing an inference integration, demo, or serving path.
 ---
 
 # Validate performance quality
@@ -9,6 +9,10 @@ Use this skill after `apply-inference-optimizations` changes a runtime path.
 Performance changes are not complete until they have a reproducible benchmark,
 the right quality reference, and documentation that explains defaults versus
 validated opt-in paths.
+
+Use `docs/src/content/docs/api/index.md` and the `flashdreams-integrations` skill to put
+benchmark controls, model/cache settings, and presentation policy on their
+owning API. This skill covers validation, not API architecture.
 
 ## Benchmark contract
 
@@ -55,16 +59,18 @@ compared. Prefer short static clips and same-latent comparisons for acceptance.
 
 ## Harness design
 
-- Provide a CLI that can run a baseline and one or more candidates in a stable
-  order, with labels derived from settings.
-- Save raw per-step records as JSON and a compact Markdown summary for humans.
+- Reuse `flashdreams-benchmark` and its scenario files for end-to-end sweeps;
+  add a focused probe only when the harness cannot isolate the changed stage.
+- Keep baseline and candidate runs in separate output directories with matched
+  scenario IDs and settings. Preserve the harness's `manifest.json`,
+  `environment.json`, `metrics.ndjson`, `metrics.csv`, and HTML reports.
 - Include stage timing fields, settings, artifact paths, and quality metrics in
   machine-readable output.
 - Support warmup exclusion and optional comparison-video generation.
 - Capture failed optional candidates without losing successful rows.
 - Add CPU tests for label generation, argument validation, matrix construction,
   and summary parsing. Mark real generation, profiler, and quality-regression
-  runs as `manual` or GPU-only according to repo convention.
+  runs as `manual` or `ci_gpu` according to repo convention.
 - Keep benchmark outputs, checkpoints, traces, and generated videos out of git
   unless the repo explicitly tracks small reference artifacts.
 
@@ -88,6 +94,8 @@ Update the docs that future agents and users will read:
 
 - README or demo docs: current recommended command, required hardware, caveats,
   expected startup behavior, and known fallbacks.
+- Inference or demo API docs: document performance switches on the API that
+  owns them; do not expose model/cache controls as demo-layer policy.
 - Performance summary: what worked, what is opt-in, what failed, headline
   numbers, quality evidence, and remaining bottleneck.
 - Model card or benchmark page: methodology, stack-matched comparisons, artifact

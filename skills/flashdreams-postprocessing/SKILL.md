@@ -9,6 +9,10 @@ Use this skill when adding a video post-processor or changing the runner
 post-processing stream. The reference implementation is
 `integrations_v2/flashvsr/impl/postprocess.py`.
 
+These contracts belong to `flashdreams.infra.postprocess`, at the decoded-video
+output boundary. Keep model execution and demo orchestration out of
+post-processors; use `docs/src/content/docs/api/index.md` for the API ownership map.
+
 ## Mental Model
 
 A post-processor is usually three classes, not one class inheriting everything:
@@ -29,7 +33,7 @@ config or processor factory.
 1. Pick a home:
    - Generic reusable post-processing belongs under `flashdreams/flashdreams/infra/postprocess/`.
    - Model-specific processors belong in their integration, for example
-     `integrations/<name>/<pkg>/postprocess.py`.
+     `integrations_v2/<name>/impl/postprocess.py`.
 
 2. Define a config subclass:
 
@@ -92,6 +96,10 @@ config or processor factory.
    input chunk and is buffering frames until a later chunk or `flush()` can
    complete an output window.
 
+   Override `prepare()` when expensive resources should load or warm before
+   timed processing. Override `reset()` when a prepared session can be reused
+   for another rollout; the base implementation rejects reuse explicitly.
+
 5. Handle layouts at the boundary:
    - Accept `VideoChunk.tensor` in `chunk.layout`.
    - Use `to_bvtchw()` only as a generic boundary helper.
@@ -145,7 +153,7 @@ Runners create a `VideoPostprocessStream` through
   view when `postprocess_per_view=True`;
 - calls `session.process(VideoChunk(...))` for each AR output;
 - turns `[]` into a zero-frame tensor so `process()` remains tensor-only;
-- skips collecting zero-time tensors in `_append_if_nonempty()`;
+- lets `VideoResultCollector.add()` skip zero-frame results;
 - calls `flush()` once at end-of-stream and appends any tail output.
 
 Use `postprocess_output_layout` to describe the runner's decoded output layout.
@@ -158,7 +166,8 @@ Add CPU-safe tests unless the behavior genuinely requires a GPU:
 
 - Config/preset discovery: `flashdreams/tests/test_postprocess_presets.py`.
 - Stream contract and buffering: `flashdreams/tests/test_postprocess_stream.py`.
-- Processor-specific CPU fakes: `integrations/<name>/tests/test_postprocess.py`.
+- Processor-specific CPU fakes:
+  `integrations_v2/<name>/tests/test_postprocess.py`.
 - Runner distributed skip/all-rank behavior:
   `flashdreams/tests/test_runner_postprocess.py`.
 
@@ -171,5 +180,5 @@ Useful focused validation:
 uv run pytest flashdreams/tests/test_runner_postprocess.py \
   flashdreams/tests/test_postprocess_stream.py \
   flashdreams/tests/test_postprocess_presets.py \
-  integrations/<name>/tests/test_postprocess.py
+  integrations_v2/<name>/tests/test_postprocess.py
 ```

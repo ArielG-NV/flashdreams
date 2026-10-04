@@ -1,0 +1,21 @@
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: #76b900;
+  --md-accent-fg-color: #426b00;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #76b900;
+  --md-accent-fg-color: #a9d951;
+}
+
+[data-md-color-scheme="slate"] .md-logo img {
+  content: url("../images/horizontal-dark.svg");
+}
+
+.md-header__title {
+  display: none;
+}
+
+.md-typeset img {
+  max-width: 100%;
+}
