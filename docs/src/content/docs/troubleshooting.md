@@ -214,47 +214,12 @@ browser's ICE policy. Some browsers can hide local IP addresses behind mDNS
 
 **Likely cause:**
 
-Cold runs include one-time setup. The quickstart and model pages document that
-first launches can include downloads, Triton autotuning, CUDA-graph warmup, and
-for OmniDreams native acceleration, first-use extension compilation.
+- Cold runs include one-time setup. The quickstart and model pages document that first launches can include downloads, Triton autotuning, CUDA-graph warmup, native-code compilation, etc...
 
 **Fix or next step:**
 
 Let the first launch finish if it is still making progress. Subsequent launches
 reuse compiled kernels and autotuning results, although CUDA graphs are
-captured again for each process. For quick validation, use small documented
-application values such as `--total-blocks 7` for Self-Forcing. To inspect a
-v2 application without loading checkpoints, run
-`flashdreams-run-v2 <application-slug> -- --help`. The
-`--no-instantiate` diagnostic described below applies only to experimental
-inference runners launched by `flashdreams-run`.
+captured again for each process. 
 
-## `--no-instantiate` prints a config but does not run
-
-**Symptoms:**
-
-- `flashdreams-run` prints `Resolved config for ...` and exits without
-  downloading checkpoints, warming up, or writing an output video.
-- No files appear under `outputs/`.
-
-**Likely cause:**
-
-`--no-instantiate` is a diagnostic flag. It resolves and prints the runner
-configuration, then returns before creating the runner or calling
-`runner.run()`.
-
-**Fix or next step:**
-
-Use `--no-instantiate` only when you want to confirm that a runner slug and
-CLI overrides parse correctly:
-
-```bash
-
-uv run flashdreams-run --no-instantiate RUNNER_SLUG
-
-```
-
-Remove the flag for a real inference run, or use `--help` on the inference
-runner slug to inspect all supported options. This flag is not available for
-`flashdreams-run-v2` applications; inspect those with
-`flashdreams-run-v2 <application-slug> -- --help` instead.
+Lock file for compilation (`pytorch`/`triton`/...) may be tracking a hanging-process. if this is the case, delete the offending lock file and rerun the command.

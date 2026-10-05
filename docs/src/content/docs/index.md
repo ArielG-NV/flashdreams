@@ -6,31 +6,41 @@ title: 'FlashDreams'
 
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-FlashDreams is an inference and serving runtime for turning
-autoregressive video and world models into live, controllable
-simulations. It runs the model in a continuous loop, carrying
-state forward and streaming frames while new actions or sensor
-inputs change what happens next, whether the application is a
-game world, an autonomous-vehicle simulator, robotic policy
-testing, or a virtual training environment.
-
-[Get Started!](quickstart/index.md)
-[GitHub](https://github.com/NVIDIA/flashdreams)
-[Contribute](community/index.md)
-
-<img alt="FlashDreams quick intro animation" src="_static/promo/flashdreams-promo.avif" />
+<div class="fd-hero">
+  <div class="fd-hero-copy">
+    <h1 class="fd-hero-title">FlashDreams</h1>
+    <p class="fd-hero-lede">FlashDreams is an inference and serving runtime for turning
+    autoregressive video and world models into live, controllable simulations. It runs
+    the model in a continuous loop, carrying state forward and streaming frames while
+    new actions or sensor inputs change what happens next, whether the application is a
+    game world, an autonomous-vehicle simulator, robotic policy testing, or a virtual
+    training environment.</p>
+    <div class="fd-cta-row">
+      <a class="fd-button fd-button-primary" href="quickstart/">Get Started!</a>
+      <a class="fd-button" href="https://github.com/NVIDIA/flashdreams">GitHub</a>
+      <a class="fd-button" href="community/">Contribute</a>
+    </div>
+  </div>
+  <div class="fd-hero-visual">
+    <img alt="FlashDreams quick intro animation" src="_static/promo/flashdreams-promo.avif" />
+  </div>
+</div>
 
 ## Why FlashDreams?
 
-A world model learns to generate and evolve an environment over time. In
-practice that usually means video, but the same idea extends to actions,
-state, audio, sensor input, and control signals. Serving one means keeping
-a session alive while input, model state, GPU inference, and output advance
-together, rather than producing a single static clip, which is what makes
-interactive simulation, robotics, autonomy, and game-like experiences
-possible.
-
-<img alt="Offline one-shot video inference compared with online autoregressive world-model serving." src="_static/diagrams/compare-offline-online-video-model-v2.jpg" />
+<div class="fd-split">
+  <div class="fd-split-visual">
+    <img alt="Offline one-shot video inference compared with online autoregressive world-model serving." src="_static/diagrams/compare-offline-online-video-model-v2.jpg" />
+  </div>
+  <div class="fd-split-copy">
+    <p>A world model learns to generate and evolve an environment over time. In practice
+    that usually means video, but the same idea extends to actions, state, audio, sensor
+    input, and control signals. Serving one means keeping a session alive while input,
+    model state, GPU inference, and output advance together, rather than producing a
+    single static clip, which is what makes interactive simulation, robotics, autonomy,
+    and game-like experiences possible.</p>
+  </div>
+</div>
 
 FlashDreams is built for that real-time case: a closed-loop world-model
 demo, a driving simulator, an interactive scene rollout. Generating
@@ -38,25 +48,24 @@ high-quality video is not enough on its own. The runtime has to keep an
 interactive session responsive while the model continues to advance the
 world. That comes down to four things:
 
-### Low latency
-
-Keep the interaction responsive when controls, sensors, or user
-input change.
-
-### High throughput
-
-Keep the GPU busy across autoregressive steps and multi-GPU
-execution.
-
-### Steady streaming generation
-
-Stream frames or chunks at a steady pace while the session
-continues.
-
-### World-state evolution
-
-Carry rolling state forward so the generated world evolves across
-steps.
+<div class="fd-card-grid fd-card-grid-four">
+  <div class="fd-card">
+    <div class="fd-card-title">Low latency</div>
+    <p>Keep the interaction responsive when controls, sensors, or user input change.</p>
+  </div>
+  <div class="fd-card">
+    <div class="fd-card-title">High throughput</div>
+    <p>Keep the GPU busy across autoregressive steps and multi-GPU execution.</p>
+  </div>
+  <div class="fd-card">
+    <div class="fd-card-title">Steady streaming generation</div>
+    <p>Stream frames or chunks at a steady pace while the session continues.</p>
+  </div>
+  <div class="fd-card">
+    <div class="fd-card-title">World-state evolution</div>
+    <p>Carry rolling state forward so the generated world evolves across steps.</p>
+  </div>
+</div>
 
 ## Performance
 
@@ -65,13 +74,24 @@ the same model. Both runs use the same weights on the same GPU, so the
 gain comes from FlashDreams' runtime alone. Each tile links to the
 profiling chart on its model page.
 
-### [Self-Forcing: 2.12× speedup](models/self_forcing.md#profiling-benchmark)
-
-### [LingBot-World: 3.10× speedup](models/lingbot_world.md#profiling-benchmark)
-
-### [Wan2.1: 1.40× speedup](models/wan21.md#profiling-benchmark)
-
-### [FlashVSR: 1.42× speedup](models/flashvsr.md#profiling-benchmark)
+<div class="fd-card-grid fd-card-grid-four">
+  <a class="fd-card fd-stat-card" href="models/self_forcing/#profiling-benchmark">
+    <span class="fd-stat-value">2.12×</span>
+    <span class="fd-stat-label">Self-Forcing speedup</span>
+  </a>
+  <a class="fd-card fd-stat-card" href="models/lingbot_world/#profiling-benchmark">
+    <span class="fd-stat-value">3.10×</span>
+    <span class="fd-stat-label">LingBot-World speedup</span>
+  </a>
+  <a class="fd-card fd-stat-card" href="models/wan21/#profiling-benchmark">
+    <span class="fd-stat-value">1.40×</span>
+    <span class="fd-stat-label">Wan2.1 speedup</span>
+  </a>
+  <a class="fd-card fd-stat-card" href="models/flashvsr/#profiling-benchmark">
+    <span class="fd-stat-value">1.42×</span>
+    <span class="fd-stat-label">FlashVSR speedup</span>
+  </a>
+</div>
 
 ## Try FlashDreams!
 
@@ -91,53 +111,53 @@ sub-second latency once warm; bidirectional model implementations are kept as
 full-block parity references. Each model page carries the canonical
 invocation, the checkpoint source, and the per-implementation knobs.
 
-### [OmniDreams](models/omnidreams.md)
-
-Interactive world simulator for autonomous vehicles.
-
-### [Self-Forcing](models/self_forcing.md)
-
-Autoregressive text-to-video based on Wan 2.1.
-
-### [Causal-Forcing](models/causal_forcing.md)
-
-Autoregressive text/image-to-video based on Wan 2.1.
-
-### [Causal Wan 2.2](models/causal_wan22.md)
-
-Autoregressive text-to-video based on Wan 2.2 from FastVideo.
-
-### [LingBot-World](models/lingbot_world.md)
-
-Camera-controllable image-to-video world model.
-
-### [Waypoint 1.5](models/waypoint.md)
-
-Interactive image-established world model controlled by keyboard and mouse.
-
-### [SANA-WM](models/sana_wm_streaming.md)
-
-Camera-controlled world model with streaming and bidirectional variants.
-
-### [FlashVSR](models/flashvsr.md)
-
-Streaming video super-resolution.
-
-### [SwiftVR](models/swiftvr.md)
-
-Real-time one-step streaming video restoration with 2x and 4x presets.
-
-### [Wan 2.1 (bidirectional)](models/wan21.md)
-
-Bidirectional video generation model that supports both
-text-to-video and image-to-video.
-
-### [Wan 2.2 TI2V-5B (bidirectional)](models/wan22.md)
-
-Bidirectional text-and-image-to-video generation in one full-clip rollout.
-
-### [Cosmos-Predict2.5 (bidirectional)](models/cosmos_predict2.md)
-
-Bidirectional Cosmos-Predict2 reference implementations (T2V / I2V, 2B).
-
-   here = order in the navbar.
+<div class="fd-card-grid fd-card-grid-three">
+  <a class="fd-card fd-model-card" href="models/omnidreams/">
+    <span class="fd-card-title">OmniDreams</span>
+    <span>Interactive world simulator for autonomous vehicles.</span>
+  </a>
+  <a class="fd-card fd-model-card" href="models/self_forcing/">
+    <span class="fd-card-title">Self-Forcing</span>
+    <span>Autoregressive text-to-video based on Wan 2.1.</span>
+  </a>
+  <a class="fd-card fd-model-card" href="models/causal_forcing/">
+    <span class="fd-card-title">Causal-Forcing</span>
+    <span>Autoregressive text/image-to-video based on Wan 2.1.</span>
+  </a>
+  <a class="fd-card fd-model-card" href="models/causal_wan22/">
+    <span class="fd-card-title">Causal Wan 2.2</span>
+    <span>Autoregressive text-to-video based on Wan 2.2 from FastVideo.</span>
+  </a>
+  <a class="fd-card fd-model-card" href="models/lingbot_world/">
+    <span class="fd-card-title">LingBot-World</span>
+    <span>Camera-controllable image-to-video world model.</span>
+  </a>
+  <a class="fd-card fd-model-card" href="models/waypoint/">
+    <span class="fd-card-title">Waypoint 1.5</span>
+    <span>Interactive image-established world model controlled by keyboard and mouse.</span>
+  </a>
+  <a class="fd-card fd-model-card" href="models/sana_wm_streaming/">
+    <span class="fd-card-title">SANA-WM</span>
+    <span>Camera-controlled world model with streaming and bidirectional variants.</span>
+  </a>
+  <a class="fd-card fd-model-card" href="models/flashvsr/">
+    <span class="fd-card-title">FlashVSR</span>
+    <span>Streaming video super-resolution.</span>
+  </a>
+  <a class="fd-card fd-model-card" href="models/swiftvr/">
+    <span class="fd-card-title">SwiftVR</span>
+    <span>Real-time one-step streaming video restoration with 2x and 4x presets.</span>
+  </a>
+  <a class="fd-card fd-model-card" href="models/wan21/">
+    <span class="fd-card-title">Wan 2.1 (bidirectional)</span>
+    <span>Bidirectional video generation model that supports both text-to-video and image-to-video.</span>
+  </a>
+  <a class="fd-card fd-model-card" href="models/wan22/">
+    <span class="fd-card-title">Wan 2.2 TI2V-5B (bidirectional)</span>
+    <span>Bidirectional text-and-image-to-video generation in one full-clip rollout.</span>
+  </a>
+  <a class="fd-card fd-model-card" href="models/cosmos_predict2/">
+    <span class="fd-card-title">Cosmos-Predict2.5 (bidirectional)</span>
+    <span>Bidirectional Cosmos-Predict2 reference implementations (T2V / I2V, 2B).</span>
+  </a>
+</div>

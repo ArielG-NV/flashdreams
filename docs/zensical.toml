@@ -40,3 +40,5 @@ tables = {}
 pymdownx.details = {}
 pymdownx.superfences = {}
 pymdownx.arithmatex.generic = true
+
+[project.plugins.awesome-nav]
