@@ -51,4 +51,4 @@ video width for an accurate visual comparison.
 
 See the shared [Cam2V README](../../../../apps/cam2v/README.md) for controls,
 application arguments, defaults, and tests. See the
-[Lingbot integration README](../../README.md) for model details.
+[Lingbot integration README](../../../../../models/lingbot_world.md#developer-details) for model details.

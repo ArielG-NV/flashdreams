@@ -1,1 +1,1 @@
-[OmniDreams](../../docs/src/content/docs/repository/integrations_v2/omnidreams/README.md#omnidreams)
+[OmniDreams developer details](../../docs/src/content/docs/models/omnidreams.md#developer-details)

@@ -1,1 +1,1 @@
-[flashdreams-fastvideo-causal-wan22](../../docs/src/content/docs/repository/integrations_v2/fastvideo_causal_wan22/README.md#flashdreams-fastvideo-causal-wan22)
+[Causal Wan 2.2 developer details](../../docs/src/content/docs/models/causal_wan22.md#developer-details)

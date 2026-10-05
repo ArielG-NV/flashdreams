@@ -1,1 +1,1 @@
-[flashdreams-self-forcing](../../docs/src/content/docs/repository/integrations_v2/self_forcing/README.md#flashdreams-self-forcing)
+[Self-Forcing developer details](../../docs/src/content/docs/models/self_forcing.md#developer-details)

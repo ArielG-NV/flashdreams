@@ -15,9 +15,6 @@ OmniDreams is an HDMap-conditioned streaming world model for driving
 generation, with application configurations that balance visual fidelity and
 runtime throughput.
 
-See the [OmniDreams integration reference](../repository/integrations_v2/omnidreams/README.md) for registered variants and
-application bindings.
-
 <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
   <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
     <source src="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/teaser.mp4" type="video/mp4">
@@ -29,43 +26,29 @@ application bindings.
   <a href="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/">OmniDreams project page</a>.
 </p>
 
-## Requirements
+## Run with FlashDreams
+
+From the repository root:
+
+```bash
+uv sync --package flashdreams-omnidreams --extra interactive-drive --inexact
+uv run --no-sync flashdreams-run-v2 interactive-drive-omnidreams \
+  --mode mp4 --output-path artifacts/omnidreams.mp4 \
+  --backpressure-mode block --presentation-mode on_demand -- \
+  --no-ui --total-blocks 20
+```
+
+## Developer details
+
+[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/omnidreams) · [Pipeline configuration](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/omnidreams/config.py) · [Application guide](../repository/integrations_v2/omnidreams/apps/interactive_drive/README.md) · [Tests](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/omnidreams/tests)
+
+### Requirements
 
 - **Minimum VRAM**: ~48 GB for the default Interactive Drive configuration.
 - **PyTorch**: >= 2.11.
 - **Python**: 3.10--3.12.
 
-## Installation
-
-```bash
-
-# from the repo root
-uv sync --package flashdreams-omnidreams --extra interactive-drive --inexact
-
-```
-
-Checkpoints and the default scene download from Hugging Face on first use.
-Export `HF_TOKEN` when the selected repository requires authentication.
-
-Generate an MP4 with the default Interactive Drive application:
-
-```bash
-
-uv run --no-sync flashdreams-run-v2 \
-    interactive-drive-omnidreams \
-    --mode mp4 --output-path outputs/omnidreams.mp4 \
-    --backpressure-mode block --presentation-mode on_demand \
-    -- --no-ui --total-blocks 20
-
-```
-
-The command writes `outputs/omnidreams.mp4`. Arguments before `--` configure
-the runtime and output mode; arguments after it configure Interactive Drive.
-Run `flashdreams-run-v2 --help` and
-`flashdreams-run-v2 interactive-drive-omnidreams -- --help` respectively to
-inspect them.
-
-## Application configurations
+### Application configurations
 
 The OmniDreams integration registers these Interactive Drive application
 slugs:
@@ -105,7 +88,7 @@ Some generated samples from the above commands:
   </div>
 </div>
 
-## Launch the interactive demo
+### Launch the interactive demo
 
 OmniDreams exposes `webrtc`, `native-window`, and `mp4` through
 `flashdreams-run-v2`. WebRTC only requires a CUDA-capable GPU;
@@ -191,7 +174,7 @@ libraries are missing.
 
 ::: 
 
-### Steering wheel and game controller
+#### Steering wheel and game controller
 
 A steering wheel or game controller can be used to control native-window mode.
 Any device that Ubuntu detects as a standard game controller
@@ -225,7 +208,7 @@ write access to `/dev/input/*` (add your user to the `input` group):
 | Fanatec | `hid-fanatecff &lt;https://github.com/gotzl/hid-fanatecff&gt;`__ with the base in PC mode (CSL DD, ClubSport, Podium, DD Pro). |
 | Logitech | In-kernel `hid-lg4ff` or `new-lg4ff &lt;https://github.com/berarma/new-lg4ff&gt;`__ (G29, G27, G923 PS); the G920 and Xbox/PC G923 use the HID++ driver (kernel 6.3+). |
 
-### Native acceleration (perf configuration)
+#### Native acceleration (perf configuration)
 
 The registered `interactive-drive-omnidreams-perf` configuration runs the DiT and
 LightVAE through the OmniDreams single-view CUDA extension
@@ -249,7 +232,7 @@ uv run --no-sync flashdreams-run-v2 \
 `native_dit_acceleration="required"` makes the perf config fail loudly if the
 extension can't build or load, rather than silently falling back to PyTorch.
 
-## WebRTC server
+### WebRTC server
 
 For browser deployments, the `webrtc` launch mode serves an HTML5 client on
 top of the same OmniDreams pipeline.
@@ -309,9 +292,9 @@ peer connection from completing. Disable the setting and reload:
 - **Brave:** `brave://settings/privacy/security` → *WebRTC IP handling policy* → **Default public and private interfaces**.
 - **Firefox:** `about:config` → `media.peerconnection.ice.obfuscate_host_addresses` → **false**.
 
-::: 
+:::
 
-## Performance table
+### Performance table
 
 Single-view latency on NVIDIA GB300 at `704 x 1280` resolution.
 
@@ -328,14 +311,14 @@ Single-view latency on NVIDIA GB300 at `704 x 1280` resolution.
    KV-cache Update is off the hot path and excluded from Total.
 </p>
 
-## Further reading
+### Further reading
 
 - [/developer_guides/latency_tuning](../developer_guides/latency_tuning.md) covers the supported
   `interactive-drive` latency knobs: model and backend choice, resolution,
   chunk-size constraints, FP8 and native acceleration, transport, and the
   validated GB300 reference.
 
-## Citation
+### Citation
 
 If you use OmniDreams, please cite the original work:
 

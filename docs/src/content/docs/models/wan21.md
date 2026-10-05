@@ -6,9 +6,6 @@ title: 'Wan2.1'
 
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-See the [Wan 2.1 integration reference](../repository/integrations_v2/wan21/README.md) for registered and programmatic
-configurations.
-
 [Project page](https://wan.video/)
 [arXiv paper](https://arxiv.org/abs/2503.20314)
 [Official code](https://github.com/Wan-Video/Wan2.1)
@@ -16,64 +13,29 @@ configurations.
 Wan2.1 is a bidirectional video generation model, supporting both
 text-to-video (T2V) and image-to-video (I2V) tasks.
 
-## Requirements
+## Run with FlashDreams
 
-- **Minimum VRAM**: ~46 GB.
-- **PyTorch**: >= 2.9.
-
-## Installation
+From the repository root:
 
 ```bash
-
-# from the repo root
 uv sync --package flashdreams-wan21
-
+uv run --package flashdreams-wan21 flashdreams-run-v2 \
+  t2v-wan21-t2v-1.3b-480p \
+  --output-path artifacts/wan21.mp4 -- --prompt "A cat surfing"
 ```
 
-## Running the method
+## Developer details
 
-To run Wan2.1, launch its v2 T2V application:
+[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/wan21) · [Pipeline configuration](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/wan21/config.py) · [Application guide](../repository/integrations_v2/wan21/apps/t2v/README.md) · [Tests](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/wan21/tests)
 
-This command uses the v2 application.
+### Configurations and behavior
 
-```bash
-
-uv run --package flashdreams-wan21 \
-    flashdreams-run-v2 \
-    t2v-wan21-t2v-1.3b-480p \
-    --output-path artifacts/t2v-wan21-t2v-1.3b-480p.mp4 -- \
-    --prompt "Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline's intricate details and the refreshing atmosphere of the seaside."
-
-```
-
-For multi-GPU inference, run the same command under `torchrun` (taking
-4 GPUs as an example):
-
-```bash
-
-uv run --package flashdreams-wan21 \
-    torchrun --nproc_per_node=4 --no-python flashdreams-run-v2 \
-    t2v-wan21-t2v-1.3b-480p \
-    --output-path artifacts/t2v-wan21-t2v-1.3b-480p.mp4 -- \
-    --prompt "Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline's intricate details and the refreshing atmosphere of the seaside."
-
-```
-
-The package also exposes the following pipeline configs for direct use:
+Available configurations:
 
 | Method | Description |
 | --- | --- |
 | `wan21-t2v-1.3b-480p` | Wan 2.1 T2V 1.3B at 480p (single AR step, prompt-only). |
 | `wan21-i2v-14b-480p` | Wan 2.1 I2V 14B at 480p (single AR step, prompt + first-frame). |
-
-To inspect all supported CLI arguments and their default values, run:
-
-```bash
-
-uv run --package flashdreams-wan21 \
-    flashdreams-run-v2 t2v-wan21-t2v-1.3b-480p -- --help
-
-```
 
 Some generated Wan2.1 samples:
 
@@ -100,7 +62,12 @@ Some generated Wan2.1 samples:
   </div>
 </div>
 
-## Profiling benchmark
+### Requirements
+
+- **Minimum VRAM**: ~46 GB.
+- **PyTorch**: >= 2.9.
+
+### Profiling benchmark
 
 Here is the profiling benchmark on DiT per-step runtime for FlashDreams Wan2.1
 compared to the [official Wan2.1 implementation](https://github.com/Wan-Video/Wan2.1)
@@ -128,7 +95,7 @@ matched settings.
  </figure>
 <script src="../_static/js/benchmark_chart.js"></script>
 
-## Citation
+### Citation
 
 If you use Wan2.1, please cite the original work:
 

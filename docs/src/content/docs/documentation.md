@@ -22,7 +22,7 @@ Common first-run failures (e.g. CUDA build mismatches, disk and
 cache limits, Hugging Face authentication, GPU memory)
 each with the likely cause and the next step to try.
 
-### [Write and build documentation](repository/CONTRIBUTING.md#contributing--adding-documentation)
+### [Write and build documentation](repository/CONTRIBUTING.md#contributing--build-and-preview-the-documentation)
 
 Add concise Markdown pages, run the site locally, and validate links.
 

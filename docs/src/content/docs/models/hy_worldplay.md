@@ -16,9 +16,6 @@ real-time interactive image-to-video (I2V) world model with action + camera-traj
 reconstituted-context memory. FlashDreams ships a native port of the distilled WAN-5B variant (Wan 2.2
 TI2V-5B backbone, 4-step distilled Euler).
 
-See the [HY-WorldPlay integration reference](../repository/integrations_v2/hy_worldplay/README.md) for configuration and Cam2V
-application wiring.
-
 <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
   <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
     <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-wan-i2v-5b-1.mp4" type="video/mp4">
@@ -29,46 +26,21 @@ application wiring.
   Generated with FlashDreams' native HY-WorldPlay WAN-5B I2V pipeline.
 </p>
 
-## Installation
+## Run with FlashDreams
+
+From the repository root:
 
 ```bash
-
-# from the repo root
 uv sync --package flashdreams-hy-worldplay --inexact
-
-```
-
-Running the model requires a CUDA-capable NVIDIA GPU. Export `HF_TOKEN` with
-read access to `tencent/HY-WorldPlay` before the first checkpoint download.
-
-## Running the method
-
-HY-WorldPlay WAN-5B is image-to-video only. Its model package binds the
-pipeline directly to the reusable Cam2V v2 application:
-
-```bash
-
 uv run --no-sync flashdreams-run-v2 cam2v-hy-worldplay \
-    --mode webrtc --host 0.0.0.0 --port 8089 -- --example-data
-
+  --mode webrtc --host 0.0.0.0 --port 8089 -- --example-data
 ```
 
-:::note
+## Developer details
 
-This application uses `flashdreams-run-v2`.
+[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/hy_worldplay) · [Pipeline configuration](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/hy_worldplay/config.py) · [Application guide](../repository/integrations_v2/hy_worldplay/apps/cam2v/README.md) · [Tests](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/hy_worldplay/tests)
 
-::: 
-
-Use `W`/`S` to move, `A`/`D` to yaw, `Q`/`E` to strafe, and
-`I`/`K` to pitch. The binding converts live camera poses to HY's
-latent-rate PRoPE, action, and memory inputs. Application arguments follow
-`--`; inspect them with:
-
-```bash
-
-uv run --no-sync flashdreams-run-v2 cam2v-hy-worldplay -- --help
-
-```
+### Configurations and behavior
 
 Some generated samples from the above commands:
 
@@ -111,7 +83,7 @@ Some generated samples from the above commands:
   </div>
 </div>
 
-## Profiling benchmark
+### Profiling benchmark
 
 Here is the profiling benchmark on total DiT + VAE-decode runtime for FlashDreams HY-WorldPlay
 compared to the [official HY-WorldPlay implementation](https://github.com/Tencent-Hunyuan/HY-WorldPlay)

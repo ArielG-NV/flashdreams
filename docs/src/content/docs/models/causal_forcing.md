@@ -14,9 +14,6 @@ Causal-Forcing uses Causal ODE or Causal Consistency Distillation to drive
 asymmetric DMD as a theoretically correct initialization for real-time
 interactive video generation.
 
-See the [Causal-Forcing integration reference](../repository/integrations_v2/causal_forcing/README.md) for registered variants,
-configuration, and application wiring.
-
 ![Causal-Forcing overview figure.](https://thu-ml.github.io/CausalForcing.github.io/images/overview.png)
 
 <p class="model-footnote">
@@ -24,65 +21,31 @@ configuration, and application wiring.
   <a href="https://thu-ml.github.io/CausalForcing.github.io/">Causal-Forcing project page</a>.
 </p>
 
-## Requirements
+## Run with FlashDreams
 
-- **Minimum VRAM**: ~24 GB.
-- **PyTorch**: >= 2.9.
-
-## Installation
+From the repository root:
 
 ```bash
-
-# from the repo root
 uv sync --package flashdreams-causal-forcing
-
+uv run --package flashdreams-causal-forcing flashdreams-run-v2 \
+  t2v-causal-forcing-wan2.1-t2v-1.3b-chunkwise \
+  --output-path artifacts/causal-forcing.mp4 -- \
+  --prompt "A cat surfing" --total-blocks 7
 ```
 
-## Running the method
+## Developer details
 
-To run Causal-Forcing, launch its v2 T2V application.
+[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/causal_forcing) · [Pipeline configuration](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/causal_forcing/config.py) · [Application guide](../repository/integrations_v2/causal_forcing/apps/t2v/README.md) · [Tests](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/causal_forcing/tests)
 
-```bash
+### Configurations and behavior
 
-uv run --package flashdreams-causal-forcing \
-    flashdreams-run-v2 \
-    t2v-causal-forcing-wan2.1-t2v-1.3b-chunkwise \
-    --output-path artifacts/t2v-causal-forcing-wan2.1-t2v-1.3b-chunkwise.mp4 -- \
-    --prompt "A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle." \
-    --total-blocks 21
-
-```
-
-For multi-GPU inference, run the same command under `torchrun` (taking
-4 GPUs as an example):
-
-```bash
-
-uv run --package flashdreams-causal-forcing \
-    torchrun --nproc_per_node=4 --no-python flashdreams-run-v2 \
-    t2v-causal-forcing-wan2.1-t2v-1.3b-chunkwise \
-    --output-path artifacts/t2v-causal-forcing-wan2.1-t2v-1.3b-chunkwise.mp4 -- \
-    --prompt "A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle." \
-    --total-blocks 21
-
-```
-
-The package also exposes the following pipeline configs for direct use:
+Available configurations:
 
 | Method | Description |
 | --- | --- |
 | `causal-forcing-wan2.1-t2v-1.3b-chunkwise` | Causal-Forcing chunkwise Wan 2.1 1.3B T2V (`len_t=3`). |
 | `causal-forcing-wan2.1-t2v-1.3b-framewise` | Causal-Forcing framewise Wan 2.1 1.3B T2V (`len_t=1`). |
 | `causal-forcing-wan2.1-i2v-1.3b-framewise` | Causal-Forcing framewise Wan 2.1 1.3B I2V (`len_t=1`). |
-
-To inspect all supported CLI arguments and their default values, run:
-
-```bash
-
-uv run --package flashdreams-causal-forcing \
-    flashdreams-run-v2 t2v-causal-forcing-wan2.1-t2v-1.3b-chunkwise -- --help
-
-```
 
 Some generated samples from the above commands:
 
@@ -109,7 +72,12 @@ Some generated samples from the above commands:
   </div>
 </div>
 
-## Citation
+### Requirements
+
+- **Minimum VRAM**: ~24 GB.
+- **PyTorch**: >= 2.9.
+
+### Citation
 
 If you use Causal-Forcing, please cite the original work:
 

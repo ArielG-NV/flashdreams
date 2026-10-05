@@ -8,8 +8,8 @@ title: 'HY-WorldPlay WAN-5B I2V — native vs vendor perf (8-chunk, "a person wa
 
 ## Integration links
 
-- **Applications:** [hy worldplay applications](../../README.md#integrationsv2-hyworldplay-readme--integration-links)
-- **Configuration:** [hy worldplay configuration](../../README.md#integrationsv2-hyworldplay-readme--integration-links)
+- **Applications:** [hy worldplay applications](../../../../../models/hy_worldplay.md#developer-details)
+- **Configuration:** [hy worldplay configuration](../../../../../models/hy_worldplay.md#developer-details)
 
 This is a historical benchmark snapshot, not a claim about current performance.
 

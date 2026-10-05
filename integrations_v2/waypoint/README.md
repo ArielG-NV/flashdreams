@@ -1,1 +1,1 @@
-[Waypoint 1.5 integration](../../docs/src/content/docs/repository/integrations_v2/waypoint/README.md#waypoint-15-integration)
+[Waypoint 1.5 developer details](../../docs/src/content/docs/models/waypoint.md#developer-details)

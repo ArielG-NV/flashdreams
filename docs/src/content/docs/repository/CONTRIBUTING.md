@@ -326,6 +326,8 @@ Every page under `docs/src/content/docs/repository/integrations_v2/**` uses the 
 **Integration links** section with **Applications** and **Configuration**
 links.
 
+<a id="contributing--build-and-preview-the-documentation"></a>
+
 ### Build and preview the documentation
 
 Run these commands from the repository root:

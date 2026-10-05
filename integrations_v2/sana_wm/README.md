@@ -1,1 +1,1 @@
-[SANA-WM](../../docs/src/content/docs/repository/integrations_v2/sana_wm/README.md#sana-wm)
+[SANA-WM developer details](../../docs/src/content/docs/models/sana_wm_streaming.md#developer-details)

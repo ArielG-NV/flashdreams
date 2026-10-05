@@ -1,5 +1,5 @@
 ---
-title: 'SANA-WM_streaming'
+title: 'SANA-WM'
 ---
 
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
@@ -11,21 +11,35 @@ title: 'SANA-WM_streaming'
 [Checkpoint](https://huggingface.co/Efficient-Large-Model/SANA-WM_streaming)
 [Official code](https://github.com/NVlabs/Sana)
 
-`SANA-WM_streaming` is the chunk-causal, camera-controlled
-[NVlabs/Sana](https://github.com/NVlabs/Sana) world model release. It
-produces video progressively across autoregressive chunks with a chunk-causal
-Stage-1 DiT, streaming LTX-2 refiner, and streaming VAE decode path.
-FlashDreams exposes it through the `cam2v-sana-wm-streaming` application.
+SANA-WM is NVlabs/Sana's camera-controlled world model family. FlashDreams
+includes the chunk-causal streaming release, exposed through the
+`cam2v-sana-wm-streaming` application, and the full-sequence bidirectional
+release, exposed as a programmatic pipeline configuration.
 
-See the [SANA-WM integration reference](../repository/integrations_v2/sana_wm/README.md) for pipeline variants and Cam2V
-application wiring.
-
-The sibling full-sequence release has a separate model card:
-[sana_wm_bidirectional](sana_wm_bidirectional.md).
 
 <img alt="SANA-WM streaming FlashDreams sample clip." src="../_static/model_clips/sana_wm/sana-wm-streaming.avif" />
 
-## Requirements
+<img alt="SANA-WM bidirectional FlashDreams sample clip." src="../_static/model_clips/sana_wm/sana-wm-bidirectional.avif" />
+
+## Run with FlashDreams
+
+From the repository root:
+
+```bash
+uv sync --package flashdreams-sana-wm --inexact
+uv run --no-sync flashdreams-run-v2 cam2v-sana-wm-streaming \
+  --mode webrtc --host 0.0.0.0 --port 8089 -- --example-data
+```
+
+## Developer details
+
+[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/sana_wm) · [Pipeline configuration](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/sana_wm/config.py) · [Application guide](../repository/integrations_v2/sana_wm/apps/cam2v/README.md) · [Tests](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/sana_wm/tests)
+
+### Configurations and behavior
+
+The application uses the checkpoint resolution of 1280x704 and ten 24-frame blocks by default. Use `--total-blocks` after `--` to change the rollout length. `--example-data` downloads the official first frame and prompt; explicit inputs override them.
+
+### Requirements
 
 - **PyTorch**: >= 2.9.
 - **Precision**: BF16 by default. FP8 Stage-1/refiner inference is available on
@@ -33,40 +47,7 @@ The sibling full-sequence release has a separate model card:
   (`sm_100+`). These upstream precision flags belong to
   `SANA-WM_streaming`.
 
-## Installation
-
-```bash
-
-# from the repo root
-uv sync --package flashdreams-sana-wm --inexact
-
-```
-
-## Interactive Cam2V application
-
-Launch the V2 application to drive SANA-WM with live keyboard controls. The
-model adapter passes controls through the SANA-WM action remapper and appends
-each generated block to the camera conditioning history.
-
-```bash
-
-uv run --no-sync flashdreams-run-v2 cam2v-sana-wm-streaming \
-    --mode webrtc --host 0.0.0.0 --port 8089 -- \
-    --example-data
-
-```
-
-The application uses the checkpoint fixed resolution of 1280x704 and ten
-24-frame blocks by default. Use `--total-blocks` after `--` to change the
-rollout length.
-
-Use `--example-data` to download the official `demo_0.png` and paired prompt
-to the FlashDreams example-data cache. Explicit image and prompt arguments
-override those example inputs.
-
-This command runs the v2 application.
-
-## Profiling benchmark
+### Profiling benchmark
 
 The charts below compare steady-state generation latency per produced chunk for
 FlashDreams `SANA-WM_streaming` and the official `SANA-WM_streaming`
@@ -133,7 +114,59 @@ action path, 241 requested frames, one discarded warmup run, and three measured
 runs. The benchmark runs recorded FlashDreams commit bd0816e and upstream
 commit 6298508.
 
-## Citation
+### Bidirectional variant
+
+`SANA-WM_bidirectional` renders a complete clip in one pass from a first frame,
+prompt, and camera trajectory. It has no registered V2 application slug; use
+the lower-level pipeline configuration:
+
+The bidirectional model is available as a pipeline configuration:
+
+```python
+
+from sana_wm.config import PIPELINE_SANA_WM_BIDIRECTIONAL
+
+pipeline = PIPELINE_SANA_WM_BIDIRECTIONAL.setup().to("cuda").eval()
+
+```
+
+This is the integration's lower-level pipeline configuration.
+
+#### Bidirectional profiling benchmark
+
+The BF16 chart below compares steady-state in-process generation latency per
+generated clip for FlashDreams `SANA-WM_bidirectional` and the official
+`SANA-WM_bidirectional` implementation under matched settings on one NVIDIA
+GB300 GPU. FlashDreams measured 34,182.39 ms per clip versus 56,932.83 ms for
+the official implementation.
+
+In this chart, `Official Impl` means the pinned NVlabs/Sana upstream
+implementation measured by the FlashDreams benchmark harness under matched
+settings. It is not the SANA-WM 80-scene benchmark result published by the
+model authors.
+
+ <figure class="benchmark-figure-wrap">
+   <div
+     id="sana-wm-bidirectional-bf16-benchmark-chart"
+     class="benchmark-figure"
+     data-benchmark-json-url="../../_static/performance/sana_wm_bidirectional/perf-0801-bf16.json"
+     data-benchmark-series="official:Official Impl:#3b82f6;flashdreams:FlashDreams:#76B900"
+     data-chart-aria-label="SANA-WM bidirectional BF16 benchmark chart"
+   ></div>
+   <figcaption>
+     <p class="model-footnote">
+       This chart shows steady-state in-process generation latency per generated clip in milliseconds for a
+       121-frame full-pipeline BF16 run (Stage-1 DiT + LTX-2 refiner + SANA VAE decode).
+       The measured row used one NVIDIA GB300 GPU, one live warmup generation,
+       and three measured generations.
+       Model construction, checkpoint loading, video writing, and frame dumps are outside the timing boundary.
+       The benchmark runs recorded FlashDreams commit bd0816e and upstream commit 6298508.
+     </p>
+   </figcaption>
+ </figure>
+<script src="../_static/js/benchmark_chart.js"></script>
+
+### Citation
 
 If you use SANA-WM, please cite the original SANA work:
 

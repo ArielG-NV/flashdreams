@@ -8,8 +8,8 @@ title: 'FastVideo causal Wan2.2 T2V parity check'
 
 ## Integration links
 
-- **Applications:** [fastvideo causal wan22 applications](../../README.md#integrationsv2-fastvideocausalwan22-readme--integration-links)
-- **Configuration:** [fastvideo causal wan22 configuration](../../README.md#integrationsv2-fastvideocausalwan22-readme--integration-links)
+- **Applications:** [fastvideo causal wan22 applications](../../../../../models/causal_wan22.md#developer-details)
+- **Configuration:** [fastvideo causal wan22 configuration](../../../../../models/causal_wan22.md#developer-details)
 
 Self-contained benchmark of upstream [FastVideo](https://github.com/hao-ai-lab/FastVideo)
 for the self-forcing causal Wan2.2 text-to-video (T2V) path, aligned with

@@ -11,8 +11,8 @@ title: 'SwiftVR ReAE compile benchmark'
 
 ## Integration links
 
-- **Applications:** [swiftvr applications](README.md#integrationsv2-swiftvr-readme--integration-links)
-- **Configuration:** [swiftvr configuration](README.md#integrationsv2-swiftvr-readme--integration-links)
+- **Applications:** [swiftvr applications](../../../models/swiftvr.md#developer-details)
+- **Configuration:** [swiftvr configuration](../../../models/swiftvr.md#developer-details)
 
 This report records the encoder/decoder compile experiment and provides a
 matched procedure for repeating it on another GPU. The measurements below are

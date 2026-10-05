@@ -23,8 +23,8 @@ title: 'OmniDreams Single-View Native'
 
 ## Integration links
 
-- **Applications:** [omnidreams applications](../../README.md#integrationsv2-omnidreams-readme--integration-links)
-- **Configuration:** [omnidreams configuration](../../README.md#integrationsv2-omnidreams-readme--integration-links)
+- **Applications:** [omnidreams applications](../../../../../models/omnidreams.md#developer-details)
+- **Configuration:** [omnidreams configuration](../../../../../models/omnidreams.md#developer-details)
 
 This directory contains the Python helpers and CUDA/C++ extension sources for
 the OmniDreams single-view native DiT and LightVAE acceleration path. It also

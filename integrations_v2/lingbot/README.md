@@ -1,1 +1,1 @@
-[Lingbot World](../../docs/src/content/docs/repository/integrations_v2/lingbot/README.md#lingbot-world)
+[LingBot-World developer details](../../docs/src/content/docs/models/lingbot_world.md#developer-details)

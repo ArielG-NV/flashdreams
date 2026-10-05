@@ -14,73 +14,29 @@ CausalWan2.2 is a [FastVideo](https://github.com/hao-ai-lab/FastVideo)-released
 
 This integration uses `flashdreams-run-v2`.
 
-See the [Causal Wan 2.2 integration reference](../repository/integrations_v2/fastvideo_causal_wan22/README.md) for its registered
-configuration and application wiring.
+## Run with FlashDreams
 
-## Requirements
-
-- **Minimum VRAM**: ~112 GB.
-- **PyTorch**: >= 2.9.
-
-## Installation
+From the repository root:
 
 ```bash
-
-# from the repo root
 uv sync --package flashdreams-fastvideo-causal-wan22 --inexact
-
+uv run --no-sync flashdreams-run-v2 \
+  t2v-fastvideo-causal-wan2.2-t2v-14b \
+  --output-path artifacts/causal-wan22.mp4 -- \
+  --prompt "A cat surfing" --total-blocks 7
 ```
 
-## Running the method
+## Developer details
 
-To run Causal Wan2.2, launch its v2 T2V application. For example:
+[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/fastvideo_causal_wan22) · [Pipeline configuration](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/fastvideo_causal_wan22/config.py) · [Application guide](../repository/integrations_v2/fastvideo_causal_wan22/apps/t2v/README.md) · [Tests](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/fastvideo_causal_wan22/tests)
 
-```bash
+### Configurations and behavior
 
-uv run --no-sync \
-    flashdreams-run-v2 \
-    t2v-fastvideo-causal-wan2.2-t2v-14b \
-    --output-path artifacts/t2v-fastvideo-causal-wan2.2-t2v-14b.mp4 -- \
-    --prompt "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides." \
-    --total-blocks 7
-
-uv run --no-sync \
-    flashdreams-run-v2 \
-    t2v-fastvideo-causal-wan2.2-t2v-14b \
-    --output-path artifacts/t2v-fastvideo-causal-wan2.2-t2v-14b-raccoon.mp4 -- \
-    --prompt "A playful raccoon is seen playing an electronic guitar, strumming the strings with its front paws. The raccoon has distinctive black facial markings and a bushy tail. It sits comfortably on a small stool, its body slightly tilted as it focuses intently on the instrument. The setting is a cozy, dimly lit room with vintage posters on the walls, adding a retro vibe. The raccoon's expressive eyes convey a sense of joy and concentration. Medium close-up shot, focusing on the raccoon's face and hands interacting with the guitar." \
-    --total-blocks 7
-
-```
-
-For multi-GPU inference, run the same command under `torchrun` (taking
-4 GPUs as an example):
-
-```bash
-
-uv run --no-sync \
-    torchrun --nproc_per_node=4 --no-python flashdreams-run-v2 \
-    t2v-fastvideo-causal-wan2.2-t2v-14b \
-    --output-path artifacts/t2v-fastvideo-causal-wan2.2-t2v-14b.mp4 -- \
-    --prompt "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides." \
-    --total-blocks 21
-
-```
-
-The package exposes the following pipeline config for direct use:
+Available configurations:
 
 | Method | Description |
 | --- | --- |
 | `fastvideo-causal-wan2.2-t2v-14b` | FastVideo CausalWan 2.2 14B MoE T2V (Wan VAE decoder, 8-step). |
-
-To inspect all supported CLI arguments and their default values, run:
-
-```bash
-
-uv run --no-sync \
-    flashdreams-run-v2 t2v-fastvideo-causal-wan2.2-t2v-14b -- --help
-
-```
 
 Some generated samples from the above commands:
 
@@ -105,7 +61,12 @@ Some generated samples from the above commands:
   </div>
 </div>
 
-## Citation
+### Requirements
+
+- **Minimum VRAM**: ~112 GB.
+- **PyTorch**: >= 2.9.
+
+### Citation
 
 FastVideo lists the following research citations:
 

@@ -11,8 +11,8 @@ title: 'HY-WorldPlay parity check'
 
 ## Integration links
 
-- **Applications:** [hy worldplay applications](../../README.md#integrationsv2-hyworldplay-readme--integration-links)
-- **Configuration:** [hy worldplay configuration](../../README.md#integrationsv2-hyworldplay-readme--integration-links)
+- **Applications:** [hy worldplay applications](../../../../../models/hy_worldplay.md#developer-details)
+- **Configuration:** [hy worldplay configuration](../../../../../models/hy_worldplay.md#developer-details)
 
 Self-contained benchmark of upstream
 [HY-WorldPlay](https://github.com/Tencent-Hunyuan/HY-WorldPlay) WAN-5B
@@ -25,7 +25,7 @@ The current integration is the `cam2v-hy-worldplay` v2 application. It no
 longer registers the historical `flashdreams-run hy-worldplay-wan-i2v-5b`
 runner, so the native comparison commands and results later on this page are
 retained as historical evidence, not as a current runnable workflow. See the
-[integration README](../../README.md) for the supported application command.
+[integration README](../../../../../models/hy_worldplay.md#developer-details) for the supported application command.
 
 <a id="integrationsv2-hyworldplay-tests-paritycheck-readme--run"></a>
 

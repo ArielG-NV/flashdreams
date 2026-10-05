@@ -28,4 +28,4 @@ uv run --no-sync flashdreams-run-v2 cam2v-hy-worldplay \
 See the shared [Cam2V README](../../../../apps/cam2v/README.md) for controls,
 application arguments, defaults, and tests. The application uses
 `PIPELINE_HY_WORLDPLAY_WAN_I2V_5B`; see the
-[HY-WorldPlay integration README](../../README.md) for model details.
+[HY-WorldPlay integration README](../../../../../models/hy_worldplay.md#developer-details) for model details.

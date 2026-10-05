@@ -115,26 +115,29 @@ Camera-controllable image-to-video world model.
 
 Interactive image-established world model controlled by keyboard and mouse.
 
-### [SANA-WM_streaming](models/sana_wm_streaming.md)
+### [SANA-WM](models/sana_wm_streaming.md)
 
-Chunk-causal camera-controlled world model.
+Camera-controlled world model with streaming and bidirectional variants.
 
 ### [FlashVSR](models/flashvsr.md)
 
 Streaming video super-resolution.
+
+### [SwiftVR](models/swiftvr.md)
+
+Real-time one-step streaming video restoration with 2x and 4x presets.
 
 ### [Wan 2.1 (bidirectional)](models/wan21.md)
 
 Bidirectional video generation model that supports both
 text-to-video and image-to-video.
 
+### [Wan 2.2 TI2V-5B (bidirectional)](models/wan22.md)
+
+Bidirectional text-and-image-to-video generation in one full-clip rollout.
+
 ### [Cosmos-Predict2.5 (bidirectional)](models/cosmos_predict2.md)
 
 Bidirectional Cosmos-Predict2 reference implementations (T2V / I2V, 2B).
-
-### [SANA-WM_bidirectional](models/sana_wm_bidirectional.md)
-
-Bidirectional camera-controlled world model (Stage-1 DiT + LTX-2
-refiner, 2.6B).
 
    here = order in the navbar.

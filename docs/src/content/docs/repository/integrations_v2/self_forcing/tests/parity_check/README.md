@@ -8,8 +8,8 @@ title: 'Self-Forcing parity check'
 
 ## Integration links
 
-- **Applications:** [self forcing applications](../../README.md#integrationsv2-selfforcing-readme--integration-links)
-- **Configuration:** [self forcing configuration](../../README.md#integrationsv2-selfforcing-readme--integration-links)
+- **Applications:** [self forcing applications](../../../../../models/self_forcing.md#developer-details)
+- **Configuration:** [self forcing configuration](../../../../../models/self_forcing.md#developer-details)
 
 Self-contained benchmark of upstream
 [Self-Forcing](https://github.com/guandeh17/Self-Forcing) with a small local

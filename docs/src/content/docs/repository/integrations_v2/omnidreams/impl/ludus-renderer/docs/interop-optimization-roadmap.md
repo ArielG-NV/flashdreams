@@ -8,8 +8,8 @@ title: 'Rendering Pipeline Optimization Roadmap'
 
 ## Integration links
 
-- **Applications:** [omnidreams applications](../../../README.md#integrationsv2-omnidreams-readme--integration-links)
-- **Configuration:** [omnidreams configuration](../../../README.md#integrationsv2-omnidreams-readme--integration-links)
+- **Applications:** [omnidreams applications](../../../../../../models/omnidreams.md#developer-details)
+- **Configuration:** [omnidreams configuration](../../../../../../models/omnidreams.md#developer-details)
 
 <a id="integrationsv2-omnidreams-impl-ludus-renderer-docs-interop-optimization-roadmap--benchmark-baseline-march-2025"></a>
 

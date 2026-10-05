@@ -49,4 +49,4 @@ pinned native source dependencies on first use.
 
 See the shared [Crazy Robotaxi README](../../../../apps/crazy_robotaxi/README.md)
 for controls, application arguments, game modes, and tests. See the
-[OmniDreams integration README](../../README.md) for model details.
+[OmniDreams integration README](../../../../../models/omnidreams.md#developer-details) for model details.

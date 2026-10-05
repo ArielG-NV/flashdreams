@@ -8,8 +8,8 @@ title: 'Wan2.1 official parity check'
 
 ## Integration links
 
-- **Applications:** [wan21 applications](../../README.md#integrationsv2-wan21-readme--integration-links)
-- **Configuration:** [wan21 configuration](../../README.md#integrationsv2-wan21-readme--integration-links)
+- **Applications:** [wan21 applications](../../../../../models/wan21.md#developer-details)
+- **Configuration:** [wan21 configuration](../../../../../models/wan21.md#developer-details)
 
 This test runs a pinned revision of the official Wan2.1 repository with the
 upstream `t2v-1.3B` command-line setup, while forcing the cuDNN SDPA backend and

@@ -1,1 +1,1 @@
-[flashdreams-wan21](../../docs/src/content/docs/repository/integrations_v2/wan21/README.md#flashdreams-wan21)
+[Wan 2.1 developer details](../../docs/src/content/docs/models/wan21.md#developer-details)

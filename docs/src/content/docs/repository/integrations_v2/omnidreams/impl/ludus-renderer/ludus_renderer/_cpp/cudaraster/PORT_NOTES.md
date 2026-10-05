@@ -8,8 +8,8 @@ title: 'CUDA Rasterizer Port Notes'
 
 ## Integration links
 
-- **Applications:** [omnidreams applications](../../../../../README.md#integrationsv2-omnidreams-readme--integration-links)
-- **Configuration:** [omnidreams configuration](../../../../../README.md#integrationsv2-omnidreams-readme--integration-links)
+- **Applications:** [omnidreams applications](../../../../../../../../models/omnidreams.md#developer-details)
+- **Configuration:** [omnidreams configuration](../../../../../../../../models/omnidreams.md#developer-details)
 
 This directory is a port of the HPG-2011 NVIDIA CUDA rasterizer. It has been
 adapted to act as the backend for the ludus renderer. Most of the

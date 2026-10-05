@@ -6,9 +6,6 @@ title: 'Self-Forcing'
 
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-See the [Self-Forcing integration reference](../repository/integrations_v2/self_forcing/README.md) for registered variants,
-configuration, and application wiring.
-
 [Project page](https://self-forcing.github.io/)
 [arXiv paper](https://arxiv.org/abs/2506.08009)
 [Official code](https://github.com/guandeh17/Self-Forcing)
@@ -25,36 +22,25 @@ gap and enabling efficient streaming generation quality.
   <a href="https://self-forcing.github.io/">Self-Forcing project page</a>.
 </p>
 
-## Requirements
+## Run with FlashDreams
 
-- **Minimum VRAM**: ~24 GB.
-- **PyTorch**: >= 2.9.
-
-## Installation
+From the repository root:
 
 ```bash
-
-# from the repo root
 uv sync --package flashdreams-self-forcing --inexact
-
+uv run --no-sync flashdreams-run-v2 \
+  t2v-self-forcing-wan2.1-t2v-1.3b \
+  --output-path artifacts/self-forcing.mp4 -- \
+  --prompt "A cat surfing" --total-blocks 7
 ```
 
-## Running the method
+## Developer details
 
-To run Self-Forcing, launch its v2 T2V application:
+[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/self_forcing) · [Pipeline configuration](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/self_forcing/config.py) · [Application guide](../repository/integrations_v2/self_forcing/apps/t2v/README.md) · [Tests](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/self_forcing/tests)
 
-```bash
+### Configurations and behavior
 
-uv run --no-sync \
-    flashdreams-run-v2 \
-    t2v-self-forcing-wan2.1-t2v-1.3b \
-    --output-path artifacts/t2v-self-forcing-wan2.1-t2v-1.3b.mp4 -- \
-    --prompt "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides." \
-    --total-blocks 7
-
-```
-
-The package also exposes the following pipeline configs for direct use:
+Available configurations:
 
 | Method | Description |
 | --- | --- |
@@ -62,29 +48,12 @@ The package also exposes the following pipeline configs for direct use:
 | `self-forcing-wan2.1-t2v-1.3b-taehv` | Official checkpoint. Swap Wan VAE decoder with the faster TAEHV decoder. |
 | `self-forcing-wan2.1-t2v-1.3b-sink5-window7-rerope` | Steady long-rollout preset: static sink=5 + rolling window=7, with KVCache-relative RoPE. |
 
-For multi-GPU inference, use:
+### Requirements
 
-```bash
+- **Minimum VRAM**: ~24 GB.
+- **PyTorch**: >= 2.9.
 
-uv run --no-sync \
-    torchrun --nproc_per_node=4 --no-python flashdreams-run-v2 \
-    t2v-self-forcing-wan2.1-t2v-1.3b \
-    --output-path artifacts/t2v-self-forcing-wan2.1-t2v-1.3b.mp4 -- \
-    --prompt "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides." \
-    --total-blocks 7
-
-```
-
-To inspect all supported CLI arguments and their default values, run:
-
-```bash
-
-uv run --no-sync \
-    flashdreams-run-v2 t2v-self-forcing-wan2.1-t2v-1.3b -- --help
-
-```
-
-## What to expect
+### What to expect
 
 - **Prompt**: `--prompt` is required.
 - **Total blocks**: `--total-blocks N` runs `N` autoregressive
@@ -135,7 +104,7 @@ Some generated samples from the above commands:
   </div>
 </div>
 
-## Profiling benchmark
+### Profiling benchmark
 
 Here is the profiling benchmark on total DiT runtime for FlashDreams Self-Forcing compared to
 the [official Self-Forcing implementation](https://github.com/guandeh17/Self-Forcing)
@@ -163,7 +132,7 @@ under matched settings.
  </figure>
 <script src="../_static/js/benchmark_chart.js"></script>
 
-## Citation
+### Citation
 
 If you use Self-Forcing, please cite the original work:
 

@@ -14,9 +14,6 @@ Introduced by [Robbyant](https://technology.robbyant.com/), LingBot-World is a c
 [LingBot-World v1](https://github.com/robbyant/lingbot-world) and the newer 14B causal-fast
 [LingBot-World v2](https://github.com/Robbyant/lingbot-world-v2) checkpoints.
 
-See the [LingBot integration reference](../repository/integrations_v2/lingbot/README.md) for registered variants and Cam2V
-application wiring.
-
 <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
   <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
     <source src="https://gw.alipayobjects.com/v/huamei_u94ywh/afts/video/XQk7Rb44qJwAAAAAgfAAAAgAfoeUAQBr" type="video/mp4">
@@ -28,36 +25,21 @@ application wiring.
   <a href="https://technology.robbyant.com/lingbot-world">LingBot-World project page</a>.
 </p>
 
-## Requirements
+## Run with FlashDreams
 
-- **Minimum VRAM**: ~120 GB.
-- **PyTorch**: >= 2.9.
-
-## Installation
+From the repository root:
 
 ```bash
-
-# from the repo root
-uv sync --package flashdreams-lingbot --inexact
-
-```
-
-## Running the method
-
-The Lingbot package binds its model pipeline directly to the reusable Cam2V
-v2 application:
-
-```bash
-
 uv sync --package flashdreams-lingbot --inexact
 uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
-    --mode webrtc --host 0.0.0.0 --port 8089 -- --example-data
-
+  --mode webrtc --host 0.0.0.0 --port 8089 -- --example-data
 ```
 
-Application arguments follow `--`. Run
-`flashdreams-run-v2 cam2v-lingbot -- --help` for custom first-frame,
-intrinsics, prompt, and world-scale inputs.
+## Developer details
+
+[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/lingbot) · [Pipeline configuration](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/lingbot/config.py) · [Application guide](../repository/integrations_v2/lingbot/apps/cam2v/README.md) · [Tests](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/lingbot/tests)
+
+### Configurations and behavior
 
 Sample data is downloaded from the
 [LingBot-World v2 repository](https://github.com/Robbyant/lingbot-world-v2/tree/main/examples).
@@ -77,7 +59,12 @@ use:
 
 <a id="lingbot-world-v2"></a>
 
-## LingBot-World V2
+### Requirements
+
+- **Minimum VRAM**: ~120 GB.
+- **PyTorch**: >= 2.9.
+
+### LingBot-World V2
 
 LingBot-World V2 is the newer 14B causal-fast checkpoint from Robbyant. It
 uses the same architecture and pipeline code as v1; only the checkpoint
@@ -95,7 +82,7 @@ The V2 checkpoint (~70 GB) is pulled from
 `huggingface.co/robbyant/lingbot-world-v2-14b-causal-fast` on first run.
 Export `HF_TOKEN` first.
 
-## What to expect
+### What to expect
 
 - **Example data**: `--example-data` downloads `image.jpg`,
   `intrinsics.npy`, and `poses.npy` from the
@@ -149,7 +136,7 @@ Some generated samples from the above commands:
   </div>
 </div>
 
-## Launch the interactive server
+### Launch the interactive server
 
 Run the same Cam2V application in WebRTC mode:
 
@@ -169,7 +156,7 @@ When successfully connected, the browser-based UI looks like this:
   </video>
 </div>
 
-## Profiling benchmark
+### Profiling benchmark
 
 Here is the profiling benchmark on total DiT runtime for FlashDreams LingBot-World
 compared to the [official LingBot-World implementation](https://github.com/robbyant/lingbot-world)
@@ -196,7 +183,7 @@ matched settings.
  </figure>
 <script src="../_static/js/benchmark_chart.js"></script>
 
-## Citation
+### Citation
 
 If you use LingBot-World, please cite the original work:
 

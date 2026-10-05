@@ -11,8 +11,8 @@ title: 'SwiftVR inference performance recommendations'
 
 ## Integration links
 
-- **Applications:** [swiftvr applications](README.md#integrationsv2-swiftvr-readme--integration-links)
-- **Configuration:** [swiftvr configuration](README.md#integrationsv2-swiftvr-readme--integration-links)
+- **Applications:** [swiftvr applications](../../../models/swiftvr.md#developer-details)
+- **Configuration:** [swiftvr configuration](../../../models/swiftvr.md#developer-details)
 
 This note records the current SwiftVR performance profile and a prioritized set
 of experiments. The measurements are diagnostic results from one GB300 system,

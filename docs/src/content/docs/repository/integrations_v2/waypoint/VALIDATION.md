@@ -11,8 +11,8 @@ title: 'Waypoint 1.5 V2 validation'
 
 ## Integration links
 
-- **Applications:** [waypoint applications](README.md#integrationsv2-waypoint-readme--integration-links)
-- **Configuration:** [waypoint configuration](README.md#integrationsv2-waypoint-readme--integration-links)
+- **Applications:** [waypoint applications](../../../models/waypoint.md#developer-details)
+- **Configuration:** [waypoint configuration](../../../models/waypoint.md#developer-details)
 
 Validated on 2026-08-25 against FlashDreams main `8fd97fa3`, source PR #464
 `0f178234`, and the official `world_engine` implementation at

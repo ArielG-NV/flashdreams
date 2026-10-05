@@ -8,8 +8,8 @@ title: 'FastVideo Wan 2.1 parity check'
 
 ## Integration links
 
-- **Applications:** [wan21 applications](../../README.md#integrationsv2-wan21-readme--integration-links)
-- **Configuration:** [wan21 configuration](../../README.md#integrationsv2-wan21-readme--integration-links)
+- **Applications:** [wan21 applications](../../../../../models/wan21.md#developer-details)
+- **Configuration:** [wan21 configuration](../../../../../models/wan21.md#developer-details)
 
 Self-contained benchmark of upstream [FastVideo](https://github.com/hao-ai-lab/FastVideo)
 for the Wan 2.1 text-to-video (T2V) path, aligned with flashdreams parity conventions.

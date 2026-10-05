@@ -15,9 +15,6 @@ super-resolution (VSR). It combines a train-friendly three-stage distillation pi
 locality-constrained sparse attention that bridges the train-test resolution
 gap, and a tiny conditional decoder for fast reconstruction.
 
-See the [FlashVSR integration reference](../repository/integrations_v2/flashvsr/README.md) for registered presets and V2V
-application wiring.
-
 ![FlashVSR teaser figure.](https://github.com/OpenImagingLab/FlashVSR/raw/main/examples/WanVSR/assets/teaser.png)
 
 <p class="model-footnote">
@@ -25,53 +22,32 @@ application wiring.
   <a href="https://github.com/OpenImagingLab/FlashVSR">FlashVSR official repository</a>.
 </p>
 
-## Requirements
+## Run with FlashDreams
 
-- **Minimum VRAM**: ~24 GB.
-- **Python**: >= 3.10.
-- **PyTorch**: >= 2.9.
-
-## Installation
+From the repository root:
 
 ```bash
-
-# from the repo root
 uv sync --package flashdreams-flashvsr --inexact
-
-```
-
-## Running the method
-
-The v2 `v2v` application accepts a video and writes the super-resolved video.
-
-```bash
-
 uv run --no-sync flashdreams-run-v2 \
-    v2v-flashvsr-v1.1-sparse-ratio-2.0 \
-    --output-path upscaled.mp4 \
-    -- --video-path input.mp4
-
+  v2v-flashvsr-v1.1-sparse-ratio-2.0 \
+  --output-path artifacts/flashvsr.mp4 -- --video-path input.mp4
 ```
 
-Omit `--video-path` to download and process the bounded Big Buck Bunny
-fallback.
+## Developer details
 
-We provide the following variants:
+[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/flashvsr) · [Pipeline configuration](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/flashvsr/config.py) · [Application guide](../repository/integrations_v2/flashvsr/apps/v2v/README.md) · [Tests](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/flashvsr/tests)
+
+### Configurations and behavior
+
+Omit `--video-path` to download and process the bounded Big Buck Bunny fallback.
+
+Available configurations:
 
 | Method | Description |
 | --- | --- |
 | `v2v-flashvsr-v1.1-sparse-ratio-2.0` | Streaming 2x video super-resolution with the stable sparse-attention preset. |
 | `v2v-flashvsr-v1.1-sparse-ratio-1.5` | Streaming 2x video super-resolution with the faster sparse-attention preset. |
 | `v2v-flashvsr-v1.1-full-attn` | Dense full-attention preset with multi-GPU context-parallel support. |
-
-To inspect all supported CLI arguments and their default values, run:
-
-```bash
-
-uv run --no-sync flashdreams-run-v2 \
-    v2v-flashvsr-v1.1-sparse-ratio-2.0 -- --help
-
-```
 
 A generated sample from the above commands:
 
@@ -92,7 +68,13 @@ A generated sample from the above commands:
   </div>
 </div>
 
-## Profiling benchmark
+### Requirements
+
+- **Minimum VRAM**: ~24 GB.
+- **Python**: >= 3.10.
+- **PyTorch**: >= 2.9.
+
+### Profiling benchmark
 
 This historical benchmark compares per-chunk 2x upsampling time for FlashDreams
 FlashVSR with the [official FlashVSR implementation](https://github.com/OpenImagingLab/FlashVSR)
@@ -117,7 +99,7 @@ under matched settings.
 </figure>
 <script src="../_static/js/benchmark_chart.js"></script>
 
-## Citation
+### Citation
 
 If you use FlashVSR, please cite the original work:
 

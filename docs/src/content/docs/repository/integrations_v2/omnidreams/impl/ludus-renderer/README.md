@@ -8,8 +8,8 @@ title: 'Ludus Renderer'
 
 ## Integration links
 
-- **Applications:** [omnidreams applications](../../README.md#integrationsv2-omnidreams-readme--integration-links)
-- **Configuration:** [omnidreams configuration](../../README.md#integrationsv2-omnidreams-readme--integration-links)
+- **Applications:** [omnidreams applications](../../../../../models/omnidreams.md#developer-details)
+- **Configuration:** [omnidreams configuration](../../../../../models/omnidreams.md#developer-details)
 
 GPU-native F-theta renderer and PhysX-first object graph for autonomous
 vehicle simulation. Rendering is CUDA-only and is built on the HPG 2011

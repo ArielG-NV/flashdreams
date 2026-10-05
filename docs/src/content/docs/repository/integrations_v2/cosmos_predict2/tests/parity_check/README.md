@@ -8,8 +8,8 @@ title: 'Cosmos-Predict2.5 parity check'
 
 ## Integration links
 
-- **Applications:** [cosmos predict2 applications](../../README.md#integrationsv2-cosmospredict2-readme--integration-links)
-- **Configuration:** [cosmos predict2 configuration](../../README.md#integrationsv2-cosmospredict2-readme--integration-links)
+- **Applications:** [cosmos predict2 applications](../../../../../models/cosmos_predict2.md#developer-details)
+- **Configuration:** [cosmos predict2 configuration](../../../../../models/cosmos_predict2.md#developer-details)
 
 GPU-only reproducer of upstream
 [`nvidia-cosmos/cosmos-predict2.5`](https://github.com/nvidia-cosmos/cosmos-predict2.5)

@@ -1,1 +1,1 @@
-[HY-WorldPlay](../../docs/src/content/docs/repository/integrations_v2/hy_worldplay/README.md#hy-worldplay)
+[HY-WorldPlay developer details](../../docs/src/content/docs/models/hy_worldplay.md#developer-details)

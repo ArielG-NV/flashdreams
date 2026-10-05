@@ -1,1 +1,1 @@
-[SwiftVR](../../docs/src/content/docs/repository/integrations_v2/swiftvr/README.md#swiftvr)
+[SwiftVR developer details](../../docs/src/content/docs/models/swiftvr.md#developer-details)

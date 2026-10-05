@@ -1,1 +1,1 @@
-[FlashVSR](../../docs/src/content/docs/repository/integrations_v2/flashvsr/README.md#flashvsr)
+[FlashVSR developer details](../../docs/src/content/docs/models/flashvsr.md#developer-details)

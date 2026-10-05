@@ -42,4 +42,4 @@ use, before compiling the extension.
 
 See the shared [Interactive Drive README](../../../../apps/interactive_drive/README.md)
 for controls, application arguments, output modes, and tests. See the
-[OmniDreams integration README](../../README.md) for model details.
+[OmniDreams integration README](../../../../../models/omnidreams.md#developer-details) for model details.

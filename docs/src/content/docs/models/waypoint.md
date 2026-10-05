@@ -15,9 +15,6 @@ model. FlashDreams integrates the published BF16 checkpoint as an
 image-established, keyboard/mouse-controlled V2 application with deterministic
 per-action metrics and MP4, WebRTC, or native-window presentation.
 
-See the [Waypoint integration reference](../repository/integrations_v2/waypoint/README.md) for its architecture contract,
-configuration, and Action2V binding.
-
 <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
   <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
     <source src="https://huggingface.co/Overworld/Waypoint-1.5-1B/resolve/main/assets/wp_1.5.mp4" type="video/mp4">
@@ -30,7 +27,26 @@ configuration, and Action2V binding.
   this is not a FlashDreams benchmark artifact.
 </p>
 
-## Support summary
+## Run with FlashDreams
+
+From the repository root:
+
+```bash
+uv sync --package flashdreams-waypoint --inexact
+uv run --no-sync flashdreams-run-v2 action2v-waypoint-1-5-1b \
+  --mode webrtc --host 127.0.0.1 --port 8766 -- \
+  --example-data --seed 464
+```
+
+## Developer details
+
+[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/waypoint) · [Pipeline configuration](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/waypoint/config.py) · [Application guide](../repository/integrations_v2/waypoint/apps/action2v/README.md) · [Tests](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/waypoint/tests)
+
+### Configurations and behavior
+
+Open <http://127.0.0.1:8766/>. `--example-data` downloads the pinned public first frame; use `--image-path PATH` to establish another world. One of those inputs is required.
+
+### Support summary
 
 | Surface | FlashDreams support |
 | --- | --- |
@@ -51,7 +67,7 @@ this configuration leaves the prompt encoder uninitialized and calling
 with no keys for prompt or cross-attention modules. Consequently, this model
 does not accept a text prompt that can influence its output.
 
-## Requirements
+### Requirements
 
 - A CUDA-capable NVIDIA GPU with BF16 and PyTorch FlexAttention support.
 - The FlashDreams path was validated on one NVIDIA RTX PRO 6000 Blackwell
@@ -61,43 +77,7 @@ does not accept a text prompt that can influence its output.
   separate Overworld-Models/taehv1_5 checkpoint into the Hugging Face cache.
 - ffmpeg on PATH is required for MP4 output.
 
-## Installation
-
-From the FlashDreams repository root:
-
-```bash
-
-uv sync --package flashdreams-waypoint --inexact
-
-```
-
-The package includes the model implementation and its Action2V adapter.
-
-## Running the model
-
-Run the application interactively in a browser:
-
-```bash
-
-uv run --no-sync flashdreams-run-v2 action2v-waypoint-1-5-1b \
-    --mode webrtc --host 127.0.0.1 --port 8766 \
-    -- --example-data --seed 464
-
-```
-
-Open http://127.0.0.1:8766/. `--example-data` downloads Waypoint's pinned
-public example image. To establish another world instead, replace it with
-`--image-path PATH`. One of those two options is required. Arguments before
-the separator configure the V2 runtime; arguments after it configure Waypoint.
-To inspect all model arguments:
-
-```bash
-
-uv run --no-sync flashdreams-run-v2 action2v-waypoint-1-5-1b -- --help
-
-```
-
-## Model and integration architecture
+### Model and integration architecture
 
 The pinned checkpoint configuration and FlashDreams implementation agree on
 these model-facing invariants:
@@ -127,12 +107,7 @@ elements across 393 tensors** (3,721,694,304 bytes). These are different
 published-model versus serialized-checkpoint accounting figures; FlashDreams
 reports both rather than relabeling the upstream model.
 
-The package-level design review contains component, class, use-case, and
-sequence diagrams:
-
-[Waypoint architecture design](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/waypoint/README.md)
-
-## Measured FlashDreams performance
+### Measured FlashDreams performance
 
 The final FlashDreams path was measured on 2026-08-26 using an RTX PRO 6000
 Blackwell Workstation Edition (96 GiB), driver 595.84, PyTorch 2.12.1+cu130,
@@ -154,7 +129,7 @@ Overworld separately reports 56 FPS for its unquantized runtime on an RTX 5090;
 that result was not reproduced here and is not directly comparable across
 different GPU, runtime, and presentation stacks.
 
-## Parity and rollout validation
+### Parity and rollout validation
 
 FlashDreams loaded the same BF16 checkpoint and matched the pinned official
 world_engine implementation through one complete controlled action. The final
@@ -176,7 +151,7 @@ gameplay or physical-accuracy score.
 
 [Complete validation record](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/waypoint/VALIDATION.md)
 
-## Intended use and limitations
+### Intended use and limitations
 
 Waypoint is suitable for research and prototyping around interactive video
 worlds, creative exploration, control-conditioned generation, and low-latency
@@ -202,7 +177,7 @@ deployment:
 [Upstream model card](https://huggingface.co/Overworld/Waypoint-1.5-1B)
 [Upstream safety discussion](https://over.world/blog/engineering-safety-for-interactive-world-models)
 
-## Provenance
+### Provenance
 
 - Model: Overworld/Waypoint-1.5-1B, revision
   391f92827075edcf4a8b3c8a2ddae010698f8636, Apache-2.0.

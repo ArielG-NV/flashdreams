@@ -8,8 +8,8 @@ title: 'FastVideo Cosmos 2.5 baseline'
 
 ## Integration links
 
-- **Applications:** [cosmos predict2 applications](../../README.md#integrationsv2-cosmospredict2-readme--integration-links)
-- **Configuration:** [cosmos predict2 configuration](../../README.md#integrationsv2-cosmospredict2-readme--integration-links)
+- **Applications:** [cosmos predict2 applications](../../../../../models/cosmos_predict2.md#developer-details)
+- **Configuration:** [cosmos predict2 configuration](../../../../../models/cosmos_predict2.md#developer-details)
 
 Self-contained baseline run of upstream [FastVideo](https://github.com/hao-ai-lab/FastVideo)
 for the Cosmos 2.5 text-to-world (T2W) path, aligned with flashdreams parity

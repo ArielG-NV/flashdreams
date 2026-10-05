@@ -8,8 +8,8 @@ title: 'FlashVSR parity check'
 
 ## Integration links
 
-- **Applications:** [flashvsr applications](../../README.md#integrationsv2-flashvsr-readme--integration-links)
-- **Configuration:** [flashvsr configuration](../../README.md#integrationsv2-flashvsr-readme--integration-links)
+- **Applications:** [flashvsr applications](../../../../../models/flashvsr.md#developer-details)
+- **Configuration:** [flashvsr configuration](../../../../../models/flashvsr.md#developer-details)
 
 Self-contained benchmark of upstream
 [FlashVSR](https://github.com/OpenImagingLab/FlashVSR) with a small local

@@ -8,8 +8,8 @@ title: 'FastVideo Self-Forcing parity check'
 
 ## Integration links
 
-- **Applications:** [self forcing applications](../../README.md#integrationsv2-selfforcing-readme--integration-links)
-- **Configuration:** [self forcing configuration](../../README.md#integrationsv2-selfforcing-readme--integration-links)
+- **Applications:** [self forcing applications](../../../../../models/self_forcing.md#developer-details)
+- **Configuration:** [self forcing configuration](../../../../../models/self_forcing.md#developer-details)
 
 Self-contained benchmark of upstream [FastVideo](https://github.com/hao-ai-lab/FastVideo) for
 the Self-Forcing causal model path, aligned with flashdreams parity-check conventions.

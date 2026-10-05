@@ -15,7 +15,7 @@ gamepad, or steering wheel.
 
 Crazy Robotaxi uses the same model assets and GPU runtime as the OmniDreams
 integration. Set `HF_TOKEN` to a token with access to the NVIDIA OmniDreams
-repositories. See the [OmniDreams integration guide](../../integrations_v2/omnidreams/README.md)
+repositories. See the [OmniDreams developer details](../../../models/omnidreams.md#developer-details)
 for the supported platform, model preparation, and controller setup.
 
 <a id="apps-crazyrobotaxi-readme--quick-start"></a>
