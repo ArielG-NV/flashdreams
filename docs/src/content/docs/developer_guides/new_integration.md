@@ -79,7 +79,7 @@ uv run --no-sync flashdreams-run-v2 t2v-customized-method -- --help
 
 Runtime arguments precede `--`; application arguments follow it. See
 [Application slugs](runner_slugs.md) for discovery and ownership details and
-[the CLI reference](../api/cli.md) for runtime options.
+[the CLI reference](../documentation/cli.md) for runtime options.
 
 ## Verify and document
 

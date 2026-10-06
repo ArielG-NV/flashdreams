@@ -5,7 +5,13 @@ title: 'Interactive Drive'
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-<a id="apps-interactivedrive-readme--interactive-drive"></a>
+<a id="interactive-drive"></a>
+
+Interactive Drive is a long-running FlashDreams v2 driving application with
+scene and variant selection, driving telemetry, post-processing controls, and a
+BEV minimap.
+
+**Models With Demo Implementation:** [OmniDreams](../models/omnidreams.md#interactive-drive)
 
 <a id="apps-interactivedrive-readme--controls"></a>
 
@@ -44,37 +50,47 @@ View selection does not currently have controller bindings. No other gamepad
 sticks, axes, or buttons are used. A connected steering wheel uses its steering,
 throttle, and brake inputs directly.
 
-A long-running driving application. Its `InteractiveDriveUILoop` HUD contains
-scene and variant selection,
-driving telemetry, steering-wheel and pedal sprites, post-processing controls,
-and a BEV minimap. Dear ImGui builds the immediate-mode HUD and SlangPy renders
-it with GPU textures; the application does not use CSS.
+### Steering wheel setup
+
+Calibrate a wheel and pedals with:
+
+```bash
+
+uv run --package flashdreams-interactive-drive-v2 interactive-drive-configuration
+
+```
+
+Interactive Drive loads the default profile on later launches. One profile can
+bind a wheel and separately connected pedals. Force feedback requires write
+access to `/dev/input/*` and the appropriate Linux driver:
+
+| Vendor | Driver |
+| --- | --- |
+| Thrustmaster | [`hid-tmff2`](https://github.com/Kimplul/hid-tmff2), plus `hid-tminit` or `tmdrv` for wheel-mode initialization |
+| Fanatec | [`hid-fanatecff`](https://github.com/gotzl/hid-fanatecff), with the base in PC mode |
+| Logitech | In-kernel `hid-lg4ff`, [`new-lg4ff`](https://github.com/berarma/new-lg4ff), or the HID++ driver for the G920 and Xbox/PC G923 |
+
+Its `InteractiveDriveUILoop` HUD contains steering-wheel and pedal sprites.
+Dear ImGui builds the immediate-mode HUD and SlangPy renders it with GPU
+textures; the application does not use CSS.
 
 The package also owns its model-neutral scene loading, simulation, rendering,
 input handling, and wheel-configuration support. Its world-model binding is
 supplied by an integration adapter.
 
-<a id="apps-interactivedrive-readme--usage"></a>
+<a id="apps-interactivedrive-readme--application-arguments"></a>
 
-## Usage
+## Application arguments
 
-Install the application, then start it with no application arguments:
+Application arguments follow the runtime's `--` separator. Inspect the exact
+arguments and defaults for an installed demo-model slug with:
 
 ```bash
-
-uv sync --package flashdreams-omnidreams --extra interactive-drive
-uv run flashdreams-run-v2 interactive-drive-omnidreams --mode webrtc --port 8089
-
+uv run flashdreams-run-v2 DEMO_MODEL_SLUG -- --help
 ```
 
-Use `interactive-drive-omnidreams-perf`/`interactive-drive-omnidreams-fast-perf` instead for the native-accelerated, performance-tuned configurations.
-
-To accept remote browser connections at `<ip>:8089`, add `--host 0.0.0.0` and
-make sure port 8089 is reachable through the host firewall.
-
-The default scene downloads on first use from the gated
-`nvidia/omni-dreams-scenes` Hugging Face dataset. Application arguments are
-optional and follow the `--` separator:
+If `--scene` is omitted, the application downloads its configured default
+scene.
 
 | Argument | Description |
 | --- | --- |
@@ -84,8 +100,8 @@ optional and follow the `--` separator:
 | `--variant NAME` | Select the scene&#x27;s initial-frame and prompt variant. Default: `default`. |
 | `--total-blocks N` | Stop after this many generated blocks; `0` runs until the session is stopped. Default: `0`. |
 | `--fps N` | Set the application frame rate. Default: `30`. |
-| `--width N` | Set the output width. Default: `1280` (`1168` for the perf app). |
-| `--height N` | Set the output height. Default: `704` (`640` for the perf app). |
+| `--width N` | Set the output width. The selected demo-model slug supplies the default. |
+| `--height N` | Set the output height. The selected demo-model slug supplies the default. |
 | `--view {rgb,hdmap,physx}` | Select the initial RGB, HD-map conditioning, or PhysX collider view. Default: `rgb`. |
 | `--no-ui` | Present model output directly without creating the HUD or rendering its BEV minimap. |
 | `--game-mode` | Enable the speed limit and collisions with scene actors and static map geometry. |
@@ -101,7 +117,7 @@ and enable RTX super resolution:
 
 ```bash
 
-uv run flashdreams-run-v2 interactive-drive-omnidreams --mode webrtc -- \
+uv run flashdreams-run-v2 DEMO_MODEL_SLUG --mode webrtc -- \
     --scene scene.usdz --variant rain --prompt "A rainy night drive" \
     --game-mode --postprocess-preset rtx-super-resolution
 
@@ -111,7 +127,7 @@ For example, render every generated frame once, in order, with the HUD disabled 
 
 ```bash
 
-uv run flashdreams-run-v2 interactive-drive-omnidreams-perf \
+uv run flashdreams-run-v2 DEMO_MODEL_SLUG \
     --mode mp4 --output-path artifacts/test/interactive-drive.mp4 \
     --backpressure-mode block --presentation-mode on_demand -- \
     --no-ui --total-blocks 60
@@ -125,55 +141,17 @@ is not mathematically lossless at the pixel/codec level.
 For example, render a native-window with game-mode collisions enabled:
 ```bash
 
-uv run flashdreams-run-v2 interactive-drive-omnidreams-perf --mode native-window -- \
+uv run flashdreams-run-v2 DEMO_MODEL_SLUG --mode native-window -- \
     --game-mode
 
 ```
 
 The HUD's view button cycles through **RGB → HDMAP → PHYSX**.
 
-<a id="apps-interactivedrive-readme--swiftvr-on-two-gpus"></a>
-
-### SwiftVR on two GPUs
-
-Install OmniDreams, Interactive Drive, and SwiftVR:
-
-```bash
-
-uv sync --package flashdreams-omnidreams --package flashdreams-swiftvr \
-    --extra interactive-drive --inexact
-
-```
-
-The world model and Ludus rasterizer can share one GPU while SwiftVR runs on
-another. This example assigns OmniDreams and Ludus to `cuda:1`, assigns the
-SwiftVR 2x postprocessor to `cuda:0`, and generates 832x464 frames before
-upscaling them to 1664x928:
-
-```bash
-
-uv run --no-sync flashdreams-run-v2 \
-    interactive-drive-omnidreams-optimized-gb300 \
-    --mode webrtc --host 0.0.0.0 --port 8089 -- \
-    --width 832 --height 464 \
-    --world-model-device cuda:1 --raster-device cuda:1 \
-    --postprocess-preset swiftvr-2x --postprocess-device cuda:0
-
-```
-
-Use `swiftvr-4x` for 4x upscaling. CUDA ordinals are assigned after
-`CUDA_VISIBLE_DEVICES` is applied, so set that environment variable explicitly
-when physical GPU placement matters. The HUD displays the fixed launch-time
-device and preset choices; its **Post-processing** checkbox enables or bypasses
-the configured processor without reloading either model. Presentation stays on
-the selected postprocessor GPU in both modes, so toggling does not change the
-Vulkan/CUDA interop device.
-
 When `--postprocess-preset` is set, the preset starts enabled and the HUD's
 **Post-processing** checkbox can toggle it between generated chunks. Without a
-preset, the checkbox is hidden. Run
-`uv run flashdreams-run-v2 interactive-drive-omnidreams -- --help` to see the presets
-registered in the current environment. The built-in `rtx-*` presets require
+preset, the checkbox is hidden. Run the application-help command above to see the presets registered in the
+current environment. The built-in `rtx-*` presets require
 the optional NVIDIA VFX dependency, installable with
 `uv pip install 'flashdreams[rtx-postprocess]'`, and supported RTX hardware.
 

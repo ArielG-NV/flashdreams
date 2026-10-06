@@ -1,6 +1,6 @@
-nav: 
+nav:
   - index.md
-  - NVIDIA Omnidreams: omnidreams.md
+  - NVIDIA OmniDreams: omnidreams.md
   - Self-Forcing: self_forcing.md
   - Causal-Forcing: causal_forcing.md
   - Causal Wan 2.2: causal_wan_2_2.md

@@ -249,8 +249,8 @@ even when the body is one line — a browser client can ask for one at any time.
 Register no UI loop unless you need one. The default composites every model
 channel into one frame, which is what most demos need. See
 [slangpy_ui_demo](slangpy_ui_demo/README.md) for more complex behavior via
-`SlangPyUILoop`, or
-[omnidreams/apps/interactive_drive](omnidreams/apps/interactive_drive/README.md)
+`SlangPyUILoop`, or see
+[Interactive Drive](../../demos/interactive_drive.md)
 for `ImGuiUILoop`.
 
 <a id="integrationsv2-readme--running-it"></a>

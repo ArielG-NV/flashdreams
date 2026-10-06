@@ -71,5 +71,4 @@ Commands are argument arrays, not shell strings:
 ```
 
 Run it with `--scenario-file` and `--scenario` exactly as for a checked-in
-suite. See [/api/cli](../api/cli.md) for the distinction between
-`flashdreams-run` and `flashdreams-run-v2` commands.
+suite.

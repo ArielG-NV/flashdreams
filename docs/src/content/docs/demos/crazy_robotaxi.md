@@ -2,93 +2,54 @@
 title: 'Crazy Robotaxi'
 ---
 
-<a id="apps-crazyrobotaxi-readme--crazy-robotaxi"></a>
+<!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
-Crazy Robotaxi is an interactive FlashDreams V2 application built on the
-OmniDreams world model and `omnidreams-game-engine`. Drive a taxi through
-authored maps, collect fares, or race against the clock using a keyboard,
-gamepad, or steering wheel.
+<a id="crazy-robotaxi"></a>
 
-<a id="apps-crazyrobotaxi-readme--requirements"></a>
+Crazy Robotaxi is an interactive FlashDreams v2 driving application. Drive a
+taxi through authored maps, collect fares, or race against the clock using a
+keyboard, gamepad, or steering wheel.
 
-## Requirements
+**Models With Demo Implementation:** [OmniDreams](../models/omnidreams.md#crazy-robotaxi)
 
-Crazy Robotaxi uses the same model assets and GPU runtime as the OmniDreams
-integration. Set `HF_TOKEN` to a token with access to the NVIDIA OmniDreams
-repositories. See the [OmniDreams developer details](../../../models/omnidreams.md#developer-details)
-for the supported platform, model preparation, and controller setup.
+<a id="apps-crazyrobotaxi-readme--application-arguments"></a>
 
-<a id="apps-crazyrobotaxi-readme--quick-start"></a>
+## Application arguments
 
-## Quick start
-
-From the repository root:
+Application arguments follow the runtime's `--` separator. Inspect the exact
+arguments and defaults for an installed demo-model slug with:
 
 ```bash
-
-export HF_TOKEN=<YOUR-HF-TOKEN>
-
-uv sync --package flashdreams-omnidreams --extra interactive-drive
-uv run --package flashdreams-omnidreams flashdreams-run-v2 \
-  crazy-robotaxi-omnidreams --mode native-window
-
+uv run flashdreams-run-v2 DEMO_MODEL_SLUG -- --help
 ```
 
-Native-window mode requires a local display and SlangPy's Vulkan/CUDA interop.
-To use a browser client instead:
-
-```bash
-
-uv run --package flashdreams-omnidreams flashdreams-run-v2 \
-  crazy-robotaxi-omnidreams --mode webrtc --host 0.0.0.0 --port 8089
-
-```
-
-Open `http://127.0.0.1:8089/`, or use the host printed by the runner when
-connecting remotely. The first run downloads model assets and may take time to
-compile and autotune kernels.
-
-Twelve OmniDreams runner configurations are registered:
-
-| Runner | Configuration |
+| Argument | Description |
 | --- | --- |
-| `crazy-robotaxi-omnidreams` | Standard |
-| `crazy-robotaxi-omnidreams-optimized-gb300` | GB300-optimized attention |
-| `crazy-robotaxi-omnidreams-optimized-rtx-pro-6000` | RTX PRO 6000-optimized attention |
-| `crazy-robotaxi-omnidreams-perf` | Performance optimized |
-| `crazy-robotaxi-omnidreams-fast-perf` | Fast performance optimized |
-| `crazy-robotaxi-omnidreams-rtx-5090` | Performance schedule fitted to a 32 GB GeForce RTX 5090 at 1168x640 |
-| `crazy-robotaxi-omnidreams-rtx-5090-fast` | RTX 5090 schedule with the native FP8 VAE at 1024x560 (real time) |
-| `crazy-robotaxi-omnidreams-responsive` | Standard with responsive model history |
-| `crazy-robotaxi-omnidreams-perf-responsive` | Performance schedule with responsive model history |
-| `crazy-robotaxi-omnidreams-fast-perf-responsive` | Native FP8 VAE with responsive model history |
-| `crazy-robotaxi-omnidreams-optimized-gb300-responsive` | GB300-optimized attention with responsive model history |
-| `crazy-robotaxi-omnidreams-optimized-rtx-pro-6000-responsive` | RTX PRO 6000-optimized attention with responsive model history |
+| `--config PATH` | Load user settings from a specific YAML file. |
+| `--controls-dir PATH` | Load keyboard, gamepad, and wheel bindings from a specific directory. |
+| `--map PATH` | Load an authored `.robotaxi.yaml` map. |
+| `--width N`, `--height N` | Set generated-frame dimensions. |
+| `--display-width N`, `--display-height N` | Set presentation dimensions independently of generation. |
+| `--force-map-recompile` | Recompile the selected map before launch. |
+| `--ui`, `--no-ui` | Enable or disable the HUD. Headless runs require `--game-mode`, `--map`, and `--total-blocks`. |
+| `--device DEVICE` | Select the application device. |
+| `--total-blocks N` | Stop after this many generated blocks. |
+| `--game-time-s SECONDS` | Override the taxi-mode time limit. |
+| `--seed N` | Set both gameplay and model seeds. |
+| `--game-seed N`, `--model-seed N` | Set gameplay and model seeds independently. |
+| `--high-scores PATH` | Store taxi-mode high scores at a specific path. |
+| `--game-mode {taxi,race}` | Start directly in taxi or race mode. |
+| `--visual-flare`, `--no-visual-flare` | Enable or disable visual flare. |
+| `--race-course NAME` | Select a race course from the active map. |
+| `--race-times PATH` | Store race times at a specific path. |
+| `--compile`, `--no-compile` | Enable or disable model compilation. |
+| `--profile-pipeline` | Log model-loop timing and real-time budget diagnostics. |
+| `--prewarm-blocks N` | Generate hidden neutral blocks before presentation. Default: `8`; `0` disables prewarming. |
+| `--profile-input-latency [PATH]` | Show input diagnostics and write a chunk-lifecycle trace. |
+| `--show-fps`, `--no-show-fps` | Show or hide generated-video FPS in the HUD. |
 
-The five presets whose names end in `-responsive` disable native DiT.
-`fast-perf-responsive` still uses the native FP8 VAE.
-
-The two `rtx-5090` presets fit a 32 GB GeForce RTX 5090: they run the
-Cosmos-Reason1 text encoder on the host CPU, use a 4-chunk temporal window,
-and use SageAttention-3 FP8 attention on Linux (cuDNN FP8 on Windows, where
-SageAttention-3 is unavailable).
-
-Application arguments follow `--`. For example:
-
-```bash
-
-uv run --package flashdreams-omnidreams flashdreams-run-v2 \
-  crazy-robotaxi-omnidreams-perf --mode webrtc -- \
-  --map apps/crazy_robotaxi/crazy_robotaxi/maps/boulevard_district.robotaxi.yaml \
-  --game-time-s 90
-
-```
-
-Run the application with `-- --help` to list all game options. Restarting a
-game rebuilds its simulation and autoregressive cache without reloading the
-model.
-
-<a id="apps-crazyrobotaxi-readme--options-and-user-configuration"></a>
+Live-edit flags are described in [Optional live-edit abilities](#optional-live-edit-abilities).
 
 ## Options and user configuration
 
@@ -214,8 +175,7 @@ and select the `grand-prix` course in the menu:
 
 ```bash
 
-uv run --package flashdreams-omnidreams flashdreams-run-v2 \
-  crazy-robotaxi-omnidreams --mode native-window -- \
+uv run flashdreams-run-v2 DEMO_MODEL_SLUG --mode native-window -- \
   --map apps/crazy_robotaxi/crazy_robotaxi/maps/flashdreams_raceway.robotaxi.yaml \
   --game-mode race
 
@@ -233,8 +193,7 @@ arguments:
 
 ```bash
 
-uv run --package flashdreams-omnidreams flashdreams-run-v2 \
-  crazy-robotaxi-omnidreams --mode native-window -- \
+uv run flashdreams-run-v2 DEMO_MODEL_SLUG --mode native-window -- \
   --live-edit-coins \
   --live-edit-items \
   --live-edit-weather \

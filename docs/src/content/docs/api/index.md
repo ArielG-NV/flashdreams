@@ -19,11 +19,6 @@ own `ISession` and loop contracts. Legacy runner presets launched with
 `flashdreams-run` also expose the lower-level [infra](infra.md) pipeline and
 [runner](integrations.md) APIs.
 
-### [CLI](cli.md)
-
-The `flashdreams-run` and `flashdreams-run-v2` commands, slugs,
-options, and launch modes.
-
 ### [Experimental inference API](inference_api.md)
 
 The presentation-independent `flashdreams.runtime` contracts for

@@ -5,31 +5,6 @@ title: 'V2 application API'
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-`flashdreams.api_v2` defines the application contract run by
-`flashdreams.runtime_v2` and `flashdreams-run-v2`. It is separate from the
-[experimental inference session](inference_api.md) and
-[demo API](demo_api.md) contracts.
-
-An `IApplication` parses its own arguments, holds resources shared between
-sessions, and creates an `ISession`. Each session registers an `IModelLoop`
-and may register an `IUILoop`; otherwise the runtime supplies a default UI
-loop. The model loop generates results on the model thread, while the UI loop
-presents them on the calling thread. A model step returns a list of results,
-one per output channel, or an empty list when it has nothing to present.
-
-Register an application factory in the `flashdreams.applications_v2` entry-point
-group. Runtime arguments precede `--`; arguments after it go to the application:
-
-```bash
-
-uv run flashdreams-run-v2 APPLICATION_SLUG -- --help
-
-```
-
-Use [cli](cli.md) for launch options and [serving](serving.md) for WebRTC. The
-[integration guide](../developer_guides/new_integration.md) covers package
-layout and registration.
-
 ## Application and session
 
 ### `flashdreams.api_v2.application.IApplication`

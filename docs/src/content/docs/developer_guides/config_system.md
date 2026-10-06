@@ -148,5 +148,5 @@ separate `flashdreams-run-v2` command runs applications implementing
 follow it. Those v2 application/session protocols are separate from
 `flashdreams.runtime` and its demo layer.
 
-For full details on the available commands, see the [/api/cli](../api/cli.md) reference.
+For full details on the available commands, see the [/documentation/cli](../documentation/cli.md) reference.
 For end-to-end examples of defining custom pipeline configurations, see [/developer_guides/new_integration](new_integration.md).

@@ -2,8 +2,10 @@ nav:
   - index.md
   - quickstart
   - models
+  - demos
   - Documentation:
       - documentation/index.md
+      - documentation/cli.md
       - API: api
       - Developer Guides:
           - developer_guides/index.md

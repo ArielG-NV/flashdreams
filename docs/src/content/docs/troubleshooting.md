@@ -17,7 +17,43 @@ the gallery implement `flashdreams.api_v2` and run with
 (`flashdreams.runtime.demo`) are separate from that v2 command. Legacy
 runner presets and registered demo applications use `flashdreams-run`. Do not move flags
 between those commands: v2 runtime flags precede `--` and v2 application
-flags follow it. See [/api/cli](api/cli.md) for the command shapes.
+flags follow it. See [/documentation/cli](documentation/cli.md) for the command shapes.
+
+## Launching a Demo Takes a Long Time
+
+**Symptoms:**
+
+- A demo takes a long time to launch.
+
+**Likely cause:**
+
+The first run downloads model assets and spends several minutes compiling (and potentially autotuning) kernels.
+
+**Fix or next step:**
+
+Let the first launch finish if it is still making progress. Subsequent launches
+reuse compiled kernels and autotuning results, although CUDA graphs are
+captured again for each process. 
+
+## Triton autotuning or warmup looks stuck
+
+**Symptoms:**
+
+- The first launch takes several minutes.
+- Logs mention Triton autotuning or CUDA-graph warmup.
+- Later runs are much faster than the first run.
+
+**Likely cause:**
+
+- Cold runs include one-time setup. The quickstart and model pages document that first launches can include downloads, Triton autotuning, CUDA-graph warmup, native-code compilation, etc...
+
+**Fix or next step:**
+
+Let the first launch finish if it is still making progress. Subsequent launches
+reuse compiled kernels and autotuning results, although CUDA graphs are
+captured again for each process. 
+
+Lock file for compilation (`pytorch`/`triton`/...) may be tracking a hanging-process. if this is the case, delete the offending lock file and rerun the command.
 
 ## CUDA or PyTorch build mismatch
 
@@ -203,23 +239,3 @@ browser's ICE policy. Some browsers can hide local IP addresses behind mDNS
   policy* to **Default public and private interfaces**.
 - **Firefox:** `about:config`, set
   `media.peerconnection.ice.obfuscate_host_addresses` to **false**.
-
-## Triton autotuning or warmup looks stuck
-
-**Symptoms:**
-
-- The first launch takes several minutes.
-- Logs mention Triton autotuning or CUDA-graph warmup.
-- Later runs are much faster than the first run.
-
-**Likely cause:**
-
-- Cold runs include one-time setup. The quickstart and model pages document that first launches can include downloads, Triton autotuning, CUDA-graph warmup, native-code compilation, etc...
-
-**Fix or next step:**
-
-Let the first launch finish if it is still making progress. Subsequent launches
-reuse compiled kernels and autotuning results, although CUDA graphs are
-captured again for each process. 
-
-Lock file for compilation (`pytorch`/`triton`/...) may be tracking a hanging-process. if this is the case, delete the offending lock file and rerun the command.

@@ -12,8 +12,20 @@ Model cards identify currently supported models.
 ## Running a model
 
 Follow a selected model card for a quickstart guide to running a model.
-All models run via our CLI: `uv run flashdreams-run-v2 <APP_AND_MODEL_SLUG> <SYSTEM_ARGS> -- <APP_ARGS>`.
-Refer to [CLI reference](../api/cli.md) for details on runtime modes and our `--` separator.
+
+All models run via our CLI command
+
+```bash
+uv run flashdreams-run-v2 <Demo Preset> <System Arguments> -- <Demo Arguments>
+```
+
+This is broken down into three parts:
+- `<Demo Preset>` is a preset that contains the model to run with a demo. Refer to a model-card below.
+
+- `<System Arguments>` are arguments that apply to all `flashdreams-run-v2` demos, reference is here: [System arguments](../documentation/cli.md#system-arguments).
+
+- `<Demo Arguments>` are arguments that apply to a particular demo. Refer to a particular [demo-card](../demos/index.md).
+
 
 ## Available models
 

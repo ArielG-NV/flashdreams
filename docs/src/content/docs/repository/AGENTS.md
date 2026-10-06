@@ -146,7 +146,7 @@ Because of this direction, tests in `apps/<name>/tests/` must not import from `i
 ## Troubleshooting Links
 
 - Setup and requirements: `README.md`, `docs/src/content/docs/quickstart/index.md`
-- CLI details: `docs/src/content/docs/api/cli.md`
+- CLI details: `docs/src/content/docs/documentation/cli.md`
 - Integration/plugin layout: `docs/src/content/docs/api/integrations.md`
 - New integrations: `docs/src/content/docs/developer_guides/new_integration.md`
 - Docs and CPU autodoc: [Adding documentation](CONTRIBUTING.md#contributing--adding-documentation)

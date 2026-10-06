@@ -1,1 +1,1 @@
-[Crazy Robotaxi](../../docs/src/content/docs/repository/apps/crazy_robotaxi/README.md#crazy-robotaxi)
+[Crazy Robotaxi](../../docs/src/content/docs/demos/crazy_robotaxi.md#crazy-robotaxi)
