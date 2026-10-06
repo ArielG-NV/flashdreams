@@ -6,22 +6,26 @@ title: 'Models'
 
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-FlashDreams runs a growing family of world and video models (text-to-video,
-image-to-video, camera-controlled, and super-resolution). Model cards identify
-the supported launch path. See the [API overview](../api/index.md) for the
-runtime families.
+FlashDreams runs a growing family of world and video models (text-to-video, image-to-video, camera-controlled, ...).
+Model cards identify currently supported models.
+
+## Running a model
+
+Follow a selected model card for a quickstart guide to running a model.
+All models run via our CLI: `uv run flashdreams-run-v2 <APP_AND_MODEL_SLUG> <SYSTEM_ARGS> -- <APP_ARGS>`.
+Refer to [CLI reference](../api/cli.md) for details on runtime modes and our `--` separator.
 
 ## Available models
 
-The models come in three flavors. Streaming and autoregressive generation
-methods build a video step by step and stay fast once warmed up, aiming for
-sub-second latency per step; bidirectional methods produce a clip in a single
-pass and serve as the quality reference for their streaming counterparts; and
-super-resolution methods upscale existing frames in chunks, so their latency
-scales with output resolution rather than step count. Each card identifies its
-supported public launch path or programmatic pipeline access.
+The models come in three flavors:
 
-Streaming and autoregressive generation
+- Streaming and autoregressive generation: build a video step by step and stay fast once warmed up, aiming for sub-second latency per step
+
+- Bidirectional generation: produce a clip in a single pass and serve as the quality reference for their streaming counterparts
+
+- Super-resolution: upscale existing frames in chunks, so their latency scales with output resolution rather than step count
+
+<hr>
 
 ### [OmniDreams](omnidreams.md)
 
@@ -29,7 +33,9 @@ Streaming and autoregressive generation
   <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.mp4" type="video/mp4">
 </video>
 
-Interactive world simulator for autonomous vehicles.
+> Interactive world simulator for autonomous vehicles.
+
+<hr>
 
 ### [Self-Forcing](self_forcing.md)
 
@@ -37,7 +43,9 @@ Interactive world simulator for autonomous vehicles.
   <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/self_forcing/self-forcing-wan2.1-t2v-1.3b-flash_1.mp4" type="video/mp4">
 </video>
 
-Autoregressive text-to-video based on Wan 2.1.
+> Autoregressive text-to-video based on Wan 2.1.
+
+<hr>
 
 ### [Causal-Forcing](causal_forcing.md)
 
@@ -45,7 +53,9 @@ Autoregressive text-to-video based on Wan 2.1.
   <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/causal_forcing/causal-forcing-wan2.1-t2v-1.3b-framewise.mp4" type="video/mp4">
 </video>
 
-Autoregressive text/image-to-video based on Wan 2.1.
+> Autoregressive text/image-to-video based on Wan 2.1.
+
+<hr>
 
 ### [Causal Wan 2.2](causal_wan22.md)
 
@@ -53,7 +63,9 @@ Autoregressive text/image-to-video based on Wan 2.1.
   <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/causal_wan22/fastvideo-causal-wan2.2-t2v-14b_1.mp4" type="video/mp4">
 </video>
 
-Autoregressive text-to-video based on Wan 2.2 from FastVideo.
+> Autoregressive text-to-video based on Wan 2.2 from FastVideo.
+
+<hr>
 
 ### [LingBot-World](lingbot_world.md)
 
@@ -61,12 +73,11 @@ Autoregressive text-to-video based on Wan 2.2 from FastVideo.
   <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
     <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-fast-01.mp4" type="video/mp4">
   </video>
-  <video class="fd-card-video-pip" autoplay muted loop playsinline preload="metadata">
-    <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-traj-01.mp4" type="video/mp4">
-  </video>
 </div>
 
-Camera-controllable image-to-video world model.
+> Camera-controllable image-to-video world model.
+
+<hr>
 
 ### [Waypoint 1.5](waypoint.md)
 
@@ -74,7 +85,9 @@ Camera-controllable image-to-video world model.
   <source src="https://huggingface.co/Overworld/Waypoint-1.5-1B/resolve/main/assets/wp_1.5.mp4" type="video/mp4">
 </video>
 
-Interactive image-established world model controlled by keyboard and mouse.
+> Interactive image-established world model controlled by keyboard and mouse.
+
+<hr>
 
 ### [HY-WorldPlay](hy_worldplay.md)
 
@@ -82,15 +95,16 @@ Interactive image-established world model controlled by keyboard and mouse.
   <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-hero.mp4" type="video/mp4">
 </video>
 
-Action- and camera-controllable image-to-video world model.
+> Action- and camera-controllable image-to-video world model.
+
+<hr>
 
 ### [SANA-WM](sana_wm_streaming.md)
 
 <img alt="SANA-WM streaming FlashDreams sample clip." src="../_static/model_clips/sana_wm/sana-wm-streaming.avif" />
-Camera-controlled world model with streaming and full-sequence bidirectional
-pipeline variants.
+> Bidirectional & streaming video generation capable world model that is camera-controlled.
 
-Bidirectional Video Generation
+<hr>
 
 ### [Wan 2.1](wan21.md)
 
@@ -98,14 +112,19 @@ Bidirectional Video Generation
   <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/wan21/wan21-t2v-1.3b-480p.mp4" type="video/mp4">
 </video>
 
-Bidirectional video generation model that supports both
-text-to-video and image-to-video.
+> Bidirectional video generation model that supports both text-to-video and image-to-video.
+
+<hr>
 
 ### [Wan 2.2 TI2V-5B](wan22.md)
 
-<img alt="A cat surfing, generated by Wan 2.2 TI2V-5B through FlashDreams." src="../_static/model_clips/wan22/wan22-ti2v-5b.png" />
+<video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
+  <source src="../_static/model_clips/wan22/wan22-ti2v-5b.mp4" type="video/mp4">
+</video>
 
-Bidirectional text-and-image-to-video generation in one full-clip rollout.
+> Bidirectional text-and-image-to-video generation in one full-clip rollout.
+
+<hr>
 
 ### [Cosmos-Predict2.5](cosmos_predict2.md)
 
@@ -113,9 +132,9 @@ Bidirectional text-and-image-to-video generation in one full-clip rollout.
   <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/cosmos_predict2/cosmos2-t2v-2b-720p.mp4" type="video/mp4">
 </video>
 
-Bidirectional Cosmos-Predict2 reference implementations (T2V / I2V, 2B).
+> Bidirectional Cosmos-Predict2 reference implementations (T2V / I2V, 2B).
 
-Super-resolution
+<hr>
 
 ### [FlashVSR](flashvsr.md)
 
@@ -123,23 +142,21 @@ Super-resolution
   <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/flashvsr/flashvsr-v1.1-sparse-ratio-2.0.mp4" type="video/mp4">
 </video>
 
-Streaming video super-resolution.
+> Streaming video super-resolution.
+
+<hr>
 
 ### [SwiftVR](swiftvr.md)
 
-<img alt="A 2x restored cat-surfing frame produced by SwiftVR through FlashDreams." src="../_static/model_clips/swiftvr/swiftvr-2x.png" />
+<video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
+  <source src="../_static/model_clips/swiftvr/swiftvr-2x.mp4" type="video/mp4">
+</video>
 
-Real-time one-step streaming video restoration with 2x and 4x presets.
+> Realtime (an run via one step) capable super-resolution with 2x and 4x presets.
 
-## Running a model yourself
+<hr>
 
-Follow the selected model card for its supported command. Current public model
-applications use `flashdreams-run-v2 <APPLICATION_SLUG>`; the
-[CLI reference](../api/cli.md) explains runtime modes and the `--` separator.
-The [v2 integration reference](../repository/integrations_v2/README.md) lists
-every registered package.
-
-### Adding your own model
+## Adding your own model
 
 See [/developer_guides/new_integration](../developer_guides/new_integration.md) for model integration and registration
 guidance.
@@ -147,9 +164,9 @@ guidance.
 ## Related
 
 - Follow the [/quickstart/index](../quickstart/index.md) for the shortest path to
-  running these methods on your own hardware.
+  running a model on your own hardware.
 - The [/developer_guides/index](../developer_guides/index.md) cover the architecture behind the
-  methods you can run today.
-- [/community/index](../community/index.md) lists the channels to use if a method on
+  models you can run today.
+- [/community/index](../community/index.md) lists the channels to use if a process on
   this page does not run on your hardware.
 - Browse the source on GitHub at [NVIDIA/flashdreams](https://github.com/NVIDIA/flashdreams).

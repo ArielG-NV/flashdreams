@@ -253,3 +253,26 @@
     grid-template-columns: 1fr;
   }
 }
+
+
+.transparent-section {
+  border: 1px solid var(--fd-border);
+  border-radius: 0.875rem;
+  border-style: solid;
+  background-color: transparent;
+  padding: 20px;             /* Adds breathing room inside the block */
+  border-radius: 20px;        /* Optional: softens the edges */
+  
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+.grey-section {
+  border: 1px solid var(--fd-border);
+  border-radius: 0.875rem;
+  background-color: #f0f0f0; /* Choose your preferred shade of grey */
+  padding: 20px;             /* Adds breathing room inside the grey block */
+  border-radius: 20px;        /* Optional: softens the edges */
+
+  margin-top: 10px;
+  margin-bottom: 10px;
+}

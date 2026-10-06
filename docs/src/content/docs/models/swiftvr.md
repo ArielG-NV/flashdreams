@@ -16,11 +16,16 @@ mask-free shifted-window attention with a restoration-aware autoencoder for
 causal chunk-wise inference. FlashDreams provides 2x and 4x post-processing
 presets and the standalone `v2v-swiftvr` application.
 
-<img alt="A 2x restored cat-surfing frame produced by SwiftVR through FlashDreams." src="../_static/model_clips/swiftvr/swiftvr-2x.png" />
+<div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
+  <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
+    <source src="../_static/model_clips/swiftvr/swiftvr-2x.mp4" type="video/mp4">
+    Your browser does not support the video tag.
+  </video>
+</div>
 
 <p class="model-footnote">
-  FlashDreams SwiftVR 2x output at 1280x640. The input was an eight-frame,
-  640x320 clip derived from the Wan 2.2 sample on this site.
+  FlashDreams SwiftVR 2x output at 2560x1280. The input was the complete
+  81-frame, 1280x640 Wan 2.2 sample on this site.
 </p>
 
 ## Run with FlashDreams
@@ -31,7 +36,7 @@ From the repository root:
 uv sync --package flashdreams-swiftvr --inexact
 uv run --no-sync flashdreams-run-v2 v2v-swiftvr \
   --mode mp4 --output-path artifacts/swiftvr-2x.mp4 -- \
-  --video-path input.mp4 --max-chunks 1
+  --video-path docs/src/content/docs/_static/model_clips/wan22/wan22-ti2v-5b.mp4
 ```
 
 ## Developer details

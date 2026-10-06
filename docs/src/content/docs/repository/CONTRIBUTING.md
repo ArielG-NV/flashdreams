@@ -333,7 +333,6 @@ links.
 Run these commands from the repository root:
 
 ```bash
-
 python tools/check_docs_layout.py
 uv run --only-group docs zensical build -f docs/zensical.toml
 uv run --only-group docs zensical serve -f docs/zensical.toml
