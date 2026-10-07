@@ -21,9 +21,12 @@ release, exposed as a programmatic pipeline configuration.
 
 <img alt="SANA-WM bidirectional FlashDreams sample clip." src="../_static/model_clips/sana_wm/sana-wm-bidirectional.avif" />
 
-## Run with FlashDreams
+<div class="transparent-section" markdown>
+## Quick Start
 
-From the repository root:
+
+
+### Cam2V
 
 ```bash
 uv sync --package flashdreams-sana-wm --inexact
@@ -31,23 +34,37 @@ uv run --no-sync flashdreams-run-v2 cam2v-sana-wm-streaming \
   --mode webrtc --host 0.0.0.0 --port 8089 -- --example-data
 ```
 
-## Developer details
+- [Demo presets](#cam2v-presets)
+- [Demo arguments](../demos/cam2v.md#demo-arguments)
 
-[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/sana_wm) · [Pipeline configuration](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/sana_wm/config.py) · [Application guide](../repository/integrations_v2/sana_wm/apps/cam2v/README.md) · [Tests](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/sana_wm/tests)
+</div>
 
-### Configurations and behavior
+<div class="grey-section" markdown>
+## Demo Presets
 
-The application uses the checkpoint resolution of 1280x704 and ten 24-frame blocks by default. Use `--total-blocks` after `--` to change the rollout length. `--example-data` downloads the official first frame and prompt; explicit inputs override them.
+<a id="cam2v-presets"></a>
 
-### Requirements
+### Cam2V
 
-- **PyTorch**: >= 2.9.
-- **Precision**: BF16 by default. FP8 Stage-1/refiner inference is available on
+| Preset | Description |
+| --- | --- |
+| `cam2v-sana-wm-streaming` | Chunk-causal SANA-WM at 1280 x 704 with ten 24-frame blocks by default. |
+
+</div>
+
+<hr>
+
+## Developer Details
+
+[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/sana_wm) · [Pipeline configurations](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/sana_wm/config.py)
+
+- **PyTorch:** 2.9 or newer.
+- **Precision:** BF16 by default. FP8 Stage-1/refiner inference is available on
   Hopper or newer GPUs (`sm_90+`), and FP4 is available on Blackwell
   (`sm_100+`). These upstream precision flags belong to
   `SANA-WM_streaming`.
 
-### Profiling benchmark
+## Performance (Outdated)
 
 The charts below compare steady-state generation latency per produced chunk for
 FlashDreams `SANA-WM_streaming` and the official `SANA-WM_streaming`
@@ -68,11 +85,9 @@ model authors.
      data-benchmark-series="official:Official Impl:#3b82f6;flashdreams:FlashDreams:#76B900"
      data-chart-aria-label="SANA-WM streaming BF16 benchmark chart"
    ></div>
-   <figcaption>
-     <p class="model-footnote">
-       BF16 steady-state milliseconds per produced chunk on one NVIDIA GB300 GPU:
-       official 1,170.29 ms, FlashDreams 1,957.93 ms.
-     </p>
+   <figcaption class="tiny-figcaption">
+      BF16 steady-state milliseconds per produced chunk on one NVIDIA GB300 GPU:
+      official 1,170.29 ms, FlashDreams 1,957.93 ms.
    </figcaption>
  </figure>
 
@@ -84,11 +99,9 @@ model authors.
      data-benchmark-series="official:Official Impl:#3b82f6;flashdreams:FlashDreams:#76B900"
      data-chart-aria-label="SANA-WM streaming FP8 benchmark chart"
    ></div>
-   <figcaption>
-     <p class="model-footnote">
-       FP8 steady-state milliseconds per produced chunk on one NVIDIA GB300 GPU:
-       official 1,482.92 ms, FlashDreams 2,392.67 ms.
-     </p>
+   <figcaption class="tiny-figcaption">
+      FP8 steady-state milliseconds per produced chunk on one NVIDIA GB300 GPU:
+      official 1,482.92 ms, FlashDreams 2,392.67 ms.
    </figcaption>
  </figure>
 
@@ -100,11 +113,9 @@ model authors.
      data-benchmark-series="official:Official Impl:#3b82f6;flashdreams:FlashDreams:#76B900"
      data-chart-aria-label="SANA-WM streaming FP4 benchmark chart"
    ></div>
-   <figcaption>
-     <p class="model-footnote">
-       FP4 steady-state milliseconds per produced chunk on one NVIDIA GB300 GPU:
-       official 1,594.33 ms, FlashDreams 4,118.36 ms.
-     </p>
+   <figcaption class="tiny-figcaption">
+      FP4 steady-state milliseconds per produced chunk on one NVIDIA GB300 GPU:
+      official 1,594.33 ms, FlashDreams 4,118.36 ms.
    </figcaption>
  </figure>
 <script src="../_static/js/benchmark_chart.js"></script>
@@ -153,20 +164,18 @@ model authors.
      data-benchmark-series="official:Official Impl:#3b82f6;flashdreams:FlashDreams:#76B900"
      data-chart-aria-label="SANA-WM bidirectional BF16 benchmark chart"
    ></div>
-   <figcaption>
-     <p class="model-footnote">
+   <figcaption class="tiny-figcaption">
        This chart shows steady-state in-process generation latency per generated clip in milliseconds for a
        121-frame full-pipeline BF16 run (Stage-1 DiT + LTX-2 refiner + SANA VAE decode).
        The measured row used one NVIDIA GB300 GPU, one live warmup generation,
        and three measured generations.
        Model construction, checkpoint loading, video writing, and frame dumps are outside the timing boundary.
        The benchmark runs recorded FlashDreams commit bd0816e and upstream commit 6298508.
-     </p>
    </figcaption>
  </figure>
 <script src="../_static/js/benchmark_chart.js"></script>
 
-### Citation
+## Citation
 
 If you use SANA-WM, please cite the original SANA work:
 

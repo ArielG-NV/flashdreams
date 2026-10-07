@@ -274,5 +274,5 @@ remains the reference for that retained API.
   line that does it.
 - [Writing an integration](../../../integrations_v2/README.md) - the checklist
   for a new application.
-- [apps/t2v](../../../apps/t2v/README.md) - the text-to-video API built on
-  these protocols, and how to add a model to it.
+- [T2V](../../../../demos/t2v.md) - the shared text-to-video demo built on
+  these protocols.

@@ -1,1 +1,1 @@
-[FlashDreams Cam2V application](../../docs/src/content/docs/repository/apps/cam2v/README.md#flashdreams-cam2v-application)
+[Cam2V](../../docs/src/content/docs/demos/cam2v.md#cam2v)

@@ -17,14 +17,17 @@ gap, and a tiny conditional decoder for fast reconstruction.
 
 ![FlashVSR teaser figure.](https://github.com/OpenImagingLab/FlashVSR/raw/main/examples/WanVSR/assets/teaser.png)
 
-<p class="model-footnote">
+<figcaption class="tiny-figcaption">
   Teaser image source:
   <a href="https://github.com/OpenImagingLab/FlashVSR">FlashVSR official repository</a>.
-</p>
+</figcaption>
 
-## Run with FlashDreams
+<div class="transparent-section" markdown>
+## Quick Start
 
-From the repository root:
+
+
+### V2V
 
 ```bash
 uv sync --package flashdreams-flashvsr --inexact
@@ -33,48 +36,47 @@ uv run --no-sync flashdreams-run-v2 \
   --output-path artifacts/flashvsr.mp4 -- --video-path input.mp4
 ```
 
-## Developer details
+- [Demo presets](#v2v-presets)
+- [Demo arguments](../demos/v2v.md#demo-arguments)
 
-[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/flashvsr) · [Pipeline configuration](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/flashvsr/config.py) · [Application guide](../repository/integrations_v2/flashvsr/apps/v2v/README.md) · [Tests](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/flashvsr/tests)
-
-### Configurations and behavior
-
-Omit `--video-path` to download and process the bounded Big Buck Bunny fallback.
-
-Available configurations:
-
-| Method | Description |
-| --- | --- |
-| `v2v-flashvsr-v1.1-sparse-ratio-2.0` | Streaming 2x video super-resolution with the stable sparse-attention preset. |
-| `v2v-flashvsr-v1.1-sparse-ratio-1.5` | Streaming 2x video super-resolution with the faster sparse-attention preset. |
-| `v2v-flashvsr-v1.1-full-attn` | Dense full-attention preset with multi-GPU context-parallel support. |
-
-A generated sample from the above commands:
-
-<div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
-  <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-    <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/flashvsr/flashvsr-v1.1-sparse-ratio-2.0.mp4" type="video/mp4">
-    Your browser does not support the video tag.
-  </video>
-  <video autoplay muted loop playsinline preload="metadata" style="position: absolute; left: 10px; bottom: 10px; width: 50%; border: 2px solid rgba(255, 255, 255, 0.9); border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); pointer-events: none;">
-    <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/flashvsr/example1.mp4" type="video/mp4">
-    Your browser does not support the video tag.
-  </video>
-  <div class="model-video-overlay">
-    FlashVSR 2x output (1280x768) from <code>flashvsr-v1.1-sparse-ratio-2.0</code>;
-    low-resolution input (672x384) inset at bottom-left.
-    Input from the
-    <a href="https://github.com/OpenImagingLab/FlashVSR/tree/main/examples/WanVSR/inputs">FlashVSR examples</a>.
-  </div>
 </div>
 
-### Requirements
+<div class="grey-section" markdown>
+## Demo Presets
 
-- **Minimum VRAM**: ~24 GB.
-- **Python**: >= 3.10.
-- **PyTorch**: >= 2.9.
+<a id="v2v-presets"></a>
 
-### Profiling benchmark
+### V2V
+
+| Preset | Description |
+| --- | --- |
+| `v2v-flashvsr-v1.1-sparse-ratio-2.0` | Stable sparse-attention 2x video super-resolution. |
+| `v2v-flashvsr-v1.1-sparse-ratio-1.5` | Faster sparse-attention 2x video super-resolution. |
+| `v2v-flashvsr-v1.1-full-attn` | Dense full attention with multi-GPU context-parallel support. |
+
+</div>
+
+<hr>
+
+## Developer Details
+
+[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/flashvsr) · [Pipeline configurations](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/flashvsr/config.py)
+
+- **Minimum VRAM:** about 24 GB.
+- **Python:** 3.10 or newer.
+- **PyTorch:** 2.9 or newer.
+
+### Post-processing presets
+
+Use when interfacing with `--post-processing` commandline argument:
+
+| Preset | Description |
+| --- | --- |
+| `flashvsr-v1.1-sparse-2.0` | N/A |
+| `flashvsr-v1.1-sparse-1.5` | N/A |
+| `flashvsr-v1.1-full-attn` | N/A |
+
+## Performance (Outdated)
 
 This historical benchmark compares per-chunk 2x upsampling time for FlashDreams
 FlashVSR with the [official FlashVSR implementation](https://github.com/OpenImagingLab/FlashVSR)
@@ -88,18 +90,35 @@ under matched settings.
     data-benchmark-series="official:Official Impl:#3b82f6;flashdreams:FlashDreams:#76B900"
     data-chart-aria-label="FlashVSR benchmark chart"
   ></div>
-  <figcaption>
-    <p class="model-footnote">
+  <figcaption class="tiny-figcaption">
       This chart records per-chunk 2x upsampling time in milliseconds on a single GB200 GPU with a chunk size of 8 frames.
       The current v2 application presets use 16-frame steady-state chunks, so these historical measurements are not timings of the current defaults.
       For the official FlashVSR implementation, see
       <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/flashvsr/tests/parity_check">this instruction</a>.
-    </p>
-  </figcaption>
+    </figcaption>
 </figure>
 <script src="../_static/js/benchmark_chart.js"></script>
 
-### Citation
+## Samples
+
+<div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
+  <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
+    <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/flashvsr/flashvsr-v1.1-sparse-ratio-2.0.mp4" type="video/mp4">
+    Your browser does not support the video tag.
+  </video>
+  <video autoplay muted loop playsinline preload="metadata" style="position: absolute; left: 10px; bottom: 10px; width: 50%; border: 2px solid rgba(255, 255, 255, 0.9); border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); pointer-events: none;">
+    <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/flashvsr/example1.mp4" type="video/mp4">
+    Your browser does not support the video tag.
+  </video>
+  <figcaption class="tiny-figcaption">
+    FlashVSR 2x output (1280x768) from <code>flashvsr-v1.1-sparse-ratio-2.0</code>;
+    low-resolution input (672x384) inset at bottom-left.
+    Input from the
+    <a href="https://github.com/OpenImagingLab/FlashVSR/tree/main/examples/WanVSR/inputs">FlashVSR examples</a>.
+  </figcaption>
+</div>
+
+## Citation
 
 If you use FlashVSR, please cite the original work:
 

@@ -23,14 +23,17 @@ presets and the standalone `v2v-swiftvr` application.
   </video>
 </div>
 
-<p class="model-footnote">
+<figcaption class="tiny-figcaption">
   FlashDreams SwiftVR 2x output at 2560x1280. The input was the complete
   81-frame, 1280x640 Wan 2.2 sample on this site.
-</p>
+</figcaption>
 
-## Run with FlashDreams
+<div class="transparent-section" markdown>
+## Quick Start
 
-From the repository root:
+
+
+### V2V
 
 ```bash
 uv sync --package flashdreams-swiftvr --inexact
@@ -39,13 +42,38 @@ uv run --no-sync flashdreams-run-v2 v2v-swiftvr \
   --video-path docs/src/content/docs/_static/model_clips/wan22/wan22-ti2v-5b.mp4
 ```
 
-## Developer details
+- [Demo presets](#v2v-presets)
+- [Demo arguments](../demos/v2v.md#demo-arguments)
 
-[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/swiftvr) · [Pipeline configuration](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/swiftvr/config.py) · [Application guide](../repository/integrations_v2/swiftvr/apps/v2v/README.md) · [Tests](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/swiftvr/tests)
+</div>
 
-### Configurations and behavior
+<div class="grey-section" markdown>
+## Demo Presets
 
-The registered post-processing presets are:
+<a id="v2v-presets"></a>
+
+### V2V
+
+| Preset | Description |
+| --- | --- |
+| `v2v-swiftvr` | SwiftVR 2x streaming video restoration. |
+
+</div>
+
+<hr>
+
+## Developer Details
+
+[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/swiftvr) · [Pipeline configurations](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/swiftvr/config.py)
+
+- **GPU:** One CUDA-capable NVIDIA GPU.
+- **Python:** 3.10 or newer.
+- **PyTorch:** 2.9 or newer.
+- **FFmpeg:** Required for MP4 input and output.
+
+### Post-processing presets
+
+Use when interfacing with `--post-processing` commandline argument:
 
 | Preset | Description |
 | --- | --- |
@@ -53,14 +81,7 @@ The registered post-processing presets are:
 | `swiftvr-2x-compiled` | Compiled 2x restoration for long-running streams. |
 | `swiftvr-4x` | Eager 4x restoration. |
 
-### Requirements
-
-- **GPU**: One CUDA-capable NVIDIA GPU.
-- **Python**: >= 3.10.
-- **PyTorch**: >= 2.9.
-- **FFmpeg**: Required for MP4 input and output.
-
-### Citation
+## Citation
 
 If you use SwiftVR, please cite the original work:
 

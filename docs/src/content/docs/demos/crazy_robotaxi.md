@@ -13,16 +13,73 @@ keyboard, gamepad, or steering wheel.
 
 **Models With Demo Implementation:** [OmniDreams](../models/omnidreams.md#crazy-robotaxi)
 
+<a id="apps-crazyrobotaxi-readme--controls"></a>
+
+## Controls
+
+Open **CONTROLS** from the mode menu, then choose **KEYBOARD**, **GAMEPAD**, or
+**WHEEL**. Each gameplay action has primary and secondary binding slots. Select
+a slot and press the desired key or device control. `Escape` is a valid keyboard
+binding. `Backspace`, `Delete`, or **CLEAR** unbinds the slot, while **CANCEL**
+stops capture without changing it. Reusing an existing binding swaps it with the
+previous slot. **SAVE** writes the current device without leaving its page, and
+**RESET TO DEFAULTS** affects only that device.
+
+Bindings are stored as three independent sparse YAML documents under
+`$XDG_CONFIG_HOME/crazy-robotaxi/controls/`, or
+`~/.config/crazy-robotaxi/controls/` when `XDG_CONFIG_HOME` is unset:
+`keyboard.yaml`, `gamepad.yaml`, and `wheel.yaml`. Use the CLI-only
+`--controls-dir PATH` option to select another directory. Control changes take
+effect after restarting the current application process.
+
+<a id="apps-crazyrobotaxi-readme--keyboard"></a>
+
+### Keyboard
+
+| Control | Action |
+| --- | --- |
+| `W` or Up Arrow | Drive forward |
+| `S` or Down Arrow | Brake, then reverse after stopping |
+| `A` or Left Arrow | Steer left |
+| `D` or Right Arrow | Steer right |
+| `Space` | Apply the handbrake and cancel throttle |
+| `R` | Restart the current game |
+| `H` | Hide or show the HUD control tooltips |
+| `M` | Toggle the model&#x27;s HD-map conditioning view |
+| `Escape` | Return to the previous menu, then exit from the mode screen; also the default gameplay return-to-menu binding |
+| `Enter` | Submit the focused leaderboard name (fixed) |
+
+Menu choices and leaderboard buttons can also be clicked with the mouse.
+
+<a id="apps-crazyrobotaxi-readme--controller"></a>
+
+### Controller
+
+The Gamepad Controls screen uses one button-label convention at a time. Set
+`game.gamepad_button_style` to `Xbox`, `PlayStation`, or `Nintendo Switch` in
+the Options screen or user-authored settings YAML. Xbox labels are the default.
+
+| Control | Action |
+| --- | --- |
+| Left stick | Steer |
+| Right trigger (`RT` by default) | Throttle |
+| Left trigger (`LT` by default) | Brake, then reverse after stopping |
+| Menu button | Restart the current game |
+| Steering wheel and pedals | Use normalized steering, throttle, and brake input |
+
+A connected gamepad or wheel takes precedence over keyboard driving input.
+Menu navigation remains mouse and keyboard controlled. Gamepad and wheel
+handbrake, control-hint, HD-map, and live-edit actions are supported. The
+gamepad supplies default bindings for them; the wheel leaves them unbound by
+default. Wheel bindings use the semantic steering, throttle, brake, clutch, and
+button values supplied by the runtime; physical device calibration remains a
+runtime concern.
+
 <a id="apps-crazyrobotaxi-readme--application-arguments"></a>
 
-## Application arguments
+## Demo Arguments
 
-Application arguments follow the runtime's `--` separator. Inspect the exact
-arguments and defaults for an installed demo-model slug with:
-
-```bash
-uv run flashdreams-run-v2 DEMO_MODEL_SLUG -- --help
-```
+ 
 
 | Argument | Description |
 | --- | --- |
@@ -103,68 +160,6 @@ appear in the YAML or Options screen. Passing `--game-mode`, `--map`, and
 remain in the normal menu flow. Model diffusion and gameplay seeds are
 independent. Selecting mystery items automatically enables style editing, while
 rain or snow items automatically enable weather editing.
-
-<a id="apps-crazyrobotaxi-readme--controls"></a>
-
-## Controls
-
-Open **CONTROLS** from the mode menu, then choose **KEYBOARD**, **GAMEPAD**, or
-**WHEEL**. Each gameplay action has primary and secondary binding slots. Select
-a slot and press the desired key or device control. `Escape` is a valid keyboard
-binding. `Backspace`, `Delete`, or **CLEAR** unbinds the slot, while **CANCEL**
-stops capture without changing it. Reusing an existing binding swaps it with the
-previous slot. **SAVE** writes the current device without leaving its page, and
-**RESET TO DEFAULTS** affects only that device.
-
-Bindings are stored as three independent sparse YAML documents under
-`$XDG_CONFIG_HOME/crazy-robotaxi/controls/`, or
-`~/.config/crazy-robotaxi/controls/` when `XDG_CONFIG_HOME` is unset:
-`keyboard.yaml`, `gamepad.yaml`, and `wheel.yaml`. Use the CLI-only
-`--controls-dir PATH` option to select another directory. Control changes take
-effect after restarting the current application process.
-
-<a id="apps-crazyrobotaxi-readme--keyboard"></a>
-
-### Keyboard
-
-| Control | Action |
-| --- | --- |
-| `W` or Up Arrow | Drive forward |
-| `S` or Down Arrow | Brake, then reverse after stopping |
-| `A` or Left Arrow | Steer left |
-| `D` or Right Arrow | Steer right |
-| `Space` | Apply the handbrake and cancel throttle |
-| `R` | Restart the current game |
-| `H` | Hide or show the HUD control tooltips |
-| `M` | Toggle the model&#x27;s HD-map conditioning view |
-| `Escape` | Return to the previous menu, then exit from the mode screen; also the default gameplay return-to-menu binding |
-| `Enter` | Submit the focused leaderboard name (fixed) |
-
-Menu choices and leaderboard buttons can also be clicked with the mouse.
-
-<a id="apps-crazyrobotaxi-readme--controller"></a>
-
-### Controller
-
-The Gamepad Controls screen uses one button-label convention at a time. Set
-`game.gamepad_button_style` to `Xbox`, `PlayStation`, or `Nintendo Switch` in
-the Options screen or user-authored settings YAML. Xbox labels are the default.
-
-| Control | Action |
-| --- | --- |
-| Left stick | Steer |
-| Right trigger (`RT` by default) | Throttle |
-| Left trigger (`LT` by default) | Brake, then reverse after stopping |
-| Menu button | Restart the current game |
-| Steering wheel and pedals | Use normalized steering, throttle, and brake input |
-
-A connected gamepad or wheel takes precedence over keyboard driving input.
-Menu navigation remains mouse and keyboard controlled. Gamepad and wheel
-handbrake, control-hint, HD-map, and live-edit actions are supported. The
-gamepad supplies default bindings for them; the wheel leaves them unbound by
-default. Wheel bindings use the semantic steering, throttle, brake, clutch, and
-button values supplied by the runtime; physical device calibration remains a
-runtime concern.
 
 <a id="apps-crazyrobotaxi-readme--race-mode"></a>
 

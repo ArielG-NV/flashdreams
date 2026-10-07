@@ -11,20 +11,22 @@ Model cards identify currently supported models.
 
 ## Running a model
 
-Follow a selected model card for a quickstart guide to running a model.
-
-All models run via our CLI command
-
+All models run via our `flashdreams-run-v2` CLI command
 ```bash
+cd flashdreams
+
+# Almost all models download their own model weights from Hugging Face, please set `HF_TOKEN` to avoid rate limiting.
+export HF_TOKEN=<your-hugging-face-token>
+
 uv run flashdreams-run-v2 <Demo Preset> <System Arguments> -- <Demo Arguments>
 ```
 
-This is broken down into three parts:
-- `<Demo Preset>` is a preset that contains the model to run with a demo. Refer to a model-card below.
+- `<Demo Preset>` is a preset that contains the model to run with a demo. Refer to a model-overviews below.
 
 - `<System Arguments>` are arguments that apply to all `flashdreams-run-v2` demos, reference is here: [System arguments](../documentation/cli.md#system-arguments).
 
-- `<Demo Arguments>` are arguments that apply to a particular demo. Refer to a particular [demo-card](../demos/index.md).
+- `<Demo Arguments>` are arguments that apply to a particular demo. Refer to a particular [demo overview](../demos/index.md).
+
 
 
 ## Available models
@@ -45,7 +47,9 @@ The models come in three flavors:
   <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.mp4" type="video/mp4">
 </video>
 
-> Interactive world simulator for autonomous vehicles.
+<figcaption>
+  Interactive world simulator for autonomous vehicles.
+</figcaption>
 
 <hr>
 
@@ -55,7 +59,9 @@ The models come in three flavors:
   <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/self_forcing/self-forcing-wan2.1-t2v-1.3b-flash_1.mp4" type="video/mp4">
 </video>
 
-> Autoregressive text-to-video based on Wan 2.1.
+<figcaption>
+  Autoregressive text-to-video based on Wan 2.1.
+</figcaption>
 
 <hr>
 
@@ -65,7 +71,9 @@ The models come in three flavors:
   <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/causal_forcing/causal-forcing-wan2.1-t2v-1.3b-framewise.mp4" type="video/mp4">
 </video>
 
-> Autoregressive text/image-to-video based on Wan 2.1.
+<figcaption>
+  Autoregressive text/image-to-video based on Wan 2.1.
+</figcaption>
 
 <hr>
 
@@ -75,7 +83,9 @@ The models come in three flavors:
   <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/causal_wan22/fastvideo-causal-wan2.2-t2v-14b_1.mp4" type="video/mp4">
 </video>
 
-> Autoregressive text-to-video based on Wan 2.2 from FastVideo.
+<figcaption>
+  Autoregressive text-to-video based on Wan 2.2 from FastVideo.
+</figcaption>
 
 <hr>
 
@@ -87,7 +97,9 @@ The models come in three flavors:
   </video>
 </div>
 
-> Camera-controllable image-to-video world model.
+<figcaption>
+  Camera-controllable image-to-video world model.
+</figcaption>
 
 <hr>
 
@@ -97,24 +109,30 @@ The models come in three flavors:
   <source src="https://huggingface.co/Overworld/Waypoint-1.5-1B/resolve/main/assets/wp_1.5.mp4" type="video/mp4">
 </video>
 
-> Interactive image-established world model controlled by keyboard and mouse.
+<figcaption>
+  Interactive image-established world model controlled by keyboard and mouse.
+</figcaption>
 
 <hr>
 
 ### [HY-WorldPlay](hy_worldplay.md)
 
 <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
-  <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-hero.mp4" type="video/mp4">
+  <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-wan-i2v-5b-2.mp4" type="video/mp4">
 </video>
 
-> Action- and camera-controllable image-to-video world model.
+<figcaption>
+  Action- and camera-controllable image-to-video world model.
+</figcaption>
 
 <hr>
 
 ### [SANA-WM](sana_wm_streaming.md)
 
 <img alt="SANA-WM streaming FlashDreams sample clip." src="../_static/model_clips/sana_wm/sana-wm-streaming.avif" />
-> Bidirectional & streaming video generation capable world model that is camera-controlled.
+<figcaption>
+  Bidirectional & streaming video generation capable world model that is camera-controlled.
+</figcaption>
 
 <hr>
 
@@ -124,7 +142,9 @@ The models come in three flavors:
   <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/wan21/wan21-t2v-1.3b-480p.mp4" type="video/mp4">
 </video>
 
-> Bidirectional video generation model that supports both text-to-video and image-to-video.
+<figcaption>
+  Bidirectional video generation model that supports both text-to-video and image-to-video.
+</figcaption>
 
 <hr>
 
@@ -134,7 +154,9 @@ The models come in three flavors:
   <source src="../_static/model_clips/wan22/wan22-ti2v-5b.mp4" type="video/mp4">
 </video>
 
-> Bidirectional text-and-image-to-video generation in one full-clip rollout.
+<figcaption>
+  Bidirectional text-and-image-to-video generation in one full-clip rollout.
+</figcaption>
 
 <hr>
 
@@ -144,7 +166,9 @@ The models come in three flavors:
   <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/cosmos_predict2/cosmos2-t2v-2b-720p.mp4" type="video/mp4">
 </video>
 
-> Bidirectional Cosmos-Predict2 reference implementations (T2V / I2V, 2B).
+<figcaption>
+  Bidirectional Cosmos-Predict2 reference implementations (T2V / I2V, 2B).
+</figcaption>
 
 <hr>
 
@@ -154,7 +178,9 @@ The models come in three flavors:
   <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/flashvsr/flashvsr-v1.1-sparse-ratio-2.0.mp4" type="video/mp4">
 </video>
 
-> Streaming video super-resolution.
+<figcaption>
+  Streaming video super-resolution.
+</figcaption>
 
 <hr>
 
@@ -164,7 +190,9 @@ The models come in three flavors:
   <source src="../_static/model_clips/swiftvr/swiftvr-2x.mp4" type="video/mp4">
 </video>
 
-> Realtime (an run via one step) capable super-resolution with 2x and 4x presets.
+<figcaption>
+  Realtime (an run via one step) capable super-resolution with 2x and 4x presets.
+</figcaption>
 
 <hr>
 

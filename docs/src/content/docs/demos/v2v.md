@@ -1,0 +1,57 @@
+---
+title: 'V2V'
+---
+
+<!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
+<a id="v2v"></a>
+
+V2V is a finite FlashDreams v2 video-to-video application. It restores or
+upscales a selected local or remote video and writes or streams the result.
+
+**Models With Demo Implementation:** [FlashVSR](../models/flashvsr.md#v2v) · [SwiftVR](../models/swiftvr.md#v2v)
+
+<a id="apps-v2v-readme--controls"></a>
+
+## Controls
+
+None. V2V is uninteractive and stops after the configured source-video chunks
+have been processed.
+
+<a id="apps-v2v-readme--application-arguments"></a>
+
+## Demo Arguments
+
+ 
+
+| Argument | Description |
+| --- | --- |
+| `--video-path PATH_OR_URL` | Select a local video or HTTP(S) URL. Omit it to use the bounded Big Buck Bunny default. |
+| `--max-chunks N` | Limit the number of source-video chunks to process. |
+
+For example, process a local input and write the result to MP4:
+
+```bash
+uv run flashdreams-run-v2 DEMO_MODEL_SLUG \
+  --output-path restored.mp4 -- --video-path input.mp4
+```
+
+Use `--mode webrtc` or `--mode native-window` instead of `--output-path` to
+watch the run live.
+
+## Demo media attribution
+
+[Big Buck Bunny](https://peach.blender.org/) is licensed under
+[CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). The demo downloads
+and processes an excerpt from the 854x480 H.264 encode at runtime; the source
+video is not redistributed in this repository.
+
+Copyright 2008, Blender Foundation / www.bigbuckbunny.org. See
+`THIRD-PARTY-NOTICES` for the complete disclosure.
+
+## Tests
+
+```bash
+uv run --package flashdreams-v2v --extra dev pytest apps/v2v -m ci_cpu -v
+```

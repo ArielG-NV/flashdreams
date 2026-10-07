@@ -254,7 +254,6 @@
   }
 }
 
-
 .transparent-section {
   border: 1px solid var(--fd-border);
   border-radius: 0.875rem;
@@ -275,4 +274,16 @@
 
   margin-top: 10px;
   margin-bottom: 10px;
+}
+
+.md-typeset figcaption {
+  width: 75%;
+  max-width: 75%;
+  text-align: center;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.md-typeset figcaption.tiny-figcaption {
+  font-size: 0.6rem;
 }

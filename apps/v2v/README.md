@@ -1,1 +1,1 @@
-[V2V](../../docs/src/content/docs/repository/apps/v2v/README.md#v2v)
+[V2V](../../docs/src/content/docs/demos/v2v.md#v2v)

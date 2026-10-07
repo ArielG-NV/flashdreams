@@ -21,15 +21,18 @@ per-action metrics and MP4, WebRTC, or native-window presentation.
     Your browser does not support the video tag.
   </video>
 </div>
-<p class="model-footnote">
+<figcaption class="tiny-figcaption">
   Upstream Waypoint 1.5 teaser from the
   <a href="https://huggingface.co/Overworld/Waypoint-1.5-1B">Overworld model card</a>;
   this is not a FlashDreams benchmark artifact.
-</p>
+</figcaption>
 
-## Run with FlashDreams
+<div class="transparent-section" markdown>
+## Quick Start
 
-From the repository root:
+
+
+### Action2V
 
 ```bash
 uv sync --package flashdreams-waypoint --inexact
@@ -38,76 +41,38 @@ uv run --no-sync flashdreams-run-v2 action2v-waypoint-1-5-1b \
   --example-data --seed 464
 ```
 
-## Developer details
+- [Demo presets](#action2v-presets)
+- [Demo arguments](../demos/action2v.md#demo-arguments)
 
-[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/waypoint) · [Pipeline configuration](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/waypoint/config.py) · [Application guide](../repository/integrations_v2/waypoint/apps/action2v/README.md) · [Tests](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/waypoint/tests)
+</div>
 
-### Configurations and behavior
+<div class="grey-section" markdown>
+## Demo Presets
 
-Open <http://127.0.0.1:8766/>. `--example-data` downloads the pinned public first frame; use `--image-path PATH` to establish another world. One of those inputs is required.
+<a id="action2v-presets"></a>
 
-### Support summary
+### Action2V
 
-| Surface | FlashDreams support |
+| Preset | Description |
 | --- | --- |
-| Application slug | action2v-waypoint-1-5-1b through flashdreams-run-v2 |
-| Input modalities | RGB/RGBA first-frame image; keyboard and mouse buttons; relative mouse motion; ternary scroll-wheel direction |
-| Output modality | Four RGB frames per action, native 1024x512 TCHW in the [-1, 1] range |
-| Control modes | Live browser or native-window keyboard and mouse events |
-| Output modes | WebRTC, native window, MP4, and optional per-action metrics |
-| Precision and device | BF16 on CUDA; no FlashDreams quantized or CPU inference path |
-| Not implemented | Text prompting, the 360P checkpoint, quantization, and multi-GPU execution |
+| `action2v-waypoint-1-5-1b` | Waypoint 1.5 1B with image-established keyboard and mouse control. |
 
-The checkpoint's pinned configuration sets prompt_conditioning to null.
-Although the generic upstream APIs accept prompts for other models, this
-checkpoint-compatible FlashDreams path has no text encoder or prompt-conditioned
-weights and deliberately exposes no prompt argument. In the upstream runtime,
-this configuration leaves the prompt encoder uninitialized and calling
-`set_prompt` raises. The pinned safetensors artifact contains 393 tensor keys,
-with no keys for prompt or cross-attention modules. Consequently, this model
-does not accept a text prompt that can influence its output.
+</div>
 
-### Requirements
+<hr>
 
-- A CUDA-capable NVIDIA GPU with BF16 and PyTorch FlexAttention support.
-- The FlashDreams path was validated on one NVIDIA RTX PRO 6000 Blackwell
-  Workstation Edition. The measured PyTorch peak allocation was 6.061 GiB, but
-  this is not a minimum-VRAM guarantee and excludes non-PyTorch process memory.
-- The first run downloads the 3.72 GB BF16 Waypoint safetensors file and the
-  separate Overworld-Models/taehv1_5 checkpoint into the Hugging Face cache.
-- ffmpeg on PATH is required for MP4 output.
+## Developer Details
 
-### Model and integration architecture
+[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/waypoint) · [Pipeline configurations](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/waypoint/config.py)
 
-The pinned checkpoint configuration and FlashDreams implementation agree on
-these model-facing invariants:
+- **GPU:** A CUDA-capable NVIDIA GPU with BF16 and PyTorch FlexAttention support.
+- **Validated hardware:** One NVIDIA RTX PRO 6000 Blackwell Workstation Edition.
+  The measured PyTorch peak allocation was 6.061 GiB, but this is not a
+  minimum-VRAM guarantee and excludes non-PyTorch process memory.
+- **Model downloads:** The 3.72 GB BF16 Waypoint safetensors file and separate
+  Overworld-Models/taehv1_5 checkpoint are cached on first run.
 
-- Dense 24-block autoregressive diffusion transformer, width 2048.
-- 32 query heads, 16 K/V heads, and a four-times-width feed-forward network.
-- One model action is a 32-channel, 32x64 latent frame patchified into 512
-  spatial tokens.
-- Four rectified-flow Euler evaluations at sigmas 1.0, 0.9, 0.75, and 0.3;
-  the terminal 0.0 evaluation commits clean cache state.
-- Control conditioning uses 256 button IDs, two mouse-delta values, and one
-  ternary wheel value. Control fusion is present every third block.
-- Most blocks retain 16 latent actions densely. Blocks 3, 7, 11, 15, 19, and
-  23 use a 128-action horizon with every eighth historical action pinned.
-- TAEHV encodes four seed RGB frames into one latent action and decodes every
-  generated latent action into four RGB frames.
-
-The 128-action global horizon corresponds to 512 presented RGB frames, matching
-the context length stated by the upstream model card. FlashDreams presents the
-codec's native 1024x512 canvas. The official world_engine client can instead
-resize 1280x720 input to that native canvas and resize decoded output back to
-1280x720; FlashDreams intentionally omits those extra spatial resamples.
-
-The upstream model card advertises a **1.2B parameter count**. Independently,
-the pinned model.safetensors header contains **1,860,823,096 BF16 tensor
-elements across 393 tensors** (3,721,694,304 bytes). These are different
-published-model versus serialized-checkpoint accounting figures; FlashDreams
-reports both rather than relabeling the upstream model.
-
-### Measured FlashDreams performance
+## Performance (Outdated)
 
 The final FlashDreams path was measured on 2026-08-26 using an RTX PRO 6000
 Blackwell Workstation Edition (96 GiB), driver 595.84, PyTorch 2.12.1+cu130,
@@ -151,40 +116,19 @@ gameplay or physical-accuracy score.
 
 [Complete validation record](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/waypoint/VALIDATION.md)
 
-### Intended use and limitations
+## Citation
 
-Waypoint is suitable for research and prototyping around interactive video
-worlds, creative exploration, control-conditioned generation, and low-latency
-world-model systems. It is a generative model, not a physically grounded
-simulator.
+If you use Waypoint-1.5, cite the original work:
 
-Important limitations:
-
-- Long rollouts can drift, collapse, or become inconsistent.
-- Geometry, motion, object identity, and persistence can be unstable.
-- Outputs may reflect biases or unsafe patterns learned from training data.
-- The FlashDreams integration has no content-safety filter of its own.
-- It is not appropriate for safety-critical decisions, surveillance,
-  high-stakes automation, or deployments that remove reasonable safeguards.
-- The current server accepts one WebRTC browser client per process. Multiple
-  sessions may share model weights, but model execution is serialized.
-- Live results depend on browser event timing and are not reproducible from the
-  application command line alone.
-
-Review the upstream model card and world-model safety discussion before
-deployment:
-
-[Upstream model card](https://huggingface.co/Overworld/Waypoint-1.5-1B)
-[Upstream safety discussion](https://over.world/blog/engineering-safety-for-interactive-world-models)
-
-### Provenance
-
-- Model: Overworld/Waypoint-1.5-1B, revision
-  391f92827075edcf4a8b3c8a2ddae010698f8636, Apache-2.0.
-- Model SHA-256:
-  b872ad07968bae082a120a29072e61a13565086f042384ad7fdb79a7b0c50994.
-- TAEHV: Overworld-Models/taehv1_5, revision
-  a0253886b13b9c4c3bd224bd479be03f5988a3df.
-- Official parity implementation: Overworldai/world_engine at
-  b3f1e725dedac17ccbfaf9ee37f5e068bb44bed4.
-- FlashDreams integration and documentation: Apache-2.0.
+```bibtex
+@misc{rajpal2026waypoint,
+  title         = {Waypoint-1.5: A Real-Time Video World Model for Consumer Hardware},
+  author        = {Rajpal, Rajit and Matiana, Shahbuland and {Liew Wei Pyn} and Agarwal, Anmol and Craig, Ryan and Lapp, Andrew and Hunsur, Mithun and BuGhanem, Sami and Fox, Scottie and Sanders, Aaron and Poole, Carson and Park, Irene and Rossi, David and Frazier, Spencer and Castricato, Louis},
+  year          = {2026},
+  eprint        = {2609.37107},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CV},
+  doi           = {10.48550/arXiv.2609.37107},
+  url           = {https://arxiv.org/abs/2609.37107},
+}
+```

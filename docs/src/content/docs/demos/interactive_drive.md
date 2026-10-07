@@ -80,17 +80,9 @@ supplied by an integration adapter.
 
 <a id="apps-interactivedrive-readme--application-arguments"></a>
 
-## Application arguments
+## Demo Arguments
 
-Application arguments follow the runtime's `--` separator. Inspect the exact
-arguments and defaults for an installed demo-model slug with:
-
-```bash
-uv run flashdreams-run-v2 DEMO_MODEL_SLUG -- --help
-```
-
-If `--scene` is omitted, the application downloads its configured default
-scene.
+ 
 
 | Argument | Description |
 | --- | --- |
@@ -112,13 +104,13 @@ scene.
 | `--world-model-seed N` | Pin the seed used for each rollout. |
 | `--world-model-debug-condition-frame-dir PATH` | Override first-chunk condition frames for debugging. |
 
-For example, use a local scene, select its rain variant, override its prompt,
+For example, use the default scene, select its rain variant, override its prompt,
 and enable RTX super resolution:
 
 ```bash
 
 uv run flashdreams-run-v2 DEMO_MODEL_SLUG --mode webrtc -- \
-    --scene scene.usdz --variant rain --prompt "A rainy night drive" \
+    --variant rain --prompt "A rainy night drive" \
     --game-mode --postprocess-preset rtx-super-resolution
 
 ```

@@ -17,10 +17,10 @@ inference and demo APIs are separate.
 
 ## Reuse an application
 
-Prefer an existing reusable application: [T2V](../repository/apps/t2v/README.md),
-[Cam2V](../repository/apps/cam2v/README.md),
-[Action2V](../repository/apps/action2v/README.md), or
-[V2V](../repository/apps/v2v/README.md). The application owns input, session,
+Prefer an existing reusable application: [T2V](../demos/t2v.md),
+[Cam2V](../demos/cam2v.md),
+[Action2V](../demos/action2v.md), or
+[V2V](../demos/v2v.md). The application owns input, session,
 loop, UI, and presentation behavior. The integration owns the model pipeline
 and a small adapter that supplies application defaults.
 

@@ -23,18 +23,21 @@ in one rollout. FlashDreams exposes it through the
   </video>
 </div>
 
-<p class="model-footnote">
+<figcaption class="tiny-figcaption">
   FlashDreams output for the prompt <em>A cat surfing</em>, conditioned on the
   bundled FastVideo Causal Wan 2.2 first frame.
-</p>
+</figcaption>
 
-## Run with FlashDreams
+<div class="transparent-section" markdown>
+## Quick Start
 
-From the repository root:
+
+
+### T2V
 
 ```bash
-uv sync --package flashdreams-wan22
-uv run --package flashdreams-wan22 flashdreams-run-v2 \
+uv sync --package flashdreams-wan22 --inexact
+uv run --no-sync flashdreams-run-v2 \
   t2v-wan22-ti2v-5b --mode mp4 \
   --output-path artifacts/wan22.mp4 -- \
   --prompt "A cat surfing" \
@@ -42,27 +45,43 @@ uv run --package flashdreams-wan22 flashdreams-run-v2 \
   --no-ui --no-compile
 ```
 
-## Developer details
+- [Demo presets](#t2v-presets)
+- [Demo arguments](../demos/t2v.md#demo-arguments)
 
-[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/wan22) · [Pipeline configuration](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/wan22/config.py) · [Application guide](../repository/integrations_v2/wan22/apps/t2v/README.md) · [Tests](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/wan22/tests)
+</div>
 
-### Configurations and behavior
+<div class="grey-section" markdown>
+## Demo Presets
 
-The first-frame image is required, and this model supports one generated block. The sample above came from this FlashDreams run.
+<a id="t2v-presets"></a>
 
-### Requirements
+### T2V
 
-- **GPU**: CUDA-capable NVIDIA GPU.
-- **PyTorch**: >= 2.9.
-- **Hugging Face access**: Set `HF_TOKEN` if your environment requires
-  authentication to download the checkpoint.
+| Preset | Description |
+| --- | --- |
+| `t2v-wan22-ti2v-5b` | Wan 2.2 TI2V-5B at 1280 x 640 with a required first frame and one generated block. |
 
-### Programmatic access
+</div>
 
-The lower-level pipeline configuration is also importable:
+<hr>
 
-```python
+## Developer Details
 
-from wan22.config import PIPELINE_WAN22_TI2V_5B
+[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/wan22) · [Pipeline configurations](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/wan22/config.py)
 
+- **GPU:** CUDA-capable NVIDIA GPU.
+- **PyTorch:** 2.9 or newer.
+
+## Citation
+
+If you use Wan 2.2, cite the original work:
+
+```bibtex
+@article{wan2025,
+  title   = {Wan: Open and Advanced Large-Scale Video Generative Models},
+  author  = {Team Wan and Ang Wang and Baole Ai and Bin Wen and Chaojie Mao and Chen-Wei Xie and Di Chen and Feiwu Yu and Haiming Zhao and Jianxiao Yang and Jianyuan Zeng and Jiayu Wang and Jingfeng Zhang and Jingren Zhou and Jinkai Wang and Jixuan Chen and Kai Zhu and Kang Zhao and Keyu Yan and Lianghua Huang and Mengyang Feng and Ningyi Zhang and Pandeng Li and Pingyu Wu and Ruihang Chu and Ruili Feng and Shiwei Zhang and Siyang Sun and Tao Fang and Tianxing Wang and Tianyi Gui and Tingyu Weng and Tong Shen and Wei Lin and Wei Wang and Wei Wang and Wenmeng Zhou and Wente Wang and Wenting Shen and Wenyuan Yu and Xianzhong Shi and Xiaoming Huang and Xin Xu and Yan Kou and Yangyu Lv and Yifei Li and Yijing Liu and Yiming Wang and Yingya Zhang and Yitong Huang and Yong Li and You Wu and Yu Liu and Yulin Pan and Yun Zheng and Yuntao Hong and Yupeng Shi and Yutong Feng and Zeyinzi Jiang and Zhen Han and Zhi-Fan Wu and Ziyu Liu},
+  journal = {arXiv preprint arXiv:2503.20314},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2503.20314},
+}
 ```

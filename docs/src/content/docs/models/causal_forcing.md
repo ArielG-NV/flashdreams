@@ -16,38 +16,55 @@ interactive video generation.
 
 ![Causal-Forcing overview figure.](https://thu-ml.github.io/CausalForcing.github.io/images/overview.png)
 
-<p class="model-footnote">
+<figcaption class="tiny-figcaption">
   Teaser image source:
   <a href="https://thu-ml.github.io/CausalForcing.github.io/">Causal-Forcing project page</a>.
-</p>
+</figcaption>
 
-## Run with FlashDreams
+<div class="transparent-section" markdown>
+## Quick Start
 
-From the repository root:
+
+
+### T2V
 
 ```bash
-uv sync --package flashdreams-causal-forcing
-uv run --package flashdreams-causal-forcing flashdreams-run-v2 \
+uv sync --package flashdreams-causal-forcing --inexact
+uv run --no-sync flashdreams-run-v2 \
   t2v-causal-forcing-wan2.1-t2v-1.3b-chunkwise \
   --output-path artifacts/causal-forcing.mp4 -- \
   --prompt "A cat surfing" --total-blocks 7
 ```
 
-## Developer details
+- [Demo presets](#t2v-presets)
+- [Demo arguments](../demos/t2v.md#demo-arguments)
 
-[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/causal_forcing) · [Pipeline configuration](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/causal_forcing/config.py) · [Application guide](../repository/integrations_v2/causal_forcing/apps/t2v/README.md) · [Tests](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/causal_forcing/tests)
+</div>
 
-### Configurations and behavior
+<div class="grey-section" markdown>
+## Demo Presets
 
-Available configurations:
+<a id="t2v-presets"></a>
 
-| Method | Description |
+### T2V
+
+| Preset | Description |
 | --- | --- |
-| `causal-forcing-wan2.1-t2v-1.3b-chunkwise` | Causal-Forcing chunkwise Wan 2.1 1.3B T2V (`len_t=3`). |
-| `causal-forcing-wan2.1-t2v-1.3b-framewise` | Causal-Forcing framewise Wan 2.1 1.3B T2V (`len_t=1`). |
-| `causal-forcing-wan2.1-i2v-1.3b-framewise` | Causal-Forcing framewise Wan 2.1 1.3B I2V (`len_t=1`). |
+| `t2v-causal-forcing-wan2.1-t2v-1.3b-chunkwise` | Chunkwise Wan 2.1 1.3B T2V (`len_t=3`). |
+| `t2v-causal-forcing-wan2.1-t2v-1.3b-framewise` | Framewise Wan 2.1 1.3B T2V (`len_t=1`). |
 
-Some generated samples from the above commands:
+</div>
+
+<hr>
+
+## Developer Details
+
+[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/causal_forcing) · [Pipeline configurations](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/causal_forcing/config.py)
+
+- **Minimum VRAM:** about 24 GB.
+- **PyTorch:** 2.9 or newer.
+
+## Samples
 
 <div class="model-video-grid zoomable">
   <div class="model-video-card">
@@ -55,29 +72,24 @@ Some generated samples from the above commands:
       <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/causal_forcing/causal-forcing-wan2.1-t2v-1.3b-framewise.mp4" type="video/mp4">
       Your browser does not support the video tag.
     </video>
-    <div class="model-video-overlay">
+    <figcaption class="tiny-figcaption">
       prompt: "A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle."
-    </div>
+    </figcaption>
   </div>
   <div class="model-video-card">
     <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
       <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/causal_forcing/causal-forcing-wan2.1-i2v-1.3b-framewise.mp4" type="video/mp4">
       Your browser does not support the video tag.
     </video>
-    <div class="model-video-overlay">
+    <figcaption class="tiny-figcaption">
       prompt: "A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle."
       <br/>
       image: https://raw.githubusercontent.com/thu-ml/Causal-Forcing/refs/heads/main/prompts/i2v/26-15/000001.png
-    </div>
+    </figcaption>
   </div>
 </div>
 
-### Requirements
-
-- **Minimum VRAM**: ~24 GB.
-- **PyTorch**: >= 2.9.
-
-### Citation
+## Citation
 
 If you use Causal-Forcing, please cite the original work:
 

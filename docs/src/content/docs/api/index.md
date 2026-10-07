@@ -1,5 +1,5 @@
 ---
-title: 'CLI and API Reference'
+title: 'API Reference'
 ---
 
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
@@ -10,9 +10,7 @@ Choose an API by what you are building:
 
 | Task | API | Command |
 | --- | --- | --- |
-| Implement a model adapter with reusable inference sessions | [Experimental inference API](inference_api.md) (`flashdreams.runtime`) | — |
-| Add replay, output modes, warmup, or benchmarks to an inference adapter | [Experimental demo API](demo_api.md) (`flashdreams.runtime.demo`) | `flashdreams-run` for registered demos |
-| Build a v2 application with model and optional UI loops | [V2 application API](application_api.md) (`flashdreams.api_v2`) | `flashdreams-run-v2` |
+| Build a v2 application | [V2 application API](application_api.md) (`flashdreams.api_v2`) | `flashdreams-run-v2` |
 
 The two experimental APIs share a session contract. V2 applications use their
 own `ISession` and loop contracts. Legacy runner presets launched with

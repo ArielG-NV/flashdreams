@@ -19,46 +19,61 @@ reasoning vision language model - as its text encoder. The model is shipped in
 through a curated 200M-clip pre-training corpus, model merging, and a new RL
 algorithm.
 
-FlashDreams currently integrates the post-trained 2B checkpoint for T2V and
-I2V through v2 applications.
-
 <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
   <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
     <source src="https://images.nvidia.com/aem-dam/Solutions/cosmos/cosmos-predict.mp4" type="video/mp4">
     Your browser does not support the video tag.
   </video>
 </div>
-<p class="model-footnote">
+<figcaption class="tiny-figcaption">
   Teaser video source:
   <a href="https://research.nvidia.com/labs/cosmos-lab/cosmos-predict2.5/">Cosmos-Predict2.5 project page</a>.
-</p>
+</figcaption>
 
-## Run with FlashDreams
+<div class="transparent-section" markdown>
+## Quick Start
 
-From the repository root:
+
+
+### T2V
 
 ```bash
-uv sync --package flashdreams-cosmos-predict2
-uv run --package flashdreams-cosmos-predict2 flashdreams-run-v2 \
+uv sync --package flashdreams-cosmos-predict2 --inexact
+uv run --no-sync flashdreams-run-v2 \
   t2v-cosmos2-t2v-2b-720p \
   --output-path artifacts/cosmos-predict2.mp4 -- \
   --prompt "A robotic arm welding in an industrial workshop"
 ```
 
-## Developer details
+- [Demo presets](#t2v-presets)
+- [Demo arguments](../demos/t2v.md#demo-arguments)
+</div>
 
-[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/cosmos_predict2) · [Pipeline configuration](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/cosmos_predict2/config.py) · [Application guide](../repository/integrations_v2/cosmos_predict2/apps/t2v/README.md) · [Tests](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/cosmos_predict2/tests)
+<div class="grey-section" markdown>
+## Demo Presets
 
-### Configurations and behavior
+<a id="t2v-presets"></a>
 
-Available configurations:
+### T2V
 
-| Method | Description |
+| Preset | Description |
 | --- | --- |
-| `cosmos2-t2v-2b-720p` | Cosmos-Predict2.5 2B T2V at 720p, prompt-only. |
-| `cosmos2-i2v-2b-720p` | Cosmos-Predict2.5 2B I2V at 720p, prompt plus first-frame image. |
+| `t2v-cosmos2-t2v-2b-720p` | Cosmos-Predict2.5 2B T2V at 720p with prompt-only input. |
+</div>
 
-Some generated samples from the above commands:
+<hr>
+
+## Developer Details
+
+[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/cosmos_predict2) · [Pipeline configurations](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/cosmos_predict2/config.py)
+
+- **Minimum VRAM:** about 80 GB.
+- **PyTorch:** 2.9 or newer.
+- **Model access:** Accept the NVIDIA Open Model License on the
+  [Hugging Face model page](https://huggingface.co/nvidia/Cosmos-Predict2.5-2B)
+  and authenticate with a token that can access the gated checkpoint.
+
+## Samples
 
 <div class="model-video-grid zoomable">
   <div class="model-video-card">
@@ -66,32 +81,24 @@ Some generated samples from the above commands:
       <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/cosmos_predict2/cosmos2-t2v-2b-720p.mp4" type="video/mp4">
       Your browser does not support the video tag.
     </video>
-    <div class="model-video-overlay">
+    <figcaption class="tiny-figcaption">
       prompt: "A high-definition video captures the precision of robotic welding in an industrial setting. The first frame showcases a robotic arm, equipped with a welding torch, positioned over a large metal structure. The welding process is in full swing, with bright sparks and intense light illuminating the scene, creating a vivid display of blue and white hues. A significant amount of smoke billows around the welding area, partially obscuring the view but emphasizing the heat and activity. The background reveals parts of the workshop environment, including a ventilation system and various pieces of machinery, indicating a busy and functional industrial workspace. As the video progresses, the robotic arm maintains its steady position, continuing the welding process and moving to its left. The welding torch consistently emits sparks and light, and the smoke continues to rise, diffusing slightly as it moves upward. The metal surface beneath the torch shows ongoing signs of heating and melting. The scene retains its industrial ambiance, with the welding sparks and smoke dominating the visual field, underscoring the ongoing nature of the welding operation."
-    </div>
+    </figcaption>
   </div>
   <div class="model-video-card">
     <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
       <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/cosmos_predict2/cosmos2-i2v-2b-720p.mp4" type="video/mp4">
       Your browser does not support the video tag.
     </video>
-    <div class="model-video-overlay">
+    <figcaption class="tiny-figcaption">
       prompt: "A high-definition video captures the precision of robotic welding in an industrial setting. The first frame showcases a robotic arm, equipped with a welding torch, positioned over a large metal structure. The welding process is in full swing, with bright sparks and intense light illuminating the scene, creating a vivid display of blue and white hues. A significant amount of smoke billows around the welding area, partially obscuring the view but emphasizing the heat and activity. The background reveals parts of the workshop environment, including a ventilation system and various pieces of machinery, indicating a busy and functional industrial workspace. As the video progresses, the robotic arm maintains its steady position, continuing the welding process and moving to its left. The welding torch consistently emits sparks and light, and the smoke continues to rise, diffusing slightly as it moves upward. The metal surface beneath the torch shows ongoing signs of heating and melting. The scene retains its industrial ambiance, with the welding sparks and smoke dominating the visual field, underscoring the ongoing nature of the welding operation."
       <br/>
       image: https://media.githubusercontent.com/media/nvidia-cosmos/cosmos-predict2.5/refs/heads/main/assets/base/robot_welding.jpg
-    </div>
+    </figcaption>
   </div>
 </div>
 
-### Requirements
-
-- **Minimum VRAM**: ~80 GB.
-- **PyTorch**: >= 2.9.
-- **Model access**: Accept the NVIDIA Open Model License on the
-  [Hugging Face model page](https://huggingface.co/nvidia/Cosmos-Predict2.5-2B)
-  and authenticate with a token that can access the gated checkpoint.
-
-### Citation
+## Citation
 
 If you use Cosmos-Predict2.5, please cite the original work:
 

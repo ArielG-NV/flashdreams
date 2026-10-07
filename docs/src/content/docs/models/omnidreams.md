@@ -21,14 +21,15 @@ runtime throughput.
     Your browser does not support the video tag.
   </video>
 </div>
-<p class="model-footnote">
+<figcaption class="tiny-figcaption">
   Teaser video source:
   <a href="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/">OmniDreams project page</a>.
-</p>
+</figcaption>
 
+<div class="transparent-section" markdown>
 ## Quick Start
 
-Run commands from the repository root.
+
 
 ### Crazy Robotaxi
 
@@ -40,7 +41,7 @@ uv run --no-sync flashdreams-run-v2 crazy-robotaxi-omnidreams \
 ```
 
 - [Demo presets](#crazy-robotaxi-presets)
-- [Demo arguments](../demos/crazy_robotaxi.md#application-arguments)
+- [Demo arguments](../demos/crazy_robotaxi.md#demo-arguments)
 
 ### Interactive Drive
 
@@ -52,9 +53,12 @@ uv run --no-sync flashdreams-run-v2 interactive-drive-omnidreams \
 ```
 
 - [Demo presets](#interactive-drive-presets)
-- [Demo arguments](../demos/interactive_drive.md#application-arguments)
+- [Demo arguments](../demos/interactive_drive.md#demo-arguments)
 
-## Demo presets
+</div>
+
+<div class="grey-section" markdown>
+## Demo Presets
 
 <a id="crazy-robotaxi-presets"></a>
 
@@ -71,7 +75,7 @@ Fastest preset: `crazy-robotaxi-omnidreams-fast-perf`.
 | `crazy-robotaxi-omnidreams-fast-perf` | Fastest preset; native FP8 LightVAE. |
 | `crazy-robotaxi-omnidreams-rtx-5090` | 32 GB RTX 5090 configuration at `1168 x 640`. |
 | `crazy-robotaxi-omnidreams-rtx-5090-fast` | Real-time RTX 5090 configuration with native FP8 LightVAE at `1024 x 560`. |
-| `crazy-robotaxi-omnidreams-responsive` | Standard configuration with responsive model history via disabling of native DiT acceleration. |
+| `crazy-robotaxi-omnidreams-responsive` | Standard configuration with responsive model history. |
 | `crazy-robotaxi-omnidreams-optimized-gb300-responsive` | GB300-optimized attention with responsive model history. |
 | `crazy-robotaxi-omnidreams-optimized-rtx-pro-6000-responsive` | RTX PRO 6000-optimized attention with responsive model history. |
 | `crazy-robotaxi-omnidreams-perf-responsive` | Performance schedule with responsive model history. |
@@ -91,17 +95,21 @@ Fastest preset: `interactive-drive-omnidreams-fast-perf`.
 | `interactive-drive-omnidreams-perf` | Performance-tuned native acceleration. |
 | `interactive-drive-omnidreams-fast-perf` | Fastest preset; native FP8 LightVAE. |
 
-## Developer details
+</div>
 
-[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/omnidreams) · [Pipeline configuration](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/omnidreams/config.py) · [Tests](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/omnidreams/tests)
+<hr>
+
+## Developer Details
+
+[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/omnidreams) · [Pipeline configurations](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/omnidreams/config.py)
 
 - **Minimum VRAM:** about 48 GB for the default Interactive Drive configuration.
 - **PyTorch:** 2.11 or newer.
 - **Python:** 3.10 through 3.12.
 
-## Performance
+## Performance (Outdated)
 
-(Outdated) Single-view latency on NVIDIA GB300 at `704 x 1280`:
+Single-view latency on NVIDIA GB300 at `704 x 1280`:
 
 | Stage | 1x GPU | 2x GPU | 4x GPU | 8x GPU |
 | --- | --- | --- | --- | --- |
@@ -120,18 +128,18 @@ Fastest preset: `interactive-drive-omnidreams-fast-perf`.
       <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.mp4" type="video/mp4">
       Your browser does not support the video tag.
     </video>
-    <div class="model-video-overlay">
+    <figcaption class="tiny-figcaption">
       example_data_uuid: "239560dc-33d1-11ef-9720-00044bcbccac"
-    </div>
+    </figcaption>
   </div>
   <div class="model-video-card">
     <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
       <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-24b84744-4156-11ef-b27d-00044bf655de-pip.mp4" type="video/mp4">
       Your browser does not support the video tag.
     </video>
-    <div class="model-video-overlay">
+    <figcaption class="tiny-figcaption">
       example_data_uuid: "24b84744-4156-11ef-b27d-00044bf655de"
-    </div>
+    </figcaption>
   </div>
 </div>
 

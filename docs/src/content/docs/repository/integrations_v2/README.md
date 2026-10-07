@@ -27,7 +27,7 @@ section. **Applications** links to the relevant application guide;
 **Configuration** links to the source of its runtime configuration.
 
 This is the guide to writing one. If the model generates video from a prompt,
-read [apps/t2v](../apps/t2v/README.md)
+read the [T2V demo guide](../../demos/t2v.md)
 instead, that path is a subclass and a `pyproject.toml`, and most of what
 follows is already done for you.
 
@@ -342,5 +342,4 @@ halves for text-to-video models.
   in detail.
 - [Runtime](../flashdreams/flashdreams/runtime_v2/README.md) - the buffering
   between those threads, and the command line that starts them.
-- [apps/t2v](../apps/t2v/README.md) - adding a
-  text-to-video model.
+- [T2V](../../demos/t2v.md) - the shared text-to-video demo.

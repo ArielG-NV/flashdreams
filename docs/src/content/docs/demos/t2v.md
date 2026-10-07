@@ -1,0 +1,62 @@
+---
+title: 'T2V'
+---
+
+<!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
+<a id="t2v"></a>
+
+T2V is a FlashDreams v2 text-to-video application. It accepts an initial text
+prompt, keeps the selected model resident, and can start fresh generation
+sessions from an interactive prompt field.
+
+**Models With Demo Implementation:** [Self-Forcing](../models/self_forcing.md#t2v) · [Causal-Forcing](../models/causal_forcing.md#t2v) · [Causal Wan 2.2](../models/causal_wan22.md#t2v) · [Wan 2.1](../models/wan21.md#t2v) · [Wan 2.2](../models/wan22.md#t2v) · [Cosmos-Predict2.5](../models/cosmos_predict2.md#t2v)
+
+<a id="apps-t2v-readme--controls"></a>
+
+## Controls
+
+An interactive WebRTC run shows a prompt field over the latest generated
+frame. Submitting it starts a fresh session and rollout cache without unloading
+the model. Reaching `--total-blocks` leaves the final frame and prompt UI
+active. Model adapters may add startup inputs such as a first-frame image.
+
+<a id="apps-t2v-readme--application-arguments"></a>
+
+## Demo Arguments
+
+
+| Argument | Description |
+| --- | --- |
+| `--prompt TEXT` | Set the optional initial prompt; explicitly empty text is rejected. |
+| `--total-blocks N` | Set the number of autoregressive blocks; the selected model supplies the default. |
+| `--device DEVICE` | Select the model device. Default: `cuda`. |
+| `--compile`, `--no-compile` | Override model compilation. |
+| `--seed N` | Override the diffusion seed for reproducible generation. |
+| `--ui`, `--no-ui` | Enable or disable the interactive prompt overlay. |
+
+Bidirectional models generate a complete clip in one block and require
+`--total-blocks 1`. Image-conditioned implementations may additionally require
+`--image-path`.
+
+For example, write a generated clip to MP4:
+
+```bash
+uv run flashdreams-run-v2 DEMO_MODEL_SLUG \
+  --output-path clip.mp4 -- \
+  --prompt "A cat surfing"
+```
+
+To keep the model resident and submit prompts from a browser:
+
+```bash
+uv run flashdreams-run-v2 DEMO_MODEL_SLUG \
+  --mode webrtc --host 0.0.0.0 --port 8089
+```
+
+## Tests
+
+```bash
+uv run --no-sync pytest apps/t2v/tests -m ci_cpu
+```

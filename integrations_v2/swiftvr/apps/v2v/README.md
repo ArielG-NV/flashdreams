@@ -1,1 +1,1 @@
-[SwiftVR V2V](../../../../docs/src/content/docs/repository/integrations_v2/swiftvr/apps/v2v/README.md#swiftvr-v2v)
+[V2V](../../../../docs/src/content/docs/demos/v2v.md#v2v)

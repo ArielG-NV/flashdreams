@@ -65,14 +65,14 @@ These options override the default demo session values requested by a particular
 #### Backpressure Mode
 
 - `block` waits for queue capacity so generated chunks are retained.
-- `drop_oldest` discards the oldest queued chunk to favor recent output.
 
+- `drop_oldest` discards the oldest queued chunk to favor recent output.
 
 #### Presentation Mode
 
 - `on_demand` presents each selected model frame when it arrives.
-`continuous` keeps the UI responsive between model frames by reusing the
-newest frame. MP4 mode defaults to `on_demand` when the option is omitted.
+
+- `continuous` keeps the UI responsive between model frames by reusing the newest frame.
 
 ### Examples
 
@@ -98,7 +98,6 @@ uv run flashdreams-run-v2 DEMO_MODEL_SLUG --mode native-window --window-title Fl
 ## See also
 
 - [Quickstart](../quickstart/index.md)
-- [Launch manifests](launch_manifests.md)
 - [Configuration system](../developer_guides/config_system.md)
 - [Runner slugs](../developer_guides/runner_slugs.md)
-- [Infrastructure API](infra.md)
+- [Infrastructure API](../api/infra.md)
