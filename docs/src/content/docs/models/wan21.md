@@ -103,7 +103,6 @@ matched settings.
 
 ## Samples
 
-Some generated Wan2.1 samples:
 <div class="model-video-card">
   <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
     <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/wan21/wan21-i2v-14b-480p.mp4" type="video/mp4">

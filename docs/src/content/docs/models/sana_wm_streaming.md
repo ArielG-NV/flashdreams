@@ -20,8 +20,9 @@ release, exposed as a programmatic pipeline configuration.
 
 
 <img alt="SANA-WM streaming FlashDreams sample clip." src="../_static/model_clips/sana_wm/sana-wm-streaming.avif" />
-
-<img alt="SANA-WM bidirectional FlashDreams sample clip." src="../_static/model_clips/sana_wm/sana-wm-bidirectional.avif" />
+<figcaption class="tiny-figcaption">
+  Generated via Flashdreams SANA-WM streaming demo using example assets via `--example-data` flag.
+</figcaption>
 
 <div class="transparent-section" markdown>
 ## Quick Start
@@ -60,7 +61,6 @@ uv run --no-sync flashdreams-run-v2 cam2v-sana-wm-streaming \
 
 <div class="fd-cta-row">
   <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/sana_wm">Integration source</a>
-  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/sana_wm/config.py">Pipeline configurations</a>
 </div>
 
 - **PyTorch:** 2.9 or newer.
@@ -179,6 +179,10 @@ model authors.
    </figcaption>
  </figure>
 <script src="../_static/js/benchmark_chart.js"></script>
+
+## Samples
+
+<img alt="SANA-WM bidirectional FlashDreams sample clip." src="../_static/model_clips/sana_wm/sana-wm-bidirectional.avif" />
 
 ## Citation
 
