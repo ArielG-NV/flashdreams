@@ -21,7 +21,7 @@ export HF_TOKEN=<your-hugging-face-token>
 uv run flashdreams-run-v2 <Demo Preset> <System Arguments> -- <Demo Arguments>
 ```
 
-- `<Demo Preset>` is a preset that contains the model to run with a demo. Refer to a model-overviews below.
+- `<Demo Preset>` is a preset that contains a pair of **model to run with a demo**. Refer to the model-overviews below to find a preset.
 
 - `<System Arguments>` are arguments that apply to all `flashdreams-run-v2` demos, reference is here: [System arguments](../documentation/cli.md#system-arguments).
 

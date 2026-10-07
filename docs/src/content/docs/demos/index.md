@@ -5,42 +5,80 @@ title: 'Demos'
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-View demo guides below. Before selecting a demo to run, make sure you have a `<Demo Preset>` & picked the `<System Arguments>` desired first (refer to [Running a model](../models/index.md)).
+View demo guides below. Demos are ran via a model being implemented for it.
 
-## Crazy Robotaxi
+For how to run a particular **demo/model pair**, refer to the format listed here: [Running a model](../models/index.md).
 
-Drive a taxi through authored maps, collect fares, or race against the clock
-with a keyboard, gamepad, or steering wheel.
+Demos are listed below:
 
-[Open the Crazy Robotaxi demo guide](crazy_robotaxi.md)
+## [Crazy Robotaxi](crazy_robotaxi.md)
 
-## Interactive Drive
+<video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
+  <source src="../_static/demo_clips/crazy-robotaxi.mp4" type="video/mp4">
+</video>
 
-Run a long-lived driving session with browser, native-window, or MP4
-output.
+<figcaption>
+  Drive a taxi through authored maps, collect passengers against a timer, or race against a clock in a race mode.
+  Control the vehicle with a keyboard, gamepad, or steering wheel.
+</figcaption>
 
-[Open the Interactive Drive demo guide](interactive_drive.md)
+<hr>
 
-## Action2V
+## [Interactive Drive](interactive_drive.md)
 
-Drive an image-established world model with direct keyboard and mouse input.
+<video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
+  <source src="../_static/demo_clips/interactive-drive.mp4" type="video/mp4">
+</video>
 
-[Open the Action2V demo guide](action2v.md)
+<figcaption>
+  Run a long-lived driving session with browser, native-window, or MP4
+  output.
+</figcaption>
 
-## Cam2V
+<hr>
 
-Control a generated camera view with interactive movement and look input.
+## [Action2V](action2v.md)
 
-[Open the Cam2V demo guide](cam2v.md)
+<video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
+  <source src="../_static/demo_clips/action2v.mp4" type="video/mp4">
+</video>
 
-## T2V
+<figcaption>
+  Drive an image-established world model with direct keyboard and mouse input.
+</figcaption>
 
-Generate video from text and submit new prompts without unloading the model.
+<hr>
 
-[Open the T2V demo guide](t2v.md)
+## [Cam2V](cam2v.md)
 
-## V2V
+<video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
+  <source src="../_static/demo_clips/cam2v.mp4" type="video/mp4">
+</video>
 
-Restore or upscale a local or remote source video.
+<figcaption>
+  Control a generated camera view with interactive movement and look input.
+</figcaption>
 
-[Open the V2V demo guide](v2v.md)
+<hr>
+
+## [T2V](t2v.md)
+
+<video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
+  <source src="../_static/demo_clips/t2v.mp4" type="video/mp4">
+</video>
+
+<figcaption>
+  Generate video from text and submit new prompts without unloading the model.
+</figcaption>
+
+<hr>
+
+## [V2V](v2v.md)
+
+<video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
+  <source src="../_static/demo_clips/v2v.mp4" type="video/mp4">
+</video>
+
+<figcaption>
+  Restore or upscale a local or remote source video.
+</figcaption>
