@@ -6,9 +6,11 @@ title: 'FlashVSR'
 
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-[Project page](https://zhuang2002.github.io/FlashVSR/)
-[arXiv paper](https://arxiv.org/abs/2510.12747)
-[Official code](https://github.com/OpenImagingLab/FlashVSR)
+<div class="fd-cta-row">
+  <a class="fd-button" href="https://zhuang2002.github.io/FlashVSR/">Project page</a>
+  <a class="fd-button" href="https://arxiv.org/abs/2510.12747">arXiv paper</a>
+  <a class="fd-button" href="https://github.com/OpenImagingLab/FlashVSR">Official code</a>
+</div>
 
 FlashVSR is a one-diffusion-step streaming diffusion framework for real-time video
 super-resolution (VSR). It combines a train-friendly three-stage distillation pipeline,

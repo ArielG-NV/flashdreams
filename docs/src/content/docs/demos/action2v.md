@@ -23,7 +23,9 @@ first-frame resolution, and action-vocabulary mapping.
 
 ## Quick Start:
 
- [Waypoint 1.5](../models/waypoint.md#action2v)
+<div class="fd-cta-row">
+  <a class="fd-button" href="../models/waypoint.md#action2v">Waypoint 1.5</a>
+</div>
 
 <a id="apps-action2v-readme--controls"></a>
 

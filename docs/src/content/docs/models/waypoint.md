@@ -6,9 +6,11 @@ title: 'Waypoint 1.5'
 
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-[Checkpoint and upstream model card](https://huggingface.co/Overworld/Waypoint-1.5-1B)
-[Official inference code](https://github.com/Overworldai/world_engine)
-[Official desktop client](https://github.com/Overworldai/Biome)
+<div class="fd-cta-row">
+  <a class="fd-button" href="https://huggingface.co/Overworld/Waypoint-1.5-1B">Checkpoint and upstream model card</a>
+  <a class="fd-button" href="https://github.com/Overworldai/world_engine">Official inference code</a>
+  <a class="fd-button" href="https://github.com/Overworldai/Biome">Official desktop client</a>
+</div>
 
 Waypoint-1.5-1B is Overworld's dense, autoregressive interactive video world
 model. FlashDreams integrates the published BF16 checkpoint as an

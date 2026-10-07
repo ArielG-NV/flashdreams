@@ -9,7 +9,9 @@ View demo guides below. Demos are ran via a model being implemented for it.
 
 For how to run a particular **demo/model pair**, refer to the format listed here: [Running a model](../models/index.md).
 
-Demos are listed below:
+Demos are listed below.
+
+<hr>
 
 ## [Crazy Robotaxi](crazy_robotaxi.md)
 

@@ -22,7 +22,10 @@ upscales a selected local or remote video and writes or streams the result.
 
 ## Quick Start:
 
- [FlashVSR](../models/flashvsr.md#v2v) · [SwiftVR](../models/swiftvr.md#v2v)
+<div class="fd-cta-row">
+  <a class="fd-button" href="../models/flashvsr.md#v2v">FlashVSR</a>
+  <a class="fd-button" href="../models/swiftvr.md#v2v">SwiftVR</a>
+</div>
 
 <a id="apps-v2v-readme--controls"></a>
 

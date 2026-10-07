@@ -6,10 +6,12 @@ title: 'Wan 2.2 TI2V-5B'
 
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-[Project page](https://wan.video/)
-[arXiv paper](https://arxiv.org/abs/2503.20314)
-[Checkpoint](https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B-Diffusers)
-[Official code](https://github.com/Wan-Video/Wan2.2)
+<div class="fd-cta-row">
+  <a class="fd-button" href="https://wan.video/">Project page</a>
+  <a class="fd-button" href="https://arxiv.org/abs/2503.20314">arXiv paper</a>
+  <a class="fd-button" href="https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B-Diffusers">Checkpoint</a>
+  <a class="fd-button" href="https://github.com/Wan-Video/Wan2.2">Official code</a>
+</div>
 
 Wan 2.2 TI2V-5B is a bidirectional text-and-image-to-video model. Given a
 prompt and first-frame image, it generates a complete 81-frame, 1280x640 clip

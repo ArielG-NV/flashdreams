@@ -6,9 +6,11 @@ title: 'Causal-Forcing'
 
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-[Project page](https://thu-ml.github.io/CausalForcing.github.io/)
-[arXiv paper](https://arxiv.org/abs/2602.02214)
-[Official code](https://github.com/thu-ml/Causal-Forcing)
+<div class="fd-cta-row">
+  <a class="fd-button" href="https://thu-ml.github.io/CausalForcing.github.io/">Project page</a>
+  <a class="fd-button" href="https://arxiv.org/abs/2602.02214">arXiv paper</a>
+  <a class="fd-button" href="https://github.com/thu-ml/Causal-Forcing">Official code</a>
+</div>
 
 Causal-Forcing uses Causal ODE or Causal Consistency Distillation to drive
 asymmetric DMD as a theoretically correct initialization for real-time

@@ -6,9 +6,11 @@ title: 'Self-Forcing'
 
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-[Project page](https://self-forcing.github.io/)
-[arXiv paper](https://arxiv.org/abs/2506.08009)
-[Official code](https://github.com/guandeh17/Self-Forcing)
+<div class="fd-cta-row">
+  <a class="fd-button" href="https://self-forcing.github.io/">Project page</a>
+  <a class="fd-button" href="https://arxiv.org/abs/2506.08009">arXiv paper</a>
+  <a class="fd-button" href="https://github.com/guandeh17/Self-Forcing">Official code</a>
+</div>
 
 Self-Forcing is a text-to-video (T2V) model based on [Wan2.1](wan21.md).
 It uses a training paradigm for autoregressive video diffusion that simulates

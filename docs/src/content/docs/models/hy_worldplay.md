@@ -6,9 +6,9 @@ title: 'HY-WorldPlay'
 
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-<div class="model-link-row">
-  <a class="model-link-button" href="https://3d-models.hunyuan.tencent.com/world/" target="_blank" rel="noopener noreferrer">Project page</a>
-  <a class="model-link-button" href="https://github.com/Tencent-Hunyuan/HY-WorldPlay" target="_blank" rel="noopener noreferrer">Official code</a>
+<div class="fd-cta-row">
+  <a class="fd-button" href="https://3d-models.hunyuan.tencent.com/world/" target="_blank" rel="noopener noreferrer">Project page</a>
+  <a class="fd-button" href="https://github.com/Tencent-Hunyuan/HY-WorldPlay" target="_blank" rel="noopener noreferrer">Official code</a>
 </div>
 
 Introduced by [Tencent Hunyuan](https://github.com/Tencent-Hunyuan/HY-WorldPlay), HY-WorldPlay is a

@@ -6,8 +6,10 @@ title: 'Causal Wan2.2'
 
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-[Model weights](https://huggingface.co/FastVideo/CausalWan2.2-I2V-A14B-Preview-Diffusers)
-[Official code](https://github.com/hao-ai-lab/FastVideo/blob/main/examples/inference/basic/basic_self_forcing_causal_wan2_2_t2v.py)
+<div class="fd-cta-row">
+  <a class="fd-button" href="https://huggingface.co/FastVideo/CausalWan2.2-I2V-A14B-Preview-Diffusers">Model weights</a>
+  <a class="fd-button" href="https://github.com/hao-ai-lab/FastVideo/blob/main/examples/inference/basic/basic_self_forcing_causal_wan2_2_t2v.py">Official code</a>
+</div>
 
 CausalWan2.2 is a [FastVideo](https://github.com/hao-ai-lab/FastVideo)-released
 14B MoE causal-diffusion variant of Wan 2.2 with 8-step inference.

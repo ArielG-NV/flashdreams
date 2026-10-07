@@ -6,9 +6,11 @@ title: 'Wan2.1'
 
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-[Project page](https://wan.video/)
-[arXiv paper](https://arxiv.org/abs/2503.20314)
-[Official code](https://github.com/Wan-Video/Wan2.1)
+<div class="fd-cta-row">
+  <a class="fd-button" href="https://wan.video/">Project page</a>
+  <a class="fd-button" href="https://arxiv.org/abs/2503.20314">arXiv paper</a>
+  <a class="fd-button" href="https://github.com/Wan-Video/Wan2.1">Official code</a>
+</div>
 
 Wan2.1 is a bidirectional video generation model, supporting both
 text-to-video (T2V) and image-to-video (I2V) tasks.

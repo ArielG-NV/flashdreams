@@ -6,10 +6,12 @@ title: 'SANA-WM'
 
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-[Project page](https://nvlabs.github.io/Sana/)
-[arXiv paper](https://arxiv.org/abs/2410.10629)
-[Checkpoint](https://huggingface.co/Efficient-Large-Model/SANA-WM_streaming)
-[Official code](https://github.com/NVlabs/Sana)
+<div class="fd-cta-row">
+  <a class="fd-button" href="https://nvlabs.github.io/Sana/">Project page</a>
+  <a class="fd-button" href="https://arxiv.org/abs/2410.10629">arXiv paper</a>
+  <a class="fd-button" href="https://huggingface.co/Efficient-Large-Model/SANA-WM_streaming">Checkpoint</a>
+  <a class="fd-button" href="https://github.com/NVlabs/Sana">Official code</a>
+</div>
 
 SANA-WM is NVlabs/Sana's camera-controlled world model family. FlashDreams
 includes the chunk-causal streaming release, exposed through the

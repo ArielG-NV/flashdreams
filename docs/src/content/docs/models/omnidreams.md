@@ -6,10 +6,12 @@ title: 'NVIDIA OmniDreams'
 
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-[Blog page](https://research.nvidia.com/labs/sil/projects/omnidreams-blog/)
-[Tech report](https://arxiv.org/abs/2606.03159)
-[Model page](https://huggingface.co/nvidia/omni-dreams-models/)
-[Official code](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/omnidreams)
+<div class="fd-cta-row">
+  <a class="fd-button" href="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/">Blog page</a>
+  <a class="fd-button" href="https://arxiv.org/abs/2606.03159">Tech report</a>
+  <a class="fd-button" href="https://huggingface.co/nvidia/omni-dreams-models/">Model page</a>
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/omnidreams">Official code</a>
+</div>
 
 OmniDreams is an HDMap-conditioned streaming world model for driving
 generation, with application configurations that balance visual fidelity and

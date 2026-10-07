@@ -6,8 +6,10 @@ title: 'LingBot-World'
 
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-[Project page](https://technology.robbyant.com/lingbot-world)
-[Official code](https://github.com/robbyant/lingbot-world)
+<div class="fd-cta-row">
+  <a class="fd-button" href="https://technology.robbyant.com/lingbot-world">Project page</a>
+  <a class="fd-button" href="https://github.com/robbyant/lingbot-world">Official code</a>
+</div>
 
 Introduced by [Robbyant](https://technology.robbyant.com/), LingBot-World is a camera-controllable image-to-video
 (I2V) world model with streaming inference and context-parallel runtime support. This page covers both the original

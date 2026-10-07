@@ -6,10 +6,12 @@ title: 'Cosmos-Predict2.5'
 
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-[Project page](https://research.nvidia.com/labs/cosmos-lab/cosmos-predict2.5/)
-[arXiv paper](https://arxiv.org/abs/2511.00062)
-[Model page](https://huggingface.co/nvidia/Cosmos-Predict2.5-2B)
-[Official code](https://github.com/nvidia-cosmos/cosmos-predict2.5)
+<div class="fd-cta-row">
+  <a class="fd-button" href="https://research.nvidia.com/labs/cosmos-lab/cosmos-predict2.5/">Project page</a>
+  <a class="fd-button" href="https://arxiv.org/abs/2511.00062">arXiv paper</a>
+  <a class="fd-button" href="https://huggingface.co/nvidia/Cosmos-Predict2.5-2B">Model page</a>
+  <a class="fd-button" href="https://github.com/nvidia-cosmos/cosmos-predict2.5">Official code</a>
+</div>
 
 Cosmos-Predict2.5 is the latest member of the Cosmos World Foundation Models
 (WFMs) family. It is a flow-based model that unifies Text2World, Image2World,

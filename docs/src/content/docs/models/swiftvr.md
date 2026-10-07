@@ -6,10 +6,12 @@ title: 'SwiftVR'
 
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-[Project page](https://h-oliday.github.io/SwiftVR/)
-[arXiv paper](https://arxiv.org/abs/2606.09516)
-[Checkpoint](https://huggingface.co/H-oliday/SwiftVR)
-[Official code](https://github.com/H-oliday/SwiftVR)
+<div class="fd-cta-row">
+  <a class="fd-button" href="https://h-oliday.github.io/SwiftVR/">Project page</a>
+  <a class="fd-button" href="https://arxiv.org/abs/2606.09516">arXiv paper</a>
+  <a class="fd-button" href="https://huggingface.co/H-oliday/SwiftVR">Checkpoint</a>
+  <a class="fd-button" href="https://github.com/H-oliday/SwiftVR">Official code</a>
+</div>
 
 SwiftVR is a real-time, one-step streaming video-restoration model. It combines
 mask-free shifted-window attention with a restoration-aware autoencoder for
