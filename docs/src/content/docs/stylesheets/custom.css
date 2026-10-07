@@ -24,8 +24,22 @@
   --fd-text-muted: #a8b0bf;
 }
 
-[data-md-color-scheme="slate"] .md-logo img {
-  content: url("../images/horizontal-dark.svg");
+[data-md-color-scheme="slate"] .md-header .md-logo {
+  position: relative;
+  isolation: isolate;
+  padding: 0.1rem 0.15rem;
+  margin: 0.5rem 0.45rem;
+}
+
+[data-md-color-scheme="slate"] .md-header .md-logo::before {
+  position: absolute;
+  inset: -0.05rem;
+  z-index: -1;
+  border-radius: 0.25rem;
+  background: rgb(185 190 198 / 55%);
+  filter: blur(0.25rem);
+  pointer-events: none;
+  content: "";
 }
 
 .md-header__title {
@@ -36,8 +50,11 @@
   max-width: 96rem;
 }
 
-.md-typeset img {
+.md-typeset img,
+.md-typeset video {
+  display: block;
   max-width: 100%;
+  margin-inline: auto;
 }
 
 .fd-hero {

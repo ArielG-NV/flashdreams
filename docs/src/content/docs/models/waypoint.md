@@ -48,7 +48,7 @@ uv run --no-sync flashdreams-run-v2 action2v-waypoint-1-5-1b \
 
 </div>
 
-<div class="grey-section" markdown>
+<div class="transparent-section" markdown>
 ## Demo Presets
 
 <a id="action2v-presets"></a>
@@ -65,7 +65,10 @@ uv run --no-sync flashdreams-run-v2 action2v-waypoint-1-5-1b \
 
 ## Developer Details
 
-[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/waypoint) · [Pipeline configurations](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/waypoint/config.py)
+<div class="fd-cta-row">
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/waypoint">Integration source</a>
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/waypoint/config.py">Pipeline configurations</a>
+</div>
 
 - **GPU:** A CUDA-capable NVIDIA GPU with BF16 and PyTorch FlexAttention support.
 - **Validated hardware:** One NVIDIA RTX PRO 6000 Blackwell Workstation Edition.

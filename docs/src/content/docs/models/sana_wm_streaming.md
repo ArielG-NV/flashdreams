@@ -41,7 +41,7 @@ uv run --no-sync flashdreams-run-v2 cam2v-sana-wm-streaming \
 
 </div>
 
-<div class="grey-section" markdown>
+<div class="transparent-section" markdown>
 ## Demo Presets
 
 <a id="cam2v-presets"></a>
@@ -58,7 +58,10 @@ uv run --no-sync flashdreams-run-v2 cam2v-sana-wm-streaming \
 
 ## Developer Details
 
-[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/sana_wm) · [Pipeline configurations](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/sana_wm/config.py)
+<div class="fd-cta-row">
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/sana_wm">Integration source</a>
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/sana_wm/config.py">Pipeline configurations</a>
+</div>
 
 - **PyTorch:** 2.9 or newer.
 - **Precision:** BF16 by default. FP8 Stage-1/refiner inference is available on

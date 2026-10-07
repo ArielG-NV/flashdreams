@@ -51,7 +51,7 @@ uv run --no-sync flashdreams-run-v2 \
 - [Demo arguments](../demos/t2v.md#demo-arguments)
 </div>
 
-<div class="grey-section" markdown>
+<div class="transparent-section" markdown>
 ## Demo Presets
 
 <a id="t2v-presets"></a>
@@ -67,7 +67,10 @@ uv run --no-sync flashdreams-run-v2 \
 
 ## Developer Details
 
-[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/cosmos_predict2) · [Pipeline configurations](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/cosmos_predict2/config.py)
+<div class="fd-cta-row">
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/cosmos_predict2">Integration source</a>
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/cosmos_predict2/config.py">Pipeline configurations</a>
+</div>
 
 - **Minimum VRAM:** about 80 GB.
 - **PyTorch:** 2.9 or newer.

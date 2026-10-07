@@ -49,7 +49,7 @@ uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
 
 </div>
 
-<div class="grey-section" markdown>
+<div class="transparent-section" markdown>
 ## Demo Presets
 
 <a id="cam2v-presets"></a>
@@ -70,7 +70,10 @@ uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
 
 ## Developer Details
 
-[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/lingbot) · [Pipeline configuration](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/lingbot/config.py)
+<div class="fd-cta-row">
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/lingbot">Integration source</a>
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/lingbot/config.py">Pipeline configuration</a>
+</div>
 
 - **Minimum VRAM:** about 120 GB.
 - **PyTorch:** 2.9 or newer.

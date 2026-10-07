@@ -47,7 +47,7 @@ uv run --no-sync flashdreams-run-v2 \
 
 </div>
 
-<div class="grey-section" markdown>
+<div class="transparent-section" markdown>
 ## Demo Presets
 
 <a id="t2v-presets"></a>
@@ -64,7 +64,10 @@ uv run --no-sync flashdreams-run-v2 \
 
 ## Developer Details
 
-[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/fastvideo_causal_wan22) · [Pipeline configurations](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/fastvideo_causal_wan22/config.py)
+<div class="fd-cta-row">
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/fastvideo_causal_wan22">Integration source</a>
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/fastvideo_causal_wan22/config.py">Pipeline configurations</a>
+</div>
 
 - **Minimum VRAM:** about 112 GB.
 - **PyTorch:** 2.9 or newer.

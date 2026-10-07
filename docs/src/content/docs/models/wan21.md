@@ -15,9 +15,18 @@ title: 'Wan2.1'
 Wan2.1 is a bidirectional video generation model, supporting both
 text-to-video (T2V) and image-to-video (I2V) tasks.
 
+<div class="model-video-card">
+  <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
+    <source src="../_static/model_clips/wan21/wan21-t2v-1.3b-480p.mp4" type="video/mp4">
+    Your browser does not support the video tag.
+  </video>
+  <figcaption class="tiny-figcaption">
+    Generated via FlashDreams with the prompt: "two cats dancing together in a circle in the rain, in a rainforest"
+  </figcaption>
+</div>
+
 <div class="transparent-section" markdown>
 ## Quick Start
-
 
 
 ### T2V
@@ -34,7 +43,7 @@ uv run --no-sync flashdreams-run-v2 \
 
 </div>
 
-<div class="grey-section" markdown>
+<div class="transparent-section" markdown>
 ## Demo Presets
 
 <a id="t2v-presets"></a>
@@ -51,7 +60,10 @@ uv run --no-sync flashdreams-run-v2 \
 
 ## Developer Details
 
-[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/wan21) · [Pipeline configurations](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/wan21/config.py)
+<div class="fd-cta-row">
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/wan21">Integration source</a>
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/wan21/config.py">Pipeline configurations</a>
+</div>
 
 - **Minimum VRAM:** about 46 GB.
 - **PyTorch:** 2.9 or newer.
@@ -92,28 +104,16 @@ matched settings.
 ## Samples
 
 Some generated Wan2.1 samples:
-
-<div class="model-video-grid zoomable">
-  <div class="model-video-card">
-    <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-      <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/wan21/wan21-t2v-1.3b-480p.mp4" type="video/mp4">
-      Your browser does not support the video tag.
-    </video>
-    <figcaption class="tiny-figcaption">
-      prompt: "Two anthropomorphic cats in comfy boxing gear and bright gloves fight intensely on a spotlighted stage."
-    </figcaption>
-  </div>
-  <div class="model-video-card">
-    <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-      <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/wan21/wan21-i2v-14b-480p.mp4" type="video/mp4">
-      Your browser does not support the video tag.
-    </video>
-    <figcaption class="tiny-figcaption">
-      prompt: "Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline's intricate details and the refreshing atmosphere of the seaside."
-      <br/>
-      image: https://raw.githubusercontent.com/Wan-Video/Wan2.1/main/examples/i2v_input.JPG
-    </figcaption>
-  </div>
+<div class="model-video-card">
+  <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
+    <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/wan21/wan21-i2v-14b-480p.mp4" type="video/mp4">
+    Your browser does not support the video tag.
+  </video>
+  <figcaption class="tiny-figcaption">
+    prompt: "Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline's intricate details and the refreshing atmosphere of the seaside."
+    <br/>
+    image: https://raw.githubusercontent.com/Wan-Video/Wan2.1/main/examples/i2v_input.JPG
+  </figcaption>
 </div>
 
 ## Citation

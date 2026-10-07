@@ -138,9 +138,12 @@ The models come in three flavors:
 
 ### [Wan 2.1](wan21.md)
 
-<video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
-  <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/wan21/wan21-t2v-1.3b-480p.mp4" type="video/mp4">
-</video>
+<div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
+  <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
+    <source src="../_static/model_clips/wan21/wan21-t2v-1.3b-480p.mp4" type="video/mp4">
+    Your browser does not support the video tag.
+  </video>
+</div>
 
 <figcaption>
   Bidirectional video generation model that supports both text-to-video and image-to-video.

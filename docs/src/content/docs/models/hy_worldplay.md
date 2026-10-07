@@ -44,7 +44,7 @@ uv run --no-sync flashdreams-run-v2 cam2v-hy-worldplay \
 
 </div>
 
-<div class="grey-section" markdown>
+<div class="transparent-section" markdown>
 ## Demo Presets
 
 <a id="cam2v-presets"></a>
@@ -61,7 +61,12 @@ uv run --no-sync flashdreams-run-v2 cam2v-hy-worldplay \
 
 ## Developer Details
 
-[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/hy_worldplay) · [Pipeline configurations](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/hy_worldplay/config.py)
+<div class="fd-cta-row">
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/hy_worldplay">Integration source</a>
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/hy_worldplay/config.py">Pipeline configurations</a>
+</div>
+
+- **GPU:** A CUDA-capable NVIDIA GPU
 
 ## Performance (Outdated)
 

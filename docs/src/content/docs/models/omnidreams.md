@@ -59,7 +59,7 @@ uv run --no-sync flashdreams-run-v2 interactive-drive-omnidreams \
 
 </div>
 
-<div class="grey-section" markdown>
+<div class="transparent-section" markdown>
 ## Demo Presets
 
 <a id="crazy-robotaxi-presets"></a>
@@ -103,7 +103,10 @@ Fastest preset: `interactive-drive-omnidreams-fast-perf`.
 
 ## Developer Details
 
-[Integration source](https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/omnidreams) · [Pipeline configurations](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/omnidreams/config.py)
+<div class="fd-cta-row">
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/omnidreams">Integration source</a>
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/omnidreams/config.py">Pipeline configurations</a>
+</div>
 
 - **Minimum VRAM:** about 48 GB for the default Interactive Drive configuration.
 - **PyTorch:** 2.11 or newer.
