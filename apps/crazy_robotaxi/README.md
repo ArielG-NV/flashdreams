@@ -214,7 +214,7 @@ and `O` spawns a crossing obstacle. The same enabled actions appear as buttons
 in the live-edit HUD card alongside frame-aligned ability status. Weather cannot
 change while a non-base style is active. Style mode downloads its additional
 model assets on first use and caches them under
-`artifacts/crazy_robotaxi/live_edit`.
+`$FLASHDREAMS_CACHE_DIR/crazy-robotaxi/live_edit`.
 
 Map context appends authored road and landmark descriptions plus topology,
 curve, and vehicle-motion clauses to the active prompt. Complete combined
