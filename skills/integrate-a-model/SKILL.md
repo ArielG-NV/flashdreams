@@ -28,7 +28,7 @@ the integration plan before scaffolding files.
 
 ## Phase 0 — Scope before estimating
 
-Record these facts from the upstream repository and model card:
+Record these facts from the upstream repository and model overview:
 
 1. **Backbone family.** Find the closest existing recipe or integration. A
    Wan/DiT derivative should usually reuse Wan components rather than port a

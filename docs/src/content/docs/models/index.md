@@ -7,7 +7,7 @@ title: 'Models'
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 FlashDreams runs a growing family of world and video models (text-to-video, image-to-video, camera-controlled, ...).
-Model cards identify currently supported models.
+Model overviews identify currently supported models.
 
 ## Running a model
 

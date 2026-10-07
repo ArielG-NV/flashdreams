@@ -87,7 +87,7 @@ Keep import, config, entry-point, and stand-in application tests on CPU. Mark
 checkpoint downloads and real model execution `ci_gpu` or `manual`. Every
 test must carry a `ci_cpu`, `ci_gpu`, or `manual` marker.
 
-Add the model to [/models/index](../models/index.md), keep its model card focused on user-facing
+Add the model to [/models/index](../models/index.md), keep its model overview focused on user-facing
 requirements and the canonical launch command, and link detailed package or
 application behavior to the corresponding page under
 [/repository/integrations_v2/README](../repository/integrations_v2/README.md).

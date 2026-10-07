@@ -1,6 +1,6 @@
 ---
 name: validate-performance-quality
-description: Design benchmark, quality, and documentation validation for FlashDreams performance changes. Use when adding or updating sweep scenarios, profiler probes, decoder-quality comparisons, compile/cache probes, manual GPU validation, performance summaries, model cards, or README guidance after optimizing an inference integration, demo, or serving path.
+description: Design benchmark, quality, and documentation validation for FlashDreams performance changes. Use when adding or updating sweep scenarios, profiler probes, decoder-quality comparisons, compile/cache probes, manual GPU validation, performance summaries, model overviews, or README guidance after optimizing an inference integration, demo, or serving path.
 ---
 
 # Validate performance quality
@@ -98,7 +98,7 @@ Update the docs that future agents and users will read:
   owns them; do not expose model/cache controls as demo-layer policy.
 - Performance summary: what worked, what is opt-in, what failed, headline
   numbers, quality evidence, and remaining bottleneck.
-- Model card or benchmark page: methodology, stack-matched comparisons, artifact
+- Model overview or benchmark page: methodology, stack-matched comparisons, artifact
   links, and hardware/software environment.
 - Plan or learnings note: hypotheses tested, interpretation, and deferred work.
 
