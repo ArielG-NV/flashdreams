@@ -5,6 +5,10 @@ title: 'Documentation'
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
+## [CLI Reference](cli.md)
+
+Learn how to use the FlashDreams CLI to launch demos.
+
 ## [Demo API](demo_api/index.md)
 
 Build, configure, launch, and package user-facing applications using the FlashDreams Demo API.
