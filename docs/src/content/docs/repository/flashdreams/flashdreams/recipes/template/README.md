@@ -23,7 +23,8 @@ Minimal end-to-end recipe exercising the `StreamInferencePipeline` contracts in
 `flashdreams.infra`. Use it as a reference when scaffolding another recipe.
 
 This is an infrastructure/pipeline example. See the
-[API overview](../../../../../api/index.md) for runtime interfaces.
+[Inferencing API overview](../../../../../documentation/inferencing_api/index.md)
+for runtime interfaces.
 
 <a id="flashdreams-flashdreams-recipes-template-readme--what-s-exercised"></a>
 

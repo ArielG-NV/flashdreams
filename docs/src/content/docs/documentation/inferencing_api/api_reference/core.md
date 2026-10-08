@@ -1,5 +1,5 @@
 ---
-title: 'Core'
+title: 'Core API Reference'
 ---
 
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->

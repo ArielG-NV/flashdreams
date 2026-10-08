@@ -4,20 +4,20 @@ title: 'Architecture'
 
 <a id="architecture--architecture"></a>
 
-FlashDreams separates model inference, demo orchestration, and v2 application
-execution. The [API overview](../api/index.md) is the canonical map of those
-three families; do not mix their session or lifecycle contracts.
+FlashDreams exposes one public application protocol,
+`flashdreams.api_v2`. Model and runtime implementation layers sit behind that
+boundary; applications do not depend on their private lifecycle contracts.
 
 ## Repository layers
 
 | Layer | Responsibility | Canonical documentation |
 | --- | --- | --- |
-| `flashdreams.core` | Model-neutral tensor, cache, attention, and distributed primitives. | [Core API](../api/core.md) |
-| `flashdreams.infra` | Pipeline, runner, configuration, checkpoint, and component wiring. | [Infrastructure API](../api/infra.md) |
-| `flashdreams.runtime` and `flashdreams.runtime.demo` | Reusable inference sessions and higher-level demo orchestration. | [Inference API](../api/inference_api.md) and [demo API](../api/demo_api.md) |
-| `flashdreams.api_v2` and `flashdreams.runtime_v2` | Application/session/loop protocols and the runtime that executes them. | [Application API](../api/application_api.md) and [runtime internals](flashdreams/flashdreams/runtime_v2/README.md) |
-| `apps` | Reusable, model-agnostic v2 applications. | [Application packages](apps/README.md) |
-| `integrations_v2` | Standalone model packages and adapters that bind models to applications. | [Integration packages](integrations_v2/README.md) |
+| `flashdreams.core` | Model-neutral tensor, cache, attention, and distributed primitives. | [Model guide](../documentation/inferencing_api/guides/create_model.md) |
+| `flashdreams.infra` and `flashdreams.recipes` | Pipeline configuration and reusable model components. | [Pipeline overview](../documentation/inferencing_api/guides/stream_inference_pipeline.md) and [demo-configuration guide](../documentation/demo_api/guides/configuration.md) |
+| `flashdreams.api_v2` | Public application, session, loop, and client-I/O protocols. | [Demo Application API](../documentation/demo_api/api_reference/application.md) |
+| `flashdreams.runtime_v2` | Runtime that executes api_v2 applications. | [Runtime internals](flashdreams/flashdreams/runtime_v2/README.md) |
+| `apps` | Reusable, model-agnostic api_v2 applications. | [Application packages](apps/README.md) and [demo guide](../documentation/demo_api/guides/create_demo.md) |
+| `integrations_v2` | Standalone model packages and adapters that bind models to applications. | [Integration packages](integrations_v2/README.md) and [adapter guide](../documentation/demo_api/guides/integrate_model.md) |
 
 Dependencies point downward: `core` remains model-agnostic; `infra` may
 depend on `core`; applications depend on the framework; integrations depend
@@ -34,12 +34,14 @@ input and presentation; the model thread owns model state and generation.
 `StepResult` objects carry generated output from the model side to the
 presentation side.
 
-The public [application API](../api/application_api.md) defines these
+The public
+[application API](../documentation/demo_api/api_reference/application.md)
+defines these
 contracts. The repository [runtime v2 notes](flashdreams/flashdreams/runtime_v2/README.md) document buffering, threading,
 resets, distributed execution, and shutdown behavior for maintainers.
 
 For the model-side lifecycle inside a generation step, see the
-[inference pipeline overview](../developer_guides/inference_pipeline_overview.md).
+[inference pipeline overview](../documentation/inferencing_api/guides/stream_inference_pipeline.md).
 
 <a id="architecture--many-gpu-sessions"></a>
 

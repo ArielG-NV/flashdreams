@@ -28,7 +28,7 @@ Do not mix similarly named sessions, step results, or lifecycle hooks across
 these contracts. In particular, `flashdreams.api_v2.ISession` is not
 `flashdreams.runtime.InferenceSession`.
 
-Start with the maintained API map in `docs/src/content/docs/api/index.md`. Then follow
+Start with the maintained API map in `docs/src/content/docs/documentation/index.md`. Then follow
 the narrower source guide for the selected boundary:
 
 - `ARCHITECTURE.md` explains both API families and the v2 threading model.

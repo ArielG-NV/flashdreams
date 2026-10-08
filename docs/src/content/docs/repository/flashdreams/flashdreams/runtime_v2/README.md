@@ -15,7 +15,7 @@ This is the implementation. For how the pieces fit together and why the seams ar
 where they are, read [ARCHITECTURE.md](../../../ARCHITECTURE.md) first; for the
 protocols an application implements, see [api_v2](../api_v2/README.md).
 
-See the [API overview](../../../../api/index.md) before choosing a
+See the [Demo API overview](../../../../documentation/demo_api/index.md) before choosing a
 different runtime family.
 
 <a id="flashdreams-flashdreams-runtimev2-readme--terminology"></a>

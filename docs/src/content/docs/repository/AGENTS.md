@@ -147,8 +147,10 @@ Because of this direction, tests in `apps/<name>/tests/` must not import from `i
 
 - Setup and requirements: `README.md`, `docs/src/content/docs/quickstart/index.md`
 - CLI details: `docs/src/content/docs/documentation/cli.md`
-- Integration/plugin layout: `docs/src/content/docs/api/integrations.md`
-- New integrations: `docs/src/content/docs/developer_guides/new_integration.md`
+- Integration/plugin layout: `docs/src/content/docs/repository/integrations_v2/README.md`
+- New demos: `docs/src/content/docs/documentation/demo_api/guides/create_demo.md`
+- New models: `docs/src/content/docs/documentation/inferencing_api/guides/create_model.md`
+- New adapters: `docs/src/content/docs/documentation/demo_api/guides/integrate_model.md`
 - Docs and CPU autodoc: [Adding documentation](CONTRIBUTING.md#contributing--adding-documentation)
 - Tests and quality regressions: [Testing](CONTRIBUTING.md#contributing--testing)
 - Security reports: `SECURITY.md`
@@ -157,16 +159,13 @@ Because of this direction, tests in `apps/<name>/tests/` must not import from `i
 
 ## API Surfaces
 
-- `flashdreams.runtime` is the experimental inference API: model adapters create
-  reusable `InferenceRuntime` objects, which create isolated `InferenceSession`
-  objects. `flashdreams.runtime.demo` is the demo API above that boundary; it
-  owns input/output modes, drivers, warmup, replay, benchmarking, and demo
-  validation without moving those concerns into model inference.
-- `flashdreams.api_v2` is the public application protocol API implemented by
-  apps and integrations (`IApplication`, `ISession`, `IModelLoop`, and optional
+- `flashdreams.api_v2` is the public application protocol implemented by apps
+  and integrations (`IApplication`, `ISession`, `IModelLoop`, and optional
   `IUILoop`). `flashdreams.runtime_v2` runs those protocols and provides the
-  `flashdreams-run-v2` command. Do not mix its session/loop contracts with the
-  experimental `flashdreams.runtime` session contract.
+  `flashdreams-run-v2` command.
+- `flashdreams.core`, `flashdreams.infra`, and `flashdreams.recipes` are model
+  implementation layers behind the public application boundary. Document their
+  extension workflows in developer guides rather than as separate public APIs.
 
 <a id="agents--v2-threading"></a>
 

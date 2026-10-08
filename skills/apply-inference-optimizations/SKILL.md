@@ -33,7 +33,7 @@ that it is safe for the target workflow.
 
 Place each optimization on the API that owns it: model/cache behavior stays in
 the model-execution layer, while benchmark and presentation policy stay above
-it. Use `docs/src/content/docs/api/index.md` and the `flashdreams-integrations` skill to
+it. Use `docs/src/content/docs/documentation/index.md` and the `flashdreams-integrations` skill to
 resolve the boundary instead of duplicating those contracts here.
 
 ## Model and denoise path

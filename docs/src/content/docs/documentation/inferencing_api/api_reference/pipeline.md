@@ -1,5 +1,5 @@
 ---
-title: 'Infra'
+title: 'Pipeline API Reference'
 ---
 
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
@@ -10,7 +10,7 @@ The `flashdreams.infra` package defines the swappable abstractions that
 every integration plugs into: a config system, an encoder / diffusion-model /
 decoder triple, and the streaming inference pipeline that drives them.
 
-See the [API overview](index.md) for public runtime boundaries.
+See the [Inferencing API overview](../index.md) for public runtime boundaries.
 
 ## Config
 

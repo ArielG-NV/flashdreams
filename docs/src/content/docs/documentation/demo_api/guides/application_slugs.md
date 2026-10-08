@@ -5,9 +5,10 @@ title: 'Application slugs and model adapters'
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-This guide covers `flashdreams-run-v2`. Its application protocol and entry
-point group are separate from the `flashdreams-run` inference and demo APIs;
-see the [API overview](../api/index.md).
+This guide covers discovery for applications implementing
+`flashdreams.api_v2` and launched by `flashdreams-run-v2`. See the
+[Demo Application API reference](../api_reference/application.md) for the
+application contracts.
 
 ## Discovery
 
@@ -46,6 +47,6 @@ implementation, configuration, and tests belong under
 
 Do not add `runner.py`, `launch.py`, `runtime.py`, `model_session.py`,
 or a model-specific copy of an existing application merely to make a v2 slug.
-See [Add a v2 model integration](new_integration.md) for the concise workflow
-and [the v2 integration reference](../repository/integrations_v2/README.md) for
+See [Integrate a model with a demo](integrate_model.md) for the workflow and
+[the v2 integration reference](../../../repository/integrations_v2/README.md) for
 the complete package and testing rules.

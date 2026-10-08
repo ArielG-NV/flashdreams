@@ -34,7 +34,7 @@ Each run directory contains a manifest, environment metadata, normalized
 metrics, command logs, generated media, and `report.html`. Keep the entire
 directory when comparing a later candidate with a baseline.
 
-The [benchmark harness reference](../repository/flashdreams/tools/benchmarks/README.md) documents the current
+The [benchmark harness reference](../../../repository/flashdreams/tools/benchmarks/README.md) documents the current
 scenario ids, dry runs, baseline comparisons, one-minute suites, optional
 PAI-Bench profiles, and report layout. It is the canonical command reference;
 this page only provides the shortest supported path into that workflow.

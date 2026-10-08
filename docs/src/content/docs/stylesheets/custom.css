@@ -24,22 +24,8 @@
   --fd-text-muted: #a8b0bf;
 }
 
-[data-md-color-scheme="slate"] .md-header .md-logo {
-  position: relative;
-  isolation: isolate;
-  padding: 0.1rem 0.15rem;
-  margin: 0.5rem 0.45rem;
-}
-
-[data-md-color-scheme="slate"] .md-header .md-logo::before {
-  position: absolute;
-  inset: -0.05rem;
-  z-index: -1;
-  border-radius: 0.25rem;
-  background: rgb(185 190 198 / 55%);
-  filter: blur(0.25rem);
-  pointer-events: none;
-  content: "";
+[data-md-color-scheme="slate"] .md-header .md-logo img {
+  content: url("../images/horizontal-dark.svg");
 }
 
 .md-header__title {
@@ -278,7 +264,7 @@
   background-color: transparent;
   padding: 20px;             /* Adds breathing room inside the block */
   border-radius: 20px;        /* Optional: softens the edges */
-  
+
   margin-top: 10px;
   margin-bottom: 10px;
 }

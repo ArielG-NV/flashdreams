@@ -164,7 +164,7 @@ uv run --package flashdreams-omnidreams flashdreams-run-v2 \
 ```
 
 The validated published reference is the single-view GB300 table in
-[/models/omnidreams](../models/omnidreams.md), measured at `1280 x 704` (width x height). Its
+[OmniDreams](../../../models/omnidreams.md), measured at `1280 x 704` (width x height). Its
 KV-cache update measurement is off the hot path and excluded from the reported
 total. This guide consolidates the supported latency controls; it does not add
 new end-to-end hardware measurements.

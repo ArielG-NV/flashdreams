@@ -64,5 +64,8 @@ See our [How to Run a Model](../models/index.md#running-a-model) for more inform
 ## Where to next
 
 - [Model Gallery](../models/index.md): Every FlashDreams default-shipped model & how to run models!
-- [API Reference](../api/index.md): Learn how to build your own **demos** or **models** with the FlashDreams API!
+- [Demo API guides](../documentation/demo_api/index.md): Create and configure
+  demos, then integrate models with them.
+- [Inferencing API guides](../documentation/inferencing_api/index.md): Add
+  models and understand the stream inference pipeline.
 - [Troubleshooting](../troubleshooting.md): Common first-run failures and fixes.

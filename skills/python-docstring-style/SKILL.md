@@ -309,7 +309,8 @@ Place on its own line, one blank line before and after, short title. Don't use `
 
 The documentation site is built from Markdown with Zensical. Existing Python
 docstrings retain Google-style sections and reStructuredText literals for source
-readability; API pages under `docs/src/content/docs/api/` are maintained directly.
+readability; API pages under
+`docs/src/content/docs/documentation/*/api_reference/` are maintained directly.
 
 Practical rules:
 

@@ -1,5 +1,5 @@
 ---
-title: 'Experimental inference API'
+title: 'Experimental Inference Runtime API Reference'
 ---
 
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
@@ -8,9 +8,10 @@ title: 'Experimental inference API'
 
 `flashdreams.runtime` is the experimental inference API. Its lifecycle is
 `ModelAdapter` → reusable `InferenceRuntime` → isolated
-`InferenceSession`. See the [demo API](demo_api.md) for scenarios,
-presentation, replay, and benchmarks, or the [API overview](index.md) to
-compare all API families.
+`InferenceSession`. See the [Demo API overview](../../demo_api/index.md) for
+the application layer above it, or the
+[Inferencing API overview](../index.md) for the surrounding model-side guides
+and references.
 
 ## Minimal direct use
 
@@ -44,7 +45,7 @@ def run_one_step(adapter: ModelAdapter, global_conditioning, step):
 Close sessions and runtimes even after errors. Session calls are sequential;
 the caller owns concurrency unless an integration says otherwise.
 
-## API reference
+## API Reference
 
 ### Runtime lifecycle
 

@@ -1,1 +1,1 @@
-[Build and preview the FlashDreams website](src/content/docs/repository/CONTRIBUTING.md#contributing--build-and-preview-the-documentation)
+[Build and preview the FlashDreams website](src/content/docs/documentation/tools/build_website.md)

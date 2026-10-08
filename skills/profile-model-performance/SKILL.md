@@ -23,7 +23,7 @@ guess from code shape alone.
    - Find the user-facing entry point: runner, CLI, interactive server, batch
      script, notebook, or downstream adapter.
    - Identify the API boundary before tracing it. Use
-     `docs/src/content/docs/api/index.md` and the `flashdreams-integrations` skill rather
+     `docs/src/content/docs/documentation/index.md` and the `flashdreams-integrations` skill rather
      than inferring ownership from similarly named runtime modules.
    - Trace one generation step through input preparation, encode/context setup,
      model or denoise loop, cache update/finalize, decode, transfer, encode, and

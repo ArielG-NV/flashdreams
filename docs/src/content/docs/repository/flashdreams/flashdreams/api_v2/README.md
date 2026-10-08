@@ -12,8 +12,8 @@ contract; the runtime drives these objects and supplies their runtime-owned
 collaborators.
 
 This is the public application protocol run by `flashdreams.runtime_v2` and
-`flashdreams-run-v2`. See the [API overview](../../../../api/index.md)
-before choosing a different runtime family.
+`flashdreams-run-v2`. See the
+[Demo API overview](../../../../documentation/demo_api/index.md).
 
 [ARCHITECTURE.md](../../../ARCHITECTURE.md) covers how an application, a session
 and the runtime fit together. [runtime_v2](../runtime_v2/README.md) covers what

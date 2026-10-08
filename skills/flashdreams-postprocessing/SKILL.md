@@ -11,7 +11,7 @@ post-processing stream. The reference implementation is
 
 These contracts belong to `flashdreams.infra.postprocess`, at the decoded-video
 output boundary. Keep model execution and demo orchestration out of
-post-processors; use `docs/src/content/docs/api/index.md` for the API ownership map.
+post-processors; use `docs/src/content/docs/documentation/index.md` for the API ownership map.
 
 ## Mental Model
 

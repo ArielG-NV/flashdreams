@@ -10,9 +10,11 @@ This page outlines the major computation flow in the FlashDreams inference pipel
 It outlines the core concepts and APIs for building custom model integrations,
 or modifying existing ones.
 
-This is the low-level model pipeline used by integrations. See the [API overview](../api/index.md) for the public runtime layers above it.
+This is the low-level model pipeline used behind an `api_v2` model loop. See
+the [Demo Application API reference](../../demo_api/api_reference/application.md)
+for the public application contracts above it.
 
-<img alt="FlashDreams autoregressive inference pipeline overview." src="../_static/diagrams/flashdreams-inference-pipeline-overview.jpg" />
+<img alt="FlashDreams autoregressive inference pipeline overview." src="../../../_static/diagrams/flashdreams-inference-pipeline-overview.jpg" />
 
 The key entry point for the inference pipeline is the
 `~flashdreams.infra.pipeline.StreamInferencePipeline` class, which defines the
@@ -125,7 +127,8 @@ pipeline = pipeline_config.setup().to("cuda").eval()
 
 ```
 
-More details on the config system can be found in [/developer_guides/config_system](config_system.md).
+More details are in
+[Demo configuration](../../demo_api/guides/configuration.md).
 
 ## Examples
 
@@ -140,5 +143,6 @@ Samples on how existing models use this structure:
 - [Wan2.1 config](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/wan21/config.py):
   Treats a bidirectional video model as a single-rollout autoregressive model.
 
-For the detailed API documentation, please reference [/api/infra](../api/infra.md). To integrate a new model,
-please refer to [/developer_guides/new_integration](new_integration.md).
+To add an implementation, follow [Create a model](create_model.md). To make it
+selectable by a demo, continue with
+[Demo configuration](../../demo_api/guides/configuration.md).

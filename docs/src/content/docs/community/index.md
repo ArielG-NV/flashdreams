@@ -9,7 +9,7 @@ title: 'Community'
 Use the issue tracker for work that needs a record. Use Discord for informal
 questions and conversation. Do not report security problems in public.
 
-### [Contribute](../repository/CONTRIBUTING.md)
+### [Contribute](https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md)
 
 Development workflow, testing requirements, and contribution policy.
 
@@ -23,7 +23,7 @@ actual result, stack trace, and environment.
 Ask open-ended questions and share results in `#flashdreams` on the
 NVIDIA Omniverse server.
 
-### [Security](../repository/SECURITY.md)
+### [Security](https://github.com/NVIDIA/flashdreams/blob/main/SECURITY.md)
 
 Follow the private disclosure process. Never file a public issue for a
 vulnerability.
@@ -59,14 +59,15 @@ uv sync --package flashdreams-wan21 --extra dev
 
 ### Which Python API should I use?
 
-Use the [API decision table](../api/index.md). The inference API runs models,
-the demo API adds reusable demo behavior, and the v2 application API runs
-interactive applications.
+Use `flashdreams.api_v2`; the
+[Demo API reference](../documentation/demo_api/index.md) maps its
+application, session, and loop contracts.
 
 ### How do I add a model?
 
-Start with [Add a new method](../developer_guides/new_integration.md) and the
-[integration layout](../repository/integrations_v2/README.md).
+Start with
+[Create a model](../documentation/inferencing_api/guides/create_model.md), then
+[integrate it with a demo](../documentation/demo_api/guides/integrate_model.md).
 
 ### Can I use FlashDreams commercially?
 

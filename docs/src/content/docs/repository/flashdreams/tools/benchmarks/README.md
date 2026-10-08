@@ -1,5 +1,5 @@
 ---
-title: 'Benchmarking models on the application protocol API'
+title: 'Model Benchmark Harness'
 ---
 
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
@@ -16,9 +16,9 @@ side; a camera-to-video model is conditioned on a first frame that its prompt
 belongs to, so it is compared against runs of itself rather than against the
 text-to-video clips.
 
-For demo API benchmarking, see the
-[local benchmarks guide](../../../../developer_guides/local_benchmarks.md).
-Its session contract is unrelated to the application protocol used here.
+See the
+[local benchmarks guide](../../../../documentation/demo_api/guides/local_benchmarks.md)
+for the shortest supported workflow and custom scenario format.
 
 <a id="flashdreams-tools-benchmarks-readme--set-up"></a>
 

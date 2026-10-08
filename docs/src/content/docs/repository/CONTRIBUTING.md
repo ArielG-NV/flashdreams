@@ -294,7 +294,7 @@ docs/src/content/docs/           # Zensical Markdown pages
 
 ```
 
-See the [API overview](https://github.com/NVIDIA/flashdreams/blob/main/docs/src/content/docs/api/index.md)
+See the [API overview](https://github.com/NVIDIA/flashdreams/blob/main/docs/src/content/docs/documentation/index.md)
 before choosing an integration boundary.
 
 <a id="contributing--adding-documentation"></a>
@@ -316,11 +316,10 @@ is a distinct technical reference. Keep general guidance short, direct, and in
 plain English; detailed developer material may use precise technical language.
 Link to the exact existing section rather than copying it, and delete references
 to removed files or commands. Zensical builds the sidebar from the pages under
-`docs/src/content/docs/`. API documentation must name
-the correct surface: `flashdreams.runtime` is the inference API,
-`flashdreams.runtime.demo` is the higher-level demo API, and
-`flashdreams.api_v2` is the separate application protocol API. Start from the
-[API overview](../api/index.md).
+`docs/src/content/docs/`. API documentation covers the public `flashdreams.api_v2` application
+protocol. Keep model pipeline, configuration, and integration procedures in the
+corresponding Demo API or Inferencing API guides, starting from the
+[Documentation overview](../documentation/index.md).
 
 Every page under `docs/src/content/docs/repository/integrations_v2/**` uses the standard
 **Integration links** section with **Applications** and **Configuration**
@@ -330,20 +329,10 @@ links.
 
 ### Build and preview the documentation
 
-Run these commands from the repository root:
-
-```bash
-python tools/check_docs_layout.py
-uv run --only-group docs zensical build -f docs/zensical.toml
-uv run --only-group docs zensical serve -f docs/zensical.toml
-```
-
-The first command checks the repository's documentation rules. The build
-command renders the site once; `serve` starts a live preview at
-`http://localhost:8000`.
-The docs workflow builds the same Zensical site on pull requests without
-publishing them. Updates from `main` and releases are published to GitHub
-Pages.
+Use the [Build Website](../documentation/tools/build_website.md) tool
+reference to validate the documentation layout, render the site once, or start
+a live preview. The docs workflow publishes updates from `main` and releases to
+GitHub Pages.
 
 <a id="contributing--adding-an-agent-skill"></a>
 

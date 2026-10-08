@@ -7,7 +7,7 @@ description: End-to-end workflow for porting an external video or world model in
 
 Use this procedure to port an external model. Read
 `skills/flashdreams-integrations/SKILL.md` first for API ownership, package
-layout, registration, and test placement. Use `docs/src/content/docs/api/index.md` for
+layout, registration, and test placement. Use `docs/src/content/docs/documentation/index.md` for
 the canonical API map, and read `python-docstring-style` before writing public
 Python documentation.
 
@@ -180,7 +180,8 @@ global model object.
 ## Phases 5–7 — Implement the selected public boundary
 
 Follow `skills/flashdreams-integrations/SKILL.md` and the corresponding page
-under `docs/src/content/docs/api/`. Keep the binding thin:
+under `docs/src/content/docs/documentation/demo_api/api_reference/`. Keep the
+binding thin:
 
 - inference adapters own reusable model execution and isolated rollout state;
 - demo adapters add scenario and presentation policy above inference;
@@ -250,7 +251,7 @@ removed runner commands out of current quickstarts.
 - Current v2 model bindings use `flashdreams.applications_v2` and
   `flashdreams-run-v2`; HY-WorldPlay no longer registers its historical
   `flashdreams-run hy-worldplay-wan-i2v-5b` runner.
-- Recheck `docs/src/content/docs/api/index.md` rather than inferring ownership from
+- Recheck `docs/src/content/docs/documentation/index.md` rather than inferring ownership from
   similarly named runtime modules.
 - Diffusers repositories may be sharded. Point the loader at the index when
   appropriate rather than inventing a single-file URL.

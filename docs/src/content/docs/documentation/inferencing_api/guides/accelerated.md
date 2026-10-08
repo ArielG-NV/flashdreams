@@ -82,7 +82,7 @@ $$
 Every element is divided by $s_{\text{tensor}}$ before it is clipped to
 $[-M_t, M_t]$ and converted to $t$.
 
-<img alt="Tensor-wise quantization applies one shared scale to the complete tensor." src="../_static/diagrams/accelerated/tensor-wise-quantization.svg" />
+<img alt="Tensor-wise quantization applies one shared scale to the complete tensor." src="../../../_static/diagrams/accelerated/tensor-wise-quantization.svg" />
 
 Tensor-wise quantization applies one shared scale to the complete tensor.
 Per-slice granularity computes a scale for every slice along the selected
@@ -99,10 +99,10 @@ $$
 Thus, `axis=0` divides each $X_{ij}$ by its column scale $s_j$, and `axis=1`
 divides it by its row scale $s_i$.
 
-<img alt="Slice-wise quantization along axis zero applies one scale to each column." src="../_static/diagrams/accelerated/slice-wise-quantization-axis0.svg" />
+<img alt="Slice-wise quantization along axis zero applies one scale to each column." src="../../../_static/diagrams/accelerated/slice-wise-quantization-axis0.svg" />
 
 Slice-wise quantization with `axis=0` applies one scale to each column.
-<img alt="Slice-wise quantization along axis one applies one scale to each row." src="../_static/diagrams/accelerated/slice-wise-quantization-axis1.svg" />
+<img alt="Slice-wise quantization along axis one applies one scale to each row." src="../../../_static/diagrams/accelerated/slice-wise-quantization-axis1.svg" />
 
 Slice-wise quantization with `axis=1` applies one scale to each row.
 Using the same vector as the first column of a $(3, 2)$ matrix and adding a
@@ -188,7 +188,7 @@ future version.
 
 ::: 
 
-<img alt="Tile-wise quantization applies a separate scale to each tensor tile." src="../_static/diagrams/accelerated/tile-wise-quantization.svg" />
+<img alt="Tile-wise quantization applies a separate scale to each tensor tile." src="../../../_static/diagrams/accelerated/tile-wise-quantization.svg" />
 
 Tile-wise quantization applies a separate scale to each tile and is planned for a future version.
 CUDA tensors use the Triton implementation by default; CPU tensors use the
@@ -240,7 +240,7 @@ $$
 QK^\mathsf{T} \approx (s_Qs_K)\,(\bar Q\bar K^\mathsf{T}).
 $$
 
-<img alt="Tensor-tensor quantized GEMM applies the two tensor scales to the quantized matrix product." src="../_static/diagrams/accelerated/tensor-tensor-quantized-gemm.svg" />
+<img alt="Tensor-tensor quantized GEMM applies the two tensor scales to the quantized matrix product." src="../../../_static/diagrams/accelerated/tensor-tensor-quantized-gemm.svg" />
 
 Tensor–tensor quantized GEMM combines the two scalar scales.
 With `Granularity.SLICE` and `axis=-1`, each token instead has a scale:
@@ -258,13 +258,13 @@ of the query and key token scales and $\odot$ is elementwise multiplication.
 These equations describe composing the tensor quantizer with a GEMM; the
 quantizer itself does not perform attention or provide a fused QK kernel.
 
-<img alt="Slice-slice quantized GEMM applies an outer product of row and column scales." src="../_static/diagrams/accelerated/slice-slice-quantized-gemm.svg" />
+<img alt="Slice-slice quantized GEMM applies an outer product of row and column scales." src="../../../_static/diagrams/accelerated/slice-slice-quantized-gemm.svg" />
 
 Slice–slice quantized GEMM applies the outer product of the slice scales.
-<img alt="Slice-tensor quantized GEMM combines per-slice scales with one tensor scale." src="../_static/diagrams/accelerated/slice-tensor-quantized-gemm.svg" />
+<img alt="Slice-tensor quantized GEMM combines per-slice scales with one tensor scale." src="../../../_static/diagrams/accelerated/slice-tensor-quantized-gemm.svg" />
 
 Slice–tensor quantized GEMM combines per-slice scales with one scalar scale.
-<img alt="Tile-tile quantized GEMM scales and accumulates the products of quantized tiles." src="../_static/diagrams/accelerated/tile-tile-quantized-gemm.svg" />
+<img alt="Tile-tile quantized GEMM scales and accumulates the products of quantized tiles." src="../../../_static/diagrams/accelerated/tile-tile-quantized-gemm.svg" />
 
 Tile–tile quantized GEMM scales and accumulates individual tile products. Tile
 granularity is planned and is not currently supported by the toolkit.
@@ -289,7 +289,7 @@ rule.
 
 ::: 
 
-<img alt="Invalid slice quantization varies scales along the GEMM inner dimension." src="../_static/diagrams/accelerated/invalid-inner-quantized-gemm.svg" />
+<img alt="Invalid slice quantization varies scales along the GEMM inner dimension." src="../../../_static/diagrams/accelerated/invalid-inner-quantized-gemm.svg" />
 
 Invalid inner-dimension quantization cannot use a single post-GEMM scale.
 #### Worked Slice-Quantized GEMM
@@ -482,10 +482,10 @@ all heads for a token are normalized together. Optimized GQA does not support
 inner-scoped Q/K normalization. No normalization leaves Q and K unchanged. Let
 $Q^{(n)}$ and $K^{(n)}$ denote the resulting tensors; V is never normalized.
 
-<img alt="Head-scoped RMSNorm normalizes every attention head independently." src="../_static/diagrams/accelerated/per-head-rms-norm.svg" />
+<img alt="Head-scoped RMSNorm normalizes every attention head independently." src="../../../_static/diagrams/accelerated/per-head-rms-norm.svg" />
 
 Head-scoped RMSNorm normalizes each attention head independently with $m=d$.
-<img alt="Inner-scoped RMSNorm normalizes all attention heads for a token together." src="../_static/diagrams/accelerated/inner-rms-norm.svg" />
+<img alt="Inner-scoped RMSNorm normalizes all attention heads for a token together." src="../../../_static/diagrams/accelerated/inner-rms-norm.svg" />
 
 Inner-scoped RMSNorm normalizes the complete projected inner dimension with $m=Hd$.
 For even $d$, RoPE starts with geometrically spaced inverse frequencies. For
@@ -523,7 +523,7 @@ $(a_r,b_r)=(r,r+d/2)$ for $0 \le r < d/2$. Applying these rotations to
 $Q^{(n)}$ and $K^{(n)}$ gives $Q^\star$ and $K^\star$; disabling RoPE leaves
 them unchanged. V is not rotated.
 
-<img alt="Interleaved RoPE pairs adjacent features, while split RoPE pairs features from opposite halves." src="../_static/diagrams/accelerated/split-vs-interleaved-rope.svg" />
+<img alt="Interleaved RoPE pairs adjacent features, while split RoPE pairs features from opposite halves." src="../../../_static/diagrams/accelerated/split-vs-interleaved-rope.svg" />
 
 Interleaved RoPE pairs adjacent features; split-half RoPE pairs corresponding
 features from the two halves of the head dimension.
@@ -533,7 +533,7 @@ autoregressive step, only the new query and key chunk is rotated; older cached
 keys already contain their embeddings and are reused without applying RoPE
 again.
 
-<img alt="Before-cache RoPE rotates the current key chunk before writing it to the cache." src="../_static/diagrams/accelerated/rope-before-kv-cache.svg" />
+<img alt="Before-cache RoPE rotates the current key chunk before writing it to the cache." src="../../../_static/diagrams/accelerated/rope-before-kv-cache.svg" />
 
 Before-cache RoPE writes position-embedded keys to the K/V cache.
 **After the K/V cache update.** The cache stores unrotated K. Immediately
@@ -541,7 +541,7 @@ before attention, RoPE is applied to the current query and every visible cached
 key using angles for their current positions. The stored cache remains
 unrotated, so visible keys are rotated again on each autoregressive step.
 
-<img alt="After-cache RoPE rotates the query and all visible cached keys before attention." src="../_static/diagrams/accelerated/rope-after-kv-cache.svg" />
+<img alt="After-cache RoPE rotates the query and all visible cached keys before attention." src="../../../_static/diagrams/accelerated/rope-after-kv-cache.svg" />
 
 After-cache RoPE rotates visible keys while leaving cached keys unrotated.
 For the equal-head case, scaled dot-product attention for head $h$ is
@@ -563,16 +563,16 @@ precomputed from static $C$ and reused for each query.
 Q/K RMSNorm scope, RoPE pairing style, and RoPE cache-update scope are
 independent choices. They can be combined in any supported arrangement for
 both self-attention and cross-attention. See the
-[Generic Multi Head Attention Interface](flashdreams_accelerated.md#generic-multi-head-attention-interface)
+[Generic Multi Head Attention Interface](accelerated.md#generic-multi-head-attention-interface)
 for configuration details.
 
 The following examples show self-attention with before-cache RoPE and
 cross-attention with after-cache RoPE.
 
-<img alt="Self-attention data flow with RoPE applied before the K/V cache update." src="../_static/diagrams/accelerated/self-attention-rope-before-kv.svg" />
+<img alt="Self-attention data flow with RoPE applied before the K/V cache update." src="../../../_static/diagrams/accelerated/self-attention-rope-before-kv.svg" />
 
 Self-attention with RoPE before the K/V cache update.
-<img alt="Cross-attention data flow with RoPE applied after the K/V cache update." src="../_static/diagrams/accelerated/cross-attention-rope-after-kv.svg" />
+<img alt="Cross-attention data flow with RoPE applied after the K/V cache update." src="../../../_static/diagrams/accelerated/cross-attention-rope-after-kv.svg" />
 
 Cross-attention with RoPE after the K/V cache update.
 <a id="generic-multi-head-attention-interface"></a>
@@ -822,10 +822,10 @@ component and hardware platform.
 
 ### Quantization
 
-Use the APIs described in the [Quantization Toolkit](flashdreams_accelerated.md#quantization-toolkit) and
+Use the APIs described in the [Quantization Toolkit](accelerated.md#quantization-toolkit) and
 follow its examples directly. `QuantizedNonPersistentLinear` should be used as
 the inference-time drop-in replacement for any regular `nn.Linear` layer; the
-[quantized forward example](flashdreams_accelerated.md#quantized-forward-example) shows both dynamic and
+[quantized forward example](accelerated.md#quantized-forward-example) shows both dynamic and
 prequantized activation paths.
 
 ### Optimized MHA

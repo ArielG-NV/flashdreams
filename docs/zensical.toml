@@ -42,3 +42,6 @@ pymdownx.superfences = {}
 pymdownx.arithmatex.generic = true
 
 [project.plugins.awesome-nav]
+
+[project.extra]
+generator = false

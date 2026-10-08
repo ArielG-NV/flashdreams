@@ -201,14 +201,17 @@ The models come in three flavors:
 
 ## Adding your own model
 
-See [/developer_guides/new_integration](../developer_guides/new_integration.md) for model integration and registration
-guidance.
+Follow
+[Create a model](../documentation/inferencing_api/guides/create_model.md) for
+the model package, then
+[Integrate a model with a demo](../documentation/demo_api/guides/integrate_model.md)
+to register a runnable application.
 
 ## Related
 
 - Follow the [/quickstart/index](../quickstart/index.md) for the shortest path to
   running a model on your own hardware.
-- The [/developer_guides/index](../developer_guides/index.md) cover the architecture behind the
+- The [API guides](../documentation/index.md) cover the architecture behind the
   models you can run today.
 - [/community/index](../community/index.md) lists the channels to use if a process on
   this page does not run on your hardware.

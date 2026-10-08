@@ -10,14 +10,10 @@ Use this page for common first-run failures before opening an issue. Each
 entry lists the visible symptom, the most likely cause, and the next concrete
 step to try.
 
-FlashDreams has distinct command families. The current model applications in
-the gallery implement `flashdreams.api_v2` and run with
-`flashdreams-run-v2`. The experimental inference API
-(`flashdreams.runtime`) and the demo API built above it
-(`flashdreams.runtime.demo`) are separate from that v2 command. Legacy
-runner presets and registered demo applications use `flashdreams-run`. Do not move flags
-between those commands: v2 runtime flags precede `--` and v2 application
-flags follow it. See [/documentation/cli](documentation/cli.md) for the command shapes.
+Current model applications implement `flashdreams.api_v2` and run with
+`flashdreams-run-v2`. Runtime flags precede `--`; application flags follow it.
+Do not move flags across that separator. See the
+[CLI reference](documentation/cli.md) for the command shape.
 
 ## Launching a Demo Takes a Long Time
 

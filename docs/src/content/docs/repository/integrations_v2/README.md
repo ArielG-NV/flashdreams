@@ -15,7 +15,9 @@ title: 'V2 application integrations'
 - **Configuration:** [Package metadata](README.md#integrationsv2-readme--the-package-metadata)
 
 Applications built on `flashdreams.api_v2` and run by `flashdreams.runtime_v2`.
-See the [API overview](../../api/index.md) for the other API families.
+See the
+[Demo Application API reference](../../documentation/demo_api/api_reference/application.md)
+for the public contracts.
 Each directory is a standalone package that depends on `flashdreams`.
 
 <a id="integrationsv2-readme--documentation-convention"></a>

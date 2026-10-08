@@ -53,7 +53,7 @@ in the documentation.
 
 ## Python APIs
 
-See the [API overview](../../api/index.md)
+See the [Documentation overview](../../documentation/index.md)
 for inference, demo, and v2 application interfaces.
 
 <a id="flashdreams-pypireadme--documentation"></a>

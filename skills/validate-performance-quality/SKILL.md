@@ -10,7 +10,7 @@ Performance changes are not complete until they have a reproducible benchmark,
 the right quality reference, and documentation that explains defaults versus
 validated opt-in paths.
 
-Use `docs/src/content/docs/api/index.md` and the `flashdreams-integrations` skill to put
+Use `docs/src/content/docs/documentation/index.md` and the `flashdreams-integrations` skill to put
 benchmark controls, model/cache settings, and presentation policy on their
 owning API. This skill covers validation, not API architecture.
 

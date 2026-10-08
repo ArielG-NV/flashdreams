@@ -1,5 +1,5 @@
 ---
-title: 'CLI'
+title: 'CLI Reference'
 ---
 
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
@@ -8,16 +8,9 @@ title: 'CLI'
 
 ## Command Shape To Run A Demo/Model
 
-The command shape is described in our [Running a model](../models/index.md#running-a-model) section:
-
-
+This section will only cover `<System Arguments>`. Refer to the [Running a model](../models/index.md#running-a-model) section for more information on `<Demo Preset>` and `<Demo Arguments>`:
 ```bash
 uv run flashdreams-run-v2 <Demo Preset> <System Arguments> -- <Demo Arguments>
-```
-
-To request available arguments, specify `--help`:
-```bash
-uv run flashdreams-run-v2 --help
 ```
 
 ## System Arguments
@@ -98,6 +91,7 @@ uv run flashdreams-run-v2 DEMO_MODEL_SLUG --mode native-window --window-title Fl
 ## See also
 
 - [Quickstart](../quickstart/index.md)
-- [Configuration system](../developer_guides/config_system.md)
-- [Runner slugs](../developer_guides/runner_slugs.md)
-- [Infrastructure API](../api/infra.md)
+- [Demo configuration](demo_api/guides/configuration.md)
+- [Application slugs](demo_api/guides/application_slugs.md)
+- [Demo API](demo_api/index.md)
+- [Offline Program Packager](tools/offline_program_packager.md)
