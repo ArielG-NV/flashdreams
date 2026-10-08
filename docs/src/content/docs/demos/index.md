@@ -33,8 +33,7 @@ Demos are listed below.
 </video>
 
 <figcaption>
-  Run a long-lived driving session with browser, native-window, or MP4
-  output.
+  A completely world-model driven driving session.
 </figcaption>
 
 <hr>
@@ -46,7 +45,7 @@ Demos are listed below.
 </video>
 
 <figcaption>
-  Drive an image-established world model with direct keyboard and mouse input.
+  Run a world model that accepts actions as input, such as: direct keyboard and mouse input.
 </figcaption>
 
 <hr>
@@ -58,7 +57,7 @@ Demos are listed below.
 </video>
 
 <figcaption>
-  Control a generated camera view with interactive movement and look input.
+  Control a camera into a world interactively.
 </figcaption>
 
 <hr>
@@ -82,5 +81,5 @@ Demos are listed below.
 </video>
 
 <figcaption>
-  Restore or upscale a local or remote source video.
+  Restore or upscale a local or remote video source.
 </figcaption>
