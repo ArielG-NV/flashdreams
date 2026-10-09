@@ -17,8 +17,8 @@ model. FlashDreams integrates the published BF16 checkpoint as an
 image-established, keyboard/mouse-controlled V2 application with deterministic
 per-action metrics and MP4, WebRTC, or native-window presentation.
 
-<div class="model-media-card" style="width: 100%; margin: 10px auto 14px;">
-  <img class="model-media-player" src="../_static/model_clips/waypoint/waypoint-1.5.avif" alt="" />
+<div class="fd-card fd-model-card">
+  <img class="fd-card-preview" src="../_static/model_clips/waypoint/waypoint-1.5.avif" alt="" />
 </div>
 <figcaption class="tiny-figcaption">
   Upstream Waypoint 1.5 teaser from the

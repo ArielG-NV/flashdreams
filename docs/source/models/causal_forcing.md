@@ -72,14 +72,14 @@ uv run --no-sync flashdreams-run-v2 \
 ## Samples
 
 <div class="model-media-grid zoomable">
-  <div class="model-media-card">
-    <img class="model-media-player" src="../_static/model_clips/causal_forcing/causal-forcing-wan2.1-t2v-1.3b-framewise.avif" alt="" />
+  <div class="fd-card fd-model-card">
+    <img class="fd-card-preview" src="../_static/model_clips/causal_forcing/causal-forcing-wan2.1-t2v-1.3b-framewise.avif" alt="" />
     <figcaption class="tiny-figcaption">
       prompt: "A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle."
     </figcaption>
   </div>
-  <div class="model-media-card">
-    <img class="model-media-player" src="../_static/model_clips/causal_forcing/causal-forcing-wan2.1-i2v-1.3b-framewise.avif" alt="" />
+  <div class="fd-card fd-model-card">
+    <img class="fd-card-preview" src="../_static/model_clips/causal_forcing/causal-forcing-wan2.1-i2v-1.3b-framewise.avif" alt="" />
     <figcaption class="tiny-figcaption">
       prompt: "A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle."
       <br/>

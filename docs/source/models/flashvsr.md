@@ -109,8 +109,8 @@ under matched settings.
 
 ## Samples
 
-<div class="model-media-card" style="width: 100%; margin: 10px auto 14px;">
-  <img class="model-media-player" src="../_static/model_clips/flashvsr/flashvsr-v1.1-sparse-ratio-2.0.avif" alt="" />
+<div class="fd-card fd-model-card">
+  <img class="fd-card-preview" src="../_static/model_clips/flashvsr/flashvsr-v1.1-sparse-ratio-2.0.avif" alt="" />
   <figcaption class="tiny-figcaption">
     FlashVSR 2x output (1280x768) from <code>flashvsr-v1.1-sparse-ratio-2.0</code>;
     low-resolution input (672x384) inset at bottom-left.

@@ -18,8 +18,8 @@ mask-free shifted-window attention with a restoration-aware autoencoder for
 causal chunk-wise inference. FlashDreams provides 2x and 4x post-processing
 presets and the standalone `v2v-swiftvr` application.
 
-<div class="model-media-card" style="width: 100%; margin: 10px auto 14px;">
-  <img class="model-media-player" src="../_static/model_clips/swiftvr/swiftvr-2x.avif" alt="" />
+<div class="fd-card fd-model-card">
+  <img class="fd-card-preview" src="../_static/model_clips/swiftvr/swiftvr-2x.avif" alt="" />
 </div>
 
 <figcaption class="tiny-figcaption">

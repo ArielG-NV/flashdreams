@@ -15,8 +15,8 @@ title: 'Wan2.1'
 Wan2.1 is a bidirectional video generation model, supporting both
 text-to-video (T2V) and image-to-video (I2V) tasks.
 
-<div class="model-media-card">
-  <img class="model-media-player" src="../_static/model_clips/wan21/wan21-t2v-1.3b-480p.avif" alt="" />
+<div class="fd-card fd-model-card">
+  <img class="fd-card-preview" src="../_static/model_clips/wan21/wan21-t2v-1.3b-480p.avif" alt="" />
   <figcaption class="tiny-figcaption">
     Generated via FlashDreams with the prompt: "two cats dancing together in a circle in the rain, in a rainforest"
   </figcaption>
@@ -102,8 +102,8 @@ matched settings.
 
 ## Samples
 
-<div class="model-media-card">
-  <img class="model-media-player" src="../_static/model_clips/wan21/wan21-i2v-14b-480p.avif" alt="" />
+<div class="fd-card fd-model-card">
+  <img class="fd-card-preview" src="../_static/model_clips/wan21/wan21-i2v-14b-480p.avif" alt="" />
   <figcaption class="tiny-figcaption">
     prompt: "Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline's intricate details and the refreshing atmosphere of the seaside."
     <br/>

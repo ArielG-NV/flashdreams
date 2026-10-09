@@ -17,8 +17,8 @@ OmniDreams is an HDMap-conditioned streaming world model for driving
 generation, with application configurations that balance visual fidelity and
 runtime throughput.
 
-<div class="model-media-card" style="width: 100%; margin: 10px auto 14px;">
-  <img class="model-media-player" src="../_static/model_clips/omnidreams/omnidreams-teaser.avif" alt="" />
+<div class="fd-card fd-model-card">
+  <img class="fd-card-preview" src="../_static/model_clips/omnidreams/omnidreams-teaser.avif" alt="" />
 </div>
 <figcaption class="tiny-figcaption">
   Teaser video source:
@@ -133,14 +133,14 @@ Single-view latency on NVIDIA GB300 at `704 x 1280`:
 ## Samples
 
 <div class="model-media-grid zoomable">
-  <div class="model-media-card">
-    <img class="model-media-player" src="../_static/model_clips/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.avif" alt="" />
+  <div class="fd-card fd-model-card">
+    <img class="fd-card-preview" src="../_static/model_clips/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.avif" alt="" />
     <figcaption class="tiny-figcaption">
       example_data_uuid: "239560dc-33d1-11ef-9720-00044bcbccac"
     </figcaption>
   </div>
-  <div class="model-media-card">
-    <img class="model-media-player" src="../_static/model_clips/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-24b84744-4156-11ef-b27d-00044bf655de-pip.avif" alt="" />
+  <div class="fd-card fd-model-card">
+    <img class="fd-card-preview" src="../_static/model_clips/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-24b84744-4156-11ef-b27d-00044bf655de-pip.avif" alt="" />
     <figcaption class="tiny-figcaption">
       example_data_uuid: "24b84744-4156-11ef-b27d-00044bf655de"
     </figcaption>

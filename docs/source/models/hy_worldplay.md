@@ -16,8 +16,8 @@ real-time interactive image-to-video (I2V) world model with action + camera-traj
 reconstituted-context memory. FlashDreams ships a native port of the distilled WAN-5B variant (Wan 2.2
 TI2V-5B backbone, 4-step distilled Euler).
 
-<div class="model-media-card" style="width: 100%; margin: 10px auto 14px;">
-  <img class="model-media-player" src="../_static/model_clips/hy_worldplay/hy-worldplay-wan-i2v-5b-2.avif" alt="" />
+<div class="fd-card fd-model-card">
+  <img class="fd-card-preview" src="../_static/model_clips/hy_worldplay/hy-worldplay-wan-i2v-5b-2.avif" alt="" />
 </div>
 <figcaption class="tiny-figcaption">
   Generated with FlashDreams' native HY-WorldPlay Implementation.
@@ -96,20 +96,20 @@ under matched settings.
 ## Samples
 
 <div class="model-media-grid">
-  <div class="model-media-card">
-    <img class="model-media-player" src="../_static/model_clips/hy_worldplay/hy-worldplay-wan-i2v-5b-4.avif" alt="" />
+  <div class="fd-card fd-model-card">
+    <img class="fd-card-preview" src="../_static/model_clips/hy_worldplay/hy-worldplay-wan-i2v-5b-4.avif" alt="" />
     <figcaption class="tiny-figcaption">
       Walking through a seaside village
     </figcaption>
   </div>
-  <div class="model-media-card">
-    <img class="model-media-player" src="../_static/model_clips/hy_worldplay/hy-worldplay-wan-i2v-5b-8.avif" alt="" />
+  <div class="fd-card fd-model-card">
+    <img class="fd-card-preview" src="../_static/model_clips/hy_worldplay/hy-worldplay-wan-i2v-5b-8.avif" alt="" />
     <figcaption class="tiny-figcaption">
       Walking through a snowy forest
     </figcaption>
   </div>
-  <div class="model-media-card">
-    <img class="model-media-player" src="../_static/model_clips/hy_worldplay/hy-worldplay-wan-i2v-5b-9.avif" alt="" />
+  <div class="fd-card fd-model-card">
+    <img class="fd-card-preview" src="../_static/model_clips/hy_worldplay/hy-worldplay-wan-i2v-5b-9.avif" alt="" />
     <figcaption class="tiny-figcaption">
       Walking toward a castle
     </figcaption>

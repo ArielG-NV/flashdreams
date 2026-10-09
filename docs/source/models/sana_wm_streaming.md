@@ -18,8 +18,9 @@ includes the chunk-causal streaming release, exposed through the
 `cam2v-sana-wm-streaming` application, and the full-sequence bidirectional
 release, exposed as a programmatic pipeline configuration.
 
-
-<img alt="SANA-WM streaming FlashDreams sample clip." src="../_static/model_clips/sana_wm/sana-wm-streaming.avif" />
+<div class="fd-card fd-model-card">
+  <img class="fd-card-preview" alt="SANA-WM streaming FlashDreams sample clip." src="../_static/model_clips/sana_wm/sana-wm-streaming.avif" />
+</div>
 <figcaption class="tiny-figcaption">
   Generated via Flashdreams SANA-WM streaming demo using example assets via `--example-data` flag.
 </figcaption>

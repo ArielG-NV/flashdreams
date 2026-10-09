@@ -28,44 +28,39 @@ uv run flashdreams-run-v2 <Demo Preset> <System Arguments> -- <Demo Arguments>
 - `<Demo Arguments>` are arguments that apply to a particular demo. Refer to a particular [demo overview](../demos/index.md).
 
 
-
-## Available models
-
-Models appear in every generation mode they support. Select a card for setup, presets, performance, and samples.
-
-## Streaming and autoregressive
+## Models - Streaming and autoregressive
 
 These models advance a video or world incrementally for responsive, stateful generation.
 
 <div class="fd-card-grid fd-card-grid-three fd-overview-grid">
-  <a class="fd-card fd-model-card" href="omnidreams/"><img class="fd-card-preview" src="../_static/model_clips/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.avif" alt="" /><span class="fd-card-title">NVIDIA OmniDreams</span><span>HDMap-conditioned streaming world model for autonomous driving.</span></a>
-  <a class="fd-card fd-model-card" href="self_forcing/"><img class="fd-card-preview" src="../_static/model_clips/self_forcing/self-forcing-wan2.1-t2v-1.3b-flash-1.avif" alt="" /><span class="fd-card-title">Self-Forcing</span><span>Autoregressive text-to-video based on Wan 2.1.</span></a>
-  <a class="fd-card fd-model-card" href="causal_forcing/"><img class="fd-card-preview" src="../_static/model_clips/causal_forcing/causal-forcing-wan2.1-t2v-1.3b-framewise.avif" alt="" /><span class="fd-card-title">Causal-Forcing</span><span>Real-time causal text- and image-to-video generation.</span></a>
-  <a class="fd-card fd-model-card" href="causal_wan22/"><img class="fd-card-preview" src="../_static/model_clips/causal_wan22/fastvideo-causal-wan2.2-t2v-14b-1.avif" alt="" /><span class="fd-card-title">Causal Wan 2.2</span><span>Autoregressive video generation based on Wan 2.2.</span></a>
-  <a class="fd-card fd-model-card" href="lingbot_world/"><img class="fd-card-preview" src="../_static/model_clips/lingbot_world/lingbot-world-fast-01.avif" alt="" /><span class="fd-card-title">LingBot-World</span><span>Camera-controllable streaming image-to-video world model.</span></a>
-  <a class="fd-card fd-model-card" href="waypoint/"><img class="fd-card-preview" src="../_static/model_clips/waypoint/waypoint-1.5.avif" alt="" /><span class="fd-card-title">Waypoint 1.5</span><span>Interactive world model controlled by keyboard and mouse.</span></a>
-  <a class="fd-card fd-model-card" href="hy_worldplay/"><img class="fd-card-preview" src="../_static/model_clips/hy_worldplay/hy-worldplay-wan-i2v-5b-2.avif" alt="" /><span class="fd-card-title">HY-WorldPlay</span><span>Action- and camera-controllable image-to-video world model.</span></a>
-  <a class="fd-card fd-model-card" href="sana_wm_streaming/"><img class="fd-card-preview" src="../_static/model_clips/sana_wm/sana-wm-streaming.avif" alt=""><span class="fd-card-title">SANA-WM</span><span>Camera-controlled world model with streaming and bidirectional variants.</span></a>
+  <div class="fd-card fd-model-card"><a class="fd-model-card-link" href="omnidreams/"><img class="fd-card-preview" src="../_static/model_clips/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.avif" alt="" /><span class="fd-card-title">NVIDIA OmniDreams</span><span>HDMap-conditioned streaming world model for autonomous driving.</span></a></div>
+  <div class="fd-card fd-model-card"><a class="fd-model-card-link" href="self_forcing/"><img class="fd-card-preview" src="../_static/model_clips/self_forcing/self-forcing-wan2.1-t2v-1.3b-flash-1.avif" alt="" /><span class="fd-card-title">Self-Forcing</span><span>Autoregressive text-to-video based on Wan 2.1.</span></a></div>
+  <div class="fd-card fd-model-card"><a class="fd-model-card-link" href="causal_forcing/"><img class="fd-card-preview" src="../_static/model_clips/causal_forcing/causal-forcing-wan2.1-t2v-1.3b-framewise.avif" alt="" /><span class="fd-card-title">Causal-Forcing</span><span>Real-time causal text- and image-to-video generation.</span></a></div>
+  <div class="fd-card fd-model-card"><a class="fd-model-card-link" href="causal_wan22/"><img class="fd-card-preview" src="../_static/model_clips/causal_wan22/fastvideo-causal-wan2.2-t2v-14b-1.avif" alt="" /><span class="fd-card-title">Causal Wan 2.2</span><span>Autoregressive video generation based on Wan 2.2.</span></a></div>
+  <div class="fd-card fd-model-card"><a class="fd-model-card-link" href="lingbot_world/"><img class="fd-card-preview" src="../_static/model_clips/lingbot_world/lingbot-world-fast-01.avif" alt="" /><span class="fd-card-title">LingBot-World</span><span>Camera-controllable streaming image-to-video world model.</span></a></div>
+  <div class="fd-card fd-model-card"><a class="fd-model-card-link" href="waypoint/"><img class="fd-card-preview" src="../_static/model_clips/waypoint/waypoint-1.5.avif" alt="" /><span class="fd-card-title">Waypoint 1.5</span><span>Interactive world model controlled by keyboard and mouse.</span></a></div>
+  <div class="fd-card fd-model-card"><a class="fd-model-card-link" href="hy_worldplay/"><img class="fd-card-preview" src="../_static/model_clips/hy_worldplay/hy-worldplay-wan-i2v-5b-2.avif" alt="" /><span class="fd-card-title">HY-WorldPlay</span><span>Action- and camera-controllable image-to-video world model.</span></a></div>
+  <div class="fd-card fd-model-card"><a class="fd-model-card-link" href="sana_wm_streaming/"><img class="fd-card-preview" src="../_static/model_clips/sana_wm/sana-wm-streaming.avif" alt=""><span class="fd-card-title">SANA-WM</span><span>Camera-controlled world model with streaming and bidirectional variants.</span></a></div>
 </div>
 
-## Bidirectional generation
+## Models - Bidirectional generation
 
 These models render a complete clip in one pass and provide full-sequence reference implementations.
 
 <div class="fd-card-grid fd-card-grid-three fd-overview-grid">
-  <a class="fd-card fd-model-card" href="sana_wm_streaming/"><img class="fd-card-preview" src="../_static/model_clips/sana_wm/sana-wm-bidirectional.avif" alt=""><span class="fd-card-title">SANA-WM</span><span>Full-sequence camera-controlled image-to-video generation.</span></a>
-  <a class="fd-card fd-model-card" href="wan21/"><img class="fd-card-preview" src="../_static/model_clips/wan21/wan21-t2v-1.3b-480p.avif" alt="" /><span class="fd-card-title">Wan 2.1</span><span>Text-to-video and image-to-video generation.</span></a>
-  <a class="fd-card fd-model-card" href="wan22/"><img class="fd-card-preview" src="../_static/model_clips/wan22/wan22-ti2v-5b.avif" alt="" /><span class="fd-card-title">Wan 2.2 TI2V-5B</span><span>Text-and-image-to-video generation in one full-clip rollout.</span></a>
-  <a class="fd-card fd-model-card" href="cosmos_predict2/"><img class="fd-card-preview" src="../_static/model_clips/cosmos_predict2/cosmos2-t2v-2b-720p.avif" alt="" /><span class="fd-card-title">Cosmos-Predict2.5</span><span>Text2World, Image2World, and Video2World generation.</span></a>
+  <div class="fd-card fd-model-card"><a class="fd-model-card-link" href="sana_wm_streaming/"><img class="fd-card-preview" src="../_static/model_clips/sana_wm/sana-wm-bidirectional.avif" alt=""><span class="fd-card-title">SANA-WM</span><span>Full-sequence camera-controlled image-to-video generation.</span></a></div>
+  <div class="fd-card fd-model-card"><a class="fd-model-card-link" href="wan21/"><img class="fd-card-preview" src="../_static/model_clips/wan21/wan21-t2v-1.3b-480p.avif" alt="" /><span class="fd-card-title">Wan 2.1</span><span>Text-to-video and image-to-video generation.</span></a></div>
+  <div class="fd-card fd-model-card"><a class="fd-model-card-link" href="wan22/"><img class="fd-card-preview" src="../_static/model_clips/wan22/wan22-ti2v-5b.avif" alt="" /><span class="fd-card-title">Wan 2.2 TI2V-5B</span><span>Text-and-image-to-video generation in one full-clip rollout.</span></a></div>
+  <div class="fd-card fd-model-card"><a class="fd-model-card-link" href="cosmos_predict2/"><img class="fd-card-preview" src="../_static/model_clips/cosmos_predict2/cosmos2-t2v-2b-720p.avif" alt="" /><span class="fd-card-title">Cosmos-Predict2.5</span><span>Text2World, Image2World, and Video2World generation.</span></a></div>
 </div>
 
-## Upscaling and restoration
+## Models - Upscaling and restoration
 
 These models enhance an existing video stream rather than generating a scene from scratch.
 
 <div class="fd-card-grid fd-card-grid-three fd-overview-grid">
-  <a class="fd-card fd-model-card" href="flashvsr/"><img class="fd-card-preview" src="../_static/model_clips/flashvsr/flashvsr-v1.1-sparse-ratio-2.0.avif" alt="" /><span class="fd-card-title">FlashVSR</span><span>One-step streaming video super-resolution.</span></a>
-  <a class="fd-card fd-model-card" href="swiftvr/"><img class="fd-card-preview" src="../_static/model_clips/swiftvr/swiftvr-2x.avif" alt="" /><span class="fd-card-title">SwiftVR</span><span>Real-time streaming video restoration with 2× and 4× presets.</span></a>
+  <div class="fd-card fd-model-card"><a class="fd-model-card-link" href="flashvsr/"><img class="fd-card-preview" src="../_static/model_clips/flashvsr/flashvsr-v1.1-sparse-ratio-2.0.avif" alt="" /><span class="fd-card-title">FlashVSR</span><span>One-step streaming video super-resolution.</span></a></div>
+  <div class="fd-card fd-model-card"><a class="fd-model-card-link" href="swiftvr/"><img class="fd-card-preview" src="../_static/model_clips/swiftvr/swiftvr-2x.avif" alt="" /><span class="fd-card-title">SwiftVR</span><span>Real-time streaming video restoration with 2× and 4× presets.</span></a></div>
 </div>
 
 ## Adding your own model
