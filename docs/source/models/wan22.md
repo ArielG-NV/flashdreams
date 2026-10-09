@@ -18,11 +18,8 @@ prompt and first-frame image, it generates a complete 81-frame, 1280x640 clip
 in one rollout. FlashDreams exposes it through the
 `t2v-wan22-ti2v-5b` application.
 
-<div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
-  <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-    <source src="../_static/model_clips/wan22/wan22-ti2v-5b.mp4" type="video/mp4">
-    Your browser does not support the video tag.
-  </video>
+<div class="model-media-card" style="width: 100%; margin: 10px auto 14px;">
+  <img class="model-media-player" src="../_static/model_clips/wan22/wan22-ti2v-5b.avif" alt="" />
 </div>
 
 <figcaption class="tiny-figcaption">

@@ -18,11 +18,8 @@ mask-free shifted-window attention with a restoration-aware autoencoder for
 causal chunk-wise inference. FlashDreams provides 2x and 4x post-processing
 presets and the standalone `v2v-swiftvr` application.
 
-<div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
-  <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-    <source src="../_static/model_clips/swiftvr/swiftvr-2x.mp4" type="video/mp4">
-    Your browser does not support the video tag.
-  </video>
+<div class="model-media-card" style="width: 100%; margin: 10px auto 14px;">
+  <img class="model-media-player" src="../_static/model_clips/swiftvr/swiftvr-2x.avif" alt="" />
 </div>
 
 <figcaption class="tiny-figcaption">
@@ -40,7 +37,7 @@ presets and the standalone `v2v-swiftvr` application.
 uv sync --package flashdreams-swiftvr --inexact
 uv run --no-sync flashdreams-run-v2 v2v-swiftvr \
   --mode mp4 --output-path artifacts/swiftvr-2x.mp4 --timeout unbound -- \
-  --video-path docs/source/_static/model_clips/wan22/wan22-ti2v-5b.mp4
+  --video-path docs/source/_static/model_clips/wan22/wan22-ti2v-5b.avif
 ```
 
 - [Demo presets](#v2v-presets)

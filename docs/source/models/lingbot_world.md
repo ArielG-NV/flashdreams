@@ -16,11 +16,8 @@ Introduced by [Robbyant](https://technology.robbyant.com/), LingBot-World is a c
 [LingBot-World v1](https://github.com/robbyant/lingbot-world) and the causal-fast
 [LingBot-World v2](https://github.com/Robbyant/lingbot-world-v2) checkpoints in 14B and 1.3B sizes.
 
-<div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
-  <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-    <source src="https://gw.alipayobjects.com/v/huamei_u94ywh/afts/video/XQk7Rb44qJwAAAAAgfAAAAgAfoeUAQBr" type="video/mp4">
-    Your browser does not support the video tag.
-  </video>
+<div class="model-media-card" style="width: 100%; margin: 10px auto 14px;">
+  <img class="model-media-player" src="../_static/model_clips/lingbot_world/lingbot-world-teaser.avif" alt="" />
 </div>
 <figcaption class="tiny-figcaption">
   Teaser video source:
@@ -117,21 +114,15 @@ matched settings.
 
 ## Samples
 
-<div class="model-video-grid zoomable">
-  <div class="model-video-card">
-    <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-      <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-fast-01.mp4" type="video/mp4">
-      Your browser does not support the video tag.
-    </video>
+<div class="model-media-grid zoomable">
+  <div class="model-media-card">
+    <img class="model-media-player" src="../_static/model_clips/lingbot_world/lingbot-world-fast-01.avif" alt="" />
     <figcaption class="tiny-figcaption">
       example_idx: 01
     </figcaption>
   </div>
-  <div class="model-video-card">
-    <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-      <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-fast-02.mp4" type="video/mp4">
-      Your browser does not support the video tag.
-    </video>
+  <div class="model-media-card">
+    <img class="model-media-player" src="../_static/model_clips/lingbot_world/lingbot-world-fast-02.avif" alt="" />
     <figcaption class="tiny-figcaption">
       example_idx: 02
     </figcaption>
