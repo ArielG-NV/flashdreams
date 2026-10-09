@@ -37,8 +37,10 @@ uv run --no-sync flashdreams-run-v2 \
   --output-path artifacts/flashvsr.mp4 --timeout unbound -- --video-path input.mp4
 ```
 
-- [Demo presets](#v2v-presets)
-- [Demo arguments](../demos/v2v.md#demo-arguments)
+<div class="fd-cta-row">
+  <a class="fd-button" href="#v2v-presets">Demo Presets</a>
+  <a class="fd-button" href="../demos/v2v.md#demo-arguments">Demo Arguments</a>
+</div>
 
 <hr>
 
@@ -59,7 +61,7 @@ uv run --no-sync flashdreams-run-v2 \
 ## Developer Details
 
 <div class="fd-cta-row">
-  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/flashvsr">Integration source</a>
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/flashvsr">Integration Source</a>
   <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/flashvsr/config.py">Pipeline configurations</a>
 </div>
 

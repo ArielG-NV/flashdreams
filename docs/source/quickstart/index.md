@@ -13,7 +13,11 @@ This page will guide you into running your first world-model.
 We will use [NVIDIA OmniDreams](../models/omnidreams.md), an interactive driving world model, as the
 example:
 
-<img class="fd-card-media" src="../_static/demo_clips/interactive-drive.avif" alt="" />
+<div class="fd-card-grid">
+  <div class="fd-card fd-model-card">
+    <img class="fd-card-preview" src="../_static/demo_clips/interactive-drive.avif" alt="OmniDreams interactive driving demo." />
+  </div>
+</div>
 
 ## Install
 

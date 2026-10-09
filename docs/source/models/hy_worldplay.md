@@ -35,8 +35,10 @@ uv run --no-sync flashdreams-run-v2 cam2v-hy-worldplay \
   --mode webrtc --host 0.0.0.0 --port 8089 -- --example-data
 ```
 
-- [Demo presets](#cam2v-presets)
-- [Demo arguments](../demos/cam2v.md#demo-arguments)
+<div class="fd-cta-row">
+  <a class="fd-button" href="#cam2v-presets">Demo Presets</a>
+  <a class="fd-button" href="../demos/cam2v.md#demo-arguments">Demo Arguments</a>
+</div>
 
 <hr>
 
@@ -55,7 +57,7 @@ uv run --no-sync flashdreams-run-v2 cam2v-hy-worldplay \
 ## Developer Details
 
 <div class="fd-cta-row">
-  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/hy_worldplay">Integration source</a>
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/hy_worldplay">Integration Source</a>
   <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/hy_worldplay/config.py">Pipeline configurations</a>
 </div>
 

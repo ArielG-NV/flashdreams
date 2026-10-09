@@ -36,8 +36,10 @@ uv run --no-sync flashdreams-run-v2 cam2v-sana-wm-streaming \
   --mode webrtc --host 0.0.0.0 --port 8089 -- --example-data
 ```
 
-- [Demo presets](#cam2v-presets)
-- [Demo arguments](../demos/cam2v.md#demo-arguments)
+<div class="fd-cta-row">
+  <a class="fd-button" href="#cam2v-presets">Demo Presets</a>
+  <a class="fd-button" href="../demos/cam2v.md#demo-arguments">Demo Arguments</a>
+</div>
 
 <hr>
 
@@ -56,7 +58,7 @@ uv run --no-sync flashdreams-run-v2 cam2v-sana-wm-streaming \
 ## Developer Details
 
 <div class="fd-cta-row">
-  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/sana_wm">Integration source</a>
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/sana_wm">Integration Source</a>
 </div>
 
 - **PyTorch:** 2.9 or newer.

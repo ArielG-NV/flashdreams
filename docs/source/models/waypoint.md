@@ -39,8 +39,10 @@ uv run --no-sync flashdreams-run-v2 action2v-waypoint-1-5-1b \
   --example-data --seed 464
 ```
 
-- [Demo presets](#action2v-presets)
-- [Demo arguments](../demos/action2v.md#demo-arguments)
+<div class="fd-cta-row">
+  <a class="fd-button" href="#action2v-presets">Demo Presets</a>
+  <a class="fd-button" href="../demos/action2v.md#demo-arguments">Demo Arguments</a>
+</div>
 
 <hr>
 
@@ -59,7 +61,7 @@ uv run --no-sync flashdreams-run-v2 action2v-waypoint-1-5-1b \
 ## Developer Details
 
 <div class="fd-cta-row">
-  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/waypoint">Integration source</a>
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/waypoint">Integration Source</a>
   <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/waypoint/config.py">Pipeline configurations</a>
 </div>
 

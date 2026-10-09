@@ -40,8 +40,10 @@ uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
 # canonical examples folder: https://github.com/Robbyant/lingbot-world-v2/tree/main/examples
 ```
 
-- [Demo presets](#cam2v-presets)
-- [Demo arguments](../demos/cam2v.md#demo-arguments)
+<div class="fd-cta-row">
+  <a class="fd-button" href="#cam2v-presets">Demo Presets</a>
+  <a class="fd-button" href="../demos/cam2v.md#demo-arguments">Demo Arguments</a>
+</div>
 
 <hr>
 
@@ -66,7 +68,7 @@ uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
 ## Developer Details
 
 <div class="fd-cta-row">
-  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/lingbot">Integration source</a>
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/lingbot">Integration Source</a>
   <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/lingbot/config.py">Pipeline configuration</a>
 </div>
 

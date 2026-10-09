@@ -40,8 +40,10 @@ uv run --no-sync flashdreams-run-v2 v2v-swiftvr \
   --video-path docs/source/_static/model_clips/wan22/wan22-ti2v-5b.avif
 ```
 
-- [Demo presets](#v2v-presets)
-- [Demo arguments](../demos/v2v.md#demo-arguments)
+<div class="fd-cta-row">
+  <a class="fd-button" href="#v2v-presets">Demo Presets</a>
+  <a class="fd-button" href="../demos/v2v.md#demo-arguments">Demo Arguments</a>
+</div>
 
 <hr>
 
@@ -60,7 +62,7 @@ uv run --no-sync flashdreams-run-v2 v2v-swiftvr \
 ## Developer Details
 
 <div class="fd-cta-row">
-  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/swiftvr">Integration source</a>
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/swiftvr">Integration Source</a>
   <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/swiftvr/config.py">Pipeline configurations</a>
 </div>
 

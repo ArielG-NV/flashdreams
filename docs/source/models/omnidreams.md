@@ -38,8 +38,10 @@ uv run --no-sync flashdreams-run-v2 crazy-robotaxi-omnidreams \
 # Open http://127.0.0.1:8089/
 ```
 
-- [Demo presets](#crazy-robotaxi-presets)
-- [Demo arguments](../demos/crazy_robotaxi.md#demo-arguments)
+<div class="fd-cta-row">
+  <a class="fd-button" href="#crazy-robotaxi-presets">Demo Presets</a>
+  <a class="fd-button" href="../demos/crazy_robotaxi.md#demo-arguments">Demo Arguments</a>
+</div>
 
 ### Interactive Drive
 
@@ -54,8 +56,10 @@ uv run --no-sync flashdreams-run-v2 interactive-drive-omnidreams \
 # Open http://127.0.0.1:8089/
 ```
 
-- [Demo presets](#interactive-drive-presets)
-- [Demo arguments](../demos/interactive_drive.md#demo-arguments)
+<div class="fd-cta-row">
+  <a class="fd-button" href="#interactive-drive-presets">Demo Presets</a>
+  <a class="fd-button" href="../demos/interactive_drive.md#demo-arguments">Demo Arguments</a>
+</div>
 
 <hr>
 
@@ -101,7 +105,7 @@ Fastest preset: `interactive-drive-omnidreams-fast-perf`.
 ## Developer Details
 
 <div class="fd-cta-row">
-  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/omnidreams">Integration source</a>
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/omnidreams">Integration Source</a>
   <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/omnidreams/config.py">Pipeline configurations</a>
 </div>
 

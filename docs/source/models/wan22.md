@@ -43,8 +43,10 @@ uv run --no-sync flashdreams-run-v2 \
   --no-ui --no-compile
 ```
 
-- [Demo presets](#t2v-presets)
-- [Demo arguments](../demos/t2v.md#demo-arguments)
+<div class="fd-cta-row">
+  <a class="fd-button" href="#t2v-presets">Demo Presets</a>
+  <a class="fd-button" href="../demos/t2v.md#demo-arguments">Demo Arguments</a>
+</div>
 
 <hr>
 
@@ -63,7 +65,7 @@ uv run --no-sync flashdreams-run-v2 \
 ## Developer Details
 
 <div class="fd-cta-row">
-  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/wan22">Integration source</a>
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/wan22">Integration Source</a>
   <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/wan22/config.py">Pipeline configurations</a>
 </div>
 
