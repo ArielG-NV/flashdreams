@@ -57,8 +57,6 @@ def test_documentation_motion_media_uses_avif() -> None:
         source = page.read_text(encoding="utf-8")
         for match in _LEGACY_VIDEO_RE.finditer(source):
             line = source.count("\n", 0, match.start()) + 1
-            legacy.append(
-                f"{page.relative_to(_DOCS_SOURCE)}:{line}: {match.group(0)}"
-            )
+            legacy.append(f"{page.relative_to(_DOCS_SOURCE)}:{line}: {match.group(0)}")
 
     assert not legacy, "Documentation motion media must use AVIF:\n" + "\n".join(legacy)
