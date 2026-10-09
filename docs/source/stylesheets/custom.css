@@ -396,6 +396,11 @@
   margin: 1rem auto 2.5rem;
 }
 
+[data-md-color-scheme="slate"] .md-typeset .fd-why-comparison,
+[data-md-color-scheme="slate"] .md-typeset .fd-why-supporting-image {
+  filter: invert(1) hue-rotate(180deg);
+}
+
 .fd-why-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(16rem, 24rem);
