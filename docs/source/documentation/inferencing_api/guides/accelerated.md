@@ -10,6 +10,9 @@ integrations. It currently covers tensor/linear quantization and streaming
 multi-head attention. These APIs are implementation tools, not a switch that
 makes every pipeline faster.
 
+See the [Accelerated API reference](../api_reference/accelerated.md) for generated
+signatures and docstrings.
+
 ## Quantization
 
 ### Tensor quantization

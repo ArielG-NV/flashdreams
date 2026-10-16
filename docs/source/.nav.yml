@@ -26,6 +26,7 @@ nav:
           - API Reference:
               - Pipeline API: documentation/inferencing_api/api_reference/pipeline.md
               - Core API: documentation/inferencing_api/api_reference/core.md
+              - Accelerated API: documentation/inferencing_api/api_reference/accelerated.md
       - Tooling:
           - Tooling Overview: documentation/tools/index.md
           - Offline Program Packager: documentation/tools/offline_program_packager.md

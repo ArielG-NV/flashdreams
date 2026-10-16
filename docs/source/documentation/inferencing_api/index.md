@@ -5,13 +5,9 @@ title: 'Inferencing API'
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-Use the Inferencing API to implement model components, pipeline configuration,
-streaming generation, caching, and optimized execution behind a Demo API model
-loop.
+Use the Inferencing API to implement model components, and pipelines to run inference on World Models.
 
-`flashdreams.runtime` provides the experimental model and session contracts.
-`flashdreams.infra`, `flashdreams.recipes`, and `flashdreams.core` provide
-the lower-level pipeline and model building blocks.
+`flashdreams.infra` and `flashdreams.core` provide the lower-level pipeline and model building blocks.
 
 ## Guides
 
@@ -27,4 +23,5 @@ the lower-level pipeline and model building blocks.
 <div class="fd-card-grid fd-card-grid-three fd-overview-grid">
   <a class="fd-card fd-model-card" href="api_reference/pipeline/"><span class="fd-card-title">Pipeline API</span><span>Reference for inference pipelines and reusable infrastructure.</span></a>
   <a class="fd-card fd-model-card" href="api_reference/core/"><span class="fd-card-title">Core API</span><span>Reference for model-agnostic core components and utilities.</span></a>
+  <a class="fd-card fd-model-card" href="api_reference/accelerated/"><span class="fd-card-title">Accelerated API</span><span>Reference for optimized attention, quantization, and shared inference components.</span></a>
 </div>
