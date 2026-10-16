@@ -7,8 +7,6 @@ title: 'Inferencing API'
 
 Use the Inferencing API to implement model components, and pipelines to run inference on World Models.
 
-`flashdreams.infra` and `flashdreams.core` provide the lower-level pipeline and model building blocks.
-
 ## Guides
 
 <div class="fd-card-grid fd-card-grid-three fd-overview-grid">
