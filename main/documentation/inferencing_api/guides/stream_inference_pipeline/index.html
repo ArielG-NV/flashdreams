@@ -1729,6 +1729,8 @@
       
         
       
+        
+      
     
     
     
@@ -1805,14 +1807,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../demo_api/guides/integrate_model_adapter_for_a_demo/" class="md-nav__link">
+      <a href="../../../demo_api/guides/integrate_model/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-  Integrate model adapter for a demo
+  Integrate a model with a demo
 
     
   </span>
@@ -1832,14 +1834,41 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../demo_api/guides/adding_a_new_configuration/" class="md-nav__link">
+      <a href="../../../demo_api/guides/configuration/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-  Adding a new configuration
+  Demo configuration
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../demo_api/guides/application_slugs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Application slugs and dispatch
 
     
   </span>
@@ -2577,8 +2606,6 @@
       
         
       
-        
-      
     
     
     
@@ -2672,33 +2699,6 @@
     
   
   Build Website
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../tools/testing/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Testing
 
     
   </span>
@@ -2996,13 +2996,6 @@ for the next step. Use the same cache and index for both calls. The base class
 rejects skipped, repeated, or mismatched indices. When synchronized profiling
 is enabled, <code>finalize</code> returns stage timings and GPU-memory metrics; otherwise
 it returns <code>None</code>.</p>
-<p>An application does not always own this loop directly. The V2V application
-accepts a <code>VideoPostProcessorConfig</code>; each model's processor session owns the
-pipeline cache and calls <code>generate</code>/<code>finalize</code> after converting and buffering
-input chunks. FlashVSR builds its pipeline after the input shape is known,
-while SwiftVR keeps a resident pipeline and creates an isolated stream cache.
-See <a href="../../../demo_api/guides/integrate_model_adapter_for_a_demo/">Integrate model adapter for a demo</a>
-for the paired adapters.</p>
 <h2 id="shape-and-state-rules">Shape and state rules</h2>
 <p>Outside the transformer network, video tensors are normally pre-patchify
 <code>[B, C, T, H, W]</code>. Inside the network they are token sequences such as
@@ -3044,12 +3037,6 @@ for uncontrolled streaming T2V,
 for per-step camera control, and
 <a href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/wan21/config.py">Wan 2.1</a>
 for single-step bidirectional generation.</p>
-<p>Pipeline-backed V2V processors include
-<a href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/flashvsr/impl/postprocess.py">FlashVSR</a>
-and
-<a href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/swiftvr/impl/postprocess.py">SwiftVR</a>.
-They keep application-level video handling independent from each model's tensor
-layout, cache initialization, buffering, and flush behavior.</p>
 
 
 
