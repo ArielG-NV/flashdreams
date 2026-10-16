@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://nvidia.github.io/flashdreams/main/documentation/demo_api/guides/integrate_model/">
+        <link rel="canonical" href="https://nvidia.github.io/flashdreams/main/documentation/demo_api/guides/adding_a_new_configuration/">
       
       
-        <link rel="prev" href="../create_demo/">
+        <link rel="prev" href="../integrate_model_adapter_for_a_demo/">
       
       
-        <link rel="next" href="../configuration/">
+        <link rel="next" href="../interactive_serving/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Integrate a model with a demo - FlashDreams</title>
+        <title>Adding a new configuration - FlashDreams</title>
       
     
     
@@ -87,7 +87,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#1-choose-the-existing-interaction" class="md-skip">
+        <a href="#files-to-update" class="md-skip">
           Skip to content
         </a>
       
@@ -122,7 +122,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Integrate a model with a demo
+              Adding a new configuration
             
           </span>
         </div>
@@ -1733,8 +1733,6 @@
       
         
       
-        
-      
     
     
     
@@ -1808,6 +1806,33 @@
                   
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrate_model_adapter_for_a_demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Integrate model adapter for a demo
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
     
   
   
@@ -1825,7 +1850,7 @@
   <span class="md-ellipsis">
     
   
-  Integrate a model with a demo
+  Adding a new configuration
 
     
   </span>
@@ -1842,7 +1867,7 @@
   <span class="md-ellipsis">
     
   
-  Integrate a model with a demo
+  Adding a new configuration
 
     
   </span>
@@ -1866,10 +1891,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-choose-the-existing-interaction" class="md-nav__link">
+  <a href="#files-to-update" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        1. Choose the existing interaction
+        Files to update
       </span>
     </span>
   </a>
@@ -1877,10 +1902,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-add-the-adapter" class="md-nav__link">
+  <a href="#define-the-pipeline-config" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        2. Add the adapter
+        Define the pipeline config
       </span>
     </span>
   </a>
@@ -1888,10 +1913,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-register-a-stable-slug" class="md-nav__link">
+  <a href="#add-a-factory" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        3. Register a stable slug
+        Add a factory
       </span>
     </span>
   </a>
@@ -1899,10 +1924,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-test-the-seam-on-cpu" class="md-nav__link">
+  <a href="#register-and-run-the-preset" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        4. Test the seam on CPU
+        Register and run the preset
       </span>
     </span>
   </a>
@@ -1910,21 +1935,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#5-install-and-inspect" class="md-nav__link">
+  <a href="#document-the-preset" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        5. Install and inspect
-      </span>
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#6-document-once" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        6. Document once
+        Document the preset
       </span>
     </span>
   </a>
@@ -1935,60 +1949,6 @@
   
 </nav>
       
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../configuration/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Demo configuration
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../application_slugs/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Application slugs and dispatch
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -2628,6 +2588,8 @@
       
         
       
+        
+      
     
     
     
@@ -2721,6 +2683,33 @@
     
   
   Build Website
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tools/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Testing
 
     
   </span>
@@ -2866,10 +2855,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-choose-the-existing-interaction" class="md-nav__link">
+  <a href="#files-to-update" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        1. Choose the existing interaction
+        Files to update
       </span>
     </span>
   </a>
@@ -2877,10 +2866,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-add-the-adapter" class="md-nav__link">
+  <a href="#define-the-pipeline-config" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        2. Add the adapter
+        Define the pipeline config
       </span>
     </span>
   </a>
@@ -2888,10 +2877,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-register-a-stable-slug" class="md-nav__link">
+  <a href="#add-a-factory" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        3. Register a stable slug
+        Add a factory
       </span>
     </span>
   </a>
@@ -2899,10 +2888,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-test-the-seam-on-cpu" class="md-nav__link">
+  <a href="#register-and-run-the-preset" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        4. Test the seam on CPU
+        Register and run the preset
       </span>
     </span>
   </a>
@@ -2910,21 +2899,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#5-install-and-inspect" class="md-nav__link">
+  <a href="#document-the-preset" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        5. Install and inspect
-      </span>
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#6-document-once" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        6. Document once
+        Document the preset
       </span>
     </span>
   </a>
@@ -2947,7 +2925,7 @@
                   
 
   
-    <a href="https://github.com/NVIDIA/flashdreams/edit/main/docs/source/documentation/demo_api/guides/integrate_model.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/NVIDIA/flashdreams/edit/main/docs/source/documentation/demo_api/guides/adding_a_new_configuration.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
     </a>
@@ -2955,81 +2933,80 @@
   
 
 
-  <h1 id="__skip">Integrate a model with a demo</h1>
+  <h1 id="__skip">Adding a new configuration</h1>
 
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-<p>A demo integration is a thin adapter between a model config under
-<code>integrations_v2/&lt;model&gt;/</code> and a reusable application under <code>apps/&lt;demo&gt;/</code>.
-The adapter supplies model-specific defaults and registers a zero-argument
-<code>IApplication</code> factory. It does not duplicate either side.</p>
-<h2 id="1-choose-the-existing-interaction">1. Choose the existing interaction</h2>
-<p>Pick the app whose inputs and presentation match the model: T2V, Cam2V,
-Action2V, V2V, Interactive Drive, or Crazy Robotaxi. Create a new app only when
-none of them owns the required interaction or UI.</p>
-<p>Add that app package to the integration's dependencies. The app remains
-model-independent; only the adapter imports both the app and model config.</p>
-<h2 id="2-add-the-adapter">2. Add the adapter</h2>
-<div class="highlight"><pre><span></span><code>integrations_v2/&lt;model&gt;/apps/&lt;demo&gt;/
-  __init__.py
-  adapter.py
-  README.md              # installation and launch details only
+<p>After <a href="../integrate_model_adapter_for_a_demo/">integrating a model adapter for a demo</a>, you can
+add another preset without writing another app. This example adds a faster
+pipeline config to the T2V adapter.</p>
+<h2 id="files-to-update">Files to update</h2>
+<div class="highlight"><pre><span></span><code>integrations_v2/&lt;model&gt;/
+  config.py           # define the pipeline variant
+  apps/t2v/adapter.py  # add its application factory
+  pyproject.toml      # register its CLI name
+
+docs/source/models/&lt;model&gt;.md  # add the preset and run command
 </code></pre></div>
-<p>A T2V adapter can be this small:</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.api_v2.application</span><span class="w"> </span><span class="kn">import</span> <span class="n">IApplication</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">t2v</span><span class="w"> </span><span class="kn">import</span> <span class="n">T2VApplication</span><span class="p">,</span> <span class="n">T2VApplicationDefaults</span>
+<h2 id="define-the-pipeline-config">Define the pipeline config</h2>
+<p>In <code>config.py</code>, derive a variant from the existing config:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">derive_config</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">my_model.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">PIPELINE_MY_MODEL</span>
-
-<span class="n">MY_MODEL_T2V_DEFAULTS</span> <span class="o">=</span> <span class="n">T2VApplicationDefaults</span><span class="p">(</span>
-    <span class="n">pipeline_config</span><span class="o">=</span><span class="n">PIPELINE_MY_MODEL</span><span class="p">,</span>
-    <span class="n">total_blocks</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
-    <span class="n">pixel_width</span><span class="o">=</span><span class="mi">832</span><span class="p">,</span>
-    <span class="n">pixel_height</span><span class="o">=</span><span class="mi">480</span><span class="p">,</span>
-    <span class="n">fps</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+<span class="n">PIPELINE_MY_MODEL_FAST</span> <span class="o">=</span> <span class="n">derive_config</span><span class="p">(</span>
+    <span class="n">PIPELINE_MY_MODEL</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my-model-fast&quot;</span><span class="p">,</span>
+    <span class="n">diffusion_model</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;scheduler&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;num_inference_steps&quot;</span><span class="p">:</span> <span class="mi">4</span><span class="p">}},</span>
 <span class="p">)</span>
-
-
-<span class="k">def</span><span class="w"> </span><span class="nf">create_app</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">IApplication</span><span class="p">:</span>
-    <span class="k">return</span> <span class="n">T2VApplication</span><span class="p">(</span><span class="n">defaults</span><span class="o">=</span><span class="n">MY_MODEL_T2V_DEFAULTS</span><span class="p">)</span>
 </code></pre></div>
-<p>Subclass the reusable application only when it exposes a hook the model really
-needs, such as a different cache initializer or compile override. The factory
-must not load weights or initialize CUDA.</p>
-<h2 id="3-register-a-stable-slug">3. Register a stable slug</h2>
+<p>Choose a step count your model supports. <code>derive_config</code> copies the original
+config and applies nested changes; an unknown field raises <code>KeyError</code>.
+Give the variant its own name and add it to the package's config dictionary:</p>
+<div class="highlight"><pre><span></span><code><span class="n">MY_MODEL_CONFIGS</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="n">config</span><span class="o">.</span><span class="n">name</span><span class="p">:</span> <span class="n">config</span>
+    <span class="k">for</span> <span class="n">config</span> <span class="ow">in</span> <span class="p">(</span><span class="n">PIPELINE_MY_MODEL</span><span class="p">,</span> <span class="n">PIPELINE_MY_MODEL_FAST</span><span class="p">)</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>The dictionary makes configs available to Python callers. Register a separate
+application name to make the variant available from the CLI.</p>
+<h2 id="add-a-factory">Add a factory</h2>
+<p>In <code>apps/t2v/adapter.py</code>, reuse the defaults from the previous guide:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">replace</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">my_model.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">PIPELINE_MY_MODEL_FAST</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">create_app_fast</span><span class="p">():</span>
+    <span class="k">return</span> <span class="n">T2VApplication</span><span class="p">(</span>
+        <span class="n">defaults</span><span class="o">=</span><span class="n">replace</span><span class="p">(</span>
+            <span class="n">MY_MODEL_T2V_DEFAULTS</span><span class="p">,</span>
+            <span class="n">pipeline_config</span><span class="o">=</span><span class="n">PIPELINE_MY_MODEL_FAST</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+</code></pre></div>
+<p>Like <code>create_app</code>, this factory takes no arguments and returns an uninitialized
+application. Model loading happens in the app's <code>init()</code>.</p>
+<h2 id="register-and-run-the-preset">Register and run the preset</h2>
+<p>Add the new name to the existing entry-point table in <code>pyproject.toml</code>:</p>
 <div class="highlight"><pre><span></span><code><span class="k">[project.entry-points.</span><span class="s2">&quot;flashdreams.applications_v2&quot;</span><span class="k">]</span>
 <span class="s2">&quot;t2v-my-model&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my_model.apps.t2v.adapter:create_app&quot;</span>
+<span class="s2">&quot;t2v-my-model-fast&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my_model.apps.t2v.adapter:create_app_fast&quot;</span>
 </code></pre></div>
-<p>Use a readable <code>&lt;demo&gt;-&lt;model-or-config&gt;</code> slug. Register each supported variant
-explicitly with its own factory. Do not add <code>flashdreams.runner_configs</code>, a
-<code>runner.py</code>, or a model-specific copy of the app solely for v2 discovery.</p>
-<h2 id="4-test-the-seam-on-cpu">4. Test the seam on CPU</h2>
-<p>Put adapter tests in <code>integrations_v2/&lt;model&gt;/tests/</code>, not under the reusable
-app. Inject a stand-in config and verify:</p>
-<ul>
-<li>factory construction performs no model load;</li>
-<li>defaults report the correct size, rate, layout, and rollout length;</li>
-<li>initialize, generate, and finalize run in order;</li>
-<li>argument validation, reset, finish, and close work;</li>
-<li>every entry-point slug resolves to <code>IApplication</code>.</li>
-</ul>
-<p>Use the app's shared testing helpers when available. For example, <code>t2v.testing</code>
-provides a stand-in pipeline and end-to-end adapter checks.</p>
-<h2 id="5-install-and-inspect">5. Install and inspect</h2>
-<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-&lt;model&gt;<span class="w"> </span>--extra<span class="w"> </span>dev<span class="w"> </span>--inexact
-uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>pytest<span class="w"> </span>integrations_v2/&lt;model&gt;/tests<span class="w"> </span>-m<span class="w"> </span>ci_cpu
+<p>Each CLI name selects a factory, not a key in <code>MY_MODEL_CONFIGS</code>.
+Reinstall the package to update its entry points:</p>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-&lt;model&gt;<span class="w"> </span>--inexact
 uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>--help
-uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>&lt;demo&gt;-&lt;model&gt;<span class="w"> </span>--<span class="w"> </span>--help
+uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>t2v-my-model-fast<span class="w"> </span>--mode<span class="w"> </span>native-window
 </code></pre></div>
-<p>A real launch uses the same slug with <code>--mode mp4</code>, <code>webrtc</code>, or
-<code>native-window</code>. Runtime options precede <code>--</code>; application options follow it.</p>
-<h2 id="6-document-once">6. Document once</h2>
-<p>Put installation, supported bindings, and canonical commands on the model page.
-Link to the demo page for shared controls. Keep the adapter README limited to
-package-specific installation and launch details.</p>
-<p>See <a href="../application_slugs/">Application slugs</a> for discovery details and
-<a href="../configuration/">Demo configuration</a> for ownership of overrides.</p>
+<p>If a name is missing from <code>--help</code>, check that the model package is installed
+and the name is registered under <code>flashdreams.applications_v2</code>.
+For local experiments, the CLI can also import a module with a <code>create_app()</code>
+function by replacing hyphens in the supplied name with underscores. These
+module names are not listed in <code>--help</code>; use entry points for published presets.</p>
+<h2 id="document-the-preset">Document the preset</h2>
+<p>Add the new name, its differences, and a run command to
+<code>docs/source/models/&lt;model&gt;.md</code>. Link to the demo page for shared controls and
+arguments. Use a unique name for each preset and keep existing names unchanged.</p>
 
 
 
@@ -3064,7 +3041,7 @@ package-specific installation and launch details.</p>
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../create_demo/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Create a demo">
+          <a href="../integrate_model_adapter_for_a_demo/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Integrate model adapter for a demo">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg>
@@ -3074,20 +3051,20 @@ package-specific installation and launch details.</p>
                 Previous
               </span>
               <div class="md-ellipsis">
-                Create a demo
+                Integrate model adapter for a demo
               </div>
             </div>
           </a>
         
         
           
-          <a href="../configuration/" class="md-footer__link md-footer__link--next" aria-label="Next: Demo configuration">
+          <a href="../interactive_serving/" class="md-footer__link md-footer__link--next" aria-label="Next: Interactive serving">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Demo configuration
+                Interactive serving
               </div>
             </div>
             <div class="md-footer__button md-icon">

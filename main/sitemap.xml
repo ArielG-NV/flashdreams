@@ -40,16 +40,13 @@
         <loc>https://nvidia.github.io/flashdreams/main/documentation/demo_api/api_reference/application/</loc>
       </url>
       <url>
-        <loc>https://nvidia.github.io/flashdreams/main/documentation/demo_api/guides/application_slugs/</loc>
-      </url>
-      <url>
-        <loc>https://nvidia.github.io/flashdreams/main/documentation/demo_api/guides/configuration/</loc>
+        <loc>https://nvidia.github.io/flashdreams/main/documentation/demo_api/guides/adding_a_new_configuration/</loc>
       </url>
       <url>
         <loc>https://nvidia.github.io/flashdreams/main/documentation/demo_api/guides/create_demo/</loc>
       </url>
       <url>
-        <loc>https://nvidia.github.io/flashdreams/main/documentation/demo_api/guides/integrate_model/</loc>
+        <loc>https://nvidia.github.io/flashdreams/main/documentation/demo_api/guides/integrate_model_adapter_for_a_demo/</loc>
       </url>
       <url>
         <loc>https://nvidia.github.io/flashdreams/main/documentation/demo_api/guides/interactive_serving/</loc>
@@ -95,6 +92,9 @@
       </url>
       <url>
         <loc>https://nvidia.github.io/flashdreams/main/documentation/tools/offline_program_packager/</loc>
+      </url>
+      <url>
+        <loc>https://nvidia.github.io/flashdreams/main/documentation/tools/testing/</loc>
       </url>
       <url>
         <loc>https://nvidia.github.io/flashdreams/main/models/</loc>
