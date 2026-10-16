@@ -18,7 +18,6 @@ The current application protocol is `flashdreams.api_v2`.
   <a class="fd-card fd-model-card" href="guides/integrate_model_adapter_for_a_demo/"><span class="fd-card-title">Integrate model adapter for a demo</span><span>Connect a model to an existing demo.</span></a>
   <a class="fd-card fd-model-card" href="guides/adding_a_new_configuration/"><span class="fd-card-title">Adding a new configuration</span><span>Add and register another model preset.</span></a>
   <a class="fd-card fd-model-card" href="guides/interactive_serving/"><span class="fd-card-title">Interactive serving</span><span>Run a demo in a browser or local window.</span></a>
-  <a class="fd-card fd-model-card" href="guides/local_benchmarks/"><span class="fd-card-title">Local benchmarks</span><span>Measure application performance in a local environment.</span></a>
   <a class="fd-card fd-model-card" href="guides/profiling/"><span class="fd-card-title">Profiling a demo</span><span>Collect Nsight Systems traces and per-step performance metrics.</span></a>
 </div>
 
