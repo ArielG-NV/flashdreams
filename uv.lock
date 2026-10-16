@@ -28,7 +28,6 @@ members = [
     "flashdreams-cosmos-predict2",
     "flashdreams-fastvideo-causal-wan22",
     "flashdreams-flashvsr",
-    "flashdreams-hy-worldplay",
     "flashdreams-imgui-ui-demo",
     "flashdreams-interactive-drive-v2",
     "flashdreams-lingbot",
@@ -1252,36 +1251,6 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
-name = "flashdreams-hy-worldplay"
-version = "0.1.0"
-source = { editable = "integrations_v2/hy_worldplay" }
-dependencies = [
-    { name = "diffusers" },
-    { name = "flashdreams" },
-    { name = "flashdreams-cam2v" },
-    { name = "flashdreams-wan22" },
-    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "diffusers", specifier = ">=0.34" },
-    { name = "flashdreams", editable = "flashdreams" },
-    { name = "flashdreams-cam2v", editable = "apps/cam2v" },
-    { name = "flashdreams-wan22", editable = "integrations_v2/wan22" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "scipy", specifier = ">=1.11" },
-]
-provides-extras = ["dev"]
-
-[[package]]
 name = "flashdreams-imgui-ui-demo"
 version = "0.1.0"
 source = { editable = "integrations_v2/imgui_ui_demo" }
@@ -1410,7 +1379,7 @@ requires-dist = [
     { name = "mediapy", specifier = ">=1.1" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "nvidia-cudnn-cu13", marker = "sys_platform == 'win32'", specifier = "==9.20.0.48" },
-    { name = "nvidia-cudnn-frontend", specifier = "==1.22.1" },
+    { name = "nvidia-cudnn-frontend", specifier = "==1.23.0" },
     { name = "opencv-python-headless", specifier = ">=4.5" },
     { name = "pillow", specifier = ">=12.3.0" },
     { name = "pyarrow", specifier = ">=16.0" },
@@ -1564,8 +1533,8 @@ name = "flashdreams-v2v"
 version = "0.1.0"
 source = { editable = "apps/v2v" }
 dependencies = [
+    { name = "av" },
     { name = "flashdreams", extra = ["local-window", "serving"] },
-    { name = "imageio-ffmpeg" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform != 'win32' and extra == 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
@@ -1575,13 +1544,15 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "imageio-ffmpeg" },
     { name = "pytest" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "av", specifier = ">=16.1.0" },
     { name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" },
-    { name = "imageio-ffmpeg", specifier = ">=0.5" },
+    { name = "imageio-ffmpeg", marker = "extra == 'dev'", specifier = ">=0.5" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "torch", specifier = ">=2.9" },
@@ -3080,18 +3051,18 @@ wheels = [
 
 [[package]]
 name = "nvidia-cudnn-frontend"
-version = "1.22.1"
+version = "1.23.0"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/da/db/91a6bcacd669e90b601f99ec9ea4099a03c907dedb513b7e96711e50203b/nvidia_cudnn_frontend-1.22.1-cp310-cp310-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:271ac2e6a089cf90d4d6048465b1aa4fef9a8377154d135630b66b1f0ff01f43", size = 2718956, upload-time = "2026-04-10T17:32:12.244Z" },
-    { url = "https://files.pythonhosted.org/packages/35/09/d7fbbbe2b1fd6ac536dabb6a140ed2b422206787b2eec04650ae691c8f0b/nvidia_cudnn_frontend-1.22.1-cp310-cp310-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:ce89182d291605f9807aabd98914988a72eaa4b0e6396cc25a1f1f053e411fe1", size = 2861082, upload-time = "2026-04-10T17:27:16.655Z" },
-    { url = "https://files.pythonhosted.org/packages/5b/e1/b25e7b47d1c37a3016ff554916271674e30d8e59a5a9f63a611c3858f8e5/nvidia_cudnn_frontend-1.22.1-cp310-cp310-win_amd64.whl", hash = "sha256:0420df3d2132f8a8d09d77d0c860ae58779395ff17405e73e3d5e926f431243d", size = 2309071, upload-time = "2026-04-10T17:36:33.735Z" },
-    { url = "https://files.pythonhosted.org/packages/01/c0/28e3ebc360ae354756910542d329b9a9f4f7cb818570e689fb3ac8af6889/nvidia_cudnn_frontend-1.22.1-cp311-cp311-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:66a01e367958088f49f738448e7fed71055476d81dc04897e091e9ee25987c64", size = 2720704, upload-time = "2026-04-10T17:33:05.062Z" },
-    { url = "https://files.pythonhosted.org/packages/5a/7d/81d887eeae9674204612bc7874315ba2859bae0ce1f22ee0b8b8cfb9984e/nvidia_cudnn_frontend-1.22.1-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:9e91a5d3264a53dff379801cf7fd79a97bedca2712295fe099b778ce36d64a54", size = 2862037, upload-time = "2026-04-10T17:27:57.406Z" },
-    { url = "https://files.pythonhosted.org/packages/9e/90/45ffa9aa735fb9679fb62978f36128e6600c6c51652931d9554b3bc1114d/nvidia_cudnn_frontend-1.22.1-cp311-cp311-win_amd64.whl", hash = "sha256:5e0fb81a29200e40ab39eb505921d5702ab97ac39079f28169ba5a3e6249ee0c", size = 2309870, upload-time = "2026-04-10T17:36:55.169Z" },
-    { url = "https://files.pythonhosted.org/packages/1a/3f/523fb08d9b7be15242ade6e2a641900d05c0e9cfffab8260de37a04ac0d2/nvidia_cudnn_frontend-1.22.1-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:f64fb4e0a45b7a8bb126f91a71d8afc03facf14b82dade51744ca48cf20d2974", size = 2722597, upload-time = "2026-04-10T17:33:54.366Z" },
-    { url = "https://files.pythonhosted.org/packages/34/b7/35c87c334d553bd45809ec957b53f3d7dd13c5a407e853c9eea29fcc5b3c/nvidia_cudnn_frontend-1.22.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:933275df405053001888875ee75d2138b20dc4e8bf4057461b1c74ca68b0e270", size = 2863367, upload-time = "2026-04-10T17:29:22.838Z" },
-    { url = "https://files.pythonhosted.org/packages/4f/42/af975c8937a4c331b1215a0b2bdd2a742d792c6f777f919fd70480d63762/nvidia_cudnn_frontend-1.22.1-cp312-cp312-win_amd64.whl", hash = "sha256:2da1c277f008ee64273a48a5cb8d07efbb6d6774fdc08bd889476cce93b2f69a", size = 2310595, upload-time = "2026-04-10T17:37:24.776Z" },
+    { url = "https://files.pythonhosted.org/packages/49/34/9462a7066d4e29f3707479611a566af653af6e06ab30f9cc7b9a9c1d0844/nvidia_cudnn_frontend-1.23.0-cp310-cp310-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:a4415ac101f811539a1db0780880f1bbe32ba4a4cdbd478caccc6eec453745bf", size = 2932957, upload-time = "2026-04-29T19:11:53.532Z" },
+    { url = "https://files.pythonhosted.org/packages/b2/b0/bb22f6c144bec0574d6484a916e33242140ba3d52eebc482cab85ad449a1/nvidia_cudnn_frontend-1.23.0-cp310-cp310-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:5e0ecb32cc4e201307caef18eecdd23c9035264d8ce0eb62e2325261092f6fe6", size = 3077591, upload-time = "2026-04-29T19:12:10.113Z" },
+    { url = "https://files.pythonhosted.org/packages/d3/b7/be2b22ecfedfda41b91d88fc1285a9549363aba0a392e31437090fd942ed/nvidia_cudnn_frontend-1.23.0-cp310-cp310-win_amd64.whl", hash = "sha256:d37e0be22916e2f2ee552281488cd5de9295fb7decdde29e6a510df6682ff287", size = 2493411, upload-time = "2026-04-29T19:12:37.805Z" },
+    { url = "https://files.pythonhosted.org/packages/63/35/55235f0c91ea95682965bd0634f914f4e640efb3251827b689d9f94bc5a2/nvidia_cudnn_frontend-1.23.0-cp311-cp311-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:ac886721c21b2c0b6aaaef3073dfb2c0cff55412f8a6b0b258a8c0e7015a0d67", size = 2934081, upload-time = "2026-04-29T19:12:57.761Z" },
+    { url = "https://files.pythonhosted.org/packages/be/18/5053e0f567eb1e6ce4f6584272312d1d9541180f7984699c8c9f02f4a3d6/nvidia_cudnn_frontend-1.23.0-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:7bdae232a3071501012611fab14aae34dd16983205e56d3c1641317910fdd385", size = 3079352, upload-time = "2026-04-29T19:13:20.659Z" },
+    { url = "https://files.pythonhosted.org/packages/11/22/ce357287d8cf6838a2c0a73299e12219a29592b0b5272778013bfd86b8b1/nvidia_cudnn_frontend-1.23.0-cp311-cp311-win_amd64.whl", hash = "sha256:4fcc4da0916b23cfa5b613355495b1186c7f00a9b47c026cacd7e80dc45355a8", size = 2494085, upload-time = "2026-04-29T19:13:51.413Z" },
+    { url = "https://files.pythonhosted.org/packages/e9/88/fbcfeb1826806a3f6e5ca6670700b4a7da758436ec2ce9b56f113cc15263/nvidia_cudnn_frontend-1.23.0-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:32b2ba9ef8e2c97536dd7fed3985f22e93c2c13d30a3d12543bd3c1ef8b25cdd", size = 2936016, upload-time = "2026-04-29T19:14:13.027Z" },
+    { url = "https://files.pythonhosted.org/packages/b2/78/35832dc0b32995a0418533749f9d01c0fcd0b55b89abdaeb30195ad27712/nvidia_cudnn_frontend-1.23.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:36c9bbaeae94e40157c6119cdd9eb52dbdfdb0cedb195984910ea32827029198", size = 3082860, upload-time = "2026-04-29T19:14:41.481Z" },
+    { url = "https://files.pythonhosted.org/packages/3a/9d/e3f68f9c03b51bb63ca8fd5796b48593e64e5ab24d8df2d85a8e32ec5369/nvidia_cudnn_frontend-1.23.0-cp312-cp312-win_amd64.whl", hash = "sha256:b864b498c1330979b54e6509c1d69a064cc47622661408837dc872cb6bb7ea1c", size = 2494915, upload-time = "2026-04-29T19:14:56.614Z" },
 ]
 
 [[package]]

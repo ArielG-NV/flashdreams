@@ -147,9 +147,11 @@ Pull requests without DCO sign-off will be asked to rebase before merge.
 This is a hard gate; please don't take a polite ping personally.
 
 NVIDIA contributors and external contributors follow the *same* DCO
-process. NVIDIA-internal IP review, where applicable, is handled by
-NVIDIA reviewers on your behalf — you do not need to engage with it as
-an outside contributor.
+process. NVIDIA reviewers follow the
+[NVIDIA IP review process](https://nv/ip_review_process) for ongoing project
+modifications and third-party contributions. Reviewers handle this internal
+process on your behalf — you do not need to engage with it as an outside
+contributor.
 
 ### Signing Your Work
 
