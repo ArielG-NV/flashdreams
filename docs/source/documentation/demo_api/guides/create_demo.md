@@ -5,94 +5,224 @@ title: 'Create a demo'
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-A demo is a reusable, model-independent `flashdreams.api_v2` application under
-`apps/<demo>/`. It owns interaction, session lifecycle, input handling, UI, and
-presentation policy. It must not import a model integration or own a
-checkpoint.
+A demo is a model-agnostic application built using the `flashdreams.api_v2`
+library. It handles user input, sessions, and display.
 
-First check the [demo gallery](../../../demos/index.md). If T2V, Cam2V,
-Action2V, V2V, Interactive Drive, or Crazy Robotaxi already owns the required
-interaction, add a [model adapter](integrate_model.md) instead of another app.
+Check the [demo gallery](../../../demos/index.md) first. If an existing app
+supports the interaction you need, [add a model adapter](integrate_model_adapter_for_a_demo.md)
+instead.
+
+## Overview
+
+This example builds an app that sends a text prompt from an ImGui UI to a
+text-to-video model (`StreamInferencePipeline`).
 
 ## Package layout
 
+For a demo named `minimal_t2v`, add the app files and update the website:
+
 ```text
-apps/<demo>/
-  <demo>/
-    __init__.py
-    application.py
-    defaults.py           # optional adapter-supplied defaults
-    session.py
-    ui.py                 # only for custom composition or controls
-  tests/
+apps/minimal_t2v/
   pyproject.toml
-  README.md
+  minimal_t2v/
+    __init__.py       # export MinimalT2VApplication
+    application.py   # MinimalT2VApplication(IApplication)
+    session.py       # session, model loop, and model state
+    ui.py            # ImGui text input and async message
+
+docs/source/
+  demos/
+    minimal_t2v.md    # add demo page
+    index.md          # add demo card
+    .nav.yml          # add sidebar entry
+  models/
+    <model that demo supports>.md        # add quick start and link to demo page
 ```
 
-Depend on `flashdreams`, never on `integrations_v2`. Add the `serving` or
-`local-window` extra only when the app directly imports that optional stack.
-The root workspace already discovers `apps/*` packages.
+### `pyproject.toml`
 
-## Implement the lifecycle
+```toml
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
 
-The runtime calls the API in this order:
+[project]
+name = "flashdreams-minimal-t2v"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["flashdreams[local-window]"]
 
-1. `IApplication.session_desc()` describes native output without loading the
-   model.
-2. `IApplication.init(args)` parses arguments after `--` and initializes state
-   shared by sessions.
-3. `IApplication.create_session(desc)` validates the requested description and
-   returns an uninitialized `ISession`.
-4. `ISession.init()` creates per-run state and registers exactly one
-   `IModelLoop`; a custom `IUILoop` is optional.
-5. `IModelLoop.step(index, events)` returns `list[StepResult]`.
-6. `is_finished`, `reset`, and `close` manage the run lifecycle.
+[tool.uv.sources]
+flashdreams = { workspace = true }
 
-A minimal session registration is:
+[tool.setuptools.packages.find]
+include = ["minimal_t2v*"]
+```
+
+### `application.py`
+
+The adapter supplies a pipeline and its default output description. No custom
+command-line arguments are needed.
 
 ```python
-from flashdreams.api_v2.session import ISession
+from flashdreams.api_v2.application import IApplication
+from flashdreams.infra.pipeline import StreamInferencePipeline
+from flashdreams.runtime_v2.session_desc import SessionDesc
 
-class DemoSession(ISession):
-    def init(self) -> None:
-        self.register_model_loop(DemoModelLoop, state=DemoModelState(...))
+from .session import MinimalT2VSession
+
+
+class MinimalT2VApplication(IApplication):
+    def __init__(self, pipeline: StreamInferencePipeline, desc: SessionDesc):
+        self.pipeline = pipeline
+        self.desc = desc
+
+    def init(self, commandline_args):
+        parser = argparse.ArgumentParser(
+            prog=f"flashdreams-run-v2 {self.defaults.slug} --",
+            description="Generate video from an image and keyboard/mouse actions.",
+        )
+        parser.add_argument("--default-prompt", type=str, required=True)
+        args = parser.parse_args(commandline_args)
+        self.prompt = args.prompt
+
+    def session_desc(self):
+        return self.desc
+
+    def create_session(self, session_desc):
+        return MinimalT2VSession(self.pipeline, session_desc, self.prompt)
+```
+
+### `__init__.py`
+
+```python
+from .application import MinimalT2VApplication
+```
+
+### `session.py`
+
+Keep the pipeline, prompt, and cache in the model-loop state:
+
+```python
+from dataclasses import dataclass
+
+from flashdreams.api_v2.loop import IModelLoop
+from flashdreams.api_v2.session import ISession
+from flashdreams.infra.pipeline import (
+    StreamInferencePipeline,
+    StreamInferencePipelineCache,
+)
+from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.step_result import StepResult
+
+from .ui import MinimalT2VUILoop, MinimalT2VUIState
+
+
+@dataclass
+class TextToVideoState:
+    pipeline: StreamInferencePipeline
+    desc: SessionDesc
+    prompt: str = ""
+    cache: StreamInferencePipelineCache | None = None
+    index: int = 0
+
+    def set_prompt(self, prompt):
+        self.prompt = prompt
+        self.cache = None
+        self.index = 0
+
+
+class TextToVideoLoop(IModelLoop[TextToVideoState]):
+    def step(self, step_index, events):
+        state = self.state
+        if not state.prompt:
+            return []
+        if state.cache is None:
+            state.cache = state.pipeline.initialize_cache(text=[state.prompt])
+        frames = state.pipeline.generate(state.index, state.cache)
+        state.pipeline.finalize(state.index, state.cache)
+        state.index += 1
+        return [StepResult(
+            step_index=step_index,
+            output=frames,
+            frame_count=frames.shape[0],
+            output_layout=state.desc.output_layout,
+        )]
+
+
+class MinimalT2VSession(ISession):
+    def __init__(self, pipeline: StreamInferencePipeline, desc: SessionDesc, prompt: str):
+        self.pipeline = pipeline
+        self.desc = desc
+        self.prompt = prompt
 
     @property
-    def session_desc(self) -> SessionDesc:
-        return self._session_desc
+    def session_desc(self):
+        return self.desc
+
+    def init(self):
+        model_loop = self.register_model_loop(
+            TextToVideoLoop,
+            state=TextToVideoState(self.pipeline, self.desc),
+        )
+        self.register_ui_loop(
+            MinimalT2VUILoop,
+            state=MinimalT2VUIState(model_loop),
+            width=self.desc.video_width,
+            height=self.desc.video_height,
+        )
+        model_loop.state.set_prompt(self.prompt)
 ```
 
-If the session does not register a UI loop, the runtime presents model output
-with its default blit loop. Model and UI loops run on separate threads and own
-their state; use `flashdreams.api_v2.loop.invoke_async` for cross-loop changes.
+Use a `SessionDesc` matching the pipeline's output size, frame rate, and layout.
+This example expects frames in `tchw` layout.
 
-## Expose a narrow adapter seam
+### `ui.py`
 
-Put model-independent facts in the app and accept model-owned facts through a
-small immutable defaults object or constructor arguments. Typical adapter
-inputs are:
+```python
+from dataclasses import dataclass
 
-- pipeline config or model factory;
-- native width, height, frame rate, and tensor layout;
-- default rollout length and device;
-- model-specific input resolver callbacks.
+from flashdreams.api_v2.loop import IModelLoop, invoke_async
+from flashdreams.runtime_v2.imgui_ui_loop import ImGuiUILoop
 
-Keep expensive shared objects, such as the loaded pipeline, on the application.
-Keep caches, counters, and resettable rollout state on the session's model-loop
-state.
 
-## Test without a real model
+@dataclass
+class MinimalT2VUIState:
+    model_loop: IModelLoop
+    text: str = ""
 
-Tests live in `apps/<demo>/tests/` and must not import `integrations_v2`. Use a
-stand-in pipeline to cover argument validation, session-description checks,
-loop registration, step output, reset, finish, close, and scripted input. Mark
-pure Python tests `ci_cpu`; put real-model behavior in the integration's tests.
+
+class MinimalT2VUILoop(ImGuiUILoop[MinimalT2VUIState]):
+    def step_ui(self, imgui, step_index, events):
+        imgui.begin("Minimal T2V")
+        try:
+            _, self.state.text = imgui.input_text("Prompt", self.state.text)
+            if imgui.button("Send"):
+                invoke_async(
+                    self.state.model_loop,
+                    lambda state, text=self.state.text: state.set_prompt(text),
+                )
+        finally:
+            imgui.end()
+        return self.presented_model_frame()
+```
+
+`invoke_async` runs the callback on the model thread before its next step.
+The UI keeps its own editable text; it never writes model state directly.
+
+The model loop waits for a prompt. Each `set_prompt` sets our pipeline cache to `None` to force our generation of `StreamInferencePipeline` to effectively reset (fill the cahce with the new prompt).
+
+The [API reference](../api_reference/application.md) here describes our interfaces in more detail.
+
+## Connect a model
+
+[Add a model adapter](integrate_model_adapter_for_a_demo.md) to supply the pipeline and register
+an application slug. The adapter would live in
+`integrations_v2/<model>/apps/minimal_t2v/adapter.py`.
+Run its registered slug with the standard format of:
 
 ```bash
-uv sync --package flashdreams-<demo> --extra dev --no-default-groups --inexact
-uv run --no-sync pytest apps/<demo>/tests -m ci_cpu
+uv run flashdreams-run-v2 minimal-t2v-<model> --mode native-window
 ```
 
-Add `docs/source/demos/<demo>.md`, update `demos/.nav.yml`, and keep the package
-README focused on development. The demo becomes publicly runnable when a model
-adapter registers an application slug.
+Use the [T2V demo](../../../demos/t2v.md) as feature complete examples.

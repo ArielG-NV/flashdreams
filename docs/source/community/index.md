@@ -6,9 +6,6 @@ title: 'Community'
 
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-Use the issue tracker for work that needs a record. Use Discord for informal
-questions and conversation. Do not report security problems in public.
-
 <div class="fd-card-grid fd-card-grid-four fd-overview-grid">
   <a class="fd-card fd-model-card" href="https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md"><span class="fd-card-title">Contribute</span><span>Development workflow, testing requirements, and contribution policy.</span></a>
   <a class="fd-card fd-model-card" href="https://github.com/NVIDIA/flashdreams/issues"><span class="fd-card-title">Bugs and feature requests</span><span>Search existing reports or open an issue with a reproducible example.</span></a>
@@ -55,7 +52,7 @@ application, session, and loop contracts.
 
 Start with
 [Create a model](../documentation/inferencing_api/guides/create_model.md), then
-[integrate it with a demo](../documentation/demo_api/guides/integrate_model.md).
+[integrate it with a demo](../documentation/demo_api/guides/integrate_model_adapter_for_a_demo.md).
 
 ### Can I use FlashDreams commercially?
 

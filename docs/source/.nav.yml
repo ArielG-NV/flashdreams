@@ -10,9 +10,8 @@ nav:
           - Demo API Overview: documentation/demo_api/index.md
           - Guides:
               - Create a demo: documentation/demo_api/guides/create_demo.md
-              - Integrate a model with a demo: documentation/demo_api/guides/integrate_model.md
-              - Demo configuration: documentation/demo_api/guides/configuration.md
-              - Application slugs and dispatch: documentation/demo_api/guides/application_slugs.md
+              - Integrate model adapter for a demo: documentation/demo_api/guides/integrate_model_adapter_for_a_demo.md
+              - Adding a new configuration: documentation/demo_api/guides/adding_a_new_configuration.md
               - Interactive serving: documentation/demo_api/guides/interactive_serving.md
               - Local benchmarks: documentation/demo_api/guides/local_benchmarks.md
               - Profiling a demo: documentation/demo_api/guides/profiling.md
@@ -34,5 +33,6 @@ nav:
           - Tooling Overview: documentation/tools/index.md
           - Offline Program Packager: documentation/tools/offline_program_packager.md
           - Build Website: documentation/tools/build_website.md
+          - Testing: documentation/tools/testing.md
       - Troubleshooting: troubleshooting.md
   - Community: community

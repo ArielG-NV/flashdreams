@@ -200,6 +200,7 @@ lint = [
 
 # Documentation site generator.
 docs = [
+    "mkdocstrings-python>=2.0.9",
     "zensical==0.0.67",
 ]
 dev = [
