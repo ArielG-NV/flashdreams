@@ -44,17 +44,10 @@ uv sync --package flashdreams-wan21 --extra dev
 
 ### Which Python API should I use?
 
-Use `flashdreams.api_v2`; the
-[Demo API reference](../documentation/demo_api/index.md) maps its
-application, session, and loop contracts.
+Make demos using world-models with our [Demo API](../documentation/demo_api/index.md).
+Implement world-models for inferencing with our [Inferencing API](../documentation/inferencing_api/index.md).
 
-### How do I add a model?
+### How do I implement a model with flashdreams?
 
-Start with
-[Create a model](../documentation/inferencing_api/guides/create_model.md), then
-[integrate it with a demo](../documentation/demo_api/guides/integrate_model_adapter_for_a_demo.md).
-
-### Can I use FlashDreams commercially?
-
-The Apache 2.0 license permits commercial use. Model weights and datasets may
-have separate licenses.
+1. [Implement a model in FlashDreams](../documentation/inferencing_api/guides/create_model.md), then
+2. [Integrate your new model with a demo](../documentation/demo_api/guides/integrate_model_adapter_for_a_demo.md).
