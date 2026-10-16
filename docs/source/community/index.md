@@ -45,7 +45,7 @@ uv sync --package flashdreams-wan21 --extra dev
 ### Which Python API should I use?
 
 Make demos using world-models with our [Demo API](../documentation/demo_api/index.md).
-Implement world-models for inferencing with our [Inferencing API](../documentation/inferencing_api/index.md).
+Implement world-models with our [Inferencing API](../documentation/inferencing_api/index.md).
 
 ### How do I implement a model with flashdreams?
 

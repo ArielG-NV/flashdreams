@@ -30,10 +30,9 @@ Setup and build instructions:
 9. [Testing](#testing)
 10. [Dependency version bounds](#dependency-version-bounds)
 11. [Working with a single integration package](#working-with-a-single-integration-package)
-12. [Adding an Agent Skill](#adding-an-agent-skill)
-13. [Licensing of contributions](#licensing-of-contributions)
-14. [Reporting issues](#reporting-issues)
-15. [Code of Conduct](#code-of-conduct)
+12. [Licensing of contributions](#licensing-of-contributions)
+13. [Reporting issues](#reporting-issues)
+14. [Code of Conduct](#code-of-conduct)
 
 ## Ways to contribute
 
@@ -179,10 +178,6 @@ pseudonymous identities cannot be accepted.
 
 ## Submitting a pull request
 
-Use the website's [Get Started](https://nvidia.github.io/flashdreams/main/quickstart/)
-guide for installation and the relevant model or demo authoring guide for
-component-specific setup. Then follow the repository process below.
-
 The short version:
 
 1. Fork the repo on GitHub and create a feature branch from `main`.
@@ -306,47 +301,11 @@ Register a new page in the `.nav.yml` beside it; for this example, add
 `My Demo: my_demo.md` to `docs/source/demos/.nav.yml`. Use a lowercase
 snake-case filename that matches the model or demo package when applicable.
 
-The focused authoring guides show the expected locations in context:
-
-- [Create a demo](https://nvidia.github.io/flashdreams/main/documentation/demo_api/guides/create_demo/#package-layout)
-  uses `docs/source/demos/<demo>.md`.
-- [Create a model](https://nvidia.github.io/flashdreams/main/documentation/inferencing_api/guides/create_model/#2-scaffold-the-package)
-  uses `docs/source/models/<model>.md`.
-- [Integrate model adapter for a demo](https://nvidia.github.io/flashdreams/main/documentation/demo_api/guides/integrate_model_adapter_for_a_demo/#5-document-once)
-  updates the model article and links to the shared demo article.
-
 Files outside `docs/source/` should link to the published website article
-instead of copying its instructions. Add a package README only when external
-tooling requires one; keep it to a pointer to the canonical website article.
+instead of copying its instructions. `README.md` outside website, should try to point to the canonical website as much as possible.
 
 Build or preview the site with the commands in
 [Build Website](https://nvidia.github.io/flashdreams/main/documentation/tools/build_website/#build-the-website).
-
-## Adding an Agent Skill
-
-Project-authored [Agent Skills](https://agentskills.io/specification) live in
-`skills/<lowercase-hyphenated-name>/SKILL.md`. Each skill requires YAML
-frontmatter with a matching `name` and a specific `description` explaining what
-the skill does and when to use it. Keep contribution policy in this guide and link to its exact section from
-the skill instead of copying it.
-
-Add new skills to the **Skill Map** in `AGENTS.md`. Put sibling references,
-scripts, or assets beside a skill only when they materially improve its
-workflow. Validate skill structure with:
-
-```bash
-uv run --group test pytest -m ci_cpu tests/test_agent_skills.py
-```
-
-Repository skills are opt-in. From the repository root, link all skills into
-the directory used by your agent:
-
-```bash
-mkdir -p .agents && ln -s ../skills .agents/skills
-```
-
-Replace `.agents` with `.cursor` or `.claude` as needed. These directories are
-gitignored. To enable one skill, link only that skill directory instead.
 
 ## Coding conventions
 
@@ -399,9 +358,7 @@ the declared minimums. This means:
 
 ## Working with a single integration package
 
-See [Install one integration](https://nvidia.github.io/flashdreams/main/quickstart/#install-one-integration)
-for package-specific setup. Available integrations and their setup instructions
-are listed on the [Models](https://nvidia.github.io/flashdreams/main/models/) page.
+See our [model gallery](https://nvidia.github.io/flashdreams/main/models/) page.
 
 ## Licensing of contributions
 
