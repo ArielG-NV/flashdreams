@@ -11,7 +11,6 @@ nav:
           - Guides:
               - Create a demo: documentation/demo_api/guides/create_demo.md
               - Integrate model adapter for a demo: documentation/demo_api/guides/integrate_model_adapter_for_a_demo.md
-              - Adding a new configuration: documentation/demo_api/guides/adding_a_new_configuration.md
               - Interactive serving: documentation/demo_api/guides/interactive_serving.md
               - Profiling a demo: documentation/demo_api/guides/profiling.md
           - API Reference:

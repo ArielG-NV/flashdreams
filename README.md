@@ -34,7 +34,7 @@ Quick-start to our interactive driving demo is [here](https://nvidia.github.io/f
 
 ![](docs/source/_static/demo_clips/interactive-drive.avif)
 
-Checkout our game-like crazy-robotaxi demo [here](https://nvidia.github.io/flashdreams/main/demos/crazy_robotaxi.md).
+Checkout our game-like crazy-robotaxi demo [here](https://nvidia.github.io/flashdreams/main/demos/crazy_robotaxi/).
 
 ![](docs/source/_static/demo_clips/crazy-robotaxi.avif)
 
@@ -42,11 +42,11 @@ Checkout our game-like crazy-robotaxi demo [here](https://nvidia.github.io/flash
 
 ### For Demo Developers
 
-Make demos using world-models with our [Demo API](../documentation/demo_api/index.md).
+Make demos using world-models with our [Demo API](https://nvidia.github.io/flashdreams/main/documentation/demo_api/).
 
 ### For Model Developers
 
-Implement world-models with our [Inferencing API](../documentation/inferencing_api/index.md).
+Implement world-models with our [Inferencing API](https://nvidia.github.io/flashdreams/main/documentation/inferencing_api/).
 
 ## Contributing
 
@@ -99,3 +99,5 @@ If FlashDreams is useful in your research or product, please cite the project:
   url           = {https://arxiv.org/abs/2606.03159},
 }
 ```
+
+[omnidreams-blog]: https://research.nvidia.com/labs/sil/projects/omnidreams-blog/

@@ -25,6 +25,7 @@ model or its adapter belongs in `integrations_v2/<model>/tests/`.
 
 ## What is here
 
+- `minimal_t2v` — Minimal T2V app from the Create a demo tutorial.
 - `t2v` — text-to-video: prompt in, frames out. The reference app to copy.
 - `cam2v` — interactive camera-to-video.
 - `action2v` — world models driven by direct action input.

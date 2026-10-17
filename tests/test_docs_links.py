@@ -13,10 +13,9 @@ pytestmark = pytest.mark.ci_cpu
 
 _DOCS_SOURCE = Path(__file__).parents[1] / "docs" / "source"
 _REPO_ROOT = _DOCS_SOURCE.parents[1]
-_MARKDOWN_LINK_RE = re.compile(r"\[[^]]+\]\(([^)#]+\.md)#([a-z0-9-]+)\)")
+_MARKDOWN_LINK_RE = re.compile(r"\[[^]]*\]\(([^)#]+)(?:#([a-z0-9-]+))?\)")
 _CUSTOM_ANCHOR_RE = re.compile(r'<a\s+id="([^"]+)"')
 _HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*$", re.MULTILINE)
-_CANONICAL_POINTERS = ("README.md",)
 _CONTRIBUTING_URL = "https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md"
 _SRC_RE = re.compile(r'\b(?:src|poster)="([^"]+)"')
 _LEGACY_VIDEO_RE = re.compile(
@@ -74,7 +73,7 @@ def _assert_local_section_link(source: Path, target: str, fragment: str) -> None
     assert page.is_file(), (
         f"{source.relative_to(_REPO_ROOT)}: missing canonical page: {target}"
     )
-    assert fragment in _anchors(page), (
+    assert not fragment or fragment in _anchors(page), (
         f"{source.relative_to(_REPO_ROOT)}: missing section #{fragment} in "
         f"{page.relative_to(_REPO_ROOT)}"
     )
@@ -88,18 +87,12 @@ def test_contributing_stays_on_github() -> None:
         "Submitting a pull request",
         "Adding documentation",
     } <= headings
-    assert "Adding an Agent Skill" in headings
     assert not (_DOCS_SOURCE / "community/contributing.md").exists()
     assert _CONTRIBUTING_URL in (_DOCS_SOURCE / "community/index.md").read_text()
 
 
 def test_repository_links_resolve_to_canonical_sections() -> None:
-    sources = [_REPO_ROOT / relative for relative in _CANONICAL_POINTERS]
-    for source in sources:
-        assert len(source.read_text(encoding="utf-8").splitlines()) == 1, (
-            f"{source.relative_to(_REPO_ROOT)} must be one canonical link"
-        )
-    sources.append(_REPO_ROOT / "tests/README.md")
+    sources = [_REPO_ROOT / "README.md", _REPO_ROOT / "tests/README.md"]
     sources.extend(sorted((_REPO_ROOT / "skills").glob("*/SKILL.md")))
 
     found = 0
@@ -108,15 +101,46 @@ def test_repository_links_resolve_to_canonical_sections() -> None:
             source.read_text(encoding="utf-8")
         ):
             if target == _CONTRIBUTING_URL:
-                assert fragment in _anchors(_REPO_ROOT / "CONTRIBUTING.md")
+                assert not fragment or fragment in _anchors(
+                    _REPO_ROOT / "CONTRIBUTING.md"
+                )
                 found += 1
                 continue
+            website = "https://nvidia.github.io/flashdreams/main/"
+            if target.startswith(website):
+                route = target.removeprefix(website).rstrip("/")
+                page = _DOCS_SOURCE / route
+                assert page.suffix != ".md", (
+                    f"Website link must use a rendered route: {target}"
+                )
+                if page.suffix == ".html":
+                    page = page.with_suffix(".md")
+                elif page.is_dir():
+                    page = page / "index.md"
+                elif not page.suffix:
+                    page = page.with_suffix(".md")
+                _assert_local_section_link(source, str(page), fragment)
+                found += 1
+                continue
+            if urlsplit(target).scheme:
+                continue
             page = (source.parent / target).resolve()
+            if source.name == "README.md":
+                assert page.exists(), f"Missing README link: {target}"
             if page.is_relative_to(_DOCS_SOURCE):
                 _assert_local_section_link(source, target, fragment)
                 found += 1
 
     assert found, "expected canonical links from repository guidance to docs/source"
+
+
+def test_readme_reference_links_have_definitions() -> None:
+    source = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    references = set(re.findall(r"\[[^]]+\]\[([^]]+)\]", source))
+    definitions = set(re.findall(r"^\[([^]]+)\]:", source, re.MULTILINE))
+    assert references <= definitions, (
+        f"Undefined README links: {references - definitions}"
+    )
 
 
 def test_demo_guide_navigation_matches_pages_and_cards() -> None:

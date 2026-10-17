@@ -22,6 +22,12 @@ workflows, start with [Create a demo](../guides/create_demo.md) or
 
 ::: flashdreams.api_v2.loop.IUILoop
 
+::: flashdreams.runtime_v2.imgui_ui_loop.ImGuiUILoop
+
 ## Session description
 
 ::: flashdreams.runtime_v2.session_desc.SessionDesc
+
+::: flashdreams.runtime_v2.session_desc.BackpressureMode
+
+::: flashdreams.runtime_v2.session_desc.PresentationMode

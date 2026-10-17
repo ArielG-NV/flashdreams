@@ -98,6 +98,5 @@ uv run flashdreams-run-v2 DEMO_MODEL_SLUG --mode native-window --window-title Fl
 ## See also
 
 - [Quickstart](../quickstart/index.md)
-- [Adding a new configuration](demo_api/guides/adding_a_new_configuration.md)
 - [Demo API](demo_api/index.md)
 - [Offline Program Packager](tools/offline_program_packager.md)
