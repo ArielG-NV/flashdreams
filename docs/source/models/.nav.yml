@@ -2,6 +2,7 @@ nav:
   - Overview: index.md
   - Streaming & Autoregressive:
       - NVIDIA OmniDreams: omnidreams.md
+      - Cosmos3 Nano Sim Bimanual: cosmos3_nano_sim_bimanual.md
       - Self-Forcing: self_forcing.md
       - Causal-Forcing: causal_forcing.md
       - Causal Wan 2.2: causal_wan22.md
