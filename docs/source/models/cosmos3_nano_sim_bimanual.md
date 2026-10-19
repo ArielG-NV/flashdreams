@@ -10,10 +10,8 @@ title: 'Cosmos3 Nano Sim Bimanual'
   <a class="fd-button" href="https://huggingface.co/datasets/agibot-world/AgiBotWorld-Beta">Scene dataset</a>
 </div>
 
-Cosmos3 Nano Sim Bimanual generates robot-manipulation video from a first-frame
-image, a prompt, and controller actions. FlashDreams exposes it through
-[HandDreams](../demos/handdreams.md), with browser or native presentation and
-virtual or USB-connected Quest controllers.
+Cosmos3 Nano Sim Bimanual generates robot-manipulation video from a first-frame image,
+prompt, and controller actions. Try it with [HandDreams](../demos/handdreams.md).
 
 <div class="fd-card fd-model-card">
   <img class="fd-card-preview" src="../_static/demo_clips/handdreams.avif" alt="HandDreams robot hands folding a T-shirt." />
@@ -27,24 +25,17 @@ virtual or USB-connected Quest controllers.
 ### HandDreams
 
 Check the [requirements](#requirements), then run from the repository root on
-the **server**. Omit the token export if already logged in to Hugging Face.
-Setup displays the CloudXR license; type `yes` if you accept.
+the **server**. Setup displays the CloudXR license; type `yes` and use EULA
+flags below only if you accept the terms.
+
+<a id="webrtc-local-or-remote"></a>
 
 ```bash
 uv sync --python 3.12 --package flashdreams-cosmos3-nano-sim-bimanual --inexact
-export HF_TOKEN="<YOUR_HF_TOKEN>"
+export HF_TOKEN="<YOUR_HF_TOKEN>"  # Omit if already logged in to Hugging Face
 uv run --no-sync flashdreams-controller-input setup isaac-teleop
-```
 
-Choose one launch command below. Include EULA flags only if you accept the terms.
-
-#### WebRTC (Local or Remote)
-
-Use `127.0.0.1` for a browser on the server, or set `SERVER_IP` to the server's
-reachable IPv4 address for a remote browser:
-
-```bash
-SERVER_IP=127.0.0.1
+SERVER_IP=127.0.0.1  # Use the server's reachable LAN IPv4 for a remote browser
 uv run --no-sync flashdreams-run-v2 handdreams \
   --mode webrtc --host "$SERVER_IP" --port 8081 \
   --controller-host "$SERVER_IP" \
@@ -52,115 +43,15 @@ uv run --no-sync flashdreams-run-v2 handdreams \
 ```
 
 Open `http://<SERVER_IP>:8081/`, then
-[connect virtual controllers](../demos/handdreams.md#connect-virtual-controllers).
-Use a trusted network: the viewer (`8081`), Teleop HTTPS (`48322`), and their
-WebRTC media traffic must be reachable. `0.0.0.0` is not a browser destination.
-
-#### Native Window
-
-Run from the **server's graphical desktop**:
-
-```bash
-uv run --no-sync flashdreams-run-v2 handdreams \
-  --mode native-window \
-  --isaac-teleop-accept-eula
-```
-
-Click **Isaac Teleop Web Client: Open Link** in the window and follow the
-[connection steps](../demos/handdreams.md#connect-virtual-controllers), using
-`127.0.0.1`. Native mode changes the viewer, not controller input; there is no
-viewer page on port `8081`.
+[connect virtual controllers](#connect-virtual-controllers).
 
 <div class="fd-cta-row">
+  <a class="fd-button" href="../demos/handdreams.md#controls">Controls</a>
   <a class="fd-button" href="#handdreams-presets">Demo Presets</a>
   <a class="fd-button" href="../demos/handdreams.md#demo-arguments">Demo Arguments</a>
 </div>
 
-#### Physical Quest Controllers
-
-On the Ubuntu machine connected to the Quest by USB:
-
-```bash
-sudo apt install adb coturn
-adb devices
-```
-
-Enable Quest Developer Mode and authorize USB debugging; the device must show
-as `device`, not `unauthorized`. Keep Quest Wi-Fi connected with an IPv4 address.
-An offline access point is sufficient; the controller stream uses USB.
-Generated video stays in the demo viewer. No custom APK or coturn service is needed.
-
-The commands below clear the legacy `QUEST_META_PIN` setting and permit
-certificate errors only for the managed tab's local CloudXR origin, not the
-remote relay. Startup restarts Quest Browser, closing its other sessions.
-
-##### Headset Connected to the Server
-
-Complete server setup and connect the Quest **before** launch. A single authorized
-headset is detected automatically; use `--quest-device <SERIAL>` to select one.
-
-For native output:
-
-```bash
-env -u QUEST_META_PIN uv run --no-sync flashdreams-run-v2 handdreams \
-  --mode native-window \
-  --isaac-teleop-accept-eula \
-  --quest-accept-server-certificate
-```
-
-For WebRTC output, set the server address and run this instead:
-
-```bash
-SERVER_IP=127.0.0.1
-env -u QUEST_META_PIN uv run --no-sync flashdreams-run-v2 handdreams \
-  --mode webrtc --host "$SERVER_IP" --port 8081 \
-  --controller-host "$SERVER_IP" \
-  --isaac-teleop-accept-eula \
-  --quest-accept-server-certificate
-```
-
-Use the server's LAN address for a remote browser. Open `http://<SERVER_IP>:8081/`
-for WebRTC, then follow [physical-controller setup](../demos/handdreams.md#physical-controller-setup).
-The headset browser connects automatically; do not also connect an IWER client.
-
-##### Headset Connected to a Laptop
-
-On the **server**, start [WebRTC](#webrtc-local-or-remote) with its reachable
-LAN address. Leave it running.
-
-On the **Ubuntu laptop**, use a matching checkout, meet the Quest requirements
-above, and install Isaac Teleop once from the repository root:
-
-```bash
-uv run --no-project --python 3.12 python \
-  integrations_v2/cosmos3_nano_sim_bimanual/apps/handdreams/launch.py setup-isaac-teleop
-```
-
-The laptop needs `ssh`/`scp`, a verified server host key, and key/agent login.
-Check that this succeeds without a password prompt:
-
-```bash
-ssh -o StrictHostKeyChecking=yes -o BatchMode=yes "<USER>@<SERVER_IP>" true
-```
-
-Start the laptop client:
-
-```bash
-env -u QUEST_META_PIN uv run --no-project --python 3.12 python \
-  integrations_v2/cosmos3_nano_sim_bimanual/apps/handdreams/launch.py remote-vr \
-  --server "<USER>@<SERVER_IP>" \
-  --accept-eula \
-  --accept-server-certificate
-```
-
-It prepares controller dependencies and copies credentials and web assets over
-SSH; model weights stay on the server. The laptop also needs direct access to
-server TCP `8445`—SSH does not tunnel it.
-
-Open `http://<SERVER_IP>:8081/` and follow
-[physical-controller setup](../demos/handdreams.md#physical-controller-setup).
-For native output on the server, change its mode to `native-window` but retain
-`--controller-host "<SERVER_IP>"`; the laptop command is unchanged.
+Other setups: [native window](#native-window) · [physical Quest controllers](#physical-quest-controllers).
 
 <hr>
 
@@ -183,25 +74,151 @@ No checkpoint override or S3 credentials are needed.
 ### Requirements
 
 - Ubuntu x86_64/aarch64, glibc 2.35+, Python 3.12, Git, `uv`, and OpenSSL.
-- An NVIDIA GPU with enough memory for the model, CUDA, Vulkan, and **NVENC**.
-  RTX PRO 6000 has been tested. These commands run CloudXR on the server;
-  a remote-VR laptop also needs NVENC and Vulkan.
+- An NVIDIA GPU with enough model memory, CUDA, Vulkan, and **NVENC**.
+  RTX PRO 6000 has been tested. CloudXR runs on the server; a remote-VR laptop
+  also needs NVENC and Vulkan.
 - Chrome/Chromium with working WebGL and graphics acceleration for browser use.
 - Your own Hugging Face access to [the model](https://huggingface.co/nvidia/Cosmos3-Nano-Sim-Bimanual)
   and [AgiBotWorld-Beta](https://huggingface.co/datasets/agibot-world/AgiBotWorld-Beta).
   Complete their access requirements and review their terms.
 - Internet for first-time setup. Model shards and the merged cache use about
-  **61 GB**, plus space for dependencies, decoder weights, and scenes.
+  **61 GB**, plus dependencies, decoder weights, and scenes.
+
+### Connect Virtual Controllers
+
+No headset is needed. After starting the server:
+
+1. Open `http://<SERVER_IP>:8081/`, or use the native window. For local use,
+   `<SERVER_IP>` is `127.0.0.1`.
+2. Click **Isaac Teleop Web Client: Open Link** in the viewer.
+3. Verify the certificate origin is your server's `https://<SERVER_IP>:48322/`,
+   then accept its development certificate. Follow any accept-certificate link
+   and return to the Teleop tab.
+4. Allow local-network access if requested. Keep the prefilled settings and
+   click **CONNECT**.
+5. Confirm both controller panels appear and the viewer reports both tracked.
+   Release both triggers and keep the Teleop tab open alongside the viewer.
+
+Continue with [scene setup and controls](../demos/handdreams.md#controls).
+If client settings changed, restore reference space `local`, zero pose offsets
+and prediction, and no smoothing.
+
+Use a trusted network with viewer TCP `8081`, Teleop HTTPS `48322`, and WebRTC
+media traffic reachable. `0.0.0.0` is not a browser destination.
+Disconnect the current input client before connecting another; switching
+sources repeats calibration. **Ctrl+C** stops the server. Also stop `remote-vr`
+on the laptop; cleanup requests sleep on the managed headset.
+
+### Native Window
+
+After the setup commands above, run from the **server's graphical desktop**:
+
+```bash
+uv run --no-sync flashdreams-run-v2 handdreams \
+  --mode native-window \
+  --isaac-teleop-accept-eula
+```
+
+Click **Isaac Teleop Web Client: Open Link** in the window and follow the
+[connection steps](#connect-virtual-controllers) with `127.0.0.1`.
+There is no viewer page on port `8081`.
+
+### Physical Quest Controllers
+
+On the Ubuntu machine connected to the Quest by USB:
+
+```bash
+sudo apt install adb coturn
+adb devices
+```
+
+Enable Quest Developer Mode and authorize USB debugging; the device must show
+as `device`. Keep Quest Wi-Fi connected with an IPv4 address; an offline access
+point works. Controllers stream over USB; generated video stays in the demo
+viewer. No custom APK or coturn service is needed.
+
+These commands clear legacy `QUEST_META_PIN` and permit certificate errors
+only for the managed tab's local CloudXR origin, not the remote relay.
+Startup restarts Quest Browser, closing its other sessions.
+
+#### Headset Connected to the Server
+
+Complete [server setup](#handdreams) and connect the Quest **before** launch.
+A single authorized headset is detected automatically; select one with
+`--quest-device <SERIAL>` if needed.
+
+For native output:
+
+```bash
+env -u QUEST_META_PIN uv run --no-sync flashdreams-run-v2 handdreams \
+  --mode native-window \
+  --isaac-teleop-accept-eula \
+  --quest-accept-server-certificate
+```
+
+For WebRTC output:
+
+```bash
+SERVER_IP=127.0.0.1
+env -u QUEST_META_PIN uv run --no-sync flashdreams-run-v2 handdreams \
+  --mode webrtc --host "$SERVER_IP" --port 8081 \
+  --controller-host "$SERVER_IP" \
+  --isaac-teleop-accept-eula \
+  --quest-accept-server-certificate
+```
+
+Use the server's LAN IPv4 for a remote browser and open `http://<SERVER_IP>:8081/`.
+The headset browser connects automatically; do not also connect a virtual
+client. Continue with [physical-controller setup](../demos/handdreams.md#physical-controller-setup).
+
+#### Headset Connected to a Laptop
+
+On the **server**, start [WebRTC](#handdreams) with its reachable LAN IPv4 and
+leave it running.
+
+On the **Ubuntu laptop**, use a matching checkout, meet the requirements above,
+and install Isaac Teleop once from the repository root:
+
+```bash
+uv run --no-project --python 3.12 python \
+  integrations_v2/cosmos3_nano_sim_bimanual/apps/handdreams/launch.py setup-isaac-teleop
+```
+
+With `ssh`/`scp`, a verified server host key, and key/agent login, check that
+this succeeds without a password prompt:
+
+```bash
+ssh -o StrictHostKeyChecking=yes -o BatchMode=yes "<USER>@<SERVER_IP>" true
+```
+
+Start the laptop client:
+
+```bash
+env -u QUEST_META_PIN uv run --no-project --python 3.12 python \
+  integrations_v2/cosmos3_nano_sim_bimanual/apps/handdreams/launch.py remote-vr \
+  --server "<USER>@<SERVER_IP>" \
+  --accept-eula \
+  --accept-server-certificate
+```
+
+This prepares controller dependencies and copies credentials and web assets
+over SSH; weights stay on the server. The laptop also needs direct access to
+server TCP `8445`; SSH does not tunnel it.
+
+Open `http://<SERVER_IP>:8081/` and follow
+[physical-controller setup](../demos/handdreams.md#physical-controller-setup).
+For native output on the server, change its mode to `native-window` but retain
+`--controller-host "<SERVER_IP>"`; the laptop command is unchanged.
 
 ### Scene Data
 
 The demo downloads **Fold the T-shirt**, **Fold the shorts**, and **Open the tissue
-box** from AgiBotWorld-Beta using your credentials. Scene data is not bundled.
+box** from AgiBotWorld-Beta with your credentials; scene data is not bundled.
 
-For your own catalog, append `-- --sample-dir /absolute/path/to/scenes` to the
-server command. Up to five subdirectories are supported, each with `first_frame.jpg`
-and `scene.json`. For one scene, use `--scene-path /absolute/path/to/scene` after
-`--` instead. These paths are on the server.
+For a custom catalog, append `-- --sample-dir /absolute/path/to/scenes` to the
+server command: up to five subdirectories, each with `first_frame.jpg` and
+`scene.json`. For one scene, use `--scene-path /absolute/path/to/scene` after
+`--`. Paths refer to the server.
 
 <hr>
 
@@ -218,12 +235,25 @@ and `scene.json`. For one scene, use `--scene-path /absolute/path/to/scene` afte
 | Viewer or Teleop cannot connect | Check the address, certificate, browser local-network permission, and firewall. HTTP/HTTPS access alone does not establish WebRTC media connectivity. |
 | Remote-VR cannot obtain credentials | Start the server and run the strict SSH check above. The launcher does not create SSH keys or accept unknown hosts. |
 | Headset never connects | Check USB authorization, Quest Wi-Fi, controller batteries, and headset prompts. See [retry controls](../demos/handdreams.md#during-the-demo). |
-| Virtual controllers slide or jump | Use the [toolbar reset workaround](../demos/handdreams.md#reset-virtual-controllers). |
+| Virtual controllers slide or jump | Use the [toolbar reset workaround](#reset-virtual-controllers). |
 | “Connection Lost” or XR CONTROL flickers | Check the Teleop tab and capture the corresponding server error; the viewer message alone does not identify the cause. |
 | Video degrades during a long rollout | Press Escape and select the scene again to start a fresh rollout. |
 
 If it persists, share the commit, command, GPU/driver, browser version, and first
 relevant error. Remove credentials from logs.
+
+### Reset Virtual Controllers
+
+If a controller keeps sliding after mouse release, in the **Isaac Teleop toolbar**:
+
+1. Click the **game-controller icon** to switch to hands.
+2. Click the **hand icon** to switch back to controllers.
+3. Confirm both controllers are tracked. If positions changed, press **Escape**
+   in the viewer and select the scene again.
+
+This is not the widget's **Reset** button. If it fails, reopen the client and
+reconnect. Small movements with individual axis arrows were more reliable than
+plane dragging in testing.
 
 ### Limited Home Storage
 
