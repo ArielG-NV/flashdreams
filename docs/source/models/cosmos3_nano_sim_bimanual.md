@@ -5,8 +5,15 @@ title: 'Cosmos3 Nano Sim Bimanual'
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-Run [HandDreams](../demos/handdreams.md) with a browser or native viewer, using
-virtual controllers or a USB-connected Quest.
+<div class="fd-cta-row">
+  <a class="fd-button" href="https://huggingface.co/nvidia/Cosmos3-Nano-Sim-Bimanual">Checkpoint and model card</a>
+  <a class="fd-button" href="https://huggingface.co/datasets/agibot-world/AgiBotWorld-Beta">Scene dataset</a>
+</div>
+
+Cosmos3 Nano Sim Bimanual generates robot-manipulation video from a first-frame
+image, a prompt, and controller actions. FlashDreams exposes it through
+[HandDreams](../demos/handdreams.md), with browser or native presentation and
+virtual or USB-connected Quest controllers.
 
 <div class="fd-card fd-model-card">
   <img class="fd-card-preview" src="../_static/demo_clips/handdreams.avif" alt="HandDreams robot hands folding a T-shirt." />
@@ -15,25 +22,13 @@ virtual controllers or a USB-connected Quest.
   HandDreams demo with a custom scene catalog.
 </figcaption>
 
-## Requirements
-
-- Ubuntu x86_64/aarch64, glibc 2.35+, Python 3.12, Git, `uv`, and OpenSSL.
-- An NVIDIA GPU with enough memory for the model, CUDA, Vulkan, and **NVENC**.
-  RTX PRO 6000 has been tested. These commands run CloudXR on the server;
-  a remote-VR laptop also needs NVENC and Vulkan.
-- Chrome/Chromium with working WebGL and graphics acceleration for browser use.
-- Your own Hugging Face access to [the model](https://huggingface.co/nvidia/Cosmos3-Nano-Sim-Bimanual)
-  and [AgiBotWorld-Beta](https://huggingface.co/datasets/agibot-world/AgiBotWorld-Beta).
-  Complete their access requirements and review their terms.
-- Internet for first-time setup. Model shards and the merged cache use about
-  **61 GB**, plus space for dependencies, decoder weights, and scenes.
-
 ## Quick Start
 
 ### HandDreams
 
-Run from the repository root on the **server**. Omit the token export if already
-logged in to Hugging Face. Setup displays the CloudXR license; type `yes` if you accept.
+Check the [requirements](#requirements), then run from the repository root on
+the **server**. Omit the token export if already logged in to Hugging Face.
+Setup displays the CloudXR license; type `yes` if you accept.
 
 ```bash
 uv sync --python 3.12 --package flashdreams-cosmos3-nano-sim-bimanual --inexact
@@ -43,7 +38,7 @@ uv run --no-sync flashdreams-controller-input setup isaac-teleop
 
 Choose one launch command below. Include EULA flags only if you accept the terms.
 
-### WebRTC (Local or Remote)
+#### WebRTC (Local or Remote)
 
 Use `127.0.0.1` for a browser on the server, or set `SERVER_IP` to the server's
 reachable IPv4 address for a remote browser:
@@ -61,7 +56,7 @@ Open `http://<SERVER_IP>:8081/`, then
 Use a trusted network: the viewer (`8081`), Teleop HTTPS (`48322`), and their
 WebRTC media traffic must be reachable. `0.0.0.0` is not a browser destination.
 
-### Native Window
+#### Native Window
 
 Run from the **server's graphical desktop**:
 
@@ -76,7 +71,12 @@ Click **Isaac Teleop Web Client: Open Link** in the window and follow the
 `127.0.0.1`. Native mode changes the viewer, not controller input; there is no
 viewer page on port `8081`.
 
-## Physical Quest Controllers
+<div class="fd-cta-row">
+  <a class="fd-button" href="#handdreams-presets">Demo Presets</a>
+  <a class="fd-button" href="../demos/handdreams.md#demo-arguments">Demo Arguments</a>
+</div>
+
+#### Physical Quest Controllers
 
 On the Ubuntu machine connected to the Quest by USB:
 
@@ -94,7 +94,7 @@ The commands below clear the legacy `QUEST_META_PIN` setting and permit
 certificate errors only for the managed tab's local CloudXR origin, not the
 remote relay. Startup restarts Quest Browser, closing its other sessions.
 
-### Headset Connected to the Server
+##### Headset Connected to the Server
 
 Complete server setup and connect the Quest **before** launch. A single authorized
 headset is detected automatically; use `--quest-device <SERIAL>` to select one.
@@ -123,7 +123,7 @@ Use the server's LAN address for a remote browser. Open `http://<SERVER_IP>:8081
 for WebRTC, then follow [physical-controller setup](../demos/handdreams.md#physical-controller-setup).
 The headset browser connects automatically; do not also connect an IWER client.
 
-### Headset Connected to a Laptop
+##### Headset Connected to a Laptop
 
 On the **server**, start [WebRTC](#webrtc-local-or-remote) with its reachable
 LAN address. Leave it running.
@@ -162,17 +162,48 @@ Open `http://<SERVER_IP>:8081/` and follow
 For native output on the server, change its mode to `native-window` but retain
 `--controller-host "<SERVER_IP>"`; the laptop command is unchanged.
 
-## Scene and Model Defaults
+<hr>
+
+## Demo Presets
+
+<a id="handdreams-presets"></a>
+
+### HandDreams
+
+| Preset | Description |
+| --- | --- |
+| `handdreams` | GA checkpoint with four denoising steps and the TAEHV2 Super decoder, producing 640 × 352 video. |
+
+No checkpoint override or S3 credentials are needed.
+
+<hr>
+
+## Developer Details
+
+### Requirements
+
+- Ubuntu x86_64/aarch64, glibc 2.35+, Python 3.12, Git, `uv`, and OpenSSL.
+- An NVIDIA GPU with enough memory for the model, CUDA, Vulkan, and **NVENC**.
+  RTX PRO 6000 has been tested. These commands run CloudXR on the server;
+  a remote-VR laptop also needs NVENC and Vulkan.
+- Chrome/Chromium with working WebGL and graphics acceleration for browser use.
+- Your own Hugging Face access to [the model](https://huggingface.co/nvidia/Cosmos3-Nano-Sim-Bimanual)
+  and [AgiBotWorld-Beta](https://huggingface.co/datasets/agibot-world/AgiBotWorld-Beta).
+  Complete their access requirements and review their terms.
+- Internet for first-time setup. Model shards and the merged cache use about
+  **61 GB**, plus space for dependencies, decoder weights, and scenes.
+
+### Scene Data
 
 The demo downloads **Fold the T-shirt**, **Fold the shorts**, and **Open the tissue
 box** from AgiBotWorld-Beta using your credentials. Scene data is not bundled.
-Defaults are the GA checkpoint, four denoising steps, and TAEHV2 Super decoder,
-producing 640 × 352 video. No checkpoint override or S3 credentials are needed.
 
 For your own catalog, append `-- --sample-dir /absolute/path/to/scenes` to the
 server command. Up to five subdirectories are supported, each with `first_frame.jpg`
 and `scene.json`. For one scene, use `--scene-path /absolute/path/to/scene` after
 `--` instead. These paths are on the server.
+
+<hr>
 
 ## Troubleshooting
 

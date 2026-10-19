@@ -21,7 +21,9 @@ controllers. It does not control a physical robot.
   [Cosmos3 Nano Sim Bimanual](../models/cosmos3_nano_sim_bimanual.md#handdreams){ .fd-button }
 </div>
 
-## Connect Virtual Controllers
+## Controls
+
+### Connect Virtual Controllers
 
 No headset is needed. After starting the server:
 
@@ -39,17 +41,17 @@ No headset is needed. After starting the server:
 If you changed client settings, restore reference space `local`, zero pose
 offsets and prediction, and no smoothing.
 
-## Start a Scene
+### Start a Scene
 
 Click a thumbnail, or use the viewer's arrow keys followed by **Enter**.
 
-### Virtual-Controller Setup
+#### Virtual-Controller Setup
 
 Hold either **Trig** until the progress bar fills **in the demo viewer**, then
 release both triggers. No alignment is needed. Use the panels' position and
 rotation controls to move the hands.
 
-### Physical-Controller Setup
+#### Physical-Controller Setup
 
 [Connect the Quest](../models/cosmos3_nano_sim_bimanual.md#physical-quest-controllers),
 press its **power button** when prompted, and approve any headset permissions.
@@ -60,7 +62,7 @@ Watch the demo viewer for calibration:
 2. Release both triggers. Move and rotate the controllers to match the guides,
    keeping both claws open until alignment completes.
 
-## During the Demo
+### During the Demo
 
 - Increase virtual **Trig** or squeeze a physical index trigger to close its
   gripper; release to open. Move the controllers to move the hands.
