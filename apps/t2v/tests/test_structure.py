@@ -44,7 +44,6 @@ _MODEL_APPLICATIONS = (
 """Model packages and their user-facing application slugs."""
 
 
-
 def test_shared_t2v_code_is_owned_by_app_package() -> None:
     """Keep reusable demo infrastructure outside the framework and models."""
     project = _REPO_ROOT / "apps" / "t2v"
