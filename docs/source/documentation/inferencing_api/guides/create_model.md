@@ -106,6 +106,7 @@ models, because rolling-window bugs often appear only after the boundary.
 
 Command to run all tests:
 ```bash
+uv sync --package flashdreams-<model> --extra dev --inexact
 uv run --no-sync pytest integrations_v2/<model>/tests -m ci_cpu
 ```
 
