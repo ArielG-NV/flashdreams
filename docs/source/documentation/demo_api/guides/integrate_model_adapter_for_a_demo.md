@@ -5,7 +5,7 @@ title: 'Integrate model adapter for a demo'
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-An adapter is a package that contains the logic to connect a demo to a model. 
+An adapter is a package that contains the logic to connect a demo to a model.
 
 In this example we connect the [Minimal T2V application](create_demo.md) to Wan 2.1.
 

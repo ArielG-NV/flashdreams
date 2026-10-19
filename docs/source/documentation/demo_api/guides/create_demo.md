@@ -95,7 +95,7 @@ These are set with `register_*_loop()` methods part of `ISession`. These must be
 `IUILoop` governs all UI logic and will be where we handle user-interaction:
 
 - `MinimalT2VUIState` is the type of `ILoop.state` for our `IUILoop`.
-- `invoke_async(self.state.model_loop, lambda...)` is called when the user submits a new prompt (via imgui button) to submit a `lambda` to run on our `IModelLoop` thread before the next new `IModelLoop.step()`. 
+- `invoke_async(self.state.model_loop, lambda...)` is called when the user submits a new prompt (via imgui button) to submit a `lambda` to run on our `IModelLoop` thread before the next new `IModelLoop.step()`.
 - `step_ui(...)` is called for each loop of our `IUILoop`. It contains `imgui` state when `IUILoop` inherits from [`ImGuiUILoop`](../api_reference/application.md#flashdreams.runtime_v2.imgui_ui_loop.ImGuiUILoop).
 
 ```python

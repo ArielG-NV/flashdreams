@@ -86,23 +86,6 @@ Use `derive_config` for small variants. Set these values explicitly:
 checkpoint, scheduler, steps, chunk and cache sizes, guidance, precision,
 compile, CUDA graphs, and attention backend.
 
-## 4. Check checkpoint compatibility on CPU
-
-A checkpoint transform should unwrap only known checkpoint containers, remove
-known prefixes, apply ordered key renames, and leave tensor values unchanged. Before
-loading a GPU model, compare the transformed checkpoint with
-`network.state_dict()` using CPU or meta tensors:
-
-- no missing model keys;
-- no unexpected checkpoint keys;
-- identical shape for every matching key;
-- checks using real checkpoint keys for each rename rule.
-
-Prefer checkpoint metadata or safetensors headers when full weights are too
-large. If switching checkpoint sources, compare the transformed tensors from
-both sources before claiming equivalence. A successful import is not enough;
-unexplained missing or extra keys are integration failures.
-
 ## 5. Test the integration
 
 Put model tests in `integrations_v2/<model>/tests/`. Every pytest test must have
@@ -121,24 +104,15 @@ Use `ci_gpu` or `manual` for real checkpoints, generation, parity, quality, and
 performance. Validate at least one step beyond initial cache fill for streaming
 models, because rolling-window bugs often appear only after the boundary.
 
-## 6. Add a demo adapter and documentation
-
-A model package can exist without a public application slug. Once its config
-and model tests pass, follow
-[Integrate model adapter for a demo](../../demo_api/guides/integrate_model_adapter_for_a_demo.md) to add
-`integrations_v2/<model>/apps/<demo>/adapter.py` and a
-`flashdreams.applications_v2` entry point.
-
-Add or update `docs/source/models/<model>.md` with requirements, installation,
-supported application slugs, run commands, known limitations, and
-implementation notes useful to contributors. Keep parity test data and results
-beside the tests. Do not add a package README.
-
+Command to run all tests:
 ```bash
-uv sync --package flashdreams-<model> --extra dev --inexact
 uv run --no-sync pytest integrations_v2/<model>/tests -m ci_cpu
-uv run --group lint pre-commit run -a
 ```
 
-Default CPU verification must not download large checkpoints or start GPU
-generation.
+## 6. Add documentation
+
+Add or update `docs/source/models/<model>.md` with the new model. Example: [Wan 2.1](../../../models/wan21.md)
+
+## 7. [Optional] Add a demo adapter
+
+A model package can exist without a demo implementation. To add one, follow the [integrate model adapter for a demo](../../demo_api/guides/integrate_model_adapter_for_a_demo.md) guide.
