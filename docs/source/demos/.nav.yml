@@ -2,6 +2,7 @@ nav:
   - Overview: index.md
   - Game-Like Experiences:
       - Crazy Robotaxi: crazy_robotaxi.md
+      - HandDreams: handdreams.md
       - Interactive Drive: interactive_drive.md
   - Model Interfaces:
       - Action2V: action2v.md
