@@ -8,6 +8,13 @@ title: 'Cosmos3 Nano Sim Bimanual'
 Run [HandDreams](../demos/handdreams.md) with a browser or native viewer, using
 virtual controllers or a USB-connected Quest.
 
+<div class="fd-card fd-model-card">
+  <img class="fd-card-preview" src="../_static/demo_clips/handdreams.avif" alt="HandDreams robot hands folding a T-shirt." />
+</div>
+<figcaption class="tiny-figcaption">
+  HandDreams demo with a custom scene catalog.
+</figcaption>
+
 ## Requirements
 
 - Ubuntu x86_64/aarch64, glibc 2.35+, Python 3.12, Git, `uv`, and OpenSSL.

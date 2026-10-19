@@ -8,6 +8,13 @@ title: 'HandDreams'
 HandDreams generates robot-manipulation video from virtual or physical
 controllers. It does not control a physical robot.
 
+<div class="fd-card fd-model-card">
+  <img class="fd-card-preview" src="../_static/demo_clips/handdreams.avif" alt="HandDreams robot hands folding a T-shirt." />
+</div>
+<figcaption class="tiny-figcaption">
+  HandDreams demo with a custom scene catalog.
+</figcaption>
+
 ## Quick Start
 
 <div class="fd-cta-row" markdown="span">
