@@ -14,6 +14,7 @@ nav:
               - Demo configuration: documentation/demo_api/guides/configuration.md
               - Application slugs and dispatch: documentation/demo_api/guides/application_slugs.md
               - Interactive serving: documentation/demo_api/guides/interactive_serving.md
+              - Making a custom C API client window: documentation/demo_api/guides/making_custom_c_api_client_window.md
               - Local benchmarks: documentation/demo_api/guides/local_benchmarks.md
               - Profiling a demo: documentation/demo_api/guides/profiling.md
           - API Reference:

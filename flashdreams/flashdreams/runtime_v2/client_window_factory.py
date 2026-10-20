@@ -153,11 +153,31 @@ class _NativeWindowMode(ClientWindowMode):
         )
 
 
+class _CMode(ClientWindowMode):
+    """Present the run through callbacks supplied by a C host."""
+
+    name = "c"
+
+    def check_arguments(self, parsed_args: argparse.Namespace) -> None:
+        from flashdreams.runtime_v2 import c_client_window
+
+        if c_client_window._callbacks is None:
+            raise ValueError("--mode c requires a C host callback table.")
+
+    def create(self, parsed_args: argparse.Namespace) -> IClientWindow:
+        from flashdreams.runtime_v2 import c_client_window
+
+        self.check_arguments(parsed_args)
+        assert c_client_window._callbacks is not None
+        return c_client_window.CClientWindow(c_client_window._callbacks)
+
+
 _BUILTIN_MODES: tuple[ClientWindowMode, ...] = (
     _Mp4Mode(),
     _WebRTCMode(),
     _NativeWindowMode(),
     _NullMode(),
+    _CMode(),
 )
 """Built-in modes a run can be presented through."""
 

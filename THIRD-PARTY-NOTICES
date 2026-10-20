@@ -51,6 +51,9 @@ triton-windows         MIT          https://github.com/woct0rdho/triton-windows
 tyro                   MIT          https://github.com/brentyi/tyro
 urllib3                MIT          https://github.com/urllib3/urllib3
 
+SDL3                   Zlib         https://github.com/libsdl-org/SDL
+    Used directly via Vulkan SDK (expected) dependency.
+
 ================================================================================
 Reference architectures
 ================================================================================

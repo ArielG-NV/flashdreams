@@ -50,7 +50,7 @@ hide:
 
   <div class="grey-section fd-why-section">
     <h2>Serving World Models is Hard</h2>
-    <p class="fd-why-lede">Building a <strong>static clip generator is not enough</strong> for world-model serving.</p>
+    <p class="fd-why-lede"><strong>static clip generator is not enough</strong> for world-model serving.</p>
 
     <img class="fd-why-comparison" alt="Offline video generation runs once from a prompt to a finished clip. Online world-model serving loops live controls through streaming encode, state update, inference, and decode for low-latency output while carrying world state forward." src="_static/diagrams/compare-offline-online-video-model-v2-transparent.webp" />
 

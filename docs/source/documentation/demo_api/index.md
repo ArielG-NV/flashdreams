@@ -21,6 +21,7 @@ scenario, presentation, replay, warmup, and benchmark utilities.
   <a class="fd-card fd-model-card" href="guides/configuration/"><span class="fd-card-title">Demo configuration</span><span>Define arguments, defaults, and application configuration.</span></a>
   <a class="fd-card fd-model-card" href="guides/application_slugs/"><span class="fd-card-title">Application slugs and dispatch</span><span>Register application names and route model adapters.</span></a>
   <a class="fd-card fd-model-card" href="guides/interactive_serving/"><span class="fd-card-title">Interactive serving</span><span>Serve responsive sessions through supported client windows.</span></a>
+  <a class="fd-card fd-model-card" href="guides/making_custom_c_api_client_window/"><span class="fd-card-title">Making a custom C API client window</span><span>Embed a demo in a C or C++ host with custom input and CUDA frame callbacks.</span></a>
   <a class="fd-card fd-model-card" href="guides/local_benchmarks/"><span class="fd-card-title">Local benchmarks</span><span>Measure application performance in a local environment.</span></a>
   <a class="fd-card fd-model-card" href="guides/profiling/"><span class="fd-card-title">Profiling a demo</span><span>Collect Nsight Systems traces and per-step performance metrics.</span></a>
 </div>
