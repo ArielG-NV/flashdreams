@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://nvidia.github.io/flashdreams/main/documentation/demo_api/guides/integrate_model/">
+        <link rel="canonical" href="https://nvidia.github.io/flashdreams/main/documentation/demo_api/guides/integrate_model_adapter_for_a_demo/">
       
       
         <link rel="prev" href="../create_demo/">
       
       
-        <link rel="next" href="../configuration/">
+        <link rel="next" href="../interactive_serving/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Integrate a model with a demo - FlashDreams</title>
+        <title>Integrate model adapter for a demo - FlashDreams</title>
       
     
     
@@ -87,7 +87,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#1-choose-the-existing-interaction" class="md-skip">
+        <a href="#files-to-add-or-update" class="md-skip">
           Skip to content
         </a>
       
@@ -122,7 +122,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Integrate a model with a demo
+              Integrate model adapter for a demo
             
           </span>
         </div>
@@ -593,8 +593,6 @@
       
         
       
-        
-      
     
     
     
@@ -787,33 +785,6 @@
     
   
   Waypoint 1.5
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../../models/hy_worldplay/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  HY-WorldPlay
 
     
   </span>
@@ -1367,6 +1338,8 @@
       
         
       
+        
+      
     
     
     
@@ -1451,6 +1424,33 @@
     
   
   Cam2V
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/minimal_t2v/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Minimal T2V
 
     
   </span>
@@ -1729,12 +1729,6 @@
       
         
       
-        
-      
-        
-      
-        
-      
     
     
     
@@ -1825,7 +1819,7 @@
   <span class="md-ellipsis">
     
   
-  Integrate a model with a demo
+  Integrate model adapter for a demo
 
     
   </span>
@@ -1842,7 +1836,7 @@
   <span class="md-ellipsis">
     
   
-  Integrate a model with a demo
+  Integrate model adapter for a demo
 
     
   </span>
@@ -1866,10 +1860,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-choose-the-existing-interaction" class="md-nav__link">
+  <a href="#files-to-add-or-update" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        1. Choose the existing interaction
+        Files to add or update
       </span>
     </span>
   </a>
@@ -1877,10 +1871,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-add-the-adapter" class="md-nav__link">
+  <a href="#create-the-adapter-entry-point" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        2. Add the adapter
+        Create the adapter entry point
       </span>
     </span>
   </a>
@@ -1888,10 +1882,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-register-a-stable-slug" class="md-nav__link">
+  <a href="#register-the-application" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        3. Register a stable slug
+        Register the application
       </span>
     </span>
   </a>
@@ -1899,10 +1893,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-test-the-seam-on-cpu" class="md-nav__link">
+  <a href="#install-and-run-entry-point" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        4. Test the seam on CPU
+        Install and run entry point
       </span>
     </span>
   </a>
@@ -1910,21 +1904,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#5-install-and-inspect" class="md-nav__link">
+  <a href="#adding-a-new-pipeline-configuration-to-pick-from" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        5. Install and inspect
-      </span>
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#6-document-once" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        6. Document once
+        Adding a new pipeline configuration to pick from
       </span>
     </span>
   </a>
@@ -1947,60 +1930,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../configuration/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Demo configuration
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../application_slugs/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Application slugs and dispatch
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../interactive_serving/" class="md-nav__link">
         
   
@@ -2009,33 +1938,6 @@
     
   
   Interactive serving
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../local_benchmarks/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Local benchmarks
 
     
   </span>
@@ -2267,8 +2169,6 @@
       
         
       
-        
-      
     
     
     
@@ -2353,33 +2253,6 @@
     
   
   Stream inference pipeline
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../inferencing_api/guides/latency_tuning/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Latency tuning
 
     
   </span>
@@ -2519,33 +2392,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inferencing_api/api_reference/runtime/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Inference Runtime API
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../../inferencing_api/api_reference/pipeline/" class="md-nav__link">
         
   
@@ -2593,6 +2439,33 @@
 
                 
               
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../inferencing_api/api_reference/accelerated/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Accelerated API
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
             </ul>
           </nav>
         
@@ -2622,6 +2495,10 @@
       
         
           
+        
+      
+        
+      
         
       
         
@@ -2721,6 +2598,60 @@
     
   
   Build Website
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tools/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Testing
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tools/benchmarking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Benchmarking
 
     
   </span>
@@ -2866,10 +2797,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-choose-the-existing-interaction" class="md-nav__link">
+  <a href="#files-to-add-or-update" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        1. Choose the existing interaction
+        Files to add or update
       </span>
     </span>
   </a>
@@ -2877,10 +2808,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-add-the-adapter" class="md-nav__link">
+  <a href="#create-the-adapter-entry-point" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        2. Add the adapter
+        Create the adapter entry point
       </span>
     </span>
   </a>
@@ -2888,10 +2819,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-register-a-stable-slug" class="md-nav__link">
+  <a href="#register-the-application" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        3. Register a stable slug
+        Register the application
       </span>
     </span>
   </a>
@@ -2899,10 +2830,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-test-the-seam-on-cpu" class="md-nav__link">
+  <a href="#install-and-run-entry-point" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        4. Test the seam on CPU
+        Install and run entry point
       </span>
     </span>
   </a>
@@ -2910,21 +2841,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#5-install-and-inspect" class="md-nav__link">
+  <a href="#adding-a-new-pipeline-configuration-to-pick-from" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        5. Install and inspect
-      </span>
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#6-document-once" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        6. Document once
+        Adding a new pipeline configuration to pick from
       </span>
     </span>
   </a>
@@ -2947,7 +2867,7 @@
                   
 
   
-    <a href="https://github.com/NVIDIA/flashdreams/edit/main/docs/source/documentation/demo_api/guides/integrate_model.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/NVIDIA/flashdreams/edit/main/docs/source/documentation/demo_api/guides/integrate_model_adapter_for_a_demo.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
     </a>
@@ -2955,81 +2875,124 @@
   
 
 
-  <h1 id="__skip">Integrate a model with a demo</h1>
+  <h1 id="__skip">Integrate model adapter for a demo</h1>
 
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-<p>A demo integration is a thin adapter between a model config under
-<code>integrations_v2/&lt;model&gt;/</code> and a reusable application under <code>apps/&lt;demo&gt;/</code>.
-The adapter supplies model-specific defaults and registers a zero-argument
-<code>IApplication</code> factory. It does not duplicate either side.</p>
-<h2 id="1-choose-the-existing-interaction">1. Choose the existing interaction</h2>
-<p>Pick the app whose inputs and presentation match the model: T2V, Cam2V,
-Action2V, V2V, Interactive Drive, or Crazy Robotaxi. Create a new app only when
-none of them owns the required interaction or UI.</p>
-<p>Add that app package to the integration's dependencies. The app remains
-model-independent; only the adapter imports both the app and model config.</p>
-<h2 id="2-add-the-adapter">2. Add the adapter</h2>
-<div class="highlight"><pre><span></span><code>integrations_v2/&lt;model&gt;/apps/&lt;demo&gt;/
-  __init__.py
-  adapter.py
-  README.md              # installation and launch details only
+<p>An adapter is a package that contains the logic to connect a demo to a model.</p>
+<p>In this example we connect the <a href="../create_demo/">Minimal T2V application</a> to Wan 2.1.</p>
+<p><a id="1-choose-the-existing-interaction"></a></p>
+<p><a id="5-document-once"></a></p>
+<h2 id="files-to-add-or-update">Files to add or update</h2>
+<p>After creating <code>apps/minimal_t2v/</code>, add the adapter package and update the website:</p>
+<div class="highlight"><pre><span></span><code>integrations_v2/wan21/
+  config.py            # add a new pipeline config if desired
+  apps/minimal_t2v/
+    __init__.py       # add the package initializer
+    adapter.py        # add the application factory
+  pyproject.toml     # update dependencies, packages, and entry points
+
+docs/source/
+  models/
+    wan21.md         # update: add Minimal T2V quick start, preset, and app-page link
+    .nav.yml         # update when adding a new model page
+    index.md         # add a card when adding a new model page
+  demos/
+    minimal_t2v.md   # update: link to the model&#39;s quick start
 </code></pre></div>
-<p>A T2V adapter can be this small:</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.api_v2.application</span><span class="w"> </span><span class="kn">import</span> <span class="n">IApplication</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">t2v</span><span class="w"> </span><span class="kn">import</span> <span class="n">T2VApplication</span><span class="p">,</span> <span class="n">T2VApplicationDefaults</span>
+<h2 id="create-the-adapter-entry-point">Create the adapter entry point</h2>
+<p>Our adapter entry point is a factory function that creates an instance of our application based on the <code>IApplication</code> we defined.</p>
+<p>This factory has the contract of:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">some_create_app</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">IApplication</span><span class="p">:</span>
+    <span class="o">...</span>
+</code></pre></div>
+<p>In our case we then make in <code>integrations_v2/wan21/apps/minimal_t2v/adapter.py</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved.</span>
+<span class="c1"># SPDX-License-Identifier: Apache-2.0</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">my_model.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">PIPELINE_MY_MODEL</span>
+<span class="sd">&quot;&quot;&quot;Wan 2.1 adapter for the Minimal T2V application.&quot;&quot;&quot;</span>
 
-<span class="n">MY_MODEL_T2V_DEFAULTS</span> <span class="o">=</span> <span class="n">T2VApplicationDefaults</span><span class="p">(</span>
-    <span class="n">pipeline_config</span><span class="o">=</span><span class="n">PIPELINE_MY_MODEL</span><span class="p">,</span>
-    <span class="n">total_blocks</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
-    <span class="n">pixel_width</span><span class="o">=</span><span class="mi">832</span><span class="p">,</span>
-    <span class="n">pixel_height</span><span class="o">=</span><span class="mi">480</span><span class="p">,</span>
-    <span class="n">fps</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">minimal_t2v</span><span class="w"> </span><span class="kn">import</span> <span class="n">MinimalT2VApplication</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.runtime_v2.session_desc</span><span class="w"> </span><span class="kn">import</span> <span class="n">SessionDesc</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">wan21.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">PIPELINE_WAN21_T2V_1PT3B_480P</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">create_app</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">MinimalT2VApplication</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return Minimal T2V with Wan 2.1&#39;s single-block pipeline.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">MinimalT2VApplication</span><span class="p">(</span>
+        <span class="n">pipeline_config</span><span class="o">=</span><span class="n">PIPELINE_WAN21_T2V_1PT3B_480P</span><span class="p">,</span>
+        <span class="n">desc</span><span class="o">=</span><span class="n">SessionDesc</span><span class="p">(</span>
+            <span class="n">video_width</span><span class="o">=</span><span class="mi">832</span><span class="p">,</span>
+            <span class="n">video_height</span><span class="o">=</span><span class="mi">480</span><span class="p">,</span>
+            <span class="n">frames_per_second_for_step</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+        <span class="p">),</span>
+        <span class="n">total_blocks</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="p">)</span>
+</code></pre></div>
+<h2 id="register-the-application">Register the application</h2>
+<p>In <code>integrations_v2/wan21/pyproject.toml</code>, add our application's package name to <code>tool.uv.sources</code></p>
+<p>Then add our <code>slug</code> to run our new application entry point to <code>[project.entry-points."flashdreams.applications_v2"]</code></p>
+<p>This is seen in <code>integrations_v2/wan21/pyproject.toml</code>:
+<div class="highlight"><pre><span></span><code><span class="c1"># SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved.</span>
+<span class="c1"># SPDX-License-Identifier: Apache-2.0</span>
+
+<span class="k">[build-system]</span>
+<span class="n">requires</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;setuptools&gt;=69&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;wheel&quot;</span><span class="p">]</span>
+<span class="n">build-backend</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;setuptools.build_meta&quot;</span>
+
+<span class="k">[project]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;flashdreams-wan21&quot;</span>
+<span class="n">version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.1.0&quot;</span>
+<span class="n">description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Wan 2.1 T2V + I2V non-streaming inference plugin for flashdreams.&quot;</span>
+<span class="n">readme</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;README.md&quot;</span>
+<span class="n">requires-python</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;&gt;=3.10&quot;</span>
+<span class="n">dependencies</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="s2">&quot;flashdreams&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;mediapy&gt;=1.1&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;opencv-python-headless&gt;=4.5&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;flashdreams-t2v&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;flashdreams-minimal-t2v&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="k">[tool.uv.sources]</span>
+<span class="n">flashdreams-t2v</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">workspace</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="kc">true</span><span class="w"> </span><span class="p">}</span>
+<span class="n">flashdreams-minimal-t2v</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">workspace</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="kc">true</span><span class="w"> </span><span class="p">}</span>
+<span class="n">flashdreams</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">workspace</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="kc">true</span><span class="w"> </span><span class="p">}</span>
+
+<span class="k">[project.optional-dependencies]</span>
+<span class="n">dev</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="s2">&quot;pytest&gt;=8.0&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="k">[project.entry-points.</span><span class="s2">&quot;flashdreams.applications_v2&quot;</span><span class="k">]</span>
+<span class="s2">&quot;t2v-wan21-t2v-1.3b-480p&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;wan21.apps.t2v.adapter:create_app&quot;</span>
+<span class="s2">&quot;minimal-t2v-wan21&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;wan21.apps.minimal_t2v.adapter:create_app&quot;</span>
+
+<span class="k">[tool.setuptools]</span>
+<span class="n">packages</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;wan21&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;wan21.apps&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;wan21.apps.t2v&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;wan21.apps.minimal_t2v&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;wan21.impl&quot;</span><span class="p">]</span>
+
+<span class="k">[tool.setuptools.package-dir]</span>
+<span class="n">wan21</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;.&quot;</span>
+
+<span class="k">[tool.uv]</span>
+<span class="n">managed</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+</code></pre></div></p>
+<h2 id="install-and-run-entry-point">Install and run entry point</h2>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-wan21<span class="w"> </span>--inexact
+uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>minimal-t2v-wan21<span class="w"> </span>--mode<span class="w"> </span>native-window<span class="w"> </span>--<span class="w"> </span>--default-prompt<span class="w"> </span><span class="s2">&quot;A cat surfing&quot;</span>
+</code></pre></div>
+<h2 id="adding-a-new-pipeline-configuration-to-pick-from">Adding a new pipeline configuration to pick from</h2>
+<p>Modify <code>integrations_v2/wan21/config.py</code> to add a new pipeline config to <code>wan21</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="n">PIPELINE_WAN21_T2V_SEED123</span> <span class="o">=</span> <span class="n">derive_config</span><span class="p">(</span>
+    <span class="n">PIPELINE_WAN21_T2V_1PT3B_480P</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;wan21-t2v-1.3b-480p-seed123&quot;</span><span class="p">,</span>
+    <span class="n">diffusion_model</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;seed&quot;</span><span class="p">:</span> <span class="mi">123</span><span class="p">},</span>
 <span class="p">)</span>
-
-
-<span class="k">def</span><span class="w"> </span><span class="nf">create_app</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">IApplication</span><span class="p">:</span>
-    <span class="k">return</span> <span class="n">T2VApplication</span><span class="p">(</span><span class="n">defaults</span><span class="o">=</span><span class="n">MY_MODEL_T2V_DEFAULTS</span><span class="p">)</span>
 </code></pre></div>
-<p>Subclass the reusable application only when it exposes a hook the model really
-needs, such as a different cache initializer or compile override. The factory
-must not load weights or initialize CUDA.</p>
-<h2 id="3-register-a-stable-slug">3. Register a stable slug</h2>
-<div class="highlight"><pre><span></span><code><span class="k">[project.entry-points.</span><span class="s2">&quot;flashdreams.applications_v2&quot;</span><span class="k">]</span>
-<span class="s2">&quot;t2v-my-model&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my_model.apps.t2v.adapter:create_app&quot;</span>
-</code></pre></div>
-<p>Use a readable <code>&lt;demo&gt;-&lt;model-or-config&gt;</code> slug. Register each supported variant
-explicitly with its own factory. Do not add <code>flashdreams.runner_configs</code>, a
-<code>runner.py</code>, or a model-specific copy of the app solely for v2 discovery.</p>
-<h2 id="4-test-the-seam-on-cpu">4. Test the seam on CPU</h2>
-<p>Put adapter tests in <code>integrations_v2/&lt;model&gt;/tests/</code>, not under the reusable
-app. Inject a stand-in config and verify:</p>
-<ul>
-<li>factory construction performs no model load;</li>
-<li>defaults report the correct size, rate, layout, and rollout length;</li>
-<li>initialize, generate, and finalize run in order;</li>
-<li>argument validation, reset, finish, and close work;</li>
-<li>every entry-point slug resolves to <code>IApplication</code>.</li>
-</ul>
-<p>Use the app's shared testing helpers when available. For example, <code>t2v.testing</code>
-provides a stand-in pipeline and end-to-end adapter checks.</p>
-<h2 id="5-install-and-inspect">5. Install and inspect</h2>
-<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-&lt;model&gt;<span class="w"> </span>--extra<span class="w"> </span>dev<span class="w"> </span>--inexact
-uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>pytest<span class="w"> </span>integrations_v2/&lt;model&gt;/tests<span class="w"> </span>-m<span class="w"> </span>ci_cpu
-uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>--help
-uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>&lt;demo&gt;-&lt;model&gt;<span class="w"> </span>--<span class="w"> </span>--help
-</code></pre></div>
-<p>A real launch uses the same slug with <code>--mode mp4</code>, <code>webrtc</code>, or
-<code>native-window</code>. Runtime options precede <code>--</code>; application options follow it.</p>
-<h2 id="6-document-once">6. Document once</h2>
-<p>Put installation, supported bindings, and canonical commands on the model page.
-Link to the demo page for shared controls. Keep the adapter README limited to
-package-specific installation and launch details.</p>
-<p>See <a href="../application_slugs/">Application slugs</a> for discovery details and
-<a href="../configuration/">Demo configuration</a> for ownership of overrides.</p>
+<p>This defines a new pipeline config that is a copy of <code>PIPELINE_WAN21_T2V_1PT3B_480P</code> with the addition of a <code>seed</code> parameter to the diffusion model, setting the pipeline to always run diffusion with the same seed of <code>123</code>.</p>
+<p>To learn more about demo serving, see <a href="../interactive_serving/">Interactive serving</a>.</p>
 
 
 
@@ -3081,13 +3044,13 @@ package-specific installation and launch details.</p>
         
         
           
-          <a href="../configuration/" class="md-footer__link md-footer__link--next" aria-label="Next: Demo configuration">
+          <a href="../interactive_serving/" class="md-footer__link md-footer__link--next" aria-label="Next: Interactive serving">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Demo configuration
+                Interactive serving
               </div>
             </div>
             <div class="md-footer__button md-icon">
