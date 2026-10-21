@@ -175,6 +175,7 @@ def valid_length_cached_attention(
             cu_seq_k,
             query_tokens,
             int(k_all.shape[-2]),
+            enable_gqa=query.shape[1] != packed_k.shape[1],
         )
         return cast(Tensor, out).transpose(0, 1).unsqueeze(0)
 
