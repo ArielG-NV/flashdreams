@@ -7,21 +7,19 @@ from functools import partial
 
 import pytest
 import torch
+from cosmos3_nano_sim_bimanual import attention
 from cosmos3_nano_sim_bimanual.attention import (
     valid_length_cached_attention,
     varlen_attention_available,
 )
 from torch.nn import functional as F
 
-pytestmark = [
-    pytest.mark.ci_gpu,
-    pytest.mark.skipif(
-        not torch.cuda.is_available() or not varlen_attention_available(),
-        reason="CUDA and PyTorch varlen FlashAttention are required",
-    ),
-]
 
-
+@pytest.mark.ci_gpu
+@pytest.mark.skipif(
+    not torch.cuda.is_available() or not varlen_attention_available(),
+    reason="CUDA and PyTorch varlen FlashAttention are required",
+)
 @pytest.mark.parametrize("mode", ["eager", "compiled", "cuda_graph"])
 @pytest.mark.parametrize("query_heads", [8, 32], ids=["mha", "gqa"])
 @pytest.mark.parametrize("causal_block_tokens", [None, 16], ids=["chunk", "causal"])
@@ -79,3 +77,31 @@ def test_valid_length_attention_matches_expanded_sdpa(
             attn_mask=mask,
         )
         torch.testing.assert_close(actual, expected, rtol=0.02, atol=0.02)
+
+
+@pytest.mark.ci_cpu
+@pytest.mark.parametrize("accepts_gqa_keyword", [False, True])
+def test_varlen_gqa_keyword_compatibility(
+    monkeypatch: pytest.MonkeyPatch, accepts_gqa_keyword: bool
+) -> None:
+    """Support both implicit legacy GQA and the explicit keyword API."""
+
+    def legacy(query: torch.Tensor, *_args: object) -> torch.Tensor:
+        return query
+
+    def modern(
+        query: torch.Tensor, *_args: object, enable_gqa: bool = False
+    ) -> torch.Tensor:
+        assert enable_gqa
+        return query
+
+    monkeypatch.setattr(
+        attention, "varlen_attn", modern if accepts_gqa_keyword else legacy
+    )
+    monkeypatch.setattr(attention, "_VARLEN_ACCEPTS_GQA", accepts_gqa_keyword)
+    q = torch.zeros(1, 32, 8, 16)
+    k = torch.zeros(1, 8, 16, 16)
+    actual = attention.valid_length_cached_attention(
+        q, k, k, torch.zeros(1, dtype=torch.int32), 8
+    )
+    torch.testing.assert_close(actual, q)
