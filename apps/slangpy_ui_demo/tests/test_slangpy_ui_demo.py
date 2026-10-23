@@ -10,22 +10,22 @@ from unittest.mock import Mock
 
 import pytest
 import torch
-from null_model.apps.slangpy_ui_demo.invoke_async_app import (
+from numpy import uint64
+from slangpy_ui_demo.invoke_async_app import (
     ColorToggleModelLoop,
     ColorToggleModelState,
     ColorToggleSlangPyUILoop,
     ColorToggleUIState,
 )
-from null_model.apps.slangpy_ui_demo.model_output_app import (
+from slangpy_ui_demo.model_output_app import (
     ModelOutputLoop,
     ModelOutputSession,
     ModelOutputSlangPyUILoop,
 )
-from null_model.apps.slangpy_ui_demo.text_input_app import (
+from slangpy_ui_demo.text_input_app import (
     TextInputSlangPyUILoop,
     TextInputState,
 )
-from numpy import uint64
 
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import BackpressureMode, SessionDesc

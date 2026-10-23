@@ -1,18 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Key-driven red screen application for FlashDreams."""
+"""NULL-model entry point for the red screen application."""
 
-from .app import (
-    RedScreenApplication,
-    RedScreenConfig,
-    RedScreenSession,
-    create_app,
-)
+from .app import create_app
 
-__all__ = [
-    "RedScreenApplication",
-    "RedScreenConfig",
-    "RedScreenSession",
-    "create_app",
-]
+__all__ = ["create_app"]

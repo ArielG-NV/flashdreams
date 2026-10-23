@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
-from null_model.apps.color_fade import create_app
+from color_fade import ColorFadeApplication
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
@@ -84,7 +84,7 @@ def _session_desc(
 
 
 def _session(*, frames_per_step: int = 5, seconds: float = _SECONDS) -> ISession:
-    app = create_app()
+    app = ColorFadeApplication()
     app.init(["--seconds", str(seconds), "--frames-per-step", str(frames_per_step)])
     session = app.create_session(_session_desc())
     session.init()
@@ -231,7 +231,7 @@ def test_session_desc_available_before_any_output_is_opened() -> None:
 
 
 def test_create_session_rejects_unsupported_layout() -> None:
-    app = create_app()
+    app = ColorFadeApplication()
     app.init([])
 
     with pytest.raises(ValueError, match="bcthw"):
@@ -240,7 +240,7 @@ def test_create_session_rejects_unsupported_layout() -> None:
 
 def test_create_session_before_init_raises() -> None:
     with pytest.raises(RuntimeError, match="init"):
-        create_app().create_session(_session_desc())
+        ColorFadeApplication().create_session(_session_desc())
 
 
 @pytest.mark.parametrize(
@@ -258,7 +258,7 @@ def test_create_session_before_init_raises() -> None:
 def test_init_rejects_settings_that_generate_nothing_watchable(
     args: list[str], message: str
 ) -> None:
-    app: IApplication = create_app()
+    app: IApplication = ColorFadeApplication()
 
     with pytest.raises(ValueError, match=message):
         app.init(args)
@@ -275,7 +275,7 @@ def test_a_run_writes_the_whole_fade_to_an_mp4(tmp_path: Path) -> None:
     frames_per_step = 5
 
     # No step count: the session knows how long its fade is and ends the run.
-    ApplicationRunner(create_app(), Mp4ClientWindow(path)).run(
+    ApplicationRunner(ColorFadeApplication(), Mp4ClientWindow(path)).run(
         _session_desc(width=_PLAYABLE_WIDTH, height=_PLAYABLE_HEIGHT),
         ["--seconds", str(_SECONDS), "--frames-per-step", str(frames_per_step)],
     )

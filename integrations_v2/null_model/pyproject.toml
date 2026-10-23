@@ -14,6 +14,10 @@ requires-python = ">=3.10"
 dependencies = [
     # Integration packages depend on the public framework, never the reverse.
     "flashdreams",
+    "flashdreams-color-fade",
+    "flashdreams-red-screen",
+    "flashdreams-imgui-ui-demo",
+    "flashdreams-slangpy-ui-demo",
 ]
 
 [project.optional-dependencies]
@@ -33,6 +37,10 @@ demos = ["flashdreams[local-window,serving]"]
 # Resolve the framework from this repository while developing the workspace.
 # A published integration would resolve its released FlashDreams dependency.
 flashdreams = { workspace = true }
+flashdreams-color-fade = { workspace = true }
+flashdreams-red-screen = { workspace = true }
+flashdreams-imgui-ui-demo = { workspace = true }
+flashdreams-slangpy-ui-demo = { workspace = true }
 
 [tool.setuptools.packages.find]
 # Keep the distribution limited to the integration-owned Python package.

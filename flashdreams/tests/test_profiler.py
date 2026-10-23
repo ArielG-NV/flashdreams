@@ -375,8 +375,8 @@ def _run_red_screen(
 ) -> None:
     """Run red_screen through the real session runner, with ``profiler`` given
     to the session and no profiler bound around it."""
-    red_screen = pytest.importorskip("null_model.apps.red_screen")
-    app = red_screen.create_app()
+    red_screen = pytest.importorskip("red_screen")
+    app = red_screen.RedScreenApplication()
     app.init([])
     try:
         session = app.create_session(
@@ -955,8 +955,8 @@ def test_the_model_loop_records_its_pace_every_step() -> None:
 def test_a_session_does_not_take_its_profiler_from_the_context() -> None:
     """A session gets its profiler from whoever creates it, never from whatever
     happens to be bound."""
-    red_screen = pytest.importorskip("null_model.apps.red_screen")
-    app = red_screen.create_app()
+    red_screen = pytest.importorskip("red_screen")
+    app = red_screen.RedScreenApplication()
     app.init([])
     try:
         with set_flashdreams_inference_profiler(_CallCounter()) as stray:
@@ -978,12 +978,12 @@ def test_the_application_runner_resets_the_profiler_it_created(
 ) -> None:
     """An application that binds its own profiler while creating a session must
     not receive the runner's per-session reset."""
-    red_screen = pytest.importorskip("null_model.apps.red_screen")
+    red_screen = pytest.importorskip("red_screen")
     from flashdreams.runtime_v2 import application_runner
 
     created, stray = _CallCounter(), _CallCounter()
     monkeypatch.setattr(application_runner, "create_profiler", lambda: created)
-    app = red_screen.create_app()
+    app = red_screen.RedScreenApplication()
     create_session = app.create_session
 
     tokens = []
@@ -1027,8 +1027,8 @@ def test_a_session_that_sets_its_profiler_in_init_gets_every_callback(
 ) -> None:
     """The guide sets a session's own profiler at the start of ``init()``, so
     input, presentation and cleanup must use it as well as the loops."""
-    red_screen = pytest.importorskip("null_model.apps.red_screen")
-    from null_model.apps.red_screen import app as red_screen_app
+    red_screen = pytest.importorskip("red_screen")
+    from red_screen import app as red_screen_app
 
     from flashdreams.runtime_v2 import application_runner
 
@@ -1041,7 +1041,9 @@ def test_a_session_that_sets_its_profiler_in_init_gets_every_callback(
             super().init()
 
     monkeypatch.setattr(red_screen_app, "RedScreenSession", Session)
-    application_runner.ApplicationRunner(red_screen.create_app(), _KeyWindow()).run(
+    application_runner.ApplicationRunner(
+        red_screen.RedScreenApplication(), _KeyWindow()
+    ).run(
         SessionDesc(
             output_layout=VideoTensorLayout.bcthw, video_width=2, video_height=2
         ),
@@ -1317,7 +1319,7 @@ def test_the_profiler_hears_of_input_before_the_model_can_read_it(
 ) -> None:
     """Otherwise a fast step can consume a batch the profiler has not seen
     arrive, and its wait stays open until the session ends."""
-    red_screen = pytest.importorskip("null_model.apps.red_screen")
+    red_screen = pytest.importorskip("red_screen")
     order: list[str] = []
     append = EventBuffer.append
 
@@ -1331,7 +1333,7 @@ def test_the_profiler_hears_of_input_before_the_model_can_read_it(
             order.append("input_received")
 
     monkeypatch.setattr(EventBuffer, "append", recording_append)
-    app = red_screen.create_app()
+    app = red_screen.RedScreenApplication()
     app.init([])
     try:
         session = app.create_session(

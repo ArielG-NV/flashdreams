@@ -7,8 +7,8 @@ import threading
 
 import pytest
 import torch
-from null_model.apps.red_screen import create_app
 from numpy import uint64
+from red_screen import RedScreenApplication
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
@@ -130,7 +130,7 @@ def _step(session: ISession, step_index: int, events: UserInputEvents) -> StepRe
 def _run(
     initial_events: UserInputEvents | None = None, *, steps: int
 ) -> ScriptedClientWindow:
-    app = create_app()
+    app = RedScreenApplication()
     app.init([])
     session = app.create_session(_session_desc())
     window = ScriptedClientWindow([initial_events] if initial_events else None)
@@ -142,7 +142,7 @@ def _run(
 
 
 def _new_session() -> ISession:
-    app = create_app()
+    app = RedScreenApplication()
     app.init([])
     session = app.create_session(_session_desc())
     session.init()
@@ -223,7 +223,7 @@ def test_red_screen_turns_red_for_a_key_the_window_already_holds() -> None:
 def test_red_screen_turns_red_for_a_key_pressed_during_the_run() -> None:
     # End to end through the runner: the key is not held at the start, so only
     # input delivered while the run is going can turn the screen red.
-    app = create_app()
+    app = RedScreenApplication()
     app.init([])
     session = app.create_session(_session_desc(frames_per_second_for_ui=100))
     window = ScriptedClientWindow([UserInputEvents([]), _key_event(pressed=True)])
@@ -255,7 +255,7 @@ def test_red_screen_frames_match_the_session_desc() -> None:
 def test_session_desc_available_before_any_client_window() -> None:
     # WebRTC precondition: the runtime must be able to describe the output before a
     # client connects, so this has to hold with no window in existence.
-    app = create_app()
+    app = RedScreenApplication()
     app.init([])
     session = app.create_session(_session_desc())
     session.init()
@@ -264,7 +264,7 @@ def test_session_desc_available_before_any_client_window() -> None:
 
 
 def test_create_session_rejects_unsupported_layout() -> None:
-    app = create_app()
+    app = RedScreenApplication()
     app.init([])
 
     with pytest.raises(ValueError, match="bcthw"):
@@ -272,14 +272,14 @@ def test_create_session_rejects_unsupported_layout() -> None:
 
 
 def test_create_session_before_init_raises() -> None:
-    app = create_app()
+    app = RedScreenApplication()
 
     with pytest.raises(RuntimeError, match="init"):
         app.create_session(_session_desc())
 
 
 def test_reset_releases_the_held_key() -> None:
-    app = create_app()
+    app = RedScreenApplication()
     app.init([])
     session = app.create_session(_session_desc())
     session.init()

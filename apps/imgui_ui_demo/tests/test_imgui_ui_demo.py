@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from null_model.apps.imgui_ui_demo.text_input_app import (
+from imgui_ui_demo.text_input_app import (
     TextInputImGuiUILoop,
     TextInputState,
 )

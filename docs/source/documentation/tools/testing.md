@@ -87,16 +87,16 @@ something whole that could be driven end to end while they were still changing,
 which is why it sits here rather than under `integrations/`.
 
 `flashdreams/test_v2/test_client_window.py` uses the arithmetic pipeline as a
-CPU test fixture. The `null_model/apps/` directory also contains synthetic runtime
-demos; they generate their own frames and do not use `NULL_MODEL_CONFIG`, model
-adapters, or checkpoints.
+CPU test fixture. The synthetic runtime demos are defined under `apps/`; they
+generate their own frames without `NULL_MODEL_CONFIG` or checkpoints. Their
+`create_app` entry points live under `integrations_v2/null_model/null_model/apps/`.
 
-| Demo | Purpose |
-| --- | --- |
-| [Colour Fade](#colour-fade) | Bounded synthetic video output. |
-| [Red Screen](#red-screen) | Keyboard input and interactive output. |
-| [ImGui UI](#imgui-ui-demos) | Text input, query strings, and resizing. |
-| [SlangPy UI](#slangpy-ui-demos) | Widgets, channel selection, and cross-thread signaling. |
+| Demo | Purpose | App path (relative to repo root) |
+| --- | --- | --- |
+| [Colour Fade](#colour-fade) | Bounded synthetic video output. | `apps/color_fade/` |
+| [Red Screen](#red-screen) | Keyboard input and interactive output. | `apps/red_screen/` |
+| [ImGui UI](#imgui-ui-demos) | Text input, query strings, and resizing. | `apps/imgui_ui_demo/` |
+| [SlangPy UI](#slangpy-ui-demos) | Widgets, channel selection, and cross-thread signaling. | `apps/slangpy_ui_demo/` |
 
 ```bash
 uv sync --package flashdreams-null-model --extra demos --inexact
@@ -196,8 +196,7 @@ uv run --no-sync pytest integrations_v2/null_model
 
 ### Colour Fade
 
-Smallest end-to-end application that writes a file, and the worked example in the
-[integration guide](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/README.md). It holds no model: a session emits solid frames
+Smallest end-to-end application. It holds no model: a session emits solid frames
 fading from red to green over a fixed number of seconds, and finishes once it
 has. That exercises the whole file path — `IApplication`, `ISession`,
 `ApplicationRunner`, `run_session`, `Mp4ClientWindow`, `Mp4OutputSink` — on CPU.
