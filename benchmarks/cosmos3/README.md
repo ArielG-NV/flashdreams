@@ -17,6 +17,8 @@ From the repository root on a CUDA Linux host with `uv` and model/dataset access
    ```
 
    Inputs are prepared automatically. The table is saved to [RESULTS.md](RESULTS.md).
+   Results are pending: the final matched runs were interrupted. Complete this
+   step to produce validated comparison numbers.
    For setup and benchmarking in one command, use `bash benchmarks/cosmos3/run.sh`.
 
 3. Start the results website, then open <http://localhost:8765>:
