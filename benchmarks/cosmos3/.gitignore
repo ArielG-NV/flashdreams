@@ -1,0 +1,8 @@
+.local-archive/
+.venv*/
+vendor/
+results/
+website/
+__pycache__/
+*.log
+*.zip
