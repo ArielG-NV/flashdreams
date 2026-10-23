@@ -9,7 +9,10 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from imgui_ui_demo.text_input_app import TextInputImGuiUILoop, TextInputState
+from null_model.apps.imgui_ui_demo.text_input_app import (
+    TextInputImGuiUILoop,
+    TextInputState,
+)
 
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import SessionDesc

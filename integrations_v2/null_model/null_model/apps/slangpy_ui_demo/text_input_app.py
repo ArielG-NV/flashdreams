@@ -1,10 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""ImGui text-input application for the v2 loop runtime."""
+"""SlangPy UI text-input application for the v2 loop runtime."""
 
+import argparse
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import torch
@@ -13,8 +14,8 @@ from torch import Tensor
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.api_v2.session import ISession
-from flashdreams.runtime_v2.imgui_ui_loop import ImGuiUILoop
 from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.slangpy_ui_loop import SlangPyUILoop
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -47,42 +48,63 @@ class BackgroundModelLoop(IModelLoop[tuple[SessionDesc, torch.device | str]]):
 
 @dataclass(slots=True)
 class TextInputState:
-    """Editable state owned by the ImGui UI loop."""
+    """Editable state owned by the SlangPy UI loop."""
 
     text: str = ""
     """Current contents of the input widget."""
 
+    input_widget: Any | None = field(default=None, init=False, repr=False)
+    """Retained SlangPy text-input widget."""
 
-class TextInputImGuiUILoop(ImGuiUILoop[TextInputState]):
-    """Draw an editable ImGui text field from UI-loop-owned state."""
+    value_widget: Any | None = field(default=None, init=False, repr=False)
+    """Retained SlangPy text widget showing the current value."""
+
+
+class TextInputSlangPyUILoop(SlangPyUILoop[TextInputState]):
+    """Draw an editable text field from UI-loop-owned state."""
 
     def step_ui(
         self,
-        imgui: Any,
+        ui: Any,
         step_index: int,
         events: UserInputEvents,
     ) -> Tensor | None:
         """Draw the text input and its current value."""
         del step_index, events
-        imgui.set_next_window_pos(imgui.ImVec2(16.0, 16.0), imgui.Cond_.once)
-        imgui.set_next_window_size(imgui.ImVec2(420.0, 130.0), imgui.Cond_.once)
-        imgui.begin("Text input")
-        try:
-            imgui.text("Type into the field:")
-            _, self.state.text = imgui.input_text("Text", self.state.text)
-            imgui.text(f"Value: {self.state.text}")
-        finally:
-            imgui.end()
+        if self.state.input_widget is None:
+            window = ui.Window(
+                ui.screen,
+                "Text input",
+                position=(16, 16),
+                size=(420, 130),
+            )
+            ui.Text(window, "Type into the field:")
+            self.state.input_widget = ui.InputText(
+                window,
+                "Text",
+                self.state.text,
+                self._set_text,
+            )
+            self.state.value_widget = ui.Text(window, f"Value: {self.state.text}")
         return self.presented_model_frame()
+
+    def _set_text(self, value: str) -> None:
+        self.state.text = value
+        if self.state.value_widget is not None:
+            self.state.value_widget.text = f"Value: {value}"
 
     def reset(self) -> None:
         """Clear the input for a new generation."""
         self.state.text = ""
+        if self.state.input_widget is not None:
+            self.state.input_widget.value = ""
+        if self.state.value_widget is not None:
+            self.state.value_widget.text = "Value: "
         super().reset()
 
 
 class TextInputSession(ISession):
-    """Run an ImGui text field over a generated background."""
+    """Run a SlangPy text field over a generated background."""
 
     def __init__(
         self,
@@ -112,7 +134,7 @@ class TextInputSession(ISession):
     def init(self) -> None:
         """Register the text UI and background model loops."""
         self.register_ui_loop(
-            TextInputImGuiUILoop,
+            TextInputSlangPyUILoop,
             state=TextInputState(),
             width=self._session_desc.video_width,
             height=self._session_desc.video_height,
@@ -124,12 +146,14 @@ class TextInputSession(ISession):
 
 
 class TextInputApplication(IApplication):
-    """Create ImGui UI text-input sessions."""
+    """Create SlangPy UI text-input sessions."""
 
     def init(self, commandline_args: Sequence[str]) -> None:
-        """Reject application-specific arguments."""
-        if commandline_args:
-            raise ValueError("The text-input demo takes no application arguments.")
+        """Parse application arguments and provide CLI help."""
+        argparse.ArgumentParser(
+            prog="flashdreams-run-v2 slangpy-ui-text-input --",
+            description="Edit text over model output.",
+        ).parse_args(list(commandline_args))
 
     def session_desc(self) -> SessionDesc:
         """Return the demo's established dimensions and rates."""

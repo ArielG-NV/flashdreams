@@ -3,6 +3,7 @@
 
 """SlangPy UI application displaying model-loop output."""
 
+import argparse
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -212,9 +213,11 @@ class ModelOutputApplication(IApplication):
         self._device = device
 
     def init(self, commandline_args: Sequence[str]) -> None:
-        """Reject application-specific arguments."""
-        if commandline_args:
-            raise ValueError("The model-output demo takes no application arguments.")
+        """Parse application arguments and provide CLI help."""
+        argparse.ArgumentParser(
+            prog="flashdreams-run-v2 slangpy-ui-model-output --",
+            description="Select model output channels beneath the UI.",
+        ).parse_args(list(commandline_args))
 
     def session_desc(self) -> SessionDesc:
         """Return the demo's established dimensions and rates."""

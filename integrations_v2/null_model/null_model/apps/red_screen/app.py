@@ -13,8 +13,6 @@ from torch import Tensor
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.api_v2.session import ISession
-from flashdreams.runtime_v2.application_runner import ApplicationRunner
-from flashdreams.runtime_v2.client_window_factory import create_client_window
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -23,7 +21,6 @@ from flashdreams.runtime_v2.user_input_event import (
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
 
 _DEFAULT_ACTIVATION_KEY = "r"
 """Key that turns the screen red while held."""
@@ -162,13 +159,19 @@ class RedScreenApplication(IApplication):
             commandline_args: Application-specific arguments.
         """
         parser = argparse.ArgumentParser(
-            prog="red-screen",
+            prog="flashdreams-run-v2 red-screen --",
             description="Turn the screen red while a key is held.",
         )
         parser.add_argument("--key", default=_DEFAULT_ACTIVATION_KEY)
         args = parser.parse_args(list(commandline_args))
 
         self._config = RedScreenConfig(activation_key=args.key)
+
+    def session_desc(self) -> SessionDesc:
+        """Return the supported tensor layout before initialization."""
+        return SessionDesc(
+            output_layout=VideoTensorLayout.bcthw, video_width=640, video_height=360
+        )
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
         """Create one uninitialized red screen session.
@@ -186,61 +189,3 @@ class RedScreenApplication(IApplication):
 def create_app() -> IApplication:
     """Return a new red screen application."""
     return RedScreenApplication()
-
-
-def _parse_args(commandline_args: Sequence[str] | None) -> argparse.Namespace:
-    """Parse runtime arguments and preserve application arguments."""
-    parser = argparse.ArgumentParser(
-        prog="red-screen-webrtc",
-        description="Serve the red-screen v2 application.",
-    )
-    parser.add_argument("--mode", choices=("webrtc",), default="webrtc")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=0)
-    parser.add_argument("--width", type=int, default=640)
-    parser.add_argument("--height", type=int, default=360)
-    parser.add_argument("--fps", type=int, default=30)
-    parser.add_argument(
-        "application_args",
-        nargs=argparse.REMAINDER,
-        help="Arguments after -- are passed to the red-screen application.",
-    )
-    return parser.parse_args(commandline_args)
-
-
-def main(commandline_args: Sequence[str] | None = None) -> int:
-    """Run red screen until the client disconnects or the process is interrupted."""
-    args = _parse_args(commandline_args)
-    application_args = list(args.application_args)
-    if application_args[:1] == ["--"]:
-        application_args = application_args[1:]
-
-    window = create_client_window(args)
-    app = create_app()
-    if isinstance(window, WebRTCClientWindow):
-        print(f"Open {window.server.url} in a browser.", flush=True)
-    try:
-        # ApplicationRunner is a FlashDreams runtime component that takes an IApplication instance, a IClientWindow instance,
-        # and drives the main loop.
-
-        # TODO: in production, commandline argument parsing and IClientWindow creation should be done by flashdreams-run, a CLI tool
-        # basically, we need to generailze this main function to be shared by all applications
-        ApplicationRunner(app, window).run(
-            SessionDesc(
-                output_layout=VideoTensorLayout.bcthw,
-                frames_per_second_for_ui=args.fps,
-                frames_per_second_for_step=args.fps,
-                video_width=args.width,
-                video_height=args.height,
-            ),
-            application_args,
-        )
-    except KeyboardInterrupt:
-        return 130
-    finally:
-        window.close()
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
-from color_fade import create_app
+from null_model.apps.color_fade import create_app
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession

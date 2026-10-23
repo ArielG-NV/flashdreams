@@ -187,7 +187,7 @@ class ColorFadeApplication(IApplication):
             ValueError: An argument is not positive.
         """
         parser = argparse.ArgumentParser(
-            prog="color-fade",
+            prog="flashdreams-run-v2 color-fade --",
             description="Fade a solid frame from red to green.",
         )
         parser.add_argument("--seconds", type=float, default=_DEFAULT_SECONDS)
@@ -207,6 +207,10 @@ class ColorFadeApplication(IApplication):
         self._config = ColorFadeConfig(
             seconds=args.seconds, frames_per_step=args.frames_per_step
         )
+
+    def session_desc(self) -> SessionDesc:
+        """Return the supported tensor layout before initialization."""
+        return SessionDesc(output_layout=VideoTensorLayout.bcthw)
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
         """Create one uninitialized colour fade session.

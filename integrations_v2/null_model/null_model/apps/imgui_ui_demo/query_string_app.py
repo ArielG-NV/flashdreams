@@ -3,6 +3,7 @@
 
 """Query-string-controlled ImGui background application."""
 
+import argparse
 from collections.abc import Sequence
 from dataclasses import dataclass
 from re import fullmatch
@@ -150,9 +151,11 @@ class QueryStringApplication(IApplication):
     """Create query-string-controlled ImGui sessions."""
 
     def init(self, commandline_args: Sequence[str]) -> None:
-        """Reject application-specific arguments."""
-        if commandline_args:
-            raise ValueError("The query-string demo takes no application arguments.")
+        """Parse application arguments and provide CLI help."""
+        argparse.ArgumentParser(
+            prog="flashdreams-run-v2 imgui-ui-query-string --",
+            description="Set the background color from the browser query string.",
+        ).parse_args(list(commandline_args))
 
     def session_desc(self) -> SessionDesc:
         """Return the demo's established dimensions and rates."""

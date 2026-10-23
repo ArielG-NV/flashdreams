@@ -7,8 +7,8 @@ import threading
 
 import pytest
 import torch
+from null_model.apps.red_screen import create_app
 from numpy import uint64
-from red_screen import create_app
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
