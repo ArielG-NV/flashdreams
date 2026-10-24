@@ -68,6 +68,9 @@ def build() -> str:
         + "<p>Videos include the initial frame and 96 generated frames at 30 FPS, seed 0. "
         "Auto/AV: one RGB camera, no LiDAR. Eager denoising; CUDA graphs off. "
         "Quality equivalence is unverified.</p>"
+        + "<p>Startup uses the saved benchmark.json startup_s: model/backend initialization "
+        "before the first warmup request. Process launch, input preparation and request "
+        "warmup are excluded; cache state can affect startup time.</p>"
         + "<h2>Matched settings</h2>"
         + table(readme)
         + "<p>FPS includes input encoding, generation, full VAE decode and CPU pixels. "

@@ -53,6 +53,7 @@ rows: list[dict[str, Any]] = [
         "dtype": "bfloat16",
         "timesteps": TIMESTEPS,
         "warmup_requests": 2,
+        "startup_s": 12.345,
         "trials_s": [2.0] * 5,
         "checkpoint_revision": revision,
         "latent_frames_per_chunk": CHUNKS[model],
@@ -75,6 +76,8 @@ assert expected.count("| 48.00 | 2.00 | 2.00 |") == 4
 assert "48 × 25 × 22 × 40" in expected
 assert "48 × 25 × 30 × 52" in expected
 assert "Latents/chunk" in expected and "Denoise steps/chunk" in expected
+assert "Startup (s)" in expected
+assert expected.count("| 12.35 | 48.00 |") == 4
 assert "PRIVATE_HOST" not in expected and "PRIVATE_USER" not in expected
 varied = deepcopy(rows)
 varied[0]["trials_s"] = [1.0, 2.0, 3.0, 4.0, 10.0]
@@ -107,6 +110,11 @@ for index, key, value in (
     (0, "trials_s", [1.0] * 4),
     (0, "trials_s", [float("nan")] * 5),
     (0, "trials_s", [0] * 5),
+    (0, "startup_s", float("nan")),
+    (0, "startup_s", float("inf")),
+    (0, "startup_s", 0),
+    (0, "startup_s", -1),
+    (0, "startup_s", "12"),
     (0, "status", "failed"),
     (0, "backend", "vllm"),
     (0, "video", {}),
@@ -121,6 +129,7 @@ for index, key, value in (
         raise AssertionError(f"Must reject mismatched {key}")
 for index, key in (
     (0, "gpu"),
+    (0, "startup_s"),
     (0, "input_sha256"),
     (0, "prompt_sha256"),
     (0, "actions_sha256"),
@@ -175,6 +184,7 @@ with tempfile.TemporaryDirectory() as temporary:
         video_path.write_bytes(b"test MP4")
     page = site.build()
     assert page.count("<video ") == 4
+    assert "Startup (s)" in page and page.count("<td>12.35</td>") == 4
     for target in site.VIDEOS.values():
         assert (site.HERE / "website" / target).read_bytes() == b"test MP4"
     assert "PRIVATE_HOST" not in page and "PRIVATE_USER" not in page

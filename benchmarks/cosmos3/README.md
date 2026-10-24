@@ -18,7 +18,7 @@ From the repository root on a CUDA Linux host with `uv`, FFmpeg/FFprobe and mode
 
    Inputs are prepared automatically. [RESULTS.md](RESULTS.md) contains one row per
    checkpoint/backend, with latent shape, latents per chunk, denoising steps,
-   generated FPS, median/p90 request latency and a video link. Each run saves
+   startup time, generated FPS, median/p90 request latency and a video link. Each run saves
    `results/three-seconds/<model>/<backend>/output.mp4` and `benchmark.json`.
    The two warmup requests are excluded; the final measured request supplies the
    video. Encoding and video validation happen outside the timed interval.
@@ -94,6 +94,11 @@ the first frame in their decoded output. Videos share playback duration and
 seed, but matching seeds does not guarantee pixel equality between backends.
 The website serves the comparison table, settings and these four generated
 videos. `--build-only` exports a standalone `website/` folder with the videos.
+
+Startup time comes from each saved `benchmark.json` report's `startup_s` field.
+It covers model/backend initialization before the first warmup request, excluding
+process launch, input preparation and request warmup. Existing checkpoint and
+compiler caches can affect this measurement; it is not time to first video.
 
 Use `COSMOS3_AUTO_ENV` and `COSMOS3_OFFICIAL_ENV` consistently for setup and
 benchmarking to select existing environments. Set `CUDA_HOME` for your CUDA

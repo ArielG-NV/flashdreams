@@ -77,6 +77,13 @@ def validate(rows: list[dict[str, Any]]) -> None:
         times = trial_times(row)
         if len(times) != TRIALS or any(not math.isfinite(t) or t <= 0 for t in times):
             raise ValueError("Expected five finite, positive request times")
+        startup = row.get("startup_s")
+        if (
+            not isinstance(startup, (int, float))
+            or not math.isfinite(startup)
+            or startup <= 0
+        ):
+            raise ValueError("Expected a finite, positive startup time")
         if not row.get("gpu") or row["gpu"] != rows[0]["gpu"]:
             raise ValueError("All runs must use the same GPU model")
     for left, right in ((rows[0], rows[1]), (rows[2], rows[3])):
@@ -98,8 +105,8 @@ def format_results(rows: list[dict[str, Any]]) -> str:
     lines = [
         f"GPU: {rows[0]['gpu']}",
         "",
-        "| Checkpoint | Backend | Latent shape C×T×H×W | Latents/chunk | Denoise steps/chunk | Generated FPS | Median request (s) | p90 request (s) | Video |",
-        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |",
+        "| Checkpoint | Backend | Latent shape C×T×H×W | Latents/chunk | Denoise steps/chunk | Startup (s) | Generated FPS | Median request (s) | p90 request (s) | Video |",
+        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
     for index, row in enumerate(rows):
         model = "Bimanual" if index < 2 else "Auto"
@@ -110,12 +117,14 @@ def format_results(rows: list[dict[str, Any]]) -> str:
         video = row["video"]["path"]
         lines.append(
             f"| Cosmos3-Nano-Sim-{model} | {backend} | {latent} | "
-            f"{row['latent_frames_per_chunk']} | 4 | {rate:.2f} | "
+            f"{row['latent_frames_per_chunk']} | 4 | {row['startup_s']:.2f} | {rate:.2f} | "
             f"{statistics.median(times):.2f} | {sorted(times)[math.ceil(0.9 * len(times)) - 1]:.2f} | "
             f"[Watch]({video}) |"
         )
     lines.extend(
         [
+            "",
+            "Startup: saved benchmark.json startup_s, covering model/backend initialization before the first warmup request; excludes process launch, input preparation and request warmup. Cache state can affect startup time.",
             "",
             (
                 "Videos: 97 frames at 30 FPS, including the initial frame; last measured request, seed 0. "
