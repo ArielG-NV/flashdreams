@@ -67,7 +67,7 @@ ExternalProject_Add(dav1d_build
   BUILD_BYPRODUCTS "${DAV1D_LIBRARY}")
 
 pybind11_add_module(_native src/bindings.cpp)
-target_compile_features(_native PRIVATE cxx_std_17)
+set_target_properties(_native PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
 target_include_directories(_native PRIVATE
   "${svt_SOURCE_DIR}/Source/API" "${webm_SOURCE_DIR}"
   "${dav1d_SOURCE_DIR}/include" "${DAV1D_BUILD}/include")
