@@ -21,6 +21,7 @@ from benchmark import (
     TRIALS,
     WARMUP,
     git_revision,
+    save_video,
 )
 from huggingface_hub import hf_hub_download
 from PIL import Image
@@ -83,7 +84,7 @@ def flashdreams(image, inputs, actions, report):
     reference = wan22_ti2v_5b_vae_state_dict_transform(load_file(vae_path))
     for component in (pipeline.scene_encoder.vae.vae, pipeline.decoder.backend.vae):
         assert isinstance(component, torch.nn.Module)
-        for name, value in component.state_dict().items():
+        for name, value in component.named_parameters():
             assert torch.equal(value.cpu(), reference[name].to(value.dtype)), (
                 f"VAE weights differ: {name}"
             )
@@ -227,6 +228,12 @@ def main():
                 print(index, elapsed, flush=True)
             report["median_request_s"] = statistics.median(trials)
             report["generated_fps"] = len(actions) * TRIALS / sum(trials)
+            report["video"] = save_video(
+                np.concatenate(
+                    [np.asarray(image)[None], pixels.permute(0, 2, 3, 1).numpy()]
+                ),
+                out,
+            )
             report["status"] = "passed"
     finally:
         if close:

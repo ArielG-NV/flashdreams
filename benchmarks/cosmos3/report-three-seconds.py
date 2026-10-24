@@ -1,10 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Matched Cosmos3 workload validation and GPU/FPS results."""
+"""Matched Cosmos3 workload validation and performance/video table."""
 
+import hashlib
 import json
 import math
+import statistics
 from typing import Any
 
 from benchmark import (
@@ -60,6 +62,18 @@ def validate(rows: list[dict[str, Any]]) -> None:
             raise ValueError("Expected four denoising steps")
         if row.get("revision", row.get("checkpoint_revision")) != REVISIONS[model]:
             raise ValueError("Checkpoint revision differs")
+        video = row.get("video", {})
+        for key, value in {
+            "path": f"results/three-seconds/{model}/{row['backend']}/output.mp4",
+            "frames": WORK_FRAMES,
+            "fps": 30,
+            "width": SHAPES[model][0],
+            "height": SHAPES[model][1],
+        }.items():
+            if video.get(key) != value:
+                raise ValueError(f"{model}: invalid or missing video {key}")
+        if not isinstance(video.get("sha256"), str) or len(video["sha256"]) != 64:
+            raise ValueError("Missing video SHA256")
         times = trial_times(row)
         if len(times) != TRIALS or any(not math.isfinite(t) or t <= 0 for t in times):
             raise ValueError("Expected five finite, positive request times")
@@ -84,15 +98,33 @@ def format_results(rows: list[dict[str, Any]]) -> str:
     lines = [
         f"GPU: {rows[0]['gpu']}",
         "",
-        "| Model | FlashDreams FPS | vLLM FPS |",
-        "| --- | ---: | ---: |",
+        "| Checkpoint | Backend | Latent shape C×T×H×W | Latents/chunk | Denoise steps/chunk | Generated FPS | Median request (s) | p90 request (s) | Video |",
+        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
-    for offset, model in ((0, "Bimanual"), (2, "Auto")):
-        rates = [
-            GENERATED_FRAMES * TRIALS / sum(trial_times(row))
-            for row in rows[offset : offset + 2]
+    for index, row in enumerate(rows):
+        model = "Bimanual" if index < 2 else "Auto"
+        times = trial_times(row)
+        rate = GENERATED_FRAMES * TRIALS / sum(times)
+        latent = " × ".join(map(str, row["latent_shape"]))
+        backend = "FlashDreams" if index % 2 == 0 else "vLLM-Omni"
+        video = row["video"]["path"]
+        lines.append(
+            f"| Cosmos3-Nano-Sim-{model} | {backend} | {latent} | "
+            f"{row['latent_frames_per_chunk']} | 4 | {rate:.2f} | "
+            f"{statistics.median(times):.2f} | {sorted(times)[math.ceil(0.9 * len(times)) - 1]:.2f} | "
+            f"[Watch]({video}) |"
+        )
+    lines.extend(
+        [
+            "",
+            (
+                "Videos: 97 frames at 30 FPS, including the initial frame; last measured request, seed 0. "
+                "MP4 encoding is excluded from timings. Auto/AV uses one RGB camera without LiDAR. "
+                "Runs use eager denoising with CUDA graphs off; these are not the notebooks' optimized serving settings. "
+                "Quality equivalence is unverified. Measurements on a shared GPU can vary."
+            ),
         ]
-        lines.append(f"| {model} | {rates[0]:.2f} | {rates[1]:.2f} |")
+    )
     return "\n".join(lines) + "\n"
 
 
@@ -103,6 +135,13 @@ def main() -> None:
         for backend in ("flashdreams", "vllm")
     ]
     output = format_results(rows)
+    for row in rows:
+        video = row["video"]
+        if (
+            hashlib.sha256((HERE / video["path"]).read_bytes()).hexdigest()
+            != video["sha256"]
+        ):
+            raise ValueError("Saved video hash differs from the measured run")
     (HERE / "RESULTS.md").write_text(output, encoding="utf-8")
     print(output, end="")
 

@@ -13,6 +13,10 @@ auto="$COSMOS3_AUTO_ENV/bin/python"
 vo="$COSMOS3_OFFICIAL_ENV/bin/python"
 out="$here/results/three-seconds"
 mkdir -p "$out"
+for executable in ffmpeg ffprobe; do
+    command -v "$executable" >/dev/null || { echo "Install $executable before benchmarking" >&2; exit 1; }
+done
+trap 'echo "Benchmark failed; inspect logs in $out" >&2' ERR
 if [[ ${1:-} != --skip-setup ]]; then
     bash "$here/setup.sh" flashdreams > "$out/setup-fd.log" 2>&1
     bash "$here/setup.sh" auto > "$out/setup-auto.log" 2>&1
@@ -25,8 +29,12 @@ fi
 if [[ ! -s "$out/auto-inputs/raw.npz" ]]; then
     "$auto" "$here/export-auto-inputs.py" > "$out/prepare-auto.log" 2>&1
 fi
+echo "Running Bimanual / FlashDreams (log: $out/bimanual-fd.log)"
 "$fd" "$here/matched-bimanual.py" > "$out/bimanual-fd.log" 2>&1
+echo "Running Bimanual / vLLM-Omni (log: $out/bimanual-vllm.log)"
 "$vo" "$here/benchmark-official.py" bimanual > "$out/bimanual-vllm.log" 2>&1
+echo "Running Auto/AV / FlashDreams (log: $out/auto-fd.log)"
 "$auto" "$here/benchmark-auto-fd.py" > "$out/auto-fd.log" 2>&1
+echo "Running Auto/AV / vLLM-Omni (log: $out/auto-vllm.log)"
 "$vo" "$here/benchmark-official.py" auto > "$out/auto-vllm.log" 2>&1
 python3 "$here/report-three-seconds.py"

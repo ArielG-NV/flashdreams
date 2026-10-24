@@ -21,6 +21,7 @@ from benchmark import (
     TIMESTEPS,
     TRIALS,
     WARMUP,
+    save_video,
 )
 from cosmos3_nano_sim_auto.impl.rollout import ChunkRollout
 from cosmos3_nano_sim_auto.inputs import MultiviewSample, prompt_token_ids
@@ -247,6 +248,7 @@ def main():
             p90_request_s=sorted(times)[int(np.ceil(0.9 * len(times))) - 1],
             generated_fps=report["generated_frames"] * len(times) / sum(times),
         )
+        report["video"] = save_video(pixels, out)
         report["status"] = "passed"
     finally:
         (out / "benchmark.json").write_text(json.dumps(report, indent=2) + "\n")

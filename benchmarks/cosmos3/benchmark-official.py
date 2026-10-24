@@ -24,6 +24,7 @@ from benchmark import (
     TIMESTEPS,
     TRIALS,
     WARMUP,
+    save_video,
 )
 from huggingface_hub import snapshot_download
 from PIL import Image
@@ -294,6 +295,7 @@ def main():
             median_request_s=statistics.median(times),
             generated_fps=96 * len(times) / sum(times),
         )
+        report["video"] = save_video(pixels, out)
         report["status"] = "passed"
     finally:
         (out / "benchmark.json").write_text(json.dumps(report, indent=2) + "\n")
