@@ -12,6 +12,7 @@ from typing import BinaryIO, cast
 
 import numpy as np
 import numpy.typing as npt
+from flashdreams_aom import decoder_path, encoder_path
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.user_input_event import UserInputEvent
@@ -19,7 +20,7 @@ from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
-from flashdreams_aom import decoder_path, encoder_path
+
 
 class AvifClientWindow(IClientWindow):
     """Record lossy YUV 4:2:0 AV1 as an AVIF image sequence.
@@ -291,9 +292,10 @@ class AvifClientWindow(IClientWindow):
         assert self._errors is not None
         self._errors.seek(0, os.SEEK_END)
         self._errors.seek(max(0, self._errors.tell() - 8192))
-        detail = self._errors.read().decode("utf-8", errors="replace").strip()
-        return f"AVIF failed while writing {self._path}: {detail or 'no output'}"
-"
+        detail = (
+            self._errors.read().decode("utf-8", errors="replace").strip() or "no output"
+        )
+        return f"AVIF failed while writing {self._path}: " + f"{detail}"
 
     def _discard(self) -> None:
         """Release native resources and remove unpublished output."""
