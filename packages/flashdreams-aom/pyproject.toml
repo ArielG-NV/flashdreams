@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["scikit-build-core>=0.11"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "flashdreams-aom"
+version = "0.2.0"
+description = "Standalone libavif/libaom tools for FlashDreams recordings"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+readme = "README.md"
+
+[tool.scikit-build]
+cmake.version = ">=3.24"
+# libaom's assembly object paths require a Ninja build on Windows.
+cmake.args = ["-GNinja"]
+ninja.version = ">=1.11"
+wheel.packages = ["flashdreams_aom"]
+wheel.py-api = "py3"
+build.targets = ["avifenc", "avifdec"]
+install.components = ["flashdreams-aom"]

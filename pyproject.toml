@@ -59,6 +59,7 @@ no-build-isolation-package = ["transformer-engine-torch"]
 
 [tool.uv.sources]
 flashdreams = { workspace = true }
+flashdreams-aom = { path = "packages/flashdreams-aom" }
 
 [tool.pyright]
 exclude = ["flashdreams/flashdreams/accelerated/multi_head_attention/triton/**", "flashdreams/flashdreams/accelerated/quantization/triton.py"]

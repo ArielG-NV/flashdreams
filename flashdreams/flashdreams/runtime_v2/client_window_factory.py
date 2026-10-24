@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from flashdreams.api_v2.client_window import IClientWindow
+from flashdreams.runtime_v2.avif_client_window import AvifClientWindow
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.null_client_window import NullClientWindow
 
@@ -85,7 +86,9 @@ class _Mp4Mode(ClientWindowMode):
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
-            "--output-path", type=Path, help="MP4 file to write. Required for mp4."
+            "--output-path",
+            type=Path,
+            help="Video file to write. Required for mp4 and avif.",
         )
 
     def check_arguments(self, parsed_args: argparse.Namespace) -> None:
@@ -99,6 +102,23 @@ class _Mp4Mode(ClientWindowMode):
     def finished(self, client_window: IClientWindow) -> str | None:
         """Return the file, now that there is something in it to watch."""
         return str(cast(Mp4ClientWindow, client_window).path)
+
+
+class _AvifMode(ClientWindowMode):
+    """Write an image sequence through the standalone AVIF encoder."""
+
+    name = "avif"
+
+    def check_arguments(self, parsed_args: argparse.Namespace) -> None:
+        if parsed_args.output_path is None:
+            raise ValueError("--output-path is required when writing an AVIF.")
+
+    def create(self, parsed_args: argparse.Namespace) -> IClientWindow:
+        self.check_arguments(parsed_args)
+        return AvifClientWindow(parsed_args.output_path)
+
+    def finished(self, client_window: IClientWindow) -> str | None:
+        return str(cast(AvifClientWindow, client_window).path)
 
 
 class _WebRTCMode(ClientWindowMode):
@@ -155,6 +175,7 @@ class _NativeWindowMode(ClientWindowMode):
 
 _BUILTIN_MODES: tuple[ClientWindowMode, ...] = (
     _Mp4Mode(),
+    _AvifMode(),
     _WebRTCMode(),
     _NativeWindowMode(),
     _NullMode(),
