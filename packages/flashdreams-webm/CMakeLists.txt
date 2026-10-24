@@ -2,7 +2,23 @@
 # SPDX-License-Identifier: Apache-2.0
 
 cmake_minimum_required(VERSION 3.24)
+if(CMAKE_HOST_WIN32 AND CMAKE_GENERATOR MATCHES "^Ninja")
+  find_program(WEBM_C_COMPILER NAMES cl clang-cl)
+  find_program(CMAKE_RC_COMPILER NAMES rc)
+  find_program(CMAKE_MT NAMES mt)
+  if(NOT WEBM_C_COMPILER OR NOT CMAKE_RC_COMPILER OR NOT CMAKE_MT)
+    message(FATAL_ERROR
+      "flashdreams-webm requires a Windows C++ compiler and Windows SDK tools "
+      "(cl/clang-cl, rc, mt) on PATH for its Ninja source build.\n"
+      "Python package builds initialize Visual Studio automatically. "
+      "Install Visual Studio C++ Build Tools with a Windows SDK, then retry.")
+  endif()
+endif()
 project(flashdreams_webm LANGUAGES C CXX)
+if(MSVC)
+  # SVT-AV1's variadic macros require the conforming preprocessor.
+  add_compile_options(/Zc:preprocessor)
+endif()
 include(FetchContent)
 include(ExternalProject)
 find_package(Python REQUIRED COMPONENTS Interpreter Development.Module)

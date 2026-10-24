@@ -3,7 +3,8 @@
 
 [build-system]
 requires = ["scikit-build-core>=0.11", "pybind11>=3.0", "meson>=1.6", "ninja>=1.11"]
-build-backend = "scikit_build_core.build"
+build-backend = "build_backend"
+backend-path = ["."]
 
 [project]
 name = "flashdreams-webm"
@@ -19,3 +20,4 @@ cmake.args = ["-GNinja"]
 wheel.packages = ["flashdreams_webm"]
 build.targets = ["_native"]
 install.components = ["flashdreams-webm"]
+sdist.include = ["build_backend.py"]

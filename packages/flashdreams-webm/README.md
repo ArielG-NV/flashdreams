@@ -9,10 +9,10 @@ installs scikit-build-core, pybind11, CMake, Ninja and Meson, downloads
 hash-pinned upstream sources, and includes their notices in the wheel.
 Installing a compatible prebuilt wheel requires no compiler or special shell.
 Building from source on Windows requires Visual Studio C++ Build Tools and the
-Windows SDK. The current Ninja build also needs the compiler and SDK environment
-initialized (for example, with Visual Studio's x64 Native Tools Command Prompt
-or `vcvars64.bat` in cmd). PowerShell is not required. YASM is downloaded
-automatically on Windows.
+Windows SDK. Package builds automatically discover Visual Studio with `vswhere`
+and initialize its compiler environment for CMake, Ninja and Meson. Run `uv sync`
+or `uv build` from your usual terminal; no developer prompt or IDE is needed.
+YASM is downloaded automatically on Windows.
 Linux requires a C/C++ toolchain and YASM on x86; ARM64 uses native assembly.
 SVT-AV1 uses YASM for optimized x86 encoding. dav1d uses its C decoder on x86
 because its assembly requires NASM; decoding during canvas growth may be slower.

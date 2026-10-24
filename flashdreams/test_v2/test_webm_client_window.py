@@ -10,6 +10,7 @@ from typing import cast
 import numpy as np
 import pytest
 import torch
+
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
